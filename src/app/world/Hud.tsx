@@ -3,13 +3,13 @@ import { useEffect, useRef, useState } from 'react';
 import { ANIMALS, ANIMAL_IDS, BUILDINGS, CONFIG, ERAS, GOODS, REGIONS, type CropId, type RegionId } from '../../simulation/config';
 import { known } from '../../simulation/core';
 import { buildingMargin } from '../../simulation/processing';
-import { DISCOVERIES, ERA_UNLOCK_TEXT, forecast, herdOf, homePlotPrice, housing, isManual, isReady, objective, PAGES, upgradeCost } from '../../simulation/engine';
+import { DISCOVERIES, ERA_UNLOCK_TEXT, dailyGoals, dailyPrize, forecast, herdOf, homePlotPrice, housing, isManual, isReady, objective, PAGES, seedShortfall, upgradeCost } from '../../simulation/engine';
 import type { GameState } from '../../simulation/types';
 import { act, go, useGame, usePageState } from '../../stores/game';
 import { money, num, pct0 } from '../format';
 import { BatchPanel, FieldPanel, RecentLog, SellCard } from '../pages/Fields';
 import { unlockedRegions } from '../pages/shared';
-import { Card, Confirm, Modal, Select, usePref } from '../ui';
+import { Bar, Card, Confirm, Modal, Select, usePref } from '../ui';
 import { Scene3D, type WorldPick } from './Scene3D';
 import type { Lot } from './layout';
 
@@ -49,6 +49,42 @@ function DiscoveryCard({ s }: { s: GameState }) {
     </>}>
       <p>{d.text}</p>
     </Modal>
+  );
+}
+
+const todayKey = () => new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD in the player's own time zone
+
+function DailyGoals({ s }: { s: GameState }) {
+  const [open, setOpen] = usePref('daily.open', true);
+  useEffect(() => {
+    const start = () => s.daily?.key !== todayKey() && act({ type: 'startDay', key: todayKey() });
+    start();
+    const t = setInterval(start, 60_000);
+    return () => clearInterval(t);
+  }, [s.daily?.key]); // eslint-disable-line react-hooks/exhaustive-deps
+  const goals = dailyGoals(s);
+  if (!s.daily || !goals.length) return null;
+  const done = goals.every((g) => g.progress >= g.target);
+  const claimed = s.daily.claimed;
+  return (
+    <section className="hud-daily" aria-label="Today's goals">
+      <button className="hud-daily-head" onClick={() => setOpen(!open)} aria-expanded={open}>
+        <b>{claimed ? '✅' : '🎯'} Today’s goals</b>
+        <span className="muted small">{s.daily.streak > 0 && `🔥 ${s.daily.streak}-day streak · `}{goals.filter((g) => g.progress >= g.target).length}/3 {open ? '▾' : '▸'}</span>
+      </button>
+      {open && (
+        <div className="stack s">
+          {goals.map((g) => (
+            <div key={g.id} className="stack s" style={{ gap: 2 }}>
+              <div className="row between small"><span>{g.progress >= g.target ? '✔ ' : ''}{g.text}</span><span className="mono muted">{g.id === 'sell' ? money(Math.min(g.progress, g.target)) : `${Math.min(g.progress, g.target)}/${g.target}`}</span></div>
+              <Bar thin value={g.progress / g.target} color={g.progress >= g.target ? 'var(--up)' : 'var(--sun)'} label={g.text} />
+            </div>
+          ))}
+          {claimed ? <p className="small muted">Prize collected — new goals tomorrow.</p>
+            : <button className="btn gold sm" disabled={!done} onClick={() => act({ type: 'claimDaily', key: s.daily!.key })}>{done ? `Claim ${money(dailyPrize(s))} prize` : `Prize: ${money(dailyPrize(s))}`}</button>}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -107,6 +143,12 @@ export function Hud() {
     setPanel(true);
     if (p.kind === 'field') {
       setLot(null);
+      const f = s.fields.find((x) => x.id === p.id);
+      // play on the farm: a ripe hand-worked plot harvests on click; a selected empty one plants on a second click
+      if (!p.multi && f && isManual(f)) {
+        if (isReady(s, f)) act({ type: 'harvest', fieldId: f.id });
+        else if (!f.crop && sel.length === 1 && sel[0] === f.id) act({ type: 'plant', fieldId: f.id, crop });
+      }
       setSel((cur) => (p.multi ? (cur.includes(p.id) ? cur.filter((x) => x !== p.id) : [...cur, p.id]) : [p.id]));
     } else if (p.kind === 'lot') {
       setLot(p.lot);
@@ -125,11 +167,13 @@ export function Hud() {
   return (
     <div className="hud">
       <DiscoveryCard s={s} />
-      <Scene3D region={region} selected={sel} onPick={onPick} />
+      <Scene3D region={region} selected={sel} onPick={onPick} plantLabel={plantLabel(s, crop, one)}
+        onAction={(kind, id) => act(kind === 'harvest' ? { type: 'harvest', fieldId: id } : { type: 'plant', fieldId: id, crop })} />
       <div className="hud-left">
         {s.eraReady && <EraBanner s={s} />}
         <ObjectiveCard s={s} />
         {known(s, 'forecast') && <ForecastStrip s={s} r={region} />}
+        {s.stats.sales > 0 && <DailyGoals s={s} />}
         <div className="hud-actions">
           {regions.length > 1 && <Select label="Region shown" value={region} onChange={(r) => (setRegion(r), setSel([]), setLot(null))} options={regions.map((r) => ({ v: r, label: REGIONS[r].name }))} />}
           {readyPlots.length > 1 && <button className="btn gold sm" onClick={() => readyPlots.forEach((f) => act({ type: 'harvest', fieldId: f.id }))} title="Shortcut: H">Harvest {readyPlots.length} ready</button>}
@@ -154,6 +198,12 @@ export function Hud() {
       )}
     </div>
   );
+}
+
+function plantLabel(s: GameState, crop: CropId, f: GameState['fields'][number] | null) {
+  if (!f || f.crop || !isManual(f)) return undefined;
+  const c = seedShortfall(s, f, crop);
+  return `Plant ${GOODS[crop].name.toLowerCase()}${c.short ? ` · ${money(c.cost)}` : ''}`;
 }
 
 function ObjectiveCard({ s }: { s: GameState }) {

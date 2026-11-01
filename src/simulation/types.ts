@@ -291,11 +291,14 @@ export interface GameState {
   overdraftDays: number;
   bankrupt: { reason: string } | null;
   era: number;
-  stats: { harvests: number; sales: number; produced: Partial<Record<GoodId, number>>; spoiled: number; peopleFed: number; forcedSales: number; overflowLost: number; maxEquity: number; crisisSurvived: boolean };
+  stats: { harvests: number; sales: number; plantings: number; produced: Partial<Record<GoodId, number>>; spoiled: number; peopleFed: number; forcedSales: number; overflowLost: number; maxEquity: number; crisisSurvived: boolean };
   unlockedCrops: CropId[];
   milestones: string[];
   seenTips: string[];
   discovered: string[];
+  achievements: string[];
+  rewarded: string[]; // starter gifts already given
+  daily: { key: string; base: { harvests: number; sales: number; plantings: number }; claimed: boolean; streak: number; lastClaimed: string } | null;
   eraReady: boolean;
   herds: Herd[];
   warned: Record<string, number>; // throttles repeated warnings
@@ -350,6 +353,8 @@ export type Action =
   | { type: 'restructure' }
   | { type: 'seeTip'; tip: string }
   | { type: 'advanceEra' }
+  | { type: 'startDay'; key: string }
+  | { type: 'claimDaily'; key: string }
   | { type: 'buyAnimals'; region: RegionId; animal: AnimalId; count: number }
   | { type: 'sellAnimals'; region: RegionId; animal: AnimalId; count: number }
   | { type: 'upgradeBuilding'; buildingId: number }

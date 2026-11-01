@@ -492,3 +492,30 @@ describe('new mechanics', () => {
     reconcile(s);
   });
 });
+
+describe('rewards', () => {
+  it('daily goals pay a recorded prize once, only when complete', () => {
+    const s = fresh();
+    dispatch(s, { type: 'startDay', key: '2026-11-01' });
+    expect(dispatch(s, { type: 'claimDaily', key: '2026-11-01' }).ok).toBe(false);
+    s.stats.harvests += 10; s.stats.plantings += 10;
+    post(s, 'sale', 1000, 'test sales');
+    const c0 = s.cash;
+    expect(dispatch(s, { type: 'claimDaily', key: '2026-11-01' }).ok).toBe(true);
+    expect(s.cash).toBeGreaterThan(c0);
+    expect(s.daily!.streak).toBe(1);
+    expect(dispatch(s, { type: 'claimDaily', key: '2026-11-01' }).ok).toBe(false);
+    reconcile(s);
+  });
+
+  it('achievements and starter gifts trigger from real progress', () => {
+    const s = fresh();
+    dispatch(s, { type: 'plant', fieldId: s.fields[0].id, crop: 'wheat' });
+    advance(s, CROPS.wheat.growthTicks);
+    dispatch(s, { type: 'harvest', fieldId: s.fields[0].id });
+    advance(s, 12);
+    expect(s.achievements).toContain('firstHarvest');
+    expect(s.rewarded).toContain('gift1');
+    expect(s.seeds.wheat).toBe(10);
+  });
+});

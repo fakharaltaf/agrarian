@@ -37,15 +37,15 @@ interface Rig {
   models: { lot: Lot; model: Model; hit: THREE.Mesh }[]; pick: THREE.Object3D[];
   crops: Partial<Record<Shape, THREE.InstancedMesh>>; sig: { lots: string; fields: string; crops: string; sel: string; deco: string };
   people: Map<number, THREE.Group>; machines: Map<number, THREE.Group>; trucks: { obj: THREE.Group; t0: number }[]; herds: Map<string, THREE.Group[]>;
-  rain: THREE.Points; smoke: THREE.Sprite[]; crownMat: THREE.MeshStandardMaterial; lastHaul: number; layout: Layout | null; region: RegionId;
+  rain: THREE.Points; smoke: THREE.Sprite[]; pops: { key: string; text: string; x: number; z: number; t0: number }[]; seenHarvest: Map<number, object>; popsReady: boolean; crownMat: THREE.MeshStandardMaterial; lastHaul: number; layout: Layout | null; region: RegionId;
 }
 
-export function Scene3D({ region, selected, onPick }: { region: RegionId; selected: number[]; onPick: (p: WorldPick) => void }) {
+export function Scene3D({ region, selected, onPick, plantLabel, onAction }: { region: RegionId; selected: number[]; onPick: (p: WorldPick) => void; plantLabel?: string; onAction?: (kind: 'harvest' | 'plant', fieldId: number) => void }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const overlay = useRef<HTMLDivElement>(null);
   const rig = useRef<Rig | null>(null);
-  const live = useRef({ region, selected, onPick });
-  live.current = { region, selected, onPick };
+  const live = useRef({ region, selected, onPick, plantLabel, onAction });
+  live.current = { region, selected, onPick, plantLabel, onAction };
   const [hover, setHover] = useState<{ x: number; y: number; text: string[] } | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -88,7 +88,7 @@ export function Scene3D({ region, selected, onPick }: { region: RegionId; select
     const R: Rig = {
       renderer, scene, camera, target: new THREE.Vector3(6, 0, 8), yaw: Math.PI / 4, yawTo: Math.PI / 4, zoom: 1, sun, hemi, ground,
       lots: g(), fields: g(), units: g(), deco: g(), fx: g(), sel: g(), models: [], pick: [], crops: {}, sig: { lots: '', fields: '', crops: '', sel: '', deco: '' },
-      people: new Map(), machines: new Map(), trucks: [], herds: new Map(), rain, smoke: [], crownMat: mat(CROWN.Spring).clone(), lastHaul: -1, layout: null, region,
+      people: new Map(), machines: new Map(), trucks: [], herds: new Map(), rain, smoke: [], pops: [], seenHarvest: new Map(), popsReady: false, crownMat: mat(CROWN.Spring).clone(), lastHaul: -1, layout: null, region,
     };
     rig.current = R;
     let raf = 0, framed = false, lastCrops = 0;
@@ -111,7 +111,7 @@ export function Scene3D({ region, selected, onPick }: { region: RegionId; select
       atmosphere(R, s, now / 1000);
       updateCamera(R, W, H);
       renderer.render(scene, camera);
-      overlayLabels(R, L, s, W, H, overlay.current, now / 1000);
+      overlayLabels(R, L, s, W, H, overlay.current, now / 1000, live.current.selected, live.current.plantLabel);
     };
     raf = requestAnimationFrame(frame);
     return () => { cancelAnimationFrame(raf); renderer.dispose(); rig.current = null; };
@@ -208,6 +208,14 @@ export function Scene3D({ region, selected, onPick }: { region: RegionId; select
     c.addEventListener('pointerleave', () => setHover(null));
     c.addEventListener('wheel', wheel, { passive: false });
     addEventListener('keydown', key);
+    const ov = overlay.current!;
+    const onBubble = (e: MouseEvent) => {
+      const b = (e.target as HTMLElement).closest('[data-action]') as HTMLElement | null;
+      if (!b) return;
+      const [kind, id] = b.dataset.action!.split(':');
+      live.current.onAction?.(kind as 'harvest' | 'plant', Number(id));
+    };
+    ov.addEventListener('click', onBubble);
     (window as unknown as Record<string, unknown>).__world = { zoom: zoomBy, rotate: (d: number) => rig.current && (rig.current.yawTo += (d * Math.PI) / 2) };
     return () => {
       c.removeEventListener('pointerdown', down);
@@ -216,6 +224,7 @@ export function Scene3D({ region, selected, onPick }: { region: RegionId; select
       c.removeEventListener('pointercancel', up);
       c.removeEventListener('wheel', wheel);
       removeEventListener('keydown', key);
+      ov.removeEventListener('click', onBubble);
     };
   }, []);
 
@@ -632,14 +641,37 @@ function atmosphere(R: Rig, s: GameState, t: number) {
 
 // ---------------------------------------------------------------- HTML overlay (crisp labels and markers)
 
-function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el: HTMLDivElement | null, t: number) {
+function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el: HTMLDivElement | null, t: number, selected: number[], plantLabel?: string) {
   if (!el) return;
-  const want: { key: string; x: number; y: number; html: string; cls: string }[] = [];
+  const want: { key: string; x: number; y: number; html: string; cls: string; action?: string }[] = [];
   const v = new THREE.Vector3();
   const project = (x: number, y: number, z: number) => { v.set(x, y, z).project(R.camera); return [(v.x + 1) / 2 * W, (1 - v.y) / 2 * H] as const; };
+  // "+49 wheat" pops up wherever a harvest just happened (by hand or by the crew)
+  for (const p of L.plots) {
+    const h = p.field.lastHarvest;
+    if (!h || R.seenHarvest.get(p.field.id) === h) continue;
+    R.seenHarvest.set(p.field.id, h);
+    if (R.popsReady && R.pops.length < 30) R.pops.push({ key: `p${p.field.id}-${t}`, text: `+${num(h.units)} ${GOODS[h.crop].name.toLowerCase()}`, x: p.x + p.s / 2, z: p.y + p.s / 2, t0: t });
+  }
+  R.popsReady = true; // harvests that existed when the farm loaded don't pop
+  R.pops = R.pops.filter((p) => t - p.t0 < 1.8);
+  for (const p of R.pops) {
+    const [x, y] = project(p.x, 1.2 + (t - p.t0) * 0.9, p.z);
+    want.push({ key: p.key, x, y, html: p.text, cls: 'wl-pop' });
+  }
+  // action bubble over the one selected hand-worked plot
+  if (selected.length === 1) {
+    const p = L.plots.find((q) => q.field.id === selected[0]);
+    if (p && p.field.ha <= 1) {
+      const ready = isReady(s, p.field);
+      const [x, y] = project(p.x + p.s / 2, ready ? 1.6 : 0.9, p.y + p.s / 2);
+      if (ready) want.push({ key: 'act', x, y, html: '🌾 Harvest', cls: 'wl-act gold', action: `harvest:${p.field.id}` });
+      else if (!p.field.crop && plantLabel) want.push({ key: 'act', x, y, html: `🌱 ${plantLabel}`, cls: 'wl-act', action: `plant:${p.field.id}` });
+    }
+  }
   const zoomed = R.zoom > 0.75;
   for (const p of L.plots) {
-    if (!isReady(s, p.field)) continue;
+    if (!isReady(s, p.field) || (selected.length === 1 && selected[0] === p.field.id && p.field.ha <= 1)) continue;
     const [x, y] = project(p.x + p.s / 2, 1.1 + Math.sin(t * 3) * 0.06, p.y + p.s / 2);
     if (x < -20 || y < -20 || x > W + 20 || y > H + 20) continue;
     want.push({ key: `r${p.field.id}`, x, y, html: '!', cls: 'wl-ready' });
@@ -666,6 +698,7 @@ function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el
     have.delete(w.key);
     if (d.className !== w.cls) d.className = w.cls;
     if (d.innerHTML !== w.html) d.innerHTML = w.html;
+    if ((d.dataset.action ?? '') !== (w.action ?? '')) w.action ? (d.dataset.action = w.action, d.setAttribute('role', 'button')) : (delete d.dataset.action, d.removeAttribute('role'));
     d.style.transform = `translate(${w.x}px, ${w.y}px) translate(-50%, -100%)`;
   }
   for (const d of have.values()) d.remove();

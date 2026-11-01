@@ -93,22 +93,16 @@ export function Coach() {
   const dismiss = () => act({ type: 'seeTip', tip: tip.id });
   const off = () => act({ type: 'seeTip', tip: '__off' });
   const visible = rect && rect.width > 0 && rect.bottom > 0 && rect.top < innerHeight;
-  let style: React.CSSProperties = { right: 20, bottom: 20 };
-  if (visible) {
-    const below = rect.bottom + 220 < innerHeight;
-    const left = Math.min(Math.max(12, rect.left + rect.width / 2 - 150), innerWidth - 312);
-    style = below ? { left, top: rect.bottom + 14 } : { left, top: Math.max(12, rect.top - 14), transform: 'translateY(-100%)' };
-    if (rect.width < 240 && rect.left < 260 && rect.right + 330 < innerWidth) style = { left: rect.right + 14, top: Math.max(12, Math.min(rect.top - 8, innerHeight - 220)) };
-  }
+  // The journal card is docked (never covers the control); a glowing ring marks the control itself.
   return (
     <>
       {visible && <div className="coach-ring" style={{ left: rect.left - 4, top: rect.top - 4, width: rect.width + 8, height: rect.height + 8 }} />}
-      <aside className="coach" style={style} role="dialog" aria-label={`Tip: ${tip.title}`}>
-        <span className="step">Guide · {idx + 1} of {TIPS.length}</span>
-        <h3>💡 {tip.title}</h3>
+      <aside className="coach docked" role="status" aria-label={`Farm journal: ${tip.title}`}>
+        <span className="step">📖 Farm journal · {idx + 1} of {TIPS.length}</span>
+        <h3>{tip.title}</h3>
         <p>{tip.body}</p>
         <div className="row between">
-          <button className="btn ghost sm" onClick={off} title="You can turn tips back on from Settings">Turn off tips</button>
+          <button className="btn ghost sm" onClick={off} title="You can turn the journal back on in Settings">Hide journal</button>
           <div className="row">
             {!visible && page !== tip.page && <button className="btn ghost sm" onClick={() => go(tip.page)}>Show me</button>}
             <button className="btn primary sm" onClick={dismiss}>Got it</button>

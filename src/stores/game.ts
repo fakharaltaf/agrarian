@@ -5,6 +5,7 @@ import { CONFIG, CROP_IDS, GOOD_IDS, REGION_IDS } from '../simulation/config';
 import { advance, createGame, dispatch as engineDispatch } from '../simulation/engine';
 import { createMarkets } from '../simulation/markets';
 import type { Action, GameState } from '../simulation/types';
+import { sfx, type Sfx } from '../app/audio';
 
 export const SPEEDS = [0, 1, 2, 5, 10, 50] as const;
 export type Speed = (typeof SPEEDS)[number];
@@ -18,7 +19,7 @@ interface Store {
   v: number;
   speed: Speed;
   toasts: Toast[];
-  away: { summary: string[] } | null;
+  away: { summary: string[]; earned: number } | null;
   catchUp: { done: number; total: number } | null;
   page: string;
   ready: boolean;
@@ -111,6 +112,10 @@ function migrate(g: Omit<GameState, 'version'> & { version: number }): GameState
   g.warned ??= {};
   g.bench ??= {};
   g.discovered ??= [];
+  g.achievements ??= [];
+  g.rewarded ??= [];
+  g.daily ??= null;
+  g.stats.plantings ??= 0;
   g.eraReady ??= false;
   g.herds ??= [];
   g.automation.policies.autoFeed ??= true;
@@ -231,7 +236,7 @@ function startFrom(game: GameState, savedAt: number) {
     const important = game.log.filter((l) => l.id > before.log && (l.level === 'critical' || l.level === 'warning')).slice(-4).map((l) => l.text);
     summary.push(...important);
     if (game.bankrupt) summary.push('Your business became insolvent while you were away.');
-    set({ catchUp: null, away: { summary }, v: store.v + 1 });
+    set({ catchUp: null, away: { summary, earned: Math.max(0, Math.round(sales)) }, v: store.v + 1 });
   };
   setTimeout(chunk, 0);
 }
@@ -258,8 +263,15 @@ export function toast(text: string, kind: Toast['kind'] = 'error') {
   setTimeout(() => set({ toasts: store.toasts.filter((x) => x.id !== t.id) }), kind === 'error' ? 4500 : 2500);
 }
 
+const SOUND: Partial<Record<Action['type'], Sfx>> = {
+  plant: 'plant', fertilize: 'plant', harvest: 'harvest', sell: 'coin', sellAnimals: 'coin', deliverContract: 'coin',
+  buy: 'buy', buyPlot: 'buy', buyParcel: 'buy', buyMachine: 'buy', build: 'buy', hire: 'buy', buyAnimals: 'buy', upgradeBuilding: 'buy',
+  upgradeMachine: 'buy', greenhouse: 'buy', irrigate: 'buy', research: 'buy', advanceEra: 'celebrate', claimDaily: 'celebrate', choosePerk: 'pop', setPlan: 'click',
+};
+
 export function act(a: Action, success?: string) {
   const r = engineDispatch(store.game, a);
+  if (a.type !== 'seeTip' && a.type !== 'startDay') sfx(r.ok ? SOUND[a.type] ?? 'click' : 'error');
   if (!r.ok) toast(r.error);
   else if (r.note || success) toast(r.note ?? success!, 'ok');
   bump();

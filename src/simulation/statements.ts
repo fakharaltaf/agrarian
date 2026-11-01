@@ -14,7 +14,7 @@ export function incomeStatement(s: GameState, days: number) {
   const depreciation = sum(s, days, ['depreciation']);
   const ebit = ebitda + depreciation;
   const interest = sum(s, days, ['interest']);
-  const other = sum(s, days, ['futures', 'insurancePayout']);
+  const other = sum(s, days, ['futures', 'insurancePayout', 'prize']);
   const pretax = ebit + interest + other;
   const tax = sum(s, days, ['tax']);
   const net = pretax + tax;

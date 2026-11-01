@@ -30,7 +30,7 @@ export const pick = <T>(s: GameState, xs: readonly T[]): T => xs[Math.floor(rand
 // ---------------------------------------------------------------- ledger
 
 const NON_CASH: LedgerKind[] = ['depreciation'];
-const TAXABLE = new Set<LedgerKind>([...REVENUE_KINDS, ...OPEX_KINDS, 'interest', 'futures', 'insurancePayout', 'depreciation']);
+const TAXABLE = new Set<LedgerKind>([...REVENUE_KINDS, ...OPEX_KINDS, 'interest', 'futures', 'insurancePayout', 'prize', 'depreciation']);
 
 export function post(s: GameState, kind: LedgerKind, amount: number, memo: string, region: RegionId = 'heartland', division: Division = divisionOf(kind)) {
   amount = round2(amount);

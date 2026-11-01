@@ -101,6 +101,7 @@ export function plantField(s: GameState, f: Field, c: CropId, budget: number): s
     s.seeds[c] += short;
   }
   s.seeds[c] -= need;
+  s.stats.plantings++;
   f.crop = c;
   f.plantedAt = s.tick;
   f.cycleAt = s.tick + matureTicks(c); // orchards start fruiting once mature

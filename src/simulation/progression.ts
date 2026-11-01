@@ -58,6 +58,46 @@ export const DISCOVERIES: Discovery[] = [
   { id: 'machineUpgrades', title: 'Machine upgrades', text: 'Your machines can be upgraded: each tier works 25% faster, burns 10% less fuel and breaks down less often.', page: 'equipment', when: (s) => s.era >= 3 && s.machines.some((m) => m.hours > 200) },
 ];
 
+// ---------------------------------------------------------------- achievements
+
+export interface Achievement { id: string; icon: string; name: string; text: string; done: (s: GameState) => boolean }
+const ha = (s: GameState) => totalHa(s);
+const animals = (s: GameState) => s.herds.reduce((a, h) => a + h.count, 0);
+export const ACHIEVEMENTS: Achievement[] = [
+  { id: 'firstHarvest', icon: '🌾', name: 'First harvest', text: 'Bring in your very first crop.', done: (s) => s.stats.harvests >= 1 },
+  { id: 'harvest100', icon: '🧺', name: 'Busy hands', text: '100 harvests.', done: (s) => s.stats.harvests >= 100 },
+  { id: 'harvest1000', icon: '🏆', name: 'Harvest legend', text: '1,000 harvests.', done: (s) => s.stats.harvests >= 1000 },
+  { id: 'fields4', icon: '🏡', name: 'Smallholder', text: 'Own four fields.', done: (s) => s.fields.length >= 4 },
+  { id: 'ha100', icon: '🗺️', name: 'Big country', text: 'Farm 100 hectares.', done: (s) => ha(s) >= 100 },
+  { id: 'ha1000', icon: '🌍', name: 'Land baron', text: 'Farm 1,000 hectares.', done: (s) => ha(s) >= 1000 },
+  { id: 'sales10k', icon: '💵', name: 'In business', text: '$10,000 of sales.', done: (s) => lifetimeSales(s) >= 10_000 },
+  { id: 'sales1m', icon: '💰', name: 'Millionaire', text: '$1,000,000 of sales.', done: (s) => lifetimeSales(s) >= 1_000_000 },
+  { id: 'sales100m', icon: '🏦', name: 'Tycoon', text: '$100,000,000 of sales.', done: (s) => lifetimeSales(s) >= 100_000_000 },
+  { id: 'firstHire', icon: '👩‍🌾', name: 'An extra pair of hands', text: 'Hire your first worker.', done: (s) => s.workers.length >= 1 },
+  { id: 'crew25', icon: '👥', name: 'Proper crew', text: 'Employ 25 people.', done: (s) => s.workers.length >= 25 },
+  { id: 'firstMachine', icon: '🚜', name: 'Horsepower', text: 'Own or lease a machine.', done: (s) => s.machines.length >= 1 },
+  { id: 'firstFactory', icon: '🏭', name: 'Value added', text: 'Build a processing facility.', done: (s) => s.buildings.some((b) => BUILDINGS[b.type].category === 'processing') },
+  { id: 'firstFlock', icon: '🐔', name: 'Cluck cluck', text: 'Keep your first animals.', done: (s) => s.herds.length > 0 },
+  { id: 'animals100', icon: '🐄', name: 'Animal farm', text: '100 animals at once.', done: (s) => animals(s) >= 100 },
+  { id: 'orchard', icon: '🍎', name: 'Patient planter', text: 'Plant an orchard or vineyard.', done: (s) => s.fields.some((f) => f.crop && CROPS[f.crop].perennial) },
+  { id: 'greenhouse', icon: '🌡️', name: 'Under glass', text: 'Build a greenhouse.', done: (s) => s.fields.some((f) => f.greenhouse) },
+  { id: 'frost', icon: '❄️', name: 'Weathered it', text: 'Live through your first frost.', done: (s) => s.discovered.includes('frost') },
+  { id: 'gradeA', icon: '⭐', name: 'Top quality', text: 'Bring in a grade-A harvest.', done: (s) => s.fields.some((f) => (f.lastHarvest?.quality ?? 0) >= 0.8) },
+  { id: 'research5', icon: '🔬', name: 'Innovator', text: 'Complete five research projects.', done: (s) => s.research.done.length >= 5 },
+  { id: 'region2', icon: '✈️', name: 'Going places', text: 'Operate in a second region.', done: (s) => REGION_IDS.filter((r) => s.regions[r].unlocked).length >= 2 },
+  { id: 'era4', icon: '⚙️', name: 'Industrialist', text: 'Reach the Agricultural Industry era.', done: (s) => s.era >= 4 },
+  { id: 'era8', icon: '🌐', name: 'Feeding the world', text: 'Reach the Global Food System era.', done: (s) => s.era >= 8 },
+  { id: 'streak3', icon: '🔥', name: 'Regular', text: 'Complete daily goals 3 days in a row.', done: (s) => (s.daily?.streak ?? 0) >= 3 },
+  { id: 'streak7', icon: '🎖️', name: 'Devoted farmer', text: 'Complete daily goals 7 days in a row.', done: (s) => (s.daily?.streak ?? 0) >= 7 },
+];
+
+/** Small welcome gifts while the player is finding their feet (seed only — no free money). */
+const STARTER_GIFTS: { id: string; when: (s: GameState) => boolean; give: (s: GameState) => void; text: string }[] = [
+  { id: 'gift1', when: (s) => s.stats.harvests >= 1, give: (s) => (s.seeds.wheat += 10), text: 'A neighbour drops off a bag of wheat seed to celebrate your first harvest (+10 seeds).' },
+  { id: 'gift2', when: (s) => s.fields.length >= 2, give: (s) => (s.seeds.corn += 10), text: 'The seed merchant throws in a free bag of corn seed with your new field (+10 corn seeds).' },
+  { id: 'gift3', when: (s) => s.fields.length >= 4, give: (s) => (s.seeds.potatoes += 10), text: 'Word is getting around: a farmer gifts you seed potatoes (+10).' },
+];
+
 export function discover(s: GameState, id: string) {
   if (s.discovered.includes(id)) return;
   s.discovered.push(id);
@@ -70,6 +110,8 @@ export function progressionTick(s: GameState) {
   if (ready && !s.eraReady) log(s, 'opportunity', `You can now advance to Era ${s.era + 1}: ${ERAS[s.era].name}. Take your time — advance when you are ready.`, 'overview');
   s.eraReady = ready;
   for (const d of DISCOVERIES) if (!s.discovered.includes(d.id) && d.when(s)) discover(s, d.id);
+  for (const g of STARTER_GIFTS) if (!s.rewarded.includes(g.id) && g.when(s)) (s.rewarded.push(g.id), g.give(s), log(s, 'opportunity', g.text, 'farm'));
+  if (s.tick % 6 === 0) for (const a of ACHIEVEMENTS) if (!s.achievements.includes(a.id) && a.done(s)) (s.achievements.push(a.id), log(s, 'opportunity', `Achievement unlocked: ${a.icon} ${a.name}`));
   for (const c of CROP_IDS) {
     if (s.unlockedCrops.includes(c)) continue;
     const def = CROPS[c];

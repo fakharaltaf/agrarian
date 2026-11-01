@@ -1,9 +1,9 @@
 import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ERAS } from '../simulation/config';
 import { equity } from '../simulation/core';
-import { PAGES } from '../simulation/engine';
+import { ACHIEVEMENTS, PAGES } from '../simulation/engine';
 import {
-  act, deleteSlot, dismissAway, exportSave, go, importSave, loadFrom, newGame, saveTo, setSpeed, slotInfo, slotLabel, SLOTS, SPEEDS, useGame, useStore, type Slot, type Speed,
+  act, deleteSlot, dismissAway, toast, exportSave, go, importSave, loadFrom, newGame, saveTo, setSpeed, slotInfo, slotLabel, SLOTS, SPEEDS, useGame, useStore, type Slot, type Speed,
 } from '../stores/game';
 import { Coach, resetTips, tipsOff, tipsOn } from './Coach';
 import { clock, money, stamp } from './format';
@@ -12,6 +12,7 @@ import { LogoMark, Wordmark } from './Logo';
 import { Modal, usePref } from './ui';
 import { FieldsPage } from './pages/Fields';
 import { Hud } from './world/Hud';
+import { setVolume, sfx, volumes } from './audio';
 import { graphicsQuality } from './world/Scene3D';
 import { restructurePreview } from './pages/shared';
 
@@ -98,6 +99,7 @@ export function App() {
       <Away />
       <CatchUp />
       <Toasts />
+      {ready && !title && <Celebrations />}
       {ready && !title && <Coach />}
       {ready && title && <TitleScreen onPlay={() => setTitle(false)} onHelp={() => setHelp(true)} />}
     </div>
@@ -159,6 +161,92 @@ function Sidebar({ current }: { current: string }) {
   );
 }
 
+function Trophies() {
+  const s = useGame();
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button className="icon-btn" onClick={() => setOpen(true)} aria-label="Achievements" title="Achievements">🏆</button>
+      {open && (
+        <Modal title={`Achievements · ${s.achievements.length} of ${ACHIEVEMENTS.length}`} wide onClose={() => setOpen(false)} actions={<button className="btn primary" onClick={() => setOpen(false)}>Close</button>}>
+          <div className="badges">
+            {ACHIEVEMENTS.map((a) => {
+              const got = s.achievements.includes(a.id);
+              return (
+                <div key={a.id} className={`badge${got ? ' got' : ''}`} title={a.text}>
+                  <span className="badge-icon">{got ? a.icon : '🔒'}</span>
+                  <b>{a.name}</b>
+                  <span className="small muted">{a.text}</span>
+                </div>
+              );
+            })}
+          </div>
+        </Modal>
+      )}
+    </>
+  );
+}
+
+/** Cash with a little celebration: it pulses and shows "+$X" whenever sales come in. */
+function CashCounter() {
+  const s = useGame();
+  const earned = (s.lifetime.sale ?? 0) + (s.lifetime.contract ?? 0) + (s.lifetime.prize ?? 0);
+  const prev = useRef(earned);
+  const [pops, setPops] = useState<{ id: number; v: number }[]>([]);
+  useEffect(() => {
+    const d = earned - prev.current;
+    prev.current = earned;
+    if (d < 0.5) return;
+    const id = Date.now() + Math.random();
+    setPops((p) => [...p.slice(-3), { id, v: d }]);
+    setTimeout(() => setPops((p) => p.filter((x) => x.id !== id)), 1400);
+  }, [earned]);
+  return (
+    <div className="top-stat big cash-counter" data-coach="cash">
+      <span>Cash</span>
+      <strong key={pops[pops.length - 1]?.id ?? 0} className={`mono ${s.cash < 0 ? 'down' : ''} ${pops.length ? 'bump' : ''}`}>{money(s.cash)}</strong>
+      {pops.map((p) => <em key={p.id} className="cash-pop">+{money(p.v)}</em>)}
+    </div>
+  );
+}
+
+/** Confetti and a fanfare for the big moments: new era, achievements, daily prize. */
+function Celebrations() {
+  const s = useGame();
+  const key = `${s.era}|${s.achievements.length}|${s.daily?.claimed ? s.daily.key : ''}`;
+  const prev = useRef(key);
+  const prevAch = useRef(s.achievements.length);
+  const [burst, setBurst] = useState(0);
+  useEffect(() => {
+    if (prev.current === key) return;
+    prev.current = key;
+    const newAch = s.achievements.slice(prevAch.current);
+    prevAch.current = s.achievements.length;
+    for (const id of newAch) {
+      const a = ACHIEVEMENTS.find((x) => x.id === id);
+      if (a) toast(`${a.icon} Achievement unlocked: ${a.name}`, 'ok');
+    }
+    sfx('celebrate');
+    setBurst(Date.now());
+  }, [key, s.achievements]);
+  if (!burst) return null;
+  return <Confetti key={burst} />;
+}
+
+function Confetti() {
+  const [on, setOn] = useState(true);
+  useEffect(() => { const t = setTimeout(() => setOn(false), 2600); return () => clearTimeout(t); }, []);
+  if (!on || matchMedia('(prefers-reduced-motion: reduce)').matches) return null;
+  const colors = ['#f4b63f', '#6bb35a', '#d0603f', '#8ccbea', '#fff6dc', '#2f7a45'];
+  return (
+    <div className="confetti" aria-hidden>
+      {Array.from({ length: 70 }, (_, i) => (
+        <i key={i} style={{ left: `${(i * 37) % 100}%`, background: colors[i % colors.length], animationDelay: `${(i % 10) * 0.05}s`, animationDuration: `${1.6 + ((i * 13) % 10) / 10}s`, transform: `rotate(${i * 47}deg)` }} />
+      ))}
+    </div>
+  );
+}
+
 function TopBar({ onLog, onSettings, onHelp, warnings, bare }: { onLog: () => void; onSettings: () => void; onHelp: () => void; warnings: number; bare: boolean }) {
   const s = useGame();
   const speed = useStore((x) => x.speed);
@@ -180,11 +268,12 @@ function TopBar({ onLog, onSettings, onHelp, warnings, bare }: { onLog: () => vo
       )}
       <div className="top-stats">
         {s.era >= 2 && <div className="top-stat" title="Assets minus debt, with stock at market value"><span>Net worth</span><strong className="mono">{money(equity(s))}</strong></div>}
-        <div className="top-stat big"><span>Cash</span><strong className={`mono ${s.cash < 0 ? 'down' : ''}`}>{money(s.cash)}</strong></div>
+        <CashCounter />
         <button className="icon-btn" onClick={onLog} aria-label="Notifications" title="Notifications (N)">
           <Icon name="bell" />
           {warnings > 0 && <span className="dot">{warnings}</span>}
         </button>
+        <Trophies />
         <button className="icon-btn" onClick={onHelp} aria-label="Help" title="Help (?)"><Icon name="help" /></button>
         <button className="icon-btn" onClick={onSettings} aria-label="Game menu" title="Save, load and settings"><Icon name="settings" /></button>
       </div>
@@ -277,9 +366,12 @@ function Bankrupt() {
 function Away() {
   const away = useStore((x) => x.away);
   if (!away) return null;
+  const [headline, ...rest] = away.summary;
   return (
-    <Modal title="While you were away" onClose={dismissAway} actions={<button className="btn primary" autoFocus onClick={dismissAway}>Back to work</button>}>
-      <ul>{away.summary.map((l, i) => <li key={i}>{l}</li>)}</ul>
+    <Modal title="Welcome back! 👋" onClose={dismissAway} actions={<button className="btn gold lg" autoFocus onClick={dismissAway}>{away.earned > 0 ? `Collect ${money(away.earned)}` : 'Back to the farm'}</button>}>
+      {away.earned > 0 && <div className="welcome-earned"><span>💰</span><div><b className="mono">{money(away.earned)}</b><span className="muted"> earned while you were away</span></div></div>}
+      <p className="muted">{headline}</p>
+      <ul>{rest.map((l, i) => <li key={i}>{l}</li>)}</ul>
     </Modal>
   );
 }
@@ -350,13 +442,30 @@ function Settings({ onClose, theme, setTheme }: { onClose: () => void; theme: st
           <div className="seg">{(['auto', 'light', 'dark'] as const).map((t) => <button key={t} className={theme === t ? 'on' : ''} onClick={() => setTheme(t)}>{t[0].toUpperCase() + t.slice(1)}</button>)}</div>
         </div>
         <GraphicsSetting />
+        <SoundSetting />
         <div className="row wrap">
-          <span className="muted small" style={{ width: 80 }}>Guide tips</span>
-          {tipsOff(s) ? <button className="btn ghost sm" onClick={tipsOn}>Turn tips on</button> : <button className="btn ghost sm" onClick={() => act({ type: 'seeTip', tip: '__off' }, 'Tips turned off.')}>Turn tips off</button>}
-          <button className="btn ghost sm" onClick={resetTips}>Replay all tips</button>
+          <span className="muted small" style={{ width: 80 }}>Farm journal</span>
+          {tipsOff(s) ? <button className="btn ghost sm" onClick={tipsOn}>Show the journal</button> : <button className="btn ghost sm" onClick={() => act({ type: 'seeTip', tip: '__off' }, 'Tips turned off.')}>Hide the journal</button>}
+          <button className="btn ghost sm" onClick={resetTips}>Replay from the start</button>
         </div>
       </section>
     </Modal>
+  );
+}
+
+function SoundSetting() {
+  const [v, setV] = useState(volumes());
+  const set = (k: 'sfx' | 'music', x: number) => { setVolume(k, x); setV(volumes()); if (k === 'sfx') sfx('click'); };
+  return (
+    <>
+      {(['music', 'sfx'] as const).map((k) => (
+        <div key={k} className="row wrap">
+          <span className="muted small" style={{ width: 80 }}>{k === 'music' ? 'Music' : 'Sound effects'}</span>
+          <input type="range" min={0} max={1} step={0.05} value={v[k]} aria-label={k === 'music' ? 'Music volume' : 'Sound effects volume'} onChange={(e) => set(k, Number(e.target.value))} style={{ width: 180 }} />
+          <button className="btn ghost sm" onClick={() => set(k, v[k] > 0 ? 0 : k === 'music' ? 0.35 : 0.7)}>{v[k] > 0 ? 'Mute' : 'Unmute'}</button>
+        </div>
+      ))}
+    </>
   );
 }
 

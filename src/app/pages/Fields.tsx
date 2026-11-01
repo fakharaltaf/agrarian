@@ -258,7 +258,7 @@ function CropCard({ s, f, id, on, pick }: { s: GameState; f: Field; id: CropId; 
         <dt>Seed</dt><dd>{money(seed)}</dd>
         <dt>Yield now</dt><dd>~{num(units)}</dd>
         <dt>Price</dt><dd>{price(p)}</dd>
-        <dt title="Expected profit per in-game hour at today's price and conditions, before price impact and labour">Profit/h</dt><dd className={perHour < 0 ? 'down' : ''}>{money(perHour)}</dd>
+        {s.unlockedCrops.length > 1 && <><dt title="Expected profit per in-game hour at today's price and conditions, before price impact and labour">Profit/h</dt><dd className={perHour < 0 ? 'down' : ''}>{money(perHour)}</dd></>}
       </dl>
       <span className="small muted" style={{ display: 'block', marginTop: 4 }}>
         {c.perennial ? `Orchard: fruit after ${c.perennial.matureDays} days, then every ${c.growthTicks}h for years` : `Best in ${c.bestSeasons.join(', ').toLowerCase()}`}

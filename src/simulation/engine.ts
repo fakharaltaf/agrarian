@@ -5,6 +5,7 @@ import {
 import { clamp, debt, equity, freeSpace, has, known, log, marketWage, nextId, post, round2, todayBook } from './core';
 import { addGoods, canGrow, clearField, fertilizeField, fieldsTick, frostNight, harvestField, isManual, isReady, newField, plantField, spoilageDaily } from './agriculture';
 import { buyAnimals, livestockDaily, sellAnimals } from './livestock';
+import { claimDaily, startDay } from './daily';
 import { createMarkets, drawWeather, executeBuy, executeSell, macroDaily, marketsDaily, marketsTick, priceFromInv } from './markets';
 import { hire, laborTick, service, serviceCost, wageOf, workforceDaily } from './operations';
 import { buildingsDaily, buildingsTick } from './processing';
@@ -22,6 +23,8 @@ export * from './agriculture';
 export { quoteSell, quoteBuy, avgPrice, avg30, outlook } from './markets';
 export { objective, PAGES, MILESTONES, lifetimeSales, totalHa, canAdvance, DISCOVERIES, ERA_UNLOCK_TEXT, ERA_SALES } from './progression';
 export { forecast } from './markets';
+export { dailyGoals, dailyPrize } from './daily';
+export { ACHIEVEMENTS } from './progression';
 export { herdOf, housing, animalPrice } from './livestock';
 
 const zeroGoods = () => Object.fromEntries(GOOD_IDS.map((g) => [g, 0])) as Record<GoodId, number>;
@@ -40,8 +43,8 @@ export function createGame(seed = (Date.now() % 2147483646) + 1): GameState {
     automation: { rules: [], policies: { ...DEFAULT_POLICIES } }, competitors: [], events: [],
     corp: { incorporated: false, shares: CONFIG.sharesOutstanding, playerShares: CONFIG.sharesOutstanding, execs: [], reputation: 50, dividends: 0, runoff: 0 },
     ledger: [], lifetime: {}, books: [], overdraftDays: 0, bankrupt: null, era: 1,
-    stats: { harvests: 0, sales: 0, produced: {}, spoiled: 0, peopleFed: 0, forcedSales: 0, overflowLost: 0, maxEquity: 0, crisisSurvived: false },
-    unlockedCrops: ['wheat'], milestones: [], seenTips: [], discovered: [], eraReady: false, herds: [], warned: {}, log: [], nextId: 1,
+    stats: { harvests: 0, sales: 0, plantings: 0, produced: {}, spoiled: 0, peopleFed: 0, forcedSales: 0, overflowLost: 0, maxEquity: 0, crisisSurvived: false },
+    unlockedCrops: ['wheat'], milestones: [], seenTips: [], discovered: [], achievements: [], rewarded: [], daily: null, eraReady: false, herds: [], warned: {}, log: [], nextId: 1,
   };
   const f = newField(s, 'heartland', 1, 0);
   f.soil = { n: 1, p: 1, k: 1, organic: 0.8 };
@@ -540,6 +543,14 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       if (!s.bankrupt) return fail('Nothing to restructure.');
       restructure(s);
       return ok();
+    }
+    case 'startDay': {
+      startDay(s, a.key);
+      return ok();
+    }
+    case 'claimDaily': {
+      const e = claimDaily(s, a.key);
+      return typeof e === 'string' ? fail(e) : ok(`County fair prize: $${Math.round(e).toLocaleString()}!`);
     }
     case 'advanceEra': {
       const e = advanceEra(s);

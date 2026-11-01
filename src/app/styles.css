@@ -439,3 +439,36 @@ body { overflow: hidden; }
 .title-points span { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 12px; background: var(--surface-2); font-size: 18px; flex: none; }
 .title-actions { display: grid; gap: 8px; width: 100%; margin-top: 6px; }
 .title-actions .btn.lg { padding: 14px 18px; font-size: 16px; border-radius: 14px; }
+
+/* ---------- juice: pop-ups, action bubbles ---------- */
+.wl-pop { font: 900 15px var(--font); color: #fff; text-shadow: 0 2px 0 #2f7a45, 0 0 8px rgba(0,0,0,0.35); animation: popfade 1.8s ease-out forwards; }
+@keyframes popfade { 0% { opacity: 0; } 12% { opacity: 1; } 75% { opacity: 1; } 100% { opacity: 0; } }
+.world-overlay > .wl-act { pointer-events: auto; cursor: pointer; font: 800 13px var(--font); color: #fff; background: var(--leaf-deep); padding: 7px 13px; border-radius: 99px; box-shadow: 0 3px 0 #1f5530, 0 6px 16px rgba(0,0,0,0.25); animation: bob 1.6s ease-in-out infinite; }
+.world-overlay > .wl-act.gold { background: var(--sun); color: #3a2e25; box-shadow: 0 3px 0 #c98a1a, 0 6px 16px rgba(0,0,0,0.25); }
+.world-overlay > .wl-act:hover { filter: brightness(1.08); }
+@keyframes bob { 50% { margin-top: -4px; } }
+
+.cash-counter { position: relative; }
+.cash-counter strong.bump { animation: bump 0.45s cubic-bezier(.2,.9,.3,1.6); color: var(--up); }
+@keyframes bump { 40% { transform: scale(1.12); } }
+.cash-pop { position: absolute; right: 0; top: 100%; font: 900 14px var(--font); font-style: normal; color: var(--up); white-space: nowrap; pointer-events: none; animation: cashpop 1.4s ease-out forwards; }
+@keyframes cashpop { from { opacity: 0; transform: translateY(-6px); } 15% { opacity: 1; } to { opacity: 0; transform: translateY(18px); } }
+.confetti { position: fixed; inset: 0; pointer-events: none; z-index: 140; overflow: hidden; }
+.confetti i { position: absolute; top: -12px; width: 9px; height: 14px; border-radius: 3px; animation: fall linear forwards; }
+@keyframes fall { to { transform: translateY(105vh) rotate(720deg); opacity: 0.9; } }
+
+/* farm journal (docked guide) */
+.coach.docked { left: 50%; bottom: 18px; top: auto; transform: translateX(-50%); width: min(480px, calc(100vw - 32px)); border-width: 2px; }
+.coach.docked h3 { font-size: 15px; font-weight: 800; }
+@media (max-width: 900px) { .coach.docked { bottom: calc(46vh + 64px); } }
+
+/* daily goals, achievements, welcome back */
+.hud-daily { display: grid; gap: 8px; padding: 10px 14px; border-radius: 16px; background: color-mix(in srgb, var(--surface) 95%, transparent); border: 1px solid var(--line); box-shadow: var(--shadow); }
+.hud-daily-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; border: 0; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; }
+.badges { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.badge { display: grid; gap: 2px; justify-items: center; text-align: center; padding: 12px 8px; border-radius: 16px; background: var(--surface-2); opacity: 0.55; }
+.badge.got { opacity: 1; background: color-mix(in srgb, var(--sun) 20%, var(--surface)); border: 1px solid color-mix(in srgb, var(--sun) 50%, transparent); }
+.badge-icon { font-size: 30px; line-height: 1.2; }
+.welcome-earned { display: flex; gap: 14px; align-items: center; padding: 14px; border-radius: 16px; background: color-mix(in srgb, var(--sun) 22%, var(--surface)); }
+.welcome-earned > span { font-size: 34px; }
+.welcome-earned b { font-size: 26px; display: block; }
