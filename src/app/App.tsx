@@ -523,19 +523,25 @@ function useShortcuts(h: { help: () => void; log: () => void }) {
   const live = useRef({ ...h, speed, sales });
   live.current = { ...h, speed, sales };
   useEffect(() => {
+    const typing = (e: KeyboardEvent) => (e.target as HTMLElement).closest('input, select, textarea') || e.metaKey || e.ctrlKey || e.altKey;
+    // Space always means pause — even with a popup open — so it must never "press" the focused button (that fires on keyup).
+    const onSpaceUp = (e: KeyboardEvent) => { if (e.key === ' ' && !typing(e)) e.preventDefault(); };
     const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement;
-      if (t.closest('input, select, textarea, [role=dialog]') || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (typing(e)) return;
       const L = live.current;
-      if (e.key === ' ' && L.sales > 0) {
+      if (e.key === ' ') {
         e.preventDefault();
+        e.stopPropagation();
+        if (e.repeat || L.sales === 0) return;
         if (L.speed === 0) setSpeed(prev.current);
         else (prev.current = L.speed), setSpeed(0);
-      } else if (/^[1-6]$/.test(e.key) && L.sales > 0) setSpeed(SPEEDS[+e.key - 1]);
+      } else if ((e.target as HTMLElement).closest('[role=dialog]')) return;
+      else if (/^[1-6]$/.test(e.key) && L.sales > 0) setSpeed(SPEEDS[+e.key - 1]);
       else if (e.key === '?') L.help();
       else if (e.key === 'n') L.log();
     };
-    addEventListener('keydown', onKey);
-    return () => removeEventListener('keydown', onKey);
+    addEventListener('keydown', onKey, true);
+    addEventListener('keyup', onSpaceUp, true);
+    return () => (removeEventListener('keydown', onKey, true), removeEventListener('keyup', onSpaceUp, true));
   }, []);
 }
