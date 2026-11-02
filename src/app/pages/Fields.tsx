@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { CONFIG, CROPS, GOODS, REGIONS, type CropId, type GoodId, type RegionId } from '../../simulation/config';
+import { useEffect, useRef, useState } from 'react';
+import { CONFIG, CROPS, GOODS, GOOD_IDS, REGIONS, type CropId, type GoodId, type RegionId } from '../../simulation/config';
 import { has, known, priceUsd, seasonOf, seedCost, stored } from '../../simulation/core';
 import {
   canGrow, expectedYield, fertility, grade, greenhousePrice, growth, homePlotPrice, irrigationPrice, isManual, isMature, isReady, parcelPrice, qualityMult, quoteSell, seedShortfall, soilFactor, tempFactor, timingFactor, waterFactor, techFactor,
@@ -353,8 +353,8 @@ export function BatchPanel({ s, fields }: { s: GameState; fields: Field[] }) {
 // ---------------------------------------------------------------- selling
 
 export function SellCard({ s, r }: { s: GameState; r: RegionId }) {
-  const goods = useMemo(() => [...s.unlockedCrops, 'flour', 'feed', 'bread', 'meat', 'milk', 'cheese', 'butter', 'soyoil', 'soymeal', 'sugar', 'greens'] as GoodId[], [s.unlockedCrops]);
-  const rows = goods.filter((g) => s.markets[r][g] && (s.regions[r].inventory[g] >= 1 || s.unlockedCrops.includes(g as CropId)));
+  // every crop you grow plus anything else you have in store (eggs, wool, wine, flour…); farm inputs are bought, not sold here
+  const rows = GOOD_IDS.filter((g) => GOODS[g].kind !== 'input' && s.markets[r][g] && (s.regions[r].inventory[g] >= 1 || s.unlockedCrops.includes(g as CropId)));
   const st = stored(s, r);
   return (
     <Card title="Barn & market" coach="sell-card" className="reveal"
