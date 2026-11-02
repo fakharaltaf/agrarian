@@ -3,7 +3,7 @@
 // through the same primitives as the player, and never below the cash reserve.
 import { ANIMALS, BUILDINGS, CONFIG, CROPS, GOODS, GOOD_IDS, REGIONS, REGION_IDS, TICKS_PER_DAY, type CropId, type GoodId, type RegionId } from './config';
 import { canGrow, expectedYield, fertility, fertilizeField, soilAdequacy } from './agriculture';
-import { buildingsIn, clamp, debt, execOn, has, hour, nextId, post, seasonOf, seedCost, stored, totalAssets } from './core';
+import { buildingsIn, clamp, levelMult, debt, execOn, has, hour, nextId, post, seasonOf, seedCost, stored, totalAssets } from './core';
 import { avg30, executeBuy, executeSell, forecast, quoteBuy } from './markets';
 import { CONTRACT_SIZE, FUTURES_GOODS, openFutures, futuresPrice, closeFutures } from './finance';
 import { serviceCost, service } from './operations';
@@ -114,11 +114,25 @@ export function newRule(s: GameState, rule: Omit<Rule, 'id' | 'lastRun' | 'histo
 // ---------------------------------------------------------------- managers & policies
 
 /** Expected profit per hour per ha of a crop on this field at today's prices. */
-export function cropScore(s: GameState, f: import('./types').Field, c: CropId) {
+export function cropScore(s: GameState, f: import('./types').Field, c: CropId, price = s.markets[f.region][c]!.price) {
   const y = expectedYield(s, f, c) / f.ha;
-  const price = s.markets[f.region][c]!.price;
   const seed = CONFIG.seedsPerHa * seedCost(s, c);
   return (y * price - seed) / CROPS[c].growthTicks;
+}
+
+/** What one unit of a crop is worth to your own running factories here (outputs at market, less staff), while they are short of it. 0 if none. */
+export function millValue(s: GameState, r: RegionId, c: CropId) {
+  let best = 0;
+  for (const b of buildingsIn(s, r)) {
+    const rec = BUILDINGS[b.type].recipe;
+    const per = rec?.inputs[c];
+    if (!b.active || !rec || !per) continue;
+    const perHour = per * rec.batchesPerHour * levelMult(b.level);
+    if (s.regions[r].inventory[c] > perHour * 48) continue; // two days of stock already waiting
+    const out = Object.entries(rec.outputs).reduce((a, [g, q]) => a + (s.markets[r][g as GoodId]?.price ?? 0) * q!, 0);
+    best = Math.max(best, (out - BUILDINGS[b.type].staffPerHour * s.macro.cpi / rec.batchesPerHour) / per);
+  }
+  return best;
 }
 
 /** Tender crop, outdoors, in a region whose coming days (or season) bring frost. */
@@ -133,7 +147,7 @@ export function chooseCrop(s: GameState, f: import('./types').Field): CropId | n
   let best: CropId | null = null, bestV = -Infinity;
   for (const c of s.unlockedCrops) {
     if (!canGrow(f, c)) continue;
-    let v = cropScore(s, f, c);
+    let v = s.automation.policies.supplyFactories ? Math.max(cropScore(s, f, c), cropScore(s, f, c, millValue(s, f.region, c))) : cropScore(s, f, c);
     if (frostRisk(s, f, c)) v *= 0.25; // a sensible manager doesn't sow tender crops into frost season
     if (CROPS[c].perennial) v = -Infinity; // orchards are a long-term decision for the owner, not a rotation choice
     if (f.lastCrop === c && f.streak >= 1) v *= smart ? 0.75 : 0.9; // monoculture pest risk
@@ -231,7 +245,7 @@ function hedge(s: GameState, ratio: number) {
 }
 
 export const DEFAULT_POLICIES = {
-  cashReserve: 0, autoFertilize: false, soilTarget: 0.6, autoRepair: 0, autoRotate: false, sellDiscipline: 0, sellStorageCap: 0.85, debtCeiling: 0, irrigateMin: 0.5, hedgeRatio: 0, autoFeed: true,
+  cashReserve: 0, autoFertilize: false, soilTarget: 0.6, autoRepair: 0, autoRotate: false, supplyFactories: false, sellDiscipline: 0, sellStorageCap: 0.85, debtCeiling: 0, irrigateMin: 0.5, hedgeRatio: 0, autoFeed: true,
 };
 export const clampPolicy = (v: number) => clamp(v, 0, 1e12);
 void TICKS_PER_DAY;

@@ -654,3 +654,18 @@ describe('tractor', () => {
     reconcile(s);
   });
 });
+
+describe('manager crop choice', () => {
+  it('values wheat by what the flour mill pays when the mill is short', async () => {
+    const { millValue } = await import('../simulation/automation');
+    const s = fresh(8);
+    toEra(s, 4);
+    give(s, 100000);
+    expect(millValue(s, 'heartland', 'wheat')).toBe(0);
+    expect(dispatch(s, { type: 'build', region: 'heartland', building: 'flourMill' }).ok).toBe(true);
+    s.regions.heartland.inventory.wheat = 0;
+    expect(millValue(s, 'heartland', 'wheat')).toBeGreaterThan(s.markets.heartland.wheat!.price);
+    s.regions.heartland.inventory.wheat = 1e5; // plenty waiting: no premium
+    expect(millValue(s, 'heartland', 'wheat')).toBe(0);
+  });
+});

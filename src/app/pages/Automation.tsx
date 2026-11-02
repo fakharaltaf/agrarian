@@ -59,13 +59,17 @@ function PoliciesCard({ s }: { s: GameState }) {
     <Card title="Policies" info="Standing orders. Managers, maintenance crews and the irrigation system follow them every day. Automation never spends below the cash reserve.">
       <div className="stack">
         <Policy title="Cash reserve" info="Floor for every automated purchase: seed for replanting, fertiliser, repairs, rule purchases and debt repayment. Wages and running costs are still paid regardless."
-          who="Applies to all automation, including field workers buying seed." note={<span className="small">{reserveNote}</span>}>
+          who="Applies to automated spending such as fertiliser, purchases, repairs and rules. Seed and animal feed are always bought." note={<span className="small">{reserveNote}</span>}>
           <NumberInput label="Cash reserve" value={P.cashReserve} step={1000} onChange={(v) => setP({ cashReserve: Math.round(v) })} />
         </Policy>
 
         <Policy title="Crop rotation" info="Each time a field is empty, its manager plans the crop with the best expected profit per hour at today's prices, avoiding repeat crops that build pests. With Agricultural AI they also spare depleted soil and rotate in soybeans to fix nitrogen."
           who={managers}>
           <OnOff label="Crop rotation" value={P.autoRotate} onChange={(v) => setP({ autoRotate: v })} />
+          {P.autoRotate && s.buildings.some((b) => BUILDINGS[b.type].recipe) && (
+            <OnOff label="Grow for my factories" value={P.supplyFactories} onChange={(v) => setP({ supplyFactories: v })} />
+          )}
+          {P.autoRotate && P.supplyFactories && <p className="small muted">A crop is worth whichever pays more: the market price, or what your own factory turns it into (less staff costs) while that factory is short of it. Once two days of input are waiting, the market decides again.</p>}
         </Policy>
 
         <Policy title="Fertilise fallow fields" info="At midday, managers fertilise empty fields whose fertility is below the target, buying fertiliser if stock is short (within the cash reserve)."

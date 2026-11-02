@@ -206,6 +206,7 @@ export interface Policies {
   soilTarget: number; // 0..1 fertility below which managers fertilise
   autoRepair: number; // service machines when condition < this (0 = off)
   autoRotate: boolean; // managers pick the best crop per field (needs a manager)
+  supplyFactories: boolean; // rotation also values crops at what your own short-of-input factories pay
   sellDiscipline: number; // managers auto-sell when price ≥ this × 30-day avg (0 = off)
   sellStorageCap: number; // ... or when storage is above this fraction
   debtCeiling: number; // repay loans from surplus cash when debt/assets above this (0 = off)

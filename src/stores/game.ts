@@ -120,6 +120,7 @@ function migrate(g: Omit<GameState, 'version'> & { version: number }): GameState
   g.eraReady ??= false;
   g.herds ??= [];
   g.automation.policies.autoFeed ??= true;
+  g.automation.policies.supplyFactories ??= false;
   for (const f of g.fields) (f.greenhouse ??= false), (f.frost ??= 0), (f.cycleAt ??= 0);
   // one-time repair (Nov 2026): orchards piled up pests from a bug; clear them once, marked in `rewarded` so it never repeats
   if (!g.rewarded.includes('fix:orchardPests')) {
