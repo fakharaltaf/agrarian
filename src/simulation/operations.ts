@@ -31,7 +31,7 @@ export function hire(s: GameState, region: RegionId, role: 'hand' | 'manager', w
 
 // ---------------------------------------------------------------- hourly labour
 
-interface Task { f: Field; kind: 'plant' | 'harvest'; done?: boolean }
+interface Task { f: Field; kind: 'plant' | 'harvest'; done?: boolean; taken?: boolean }
 
 export function laborTick(s: GameState) {
   const h = hour(s);
@@ -64,8 +64,10 @@ export function laborTick(s: GameState) {
       w.hours++;
       w.skill = Math.max(w.skill, Math.min(1.3, w.skill + 0.0002)); // learning by doing, up to 1.3
       const p = productivity(s, w);
-      const t = tasks.find((x) => !x.done);
+      // spread out: each hand takes the next field nobody is on; only when every field is covered do they double up
+      const t = tasks.find((x) => !x.done && !x.taken) ?? tasks.find((x) => !x.done);
       if (!t) continue;
+      t.taken = true;
       const m = s.machines.find((x) => x.region === r && !x.usedThisTick && !x.broken && !MACHINES[x.type].autonomous && MACHINES[x.type].task === t.kind && (t.kind !== 'harvest' || CROPS[t.f.crop!].machineHarvest));
       w.task = t.f.id;
       const perk = (t.kind === 'plant' && w.perk === 'planter') || (t.kind === 'harvest' && w.perk === 'harvester') ? 1.3 : 1;

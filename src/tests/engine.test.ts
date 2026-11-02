@@ -621,3 +621,18 @@ describe('manager selling policy', () => {
     reconcile(s);
   });
 });
+
+describe('crew', () => {
+  it('hands spread across fields instead of crowding one', () => {
+    const s = fresh(6);
+    toEra(s, 2);
+    give(s, 20000);
+    for (let i = 0; i < 3; i++) dispatch(s, { type: 'buyPlot' });
+    for (let i = 0; i < 3; i++) dispatch(s, { type: 'hire', region: 'heartland', role: 'hand', wageFactor: 1 });
+    while (s.tick % 24 !== 9) step(s);
+    for (const f of s.fields) (f.crop = null), (f.work = 0), (f.plan = 'wheat'); // four empty fields waiting
+    step(s);
+    const tasks = s.workers.map((w) => w.task);
+    expect(new Set(tasks).size).toBe(3);
+  });
+});
