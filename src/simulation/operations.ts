@@ -49,8 +49,8 @@ export function laborTick(s: GameState) {
     for (const m of s.machines) {
       const d = MACHINES[m.type];
       if (m.region !== r || !d.autonomous || m.broken) continue;
-      const t = tasks.find((x) => !x.done && x.kind === d.task && (x.kind !== 'harvest' || CROPS[x.f.crop!].machineHarvest));
-      if (t) (m.task = t.f.id), work(s, t, machineRate(s, m) / t.f.ha, m);
+      const t = tasks.find((x) => !x.done && !x.taken && fits(x, m));
+      if (t) machineHour(s, m, tasks, t, machineRate(s, m));
     }
     if (!working) {
       for (const w of s.workers) if (w.region === r) w.task = 0;
@@ -64,15 +64,21 @@ export function laborTick(s: GameState) {
       w.hours++;
       w.skill = Math.max(w.skill, Math.min(1.3, w.skill + 0.0002)); // learning by doing, up to 1.3
       const p = productivity(s, w);
+      const perkFor = (kind: Task['kind']) => (kind === 'plant' && w.perk === 'planter') || (kind === 'harvest' && w.perk === 'harvester') ? 1.3 : 1;
+      // a free machine with work waiting gets a driver first
+      const m = s.machines.find((x) => x.region === r && !x.usedThisTick && !x.broken && !MACHINES[x.type].autonomous && tasks.some((t) => !t.done && !t.taken && fits(t, x)));
+      if (m) {
+        const t = tasks.find((x) => !x.done && !x.taken && fits(x, m))!;
+        w.task = t.f.id;
+        machineHour(s, m, tasks, t, machineRate(s, m) * (0.7 + 0.3 * p) * perkFor(t.kind));
+        continue;
+      }
       // spread out: each hand takes the next field nobody is on; only when every field is covered do they double up
       const t = tasks.find((x) => !x.done && !x.taken) ?? tasks.find((x) => !x.done);
       if (!t) continue;
       t.taken = true;
-      const m = s.machines.find((x) => x.region === r && !x.usedThisTick && !x.broken && !MACHINES[x.type].autonomous && MACHINES[x.type].task === t.kind && (t.kind !== 'harvest' || CROPS[t.f.crop!].machineHarvest));
       w.task = t.f.id;
-      const perk = (t.kind === 'plant' && w.perk === 'planter') || (t.kind === 'harvest' && w.perk === 'harvester') ? 1.3 : 1;
-      if (m) (m.task = t.f.id), work(s, t, (machineRate(s, m) * (0.7 + 0.3 * p) * perk) / t.f.ha, m);
-      else work(s, t, (p * perk) / (t.f.ha * (t.kind === 'plant' ? CONFIG.plantHours : CROPS[t.f.crop!].harvestHours)), null);
+      work(s, t, (p * perkFor(t.kind)) / (t.f.ha * (t.kind === 'plant' ? CONFIG.plantHours : CROPS[t.f.crop!].harvestHours)), null);
     }
     if (tasks.some((t) => !t.done)) s.regions[r].backlog++;
   }
@@ -94,6 +100,22 @@ function buildTasks(s: GameState, r: RegionId): Task[] {
   }
   harvest.sort((a, b) => a.f.plantedAt + CROPS[a.f.crop!].growthTicks - (b.f.plantedAt + CROPS[b.f.crop!].growthTicks));
   return [...harvest, ...plant];
+}
+
+const fits = (t: Task, m: Machine) => t.kind === MACHINES[m.type].task && (t.kind !== 'harvest' || CROPS[t.f.crop!].machineHarvest);
+
+/** A machine works the whole hour: when one field is done it moves straight on (a 4 ha/h tractor plants four 1 ha plots). */
+function machineHour(s: GameState, m: Machine, tasks: Task[], first: Task, haPerHour: number) {
+  runMachine(s, m);
+  m.task = first.f.id;
+  let left = 1;
+  for (let t: Task | undefined = first; t && left > 1e-6; t = tasks.find((x) => !x.done && !x.taken && fits(x, m))) {
+    const rate = haPerHour / t.f.ha; // share of this field per hour
+    const use = Math.min(left, (1 - t.f.work) / rate);
+    t.taken = true;
+    work(s, t, use * rate + 1e-9, null);
+    left -= use;
+  }
 }
 
 export const machineRate = (s: GameState, m: Machine) => (MACHINES[m.type].haPerHour ?? 0) * (has(s, 'mech2') ? 1.3 : 1) * (1 + 0.25 * ((m.tier || 1) - 1));

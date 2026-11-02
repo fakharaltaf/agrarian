@@ -636,3 +636,21 @@ describe('crew', () => {
     expect(new Set(tasks).size).toBe(3);
   });
 });
+
+describe('tractor', () => {
+  it('plants several small plots in one hour and gets a driver before hand work', () => {
+    const s = fresh(7);
+    toEra(s, 3);
+    give(s, 60000);
+    for (let i = 0; i < 3; i++) dispatch(s, { type: 'buyPlot' });
+    expect(dispatch(s, { type: 'buyMachine', region: 'heartland', machine: 'tractor', lease: false }).ok).toBe(true);
+    dispatch(s, { type: 'hire', region: 'heartland', role: 'hand', wageFactor: 1 });
+    while (s.tick % 24 !== 9) step(s);
+    for (const f of s.fields) (f.crop = null), (f.work = 0), (f.plan = 'wheat');
+    s.workers[0].skill = 1; s.workers[0].morale = 1;
+    const p = s.stats.plantings;
+    step(s);
+    expect(s.stats.plantings - p).toBe(4);
+    reconcile(s);
+  });
+});
