@@ -730,3 +730,19 @@ describe('dedicated supply', () => {
     reconcile(s);
   });
 });
+
+describe('build many', () => {
+  it('builds several at once, all or nothing', () => {
+    const s = fresh(11);
+    toEra(s, 2);
+    give(s, 1e6);
+    const n0 = s.buildings.length;
+    expect(dispatch(s, { type: 'build', region: 'heartland', building: 'barn', count: 5 }).ok).toBe(true);
+    expect(s.buildings.length).toBe(n0 + 5);
+    expect(dispatch(s, { type: 'build', region: 'heartland', building: 'barn', count: 0 }).ok).toBe(false);
+    give(s, 10);
+    expect(dispatch(s, { type: 'build', region: 'heartland', building: 'barn', count: 10 }).ok).toBe(false);
+    expect(s.buildings.length).toBe(n0 + 5);
+    reconcile(s);
+  });
+});

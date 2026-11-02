@@ -374,11 +374,15 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       const gate = BUILDING_GATE[a.building];
       if (gate && !known(s, gate)) return fail('Not available yet.');
       if (a.building === 'cowshed' && s.era < 3) return fail('Cowsheds arrive with mechanisation (Era 3).');
+      const n = a.count ?? 1;
+      if (!Number.isInteger(n) || n < 1 || n > 50) return fail('Build between 1 and 50 at a time.');
       const price = buildingPrice(s, a.building, a.region);
-      if (price > s.cash) return fail(`Costs $${price.toLocaleString()}.`);
-      post(s, 'building', -price, d.name, a.region);
-      s.buildings.push({ id: nextId(s), type: a.building, region: a.region, active: true, level: 1, cost: price, depreciated: 0, util: 0, reserved: 0, reason: '', stats: { out: 0, inCost: 0, outValue: 0, opCost: 0 } });
-      log(s, 'info', `Built a ${d.name.toLowerCase()} in ${REGIONS[a.region].name}.`, BUILDINGS[a.building].category === 'storage' ? 'storage' : 'production');
+      if (price * n > s.cash) return fail(`Costs $${(price * n).toLocaleString()}.`);
+      for (let i = 0; i < n; i++) {
+        post(s, 'building', -price, d.name, a.region);
+        s.buildings.push({ id: nextId(s), type: a.building, region: a.region, active: true, level: 1, cost: price, depreciated: 0, util: 0, reserved: 0, reason: '', stats: { out: 0, inCost: 0, outValue: 0, opCost: 0 } });
+      }
+      log(s, 'info', `Built ${n > 1 ? `${n} ${d.name.toLowerCase()}s` : `a ${d.name.toLowerCase()}`} in ${REGIONS[a.region].name}.`, BUILDINGS[a.building].category === 'storage' ? 'storage' : 'production');
       return ok();
     }
     case 'demolish': {

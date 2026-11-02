@@ -332,7 +332,7 @@ export type Action =
   | { type: 'buyMachine'; region: RegionId; machine: MachineType; lease: boolean }
   | { type: 'sellMachine'; machineId: number }
   | { type: 'service'; machineId: number }
-  | { type: 'build'; region: RegionId; building: BuildingType }
+  | { type: 'build'; region: RegionId; building: BuildingType; count?: number }
   | { type: 'demolish'; buildingId: number }
   | { type: 'toggleBuilding'; buildingId: number }
   | { type: 'ship'; good: GoodId; qty: number; from: RegionId; to: RegionId }

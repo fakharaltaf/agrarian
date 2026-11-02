@@ -1,11 +1,10 @@
 import { BUILDINGS, BUILDING_TYPES, CONFIG, GOODS, GOOD_IDS, REGIONS, TECH, type GoodId, type RegionId } from '../../simulation/config';
 import { buildingsIn, has, priceUsd, stored } from '../../simulation/core';
-import { buildingPrice } from '../../simulation/engine';
 import type { GameState } from '../../simulation/types';
 import { act, useGame } from '../../stores/game';
 import { money, num, pct0, price } from '../format';
 import { Bar, Card, Confirm, Info, Kpi, PageHead, Select, Table, usePref } from '../ui';
-import { GoodName, unlockedRegions } from './shared';
+import { BuildMany, GoodName, unlockedRegions } from './shared';
 
 const STORAGE = BUILDING_TYPES.filter((t) => BUILDINGS[t].category === 'storage');
 
@@ -130,14 +129,13 @@ function BuildCard({ s, r }: { s: GameState; r: RegionId }) {
       <div className="stack">
         {avail.map((t) => {
           const d = BUILDINGS[t];
-          const cost = buildingPrice(s, t, r);
           return (
             <div key={t} className="row between wrap" style={{ gap: 10 }}>
               <div className="stack s" style={{ flex: '1 1 200px' }}>
                 <b>{d.name} <span className="muted small">+{num(d.dry ?? d.cold ?? 0)} {d.cold ? 'cold' : 'dry'}</span></b>
                 <span className="small muted">{d.blurb}{d.staffPerHour ? ` Staff ${price(d.staffPerHour * s.macro.cpi)}/h.` : ''}{d.coldKwh ? ` ${d.coldKwh} kWh/h of power.` : ''}</span>
               </div>
-              <button className="btn primary sm" disabled={cost > s.cash} onClick={() => act({ type: 'build', region: r, building: t }, `${d.name} built.`)}>Build {money(cost)}</button>
+              <BuildMany s={s} r={r} t={t} />
             </div>
           );
         })}

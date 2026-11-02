@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { ANIMALS, ANIMAL_IDS, BUILDINGS, GOODS, REGIONS, type AnimalId, type RegionId } from '../../simulation/config';
 import { known, priceUsd } from '../../simulation/core';
-import { animalPrice, buildingPrice, herdOf, housing } from '../../simulation/engine';
+import { animalPrice, herdOf, housing } from '../../simulation/engine';
 import type { GameState } from '../../simulation/types';
 import { act, useGame } from '../../stores/game';
 import { money, num, pct0, price } from '../format';
 import { Bar, Card, Confirm, Info, NumberInput, PageHead, Select } from '../ui';
-import { unlockedRegions } from './shared';
+import { BuildMany, unlockedRegions } from './shared';
 
 const available = (s: GameState, a: AnimalId) => (a === 'chickens' ? known(s, 'chickens') : known(s, 'livestock') && (a !== 'cows' || s.era >= 3));
 
@@ -71,9 +71,9 @@ function HerdCard({ s, r, a }: { s: GameState; r: RegionId; a: AnimalId }) {
             </div>
           </>
         )}
-        <div className="row between">
+        <div className="stack s">
           <span className="muted small">{BUILDINGS[bt].name}: room for {def.perBuilding} each (more after upgrades)</span>
-          <Confirm label={`Build · ${money(buildingPrice(s, bt, r))}`} className="btn ghost sm" disabled={buildingPrice(s, bt, r) > s.cash} title={`Build a ${BUILDINGS[bt].name.toLowerCase()}?`} body={BUILDINGS[bt].blurb} onConfirm={() => act({ type: 'build', region: r, building: bt })} confirmLabel="Build" />
+          <BuildMany s={s} r={r} t={bt} className="btn ghost sm" />
         </div>
       </div>
     </Card>
