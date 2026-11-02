@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { CONFIG, CROPS, GOOD_IDS, REGION_IDS, TICKS_PER_DAY } from '../simulation/config';
 import { advance, createGame, dispatch, harvestField, quoteSell, step } from '../simulation/engine';
 import { capacity, debt, equity, post, sumBooks } from '../simulation/core';
-import { frostNight } from '../simulation/agriculture';
+import { frostNight, isReady } from '../simulation/agriculture';
 const frostNightForTest = (s: GameState) => frostNight(s, 'heartland');
 import { balanceSheet, cashFlow, incomeStatement } from '../simulation/statements';
 import { CONTRACT_SIZE, futuresPrice } from '../simulation/finance';
@@ -578,5 +578,25 @@ describe('cash reserve', () => {
     advance(s, 72);
     expect(s.stats.plantings - p).toBeGreaterThan(4);
     reconcile(s);
+  });
+});
+
+describe('orchard pests', () => {
+  it('stay manageable over a year of harvests', () => {
+    const s = fresh(4);
+    toEra(s, 3);
+    give(s, 50000);
+    s.unlockedCrops.push('grapes');
+    const f = s.fields[0];
+    f.streak = 5; // old saves: orchards had piled up a repeat-crop streak
+    expect(dispatch(s, { type: 'plant', fieldId: f.id, crop: 'grapes' }).ok).toBe(true);
+    let max = 0;
+    for (let t = 0; t < TICKS_PER_DAY * 120; t++) {
+      step(s);
+      if (isReady(s, f)) dispatch(s, { type: 'harvest', fieldId: f.id });
+      max = Math.max(max, f.pest);
+    }
+    expect(s.stats.harvests).toBeGreaterThan(5);
+    expect(max).toBeLessThan(0.4);
   });
 });

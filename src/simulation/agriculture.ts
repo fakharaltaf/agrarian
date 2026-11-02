@@ -230,11 +230,14 @@ export function fieldsTick(s: GameState) {
       }
     }
     if (f.irrigated && precision) reg.powerUse += f.ha;
-    if (crop) {
+    // orchards resting in winter, or still too young to fruit, have nothing for pests to eat: they shed them like a fallow field
+    const dormant = crop && CROPS[crop].perennial && ((winter && !f.greenhouse) || !isMature(s, f));
+    if (crop && !dormant) {
       f.acc.temp += tempFactor(s, f, crop);
       f.acc.water += waterFactor(s, f, crop);
       f.acc.n++;
-      const pressure = 0.0006 * (1 + Math.min(f.streak, 5) * 0.5) * (reg.temp > 18 ? 1.3 : 1) * (has(s, 'pestResistant') ? 0.4 : 1) * (1 + 0.04 * s.macro.climate);
+      // trees are meant to stay, so orchards get no repeat-crop penalty
+      const pressure = 0.0006 * (1 + (CROPS[crop].perennial ? 0 : Math.min(f.streak, 5)) * 0.5) * (reg.temp > 18 ? 1.3 : 1) * (has(s, 'pestResistant') ? 0.4 : 1) * (1 + 0.04 * s.macro.climate);
       f.pest = clamp(f.pest + pressure + 0.008 * severity(s, 'pests', f.region, crop), 0, 1);
       // regen while growing is slow
       regen(f, 0.00008);
