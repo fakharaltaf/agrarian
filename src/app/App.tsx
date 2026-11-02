@@ -356,6 +356,7 @@ function Bankrupt() {
       </div>
       <p className="muted">Or abandon the company and start a fresh homestead.</p>
       <div className="row end wrap">
+        <button className="btn ghost" onClick={exportSave} title="Download this save as a file first — a backup before you decide">Export save</button>
         <button className="btn danger" onClick={() => confirm('Abandon this company and start a new game?') && newGame()}>Start over</button>
         <button className="btn primary" onClick={() => act({ type: 'restructure' })}>Restructure</button>
       </div>
