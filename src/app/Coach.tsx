@@ -6,6 +6,7 @@ import type { GameState } from '../simulation/types';
 import { act, go, useGame, useStore } from '../stores/game';
 import { useElementRect } from './ui';
 import { useEffect } from 'react';
+import { diagnose } from '../simulation/advisor';
 
 export interface CoachTip {
   id: string;
@@ -76,6 +77,13 @@ export const TIPS: CoachTip[] = [
     when: (s) => s.era >= 8 },
 ];
 
+/** Each kind of problem the advisor spots is taught once, the first time it actually happens on this farm. */
+function adviceTip(s: GameState): CoachTip | undefined {
+  if (s.stats.sales === 0) return undefined;
+  const a = diagnose(s).advice.find((x) => !s.seenTips.includes(`adv:${x.id.split(':')[0]}`));
+  return a && { id: `adv:${a.id.split(':')[0]}`, page: a.page, target: 'advisor', title: `${a.icon} ${a.title}`, body: a.body, when: () => true };
+}
+
 export const tipsOff = (s: GameState) => s.seenTips.includes('__off');
 
 export function Coach() {
@@ -86,10 +94,10 @@ export function Coach() {
   useEffect(() => {
     if (finished) act({ type: 'seeTip', tip: finished.id });
   }, [finished]);
-  const tip = tipsOff(s) ? undefined : TIPS.find((t) => !s.seenTips.includes(t.id) && !t.done?.(s) && t.when(s));
+  const tip = tipsOff(s) ? undefined : TIPS.find((t) => !s.seenTips.includes(t.id) && !t.done?.(s) && t.when(s)) ?? adviceTip(s);
   const rect = useElementRect(tip ? `[data-coach="${tip.target}"]` : null);
   if (!tip) return null;
-  const idx = TIPS.indexOf(tip);
+  const idx = TIPS.indexOf(tip); // -1 for advisor lessons
   const dismiss = () => act({ type: 'seeTip', tip: tip.id });
   const off = () => act({ type: 'seeTip', tip: '__off' });
   const visible = rect && rect.width > 0 && rect.bottom > 0 && rect.top < innerHeight;
@@ -98,7 +106,7 @@ export function Coach() {
     <>
       {visible && <div className="coach-ring" style={{ left: rect.left - 4, top: rect.top - 4, width: rect.width + 8, height: rect.height + 8 }} />}
       <aside className="coach docked" role="status" aria-label={`Farm journal: ${tip.title}`}>
-        <span className="step">📖 Farm journal · {idx + 1} of {TIPS.length}</span>
+        <span className="step">📖 Farm journal · {idx < 0 ? 'Lesson from your farm' : `${idx + 1} of ${TIPS.length}`}</span>
         <h3>{tip.title}</h3>
         <p>{tip.body}</p>
         <div className="row between">

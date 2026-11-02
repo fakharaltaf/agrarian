@@ -519,3 +519,18 @@ describe('rewards', () => {
     expect(s.seeds.wheat).toBe(10);
   });
 });
+
+describe('farm advisor', () => {
+  it('explains a loss caused by managers nobody needs', async () => {
+    const { diagnose } = await import('../simulation/advisor');
+    const s = fresh();
+    toEra(s, 3);
+    give(s, 50000);
+    for (const role of ['hand', 'hand', 'manager', 'manager'] as const) expect(dispatch(s, { type: 'hire', region: 'heartland', role, wageFactor: 1 }).ok).toBe(true);
+    advance(s, 48);
+    const d = diagnose(s);
+    expect(d.profit).toBeLessThan(0);
+    expect(d.advice[0].id).toBe('managers');
+    expect(d.advice[0].title).toContain('2 managers');
+  });
+});

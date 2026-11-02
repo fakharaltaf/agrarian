@@ -472,3 +472,5 @@ body { overflow: hidden; }
 .welcome-earned { display: flex; gap: 14px; align-items: center; padding: 14px; border-radius: 16px; background: color-mix(in srgb, var(--sun) 22%, var(--surface)); }
 .welcome-earned > span { font-size: 34px; }
 .welcome-earned b { font-size: 26px; display: block; }
+.hud-advisor { justify-self: start; font: inherit; font-weight: 700; font-size: 13px; cursor: pointer; padding: 8px 14px; border-radius: 999px; border: 2px solid var(--sun); background: var(--surface); color: var(--text); box-shadow: var(--shadow-lg); }
+.hud-advisor.bad { border-color: var(--down); animation: pulse-era 2.4s ease-in-out infinite; }

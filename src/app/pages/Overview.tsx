@@ -6,6 +6,7 @@ import { lifetimeSales, objective, totalHa } from '../../simulation/engine';
 import { ratios, incomeStatement } from '../../simulation/statements';
 import type { DayBook, GameState } from '../../simulation/types';
 import { go, useGame } from '../../stores/game';
+import { AdvisorCard } from '../Advisor';
 import { LineChart } from '../Chart';
 import { duration, money, num, pct0, stamp } from '../format';
 import { Bar, Card, Kpi, PageHead, usePref } from '../ui';
@@ -51,6 +52,7 @@ export default function OverviewPage() {
         </Card>
       )}
       {show('kpis') && <Kpis s={s} />}
+      <AdvisorCard s={s} />
       <div className="grid2">
         {show('era') && <EraCard s={s} />}
         {show('alerts') && <Alerts s={s} />}

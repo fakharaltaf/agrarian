@@ -236,7 +236,7 @@ function startFrom(game: GameState, savedAt: number) {
     const important = game.log.filter((l) => l.id > before.log && (l.level === 'critical' || l.level === 'warning')).slice(-4).map((l) => l.text);
     summary.push(...important);
     if (game.bankrupt) summary.push('Your business became insolvent while you were away.');
-    set({ catchUp: null, away: { summary, earned: Math.max(0, Math.round(sales)) }, v: store.v + 1 });
+    set({ catchUp: null, away: { summary, earned: Math.round(game.cash - before.cash) }, v: store.v + 1 });
   };
   setTimeout(chunk, 0);
 }

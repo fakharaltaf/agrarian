@@ -10,6 +10,7 @@ import { money, num, pct0 } from '../format';
 import { BatchPanel, FieldPanel, RecentLog, SellCard } from '../pages/Fields';
 import { unlockedRegions } from '../pages/shared';
 import { Bar, Card, Confirm, Modal, Select, usePref } from '../ui';
+import { AdvisorPill } from '../Advisor';
 import { Scene3D, type WorldPick } from './Scene3D';
 import type { Lot } from './layout';
 
@@ -171,6 +172,7 @@ export function Hud() {
         onAction={(kind, id) => act(kind === 'harvest' ? { type: 'harvest', fieldId: id } : { type: 'plant', fieldId: id, crop })} />
       <div className="hud-left">
         {s.eraReady && <EraBanner s={s} />}
+        <AdvisorPill s={s} />
         <ObjectiveCard s={s} />
         {known(s, 'forecast') && <ForecastStrip s={s} r={region} />}
         {s.stats.sales > 0 && <DailyGoals s={s} />}
