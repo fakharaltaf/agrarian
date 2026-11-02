@@ -56,6 +56,7 @@ export function laborTick(s: GameState) {
       for (const w of s.workers) if (w.region === r) w.task = 0;
       continue;
     }
+    const riders = new Map<number, number>(); // platform id → pickers aboard this hour
     for (const w of s.workers) {
       if (w.region !== r || w.role !== 'hand') continue;
       w.task = 0;
@@ -78,7 +79,14 @@ export function laborTick(s: GameState) {
       if (!t) continue;
       t.taken = true;
       w.task = t.f.id;
-      work(s, t, (p * perkFor(t.kind)) / (t.f.ha * (t.kind === 'plant' ? CONFIG.plantHours : CROPS[t.f.crop!].harvestHours)), null);
+      // a free spot on an orchard platform makes fruit-picking several times faster
+      const plat = t.kind === 'harvest' ? s.machines.find((x) => x.region === r && !x.broken && MACHINES[x.type].assist && MACHINES[x.type].crops!.includes(t.f.crop!) && (riders.get(x.id) ?? 0) < MACHINES[x.type].riders!) : undefined;
+      if (plat) {
+        if (!riders.has(plat.id)) runMachine(s, plat);
+        riders.set(plat.id, (riders.get(plat.id) ?? 0) + 1);
+        plat.task = t.f.id;
+      }
+      work(s, t, (p * perkFor(t.kind) * (plat ? MACHINES[plat.type].assist! : 1)) / (t.f.ha * (t.kind === 'plant' ? CONFIG.plantHours : CROPS[t.f.crop!].harvestHours)), null);
     }
     if (tasks.some((t) => !t.done)) s.regions[r].backlog++;
   }
@@ -102,7 +110,11 @@ function buildTasks(s: GameState, r: RegionId): Task[] {
   return [...harvest, ...plant];
 }
 
-const fits = (t: Task, m: Machine) => t.kind === MACHINES[m.type].task && (t.kind !== 'harvest' || CROPS[t.f.crop!].machineHarvest);
+const fits = (t: Task, m: Machine) => {
+  const d = MACHINES[m.type];
+  if (!d.haPerHour || t.kind !== d.task) return false; // platforms carry pickers rather than working a field themselves
+  return d.crops ? d.crops.includes(t.f.crop!) : t.kind !== 'harvest' || CROPS[t.f.crop!].machineHarvest;
+};
 
 /** A machine works the whole hour: when one field is done it moves straight on (a 4 ha/h tractor plants four 1 ha plots). */
 function machineHour(s: GameState, m: Machine, tasks: Task[], first: Task, haPerHour: number) {
@@ -113,19 +125,19 @@ function machineHour(s: GameState, m: Machine, tasks: Task[], first: Task, haPer
     const rate = haPerHour / t.f.ha; // share of this field per hour
     const use = Math.min(left, (1 - t.f.work) / rate);
     t.taken = true;
-    work(s, t, use * rate + 1e-9, null);
+    work(s, t, use * rate + 1e-9, m);
     left -= use;
   }
 }
 
 export const machineRate = (s: GameState, m: Machine) => (MACHINES[m.type].haPerHour ?? 0) * (has(s, 'mech2') ? 1.3 : 1) * (1 + 0.25 * ((m.tier || 1) - 1));
 
-function work(s: GameState, t: Task, progress: number, m: Machine | null) {
-  if (m) runMachine(s, m);
+/** Adds progress to a task; `by` is the machine that picked it (fruit machines can bruise the crop). */
+function work(s: GameState, t: Task, progress: number, by: Machine | null) {
   t.f.work += progress;
   if (t.f.work < 1) return;
   t.done = true;
-  if (t.kind === 'harvest') harvestField(s, t.f);
+  if (t.kind === 'harvest') harvestField(s, t.f, by ? MACHINES[by.type].qualityHit : 0);
   else {
     const err = plantField(s, t.f, t.f.plan!, essentialBudget(s));
     if (err) t.f.work = 0;

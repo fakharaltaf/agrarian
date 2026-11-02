@@ -344,6 +344,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       if (!d) return fail('Unknown machine.');
       if (s.era < d.minEra) return fail('Not available yet.');
       if (d.research && !has(s, d.research)) return fail(`Requires research: ${TECH[d.research].name}.`);
+      if (d.crops && !d.crops.some((c) => s.unlockedCrops.includes(c))) return fail(`Grow ${d.crops.map((c) => GOODS[c].name.toLowerCase()).join(' or ')} first.`);
       if (!s.regions[a.region].unlocked) return fail('Expand into this region first.');
       const price = a.lease ? Math.round(d.leasePerDay * s.macro.cpi * 3) : machinePrice(s, a.machine);
       if (price > s.cash) return fail(a.lease ? `The lease needs a 3-day deposit of $${price.toLocaleString()}.` : `Costs $${price.toLocaleString()}.`);

@@ -111,7 +111,7 @@ export function plantField(s: GameState, f: Field, c: CropId, budget: number): s
   return null;
 }
 
-export function harvestField(s: GameState, f: Field): HarvestBreakdown | null {
+export function harvestField(s: GameState, f: Field, bruise = 0): HarvestBreakdown | null {
   if (!f.crop || !isReady(s, f)) return null;
   const c = f.crop;
   const def = CROPS[c];
@@ -133,7 +133,7 @@ export function harvestField(s: GameState, f: Field): HarvestBreakdown | null {
   b.units = Math.max(0, Math.round(b.base * b.soil * b.water * b.weather * b.pest * b.tech * b.suitability * b.timing * b.frost));
   // Quality: good soil, steady water and weather, few pests, timely picking. An agronomist lifts it a grade step.
   const agronomist = s.workers.some((w) => w.region === f.region && w.perk === 'agronomist');
-  b.quality = clamp(0.2 + 0.35 * soilAdequacy(f, c) + 0.25 * Math.min(b.water, b.weather) + 0.2 * b.pest - 0.4 * (1 - timingFactor(s, f)) - 0.3 * f.frost + (agronomist ? 0.1 : 0) + (f.greenhouse ? 0.05 : 0), 0, 1);
+  b.quality = clamp(0.2 + 0.35 * soilAdequacy(f, c) + 0.25 * Math.min(b.water, b.weather) + 0.2 * b.pest - 0.4 * (1 - timingFactor(s, f)) - 0.3 * f.frost + (agronomist ? 0.1 : 0) + (f.greenhouse ? 0.05 : 0) - bruise, 0, 1);
   // Nutrient removal; rotation and soybeans matter.
   const u = def.uptake;
   const hy = has(s, 'hybrids') ? 1.4 : 1;

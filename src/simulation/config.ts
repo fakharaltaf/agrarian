@@ -198,7 +198,7 @@ export const SAME_COUNTRY: RegionId[][] = [['heartland', 'river']];
 
 // ---------------------------------------------------------------- machines & buildings
 
-export type MachineType = 'tractor' | 'harvester' | 'truck' | 'robotTractor' | 'robotHarvester';
+export type MachineType = 'tractor' | 'harvester' | 'truck' | 'robotTractor' | 'robotHarvester' | 'grapeHarvester' | 'orchardPlatform';
 export interface MachineDef {
   type: MachineType;
   name: string;
@@ -214,12 +214,18 @@ export interface MachineDef {
   capacity?: number; // trucks: units per day
   research?: string;
   minEra: number;
+  crops?: CropId[]; // only works these crops (fruit machines; overrides machineHarvest)
+  qualityHit?: number; // quality lost when this machine picks
+  assist?: number; // platforms: hand-pickers riding it work this many times faster
+  riders?: number; // platforms: pickers it carries
 }
 export const MACHINES: Record<MachineType, MachineDef> = {
   tractor: { type: 'tractor', name: 'Tractor', price: 15000, leasePerDay: 55, fuelPerHour: 12, servicePerHours: 120, serviceCost: 200, life: 1000, haPerHour: 4, task: 'plant', minEra: 3 },
   harvester: { type: 'harvester', name: 'Combine harvester', price: 42000, leasePerDay: 150, fuelPerHour: 25, servicePerHours: 100, serviceCost: 450, life: 1200, haPerHour: 3, task: 'harvest', minEra: 3 },
   truck: { type: 'truck', name: 'Truck', price: 35000, leasePerDay: 120, fuelPerHour: 0, servicePerHours: 2000, serviceCost: 300, life: 30000, capacity: 1500, minEra: 3 },
   robotTractor: { type: 'robotTractor', name: 'Autonomous tractor', price: 90000, leasePerDay: 320, fuelPerHour: 9, servicePerHours: 300, serviceCost: 600, life: 4000, haPerHour: 6, task: 'plant', autonomous: true, research: 'robotics', minEra: 6 },
+  grapeHarvester: { type: 'grapeHarvester', name: 'Grape harvester', price: 60000, leasePerDay: 200, fuelPerHour: 18, servicePerHours: 100, serviceCost: 500, life: 1200, haPerHour: 2, task: 'harvest', crops: ['grapes'], qualityHit: 0.12, minEra: 3 },
+  orchardPlatform: { type: 'orchardPlatform', name: 'Orchard platform', price: 22000, leasePerDay: 80, fuelPerHour: 4, servicePerHours: 150, serviceCost: 250, life: 2000, task: 'harvest', crops: ['apples'], assist: 3, riders: 4, minEra: 3 },
   robotHarvester: { type: 'robotHarvester', name: 'Autonomous harvester', price: 160000, leasePerDay: 560, fuelPerHour: 18, servicePerHours: 250, serviceCost: 900, life: 4000, haPerHour: 5, task: 'harvest', autonomous: true, research: 'robotics', minEra: 6 },
 };
 

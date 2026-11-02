@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { CONFIG, CROPS, MACHINES, REGIONS, TECH, WORK_END, WORK_START, type MachineType, type RegionId } from '../../simulation/config';
+import { CONFIG, CROPS, GOODS, MACHINES, REGIONS, TECH, WORK_END, WORK_START, type MachineType, type RegionId } from '../../simulation/config';
 import { fuelPrice, has, known, marketWage } from '../../simulation/core';
 import { machineUpgradeCost, machinePrice } from '../../simulation/engine';
 import { serviceCost } from '../../simulation/operations';
@@ -13,7 +13,7 @@ const TYPES = Object.keys(MACHINES) as MachineType[];
 const HOURS = WORK_END - WORK_START;
 const DUE = 0.6; // service before condition drops below this; breakdown risk climbs fast past it
 
-const available = (s: GameState, t: MachineType) => s.era >= MACHINES[t].minEra && (!MACHINES[t].research || has(s, MACHINES[t].research!));
+const available = (s: GameState, t: MachineType) => s.era >= MACHINES[t].minEra && (!MACHINES[t].research || has(s, MACHINES[t].research!)) && (!MACHINES[t].crops || MACHINES[t].crops!.some((c) => s.unlockedCrops.includes(c)));
 const breakRisk = (s: GameState, cond: number) => (0.0004 + 0.03 * (1 - cond) ** 2) * (has(s, 'predictiveMaintenance') ? 0.3 : 1);
 const rateOf = (s: GameState, t: MachineType) => (MACHINES[t].haPerHour ?? 0) * (has(s, 'mech2') ? 1.3 : 1);
 const fuelOf = (s: GameState, t: MachineType) => MACHINES[t].fuelPerHour * (has(s, 'mech2') ? 0.8 : 1);
@@ -75,11 +75,14 @@ function MachineCard({ s, t, r }: { s: GameState; t: MachineType; r: RegionId })
         {d.autonomous && <span className="pill accent">Autonomous</span>}
       </div>
       <dl className="facts">
-        {isTruck ? <><dt>Haulage</dt><dd>{num(d.capacity!)} units/day</dd></> : <><dt>Work rate</dt><dd>{rateOf(s, t).toFixed(1)} ha/h {d.task === 'plant' ? 'planting' : 'harvesting'}</dd></>}
+        {isTruck ? <><dt>Haulage</dt><dd>{num(d.capacity!)} units/day</dd></>
+          : d.assist ? <><dt>Pickers</dt><dd>carries {d.riders} hands · they pick {d.assist}× faster</dd></>
+          : <><dt>Work rate</dt><dd>{rateOf(s, t).toFixed(1)} ha/h {d.task === 'plant' ? 'planting' : 'harvesting'}</dd></>}
+        {d.crops && <><dt>Crops</dt><dd>{d.crops.map((c) => GOODS[c].name).join(', ')} only{d.qualityHit ? ' · machine-picked fruit is one grade step lower' : ' · no quality loss'}</dd></>}
         {!isTruck && <><dt>Fuel</dt><dd>{num(fuelOf(s, t), 1)} L/h · {price(fuelOf(s, t) * fuelPrice(s, r))}/h</dd></>}
         <dt>Service</dt><dd>{isTruck ? 'by wear' : `every ${num(d.servicePerHours)} h`} · {money(serviceOf(s, t))}</dd>
         <dt>Life</dt><dd>{num(d.life)} h · {price(buy / d.life)}/h</dd>
-        <dt>Operator</dt><dd>{d.autonomous ? 'none, runs 24h' : isTruck ? 'none' : '1 hand'}</dd>
+        <dt>Operator</dt><dd>{d.autonomous ? 'none, runs 24h' : isTruck ? 'none' : d.assist ? 'your hands drive it while they pick' : '1 hand'}</dd>
         <dt>Lease</dt><dd>{money(leaseDay(s, t))}/day</dd>
       </dl>
       <div className="row wrap">
@@ -92,7 +95,7 @@ function MachineCard({ s, t, r }: { s: GameState; t: MachineType; r: RegionId })
 
 /** Rough daily economics of one machine of a type against doing the same work by hand. */
 function Calculator({ s, r }: { s: GameState; r: RegionId }) {
-  const kinds = TYPES.filter((t) => available(s, t) && MACHINES[t].task);
+  const kinds = TYPES.filter((t) => available(s, t) && MACHINES[t].task && MACHINES[t].haPerHour);
   const [pick, setPick] = useState<MachineType>('tractor');
   const t = kinds.includes(pick) ? pick : kinds[0];
   if (!t) return null;
@@ -101,7 +104,7 @@ function Calculator({ s, r }: { s: GameState; r: RegionId }) {
   let haDay = 0, handHrsPerHa = 0;
   for (const f of s.fields) {
     const c = f.crop ?? f.plan;
-    if (f.region !== r || !c || (d.task === 'harvest' && !CROPS[c].machineHarvest)) continue;
+    if (f.region !== r || !c || (d.crops ? !d.crops.includes(c) : d.task === 'harvest' && !CROPS[c].machineHarvest)) continue;
     const per = (f.ha * 24) / CROPS[c].growthTicks;
     haDay += per;
     handHrsPerHa += per * (d.task === 'plant' ? CONFIG.plantHours : CROPS[c].harvestHours);

@@ -277,6 +277,13 @@ export function vehicle(type: MachineType | 'truck') {
     w.rotation.x = Math.PI / 2;
     g.add(w);
   };
+  if (type === 'orchardPlatform') {
+    // low self-propelled deck with railings that pickers stand on
+    g.add(box(0.6, 0.06, 0.34, 0xd9a441, 0, 0.16, 0));
+    for (const z of [-0.16, 0.16]) g.add(box(0.6, 0.12, 0.02, 0x8a6a3a, 0, 0.25, z));
+    for (const z of [-0.14, 0.14]) { wheel(0.2, z, 0.07); wheel(-0.2, z, 0.07); }
+    return g;
+  }
   if (type === 'truck') {
     g.add(box(0.36, 0.3, 0.32, body, 0.3, 0.12, 0));
     g.add(box(0.62, 0.36, 0.36, PAL.creamDark, -0.2, 0.12, 0));

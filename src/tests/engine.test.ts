@@ -746,3 +746,39 @@ describe('build many', () => {
     reconcile(s);
   });
 });
+
+describe('fruit machines', () => {
+  const vineyard = (seed: number, crop: 'grapes' | 'apples') => {
+    const s = fresh(seed);
+    toEra(s, 3);
+    give(s, 300000);
+    s.unlockedCrops.push(crop);
+    dispatch(s, { type: 'buyParcel', region: 'heartland', ha: 5 });
+    const f = s.fields.find((x) => x.ha === 5)!;
+    dispatch(s, { type: 'hire', region: 'heartland', role: 'hand', wageFactor: 1 });
+    s.workers[0].skill = 1; s.workers[0].morale = 1;
+    // a mature crop, ripe now
+    f.crop = crop; f.plan = crop; f.plantedAt = s.tick - 9999 * 24; f.cycleAt = s.tick - CROPS[crop].growthTicks; f.work = 0;
+    while (s.tick % 24 !== 8) { step(s); f.cycleAt = s.tick - CROPS[crop].growthTicks; }
+    return { s, f };
+  };
+  it('grape harvester picks grapes by machine, a grade step lower', () => {
+    const { s, f } = vineyard(12, 'grapes');
+    expect(dispatch(s, { type: 'buyMachine', region: 'heartland', machine: 'grapeHarvester', lease: false }).ok).toBe(true);
+    const h0 = s.stats.harvests;
+    for (let i = 0; i < 4 && s.stats.harvests === h0; i++) step(s);
+    expect(s.stats.harvests).toBe(h0 + 1); // 5 ha at ~2 ha/h: done within a few hours, not 30 by hand
+    expect(f.lastHarvest!.quality).toBeLessThan(1);
+    reconcile(s);
+  });
+  it('orchard platform makes apple pickers faster; combines still cannot pick fruit', () => {
+    const a = vineyard(13, 'apples');
+    const b = vineyard(13, 'apples');
+    dispatch(b.s, { type: 'buyMachine', region: 'heartland', machine: 'orchardPlatform', lease: false });
+    dispatch(a.s, { type: 'buyMachine', region: 'heartland', machine: 'harvester', lease: false });
+    const wa = a.f.work, wb = b.f.work;
+    step(a.s); step(b.s);
+    expect(b.f.work - wb).toBeGreaterThan((a.f.work - wa) * 2.5);
+    expect(a.s.machines[0].usedThisTick || a.s.machines[0].task).toBeFalsy();
+  });
+});
