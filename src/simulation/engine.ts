@@ -44,7 +44,7 @@ export function createGame(seed = (Date.now() % 2147483646) + 1): GameState {
     corp: { incorporated: false, shares: CONFIG.sharesOutstanding, playerShares: CONFIG.sharesOutstanding, execs: [], reputation: 50, dividends: 0, runoff: 0 },
     ledger: [], lifetime: {}, books: [], overdraftDays: 0, bankrupt: null, era: 1,
     stats: { harvests: 0, sales: 0, plantings: 0, produced: {}, spoiled: 0, peopleFed: 0, forcedSales: 0, overflowLost: 0, maxEquity: 0, crisisSurvived: false },
-    unlockedCrops: ['wheat'], milestones: [], seenTips: [], discovered: [], achievements: [], rewarded: [], daily: null, eraReady: false, herds: [], warned: {}, log: [], nextId: 1,
+    unlockedCrops: ['wheat'], milestones: [], seenTips: [], discovered: [], achievements: [], rewarded: [], daily: null, eraReady: false, herds: [], advisor: false, warned: {}, log: [], nextId: 1,
   };
   const f = newField(s, 'heartland', 1, 0);
   f.soil = { n: 1, p: 1, k: 1, organic: 0.8 };
@@ -286,6 +286,12 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       post(s, w.role === 'manager' ? 'salaries' : 'wages', -wageOf(s, w) * 12, `Severance: ${w.name}`, w.region);
       s.workers.splice(s.workers.indexOf(w), 1);
       for (const o of s.workers) if (o.region === w.region) o.morale = clamp(o.morale - 0.05, 0, 1);
+      return ok();
+    }
+    case 'setAdvisor': {
+      if (a.on && s.era < 2) return fail('A farm advisor is available from Era 2.');
+      s.advisor = a.on;
+      log(s, 'info', a.on ? 'Hired a farm advisor. They will read your books and point out what costs you money.' : 'Let the farm advisor go.', 'workers');
       return ok();
     }
     case 'setWage': {

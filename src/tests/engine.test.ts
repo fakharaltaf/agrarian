@@ -534,3 +534,19 @@ describe('farm advisor', () => {
     expect(d.advice[0].title).toContain('2 managers');
   });
 });
+
+describe('farm advisor fee', () => {
+  it('is hired from era 2 and paid through the ledger', () => {
+    const s = fresh();
+    expect(dispatch(s, { type: 'setAdvisor', on: true }).ok).toBe(false);
+    toEra(s, 2);
+    expect(dispatch(s, { type: 'setAdvisor', on: true }).ok).toBe(true);
+    advance(s, 48);
+    expect(sumBooks(s, 3, ['advisor'])).toBeLessThan(0);
+    reconcile(s);
+    dispatch(s, { type: 'setAdvisor', on: false });
+    const before = sumBooks(s, 999, ['advisor']);
+    advance(s, 24);
+    expect(sumBooks(s, 999, ['advisor'])).toBe(before);
+  });
+});

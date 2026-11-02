@@ -301,6 +301,7 @@ export interface GameState {
   daily: { key: string; base: { harvests: number; sales: number; plantings: number }; claimed: boolean; streak: number; lastClaimed: string } | null;
   eraReady: boolean;
   herds: Herd[];
+  advisor: boolean; // hired farm advisor (paid hourly while working)
   warned: Record<string, number>; // throttles repeated warnings
   log: LogEntry[];
   nextId: number;
@@ -319,6 +320,7 @@ export type Action =
   | { type: 'sellField'; fieldId: number }
   | { type: 'hire'; region: RegionId; role: 'hand' | 'manager'; wageFactor: number }
   | { type: 'fire'; workerId: number }
+  | { type: 'setAdvisor'; on: boolean }
   | { type: 'setWage'; workerId: number; wageFactor: number }
   | { type: 'train'; workerId: number }
   | { type: 'buyMachine'; region: RegionId; machine: MachineType; lease: boolean }

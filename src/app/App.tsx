@@ -3,7 +3,7 @@ import { ERAS } from '../simulation/config';
 import { equity } from '../simulation/core';
 import { ACHIEVEMENTS, PAGES } from '../simulation/engine';
 import {
-  act, deleteSlot, dismissAway, toast, exportSave, go, importSave, loadFrom, newGame, saveTo, setSpeed, slotInfo, slotLabel, SLOTS, SPEEDS, useGame, useStore, type Slot, type Speed,
+  act, deleteSlot, getGame, dismissAway, toast, exportSave, go, importSave, loadFrom, newGame, saveTo, setSpeed, slotInfo, slotLabel, SLOTS, SPEEDS, useGame, useStore, type Slot, type Speed,
 } from '../stores/game';
 import { Coach, resetTips, tipsOff, tipsOn } from './Coach';
 import { clock, money, stamp } from './format';
@@ -370,7 +370,7 @@ function Away() {
   return (
     <Modal title="Welcome back! 👋" onClose={dismissAway} actions={<button className="btn gold lg" autoFocus onClick={dismissAway}>{away.earned > 0 ? `Collect ${money(away.earned)}` : 'Back to the farm'}</button>}>
       {away.earned > 0 && <div className="welcome-earned"><span>💰</span><div><b className="mono">{money(away.earned)}</b><span className="muted"> profit while you were away</span></div></div>}
-      {away.earned < 0 && <div className="welcome-earned"><span>📉</span><div><b className="mono down">{money(-away.earned)}</b><span className="muted"> lost while you were away — the 📉 advisor on your farm explains why</span></div></div>}
+      {away.earned < 0 && <div className="welcome-earned"><span>📉</span><div><b className="mono down">{money(-away.earned)}</b><span className="muted"> lost while you were away{getGame().advisor ? ' — your 📉 advisor on the farm explains why' : ' — a farm advisor (Workers page) can tell you why'}</span></div></div>}
       <p className="muted">{headline}</p>
       <ul>{rest.map((l, i) => <li key={i}>{l}</li>)}</ul>
     </Modal>

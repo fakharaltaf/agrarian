@@ -75,6 +75,7 @@ export function laborTick(s: GameState) {
     if (tasks.some((t) => !t.done)) s.regions[r].backlog++;
   }
   for (const w of s.workers) if (w.role === 'manager' && working) post(s, 'salaries', -wageOf(s, w), 'Farm managers', w.region);
+  if (s.advisor && working) post(s, 'advisor', -CONFIG.advisorFee * s.macro.cpi, 'Farm advisor', 'heartland');
 }
 
 function buildTasks(s: GameState, r: RegionId): Task[] {

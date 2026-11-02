@@ -114,6 +114,7 @@ function migrate(g: Omit<GameState, 'version'> & { version: number }): GameState
   g.discovered ??= [];
   g.achievements ??= [];
   g.rewarded ??= [];
+  g.advisor ??= false;
   g.daily ??= null;
   g.stats.plantings ??= 0;
   g.eraReady ??= false;

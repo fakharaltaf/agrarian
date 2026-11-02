@@ -26,13 +26,14 @@ function AdvisorBody({ d, onGo }: { d: Diagnosis; onGo?: () => void }) {
 }
 
 export function AdvisorCard({ s }: { s: GameState }) {
+  if (!s.advisor) return null;
   return <Card title="Farm advisor" info="Reads your books from the last few days and points out what is costing you money."><AdvisorBody d={diagnose(s)} /></Card>;
 }
 
 /** Floating pill on the farm view, only when something needs attention. */
 export function AdvisorPill({ s }: { s: GameState }) {
   const [open, setOpen] = useState(false);
-  if (s.stats.sales === 0) return null;
+  if (!s.advisor) return null;
   const d = diagnose(s);
   const losing = d.profit < 0 && s.era >= 2;
   if (!losing && !d.advice.length) return null;

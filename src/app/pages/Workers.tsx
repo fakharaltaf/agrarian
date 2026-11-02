@@ -54,6 +54,15 @@ export default function WorkersPage() {
         <Kpi label="Quitting risk" value={num(lowMorale.length)} tone={lowMorale.length ? 'down' : undefined} info="Workers whose morale is below 25%. Anyone who stays that low for 5 days in a row quits." />
       </div>
 
+      <Card title="Farm advisor" coach="hire-advisor" info="An advisor reads your books every day and explains, in plain words, what is costing you money and how to fix it.">
+        <div className="row between wrap">
+          <p className="small">{s.advisor
+            ? <>Your advisor watches the books for {money(CONFIG.advisorFee * s.macro.cpi * HOURS)} a day. Look for their 📉 / 💡 note on the farm and the Overview page.</>
+            : <>Losing money and not sure why? An advisor spots costly mistakes — idle staff, flooded markets, tired soil, expensive debt — for {money(CONFIG.advisorFee * s.macro.cpi * HOURS)} a day.</>}</p>
+          <button className={`btn ${s.advisor ? 'ghost' : 'primary'} sm`} onClick={() => act({ type: 'setAdvisor', on: !s.advisor })}>{s.advisor ? 'Let go' : 'Hire advisor'}</button>
+        </div>
+      </Card>
+
       <Card title="Crews by region" info="Labour-hours available counts each hand's productivity × 12 working hours. Field work ahead is the hand-labour still needed to harvest what is growing and plant planned fallow fields.">
         <Table rows={rows} rowKey={(x) => x.r} scroll cols={[
           { key: 'r', label: 'Region', render: (x) => REGIONS[x.r].name },

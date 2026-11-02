@@ -387,6 +387,7 @@ export const CONFIG = {
   incorporateCost: 50000,
   sharesOutstanding: 1_000_000,
   managerWage: 35, // USD/h
+  advisorFee: 10, // USD/h during working hours
   execSalary: 400, // USD/h
   antitrustShare: 0.35,
 };
@@ -395,7 +396,7 @@ export const LEDGER_KINDS = {
   sale: 'Sales', contract: 'Contract deliveries', grid: 'Power sold to grid', insurancePayout: 'Insurance payouts', prize: 'Prizes & gifts', assetSale: 'Asset sales',
   seeds: 'Seed', wages: 'Wages', salaries: 'Management salaries', staff: 'Factory staff', fuel: 'Fuel', maintenance: 'Maintenance & repairs',
   electricity: 'Electricity', water: 'Water', fertilizer: 'Fertiliser', purchases: 'Market purchases', haulage: 'Haulage', shipping: 'Freight & tariffs',
-  insurance: 'Insurance premiums', lease: 'Leases', royalties: 'Royalties', training: 'Training', fines: 'Fines & penalties', research: 'Research', legal: 'Legal & due diligence',
+  insurance: 'Insurance premiums', lease: 'Leases', royalties: 'Royalties', training: 'Training', fines: 'Fines & penalties', research: 'Research', legal: 'Legal & due diligence', advisor: 'Farm advisor',
   interest: 'Interest', tax: 'Tax', futures: 'Futures P&L',
   land: 'Land', machine: 'Machinery', building: 'Buildings', acquisition: 'Acquisitions', irrigation: 'Irrigation equipment',
   loanIn: 'Loans drawn', loanRepay: 'Loan principal repaid', sharesIssued: 'Shares issued', dividends: 'Dividends', buyback: 'Share buybacks',
@@ -404,7 +405,7 @@ export const LEDGER_KINDS = {
 export type LedgerKind = keyof typeof LEDGER_KINDS;
 
 export const REVENUE_KINDS: LedgerKind[] = ['sale', 'contract', 'grid'];
-export const OPEX_KINDS: LedgerKind[] = ['seeds', 'wages', 'salaries', 'staff', 'fuel', 'maintenance', 'electricity', 'water', 'fertilizer', 'purchases', 'haulage', 'shipping', 'insurance', 'lease', 'royalties', 'training', 'fines', 'research', 'legal'];
+export const OPEX_KINDS: LedgerKind[] = ['seeds', 'wages', 'salaries', 'staff', 'fuel', 'maintenance', 'electricity', 'water', 'fertilizer', 'purchases', 'haulage', 'shipping', 'insurance', 'lease', 'royalties', 'training', 'fines', 'research', 'legal', 'advisor'];
 export const INVESTING_KINDS: LedgerKind[] = ['land', 'machine', 'building', 'acquisition', 'irrigation', 'assetSale'];
 export const FINANCING_KINDS: LedgerKind[] = ['loanIn', 'loanRepay', 'sharesIssued', 'dividends', 'buyback'];
 export const OTHER_OPERATING: LedgerKind[] = ['interest', 'tax', 'futures', 'insurancePayout', 'prize'];
