@@ -3,7 +3,7 @@ import { ERAS } from '../simulation/config';
 import { equity } from '../simulation/core';
 import { ACHIEVEMENTS, PAGES } from '../simulation/engine';
 import {
-  act, deleteSlot, getGame, dismissAway, toast, exportSave, go, importSave, loadFrom, newGame, saveTo, setSpeed, slotInfo, slotLabel, SLOTS, SPEEDS, useGame, useStore, type Slot, type Speed,
+  act, deleteSlot, getGame, offlineOn, dismissAway, toast, exportSave, go, importSave, loadFrom, newGame, saveTo, setSpeed, slotInfo, slotLabel, SLOTS, SPEEDS, useGame, useStore, type Slot, type Speed,
 } from '../stores/game';
 import { Coach, resetTips, tipsOff, tipsOn } from './Coach';
 import { clock, money, stamp } from './format';
@@ -443,6 +443,7 @@ function Settings({ onClose, theme, setTheme }: { onClose: () => void; theme: st
           <div className="seg">{(['auto', 'light', 'dark'] as const).map((t) => <button key={t} className={theme === t ? 'on' : ''} onClick={() => setTheme(t)}>{t[0].toUpperCase() + t.slice(1)}</button>)}</div>
         </div>
         <GraphicsSetting />
+        <OfflineSetting />
         <SoundSetting />
         <div className="row wrap">
           <span className="muted small" style={{ width: 80 }}>Farm journal</span>
@@ -467,6 +468,17 @@ function SoundSetting() {
         </div>
       ))}
     </>
+  );
+}
+
+function OfflineSetting() {
+  const [on, setOn] = usePref<boolean>('offline', offlineOn());
+  return (
+    <div className="row wrap">
+      <span className="muted small" style={{ width: 80 }}>While away</span>
+      <div className="seg">{([true, false] as const).map((v) => <button key={String(v)} className={on === v ? 'on' : ''} onClick={() => setOn(v)}>{v ? 'Farm keeps working' : 'Time stops'}</button>)}</div>
+      <span className="muted small">Leaving the game paused always stops time. Up to 6 hours count; time also stops if your cash runs out.</span>
+    </div>
   );
 }
 

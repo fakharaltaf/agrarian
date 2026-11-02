@@ -81,7 +81,7 @@ async function del(key: string) {
   }
 }
 
-interface SaveFile { version: number; savedAt: number; game: GameState }
+interface SaveFile { version: number; savedAt: number; paused?: boolean; game: GameState }
 
 /** Trust boundary: stored or imported JSON may be stale, hand-edited or corrupt. */
 export function parseSave(text: string): SaveFile {
@@ -102,7 +102,7 @@ export function parseSave(text: string): SaveFile {
     for (const gd of GOOD_IDS) if (!finite(g.regions[r].inventory[gd]) || g.regions[r].inventory[gd] < -1e-6) throw new Error('Save file inventory is corrupt.');
   }
   for (const c of CROP_IDS) if (!finite(g.seeds[c]) || g.seeds[c] < 0) throw new Error('Save file seed stock is corrupt.');
-  return { version: SAVE_VERSION, savedAt: finite(f.savedAt) ? f.savedAt! : Date.now(), game: g };
+  return { version: SAVE_VERSION, savedAt: finite(f.savedAt) ? f.savedAt! : Date.now(), paused: f.paused === true, game: g };
 }
 
 /** Upgrades older saves in place. Version 1 (the prototype) predates the full economy. */
@@ -146,7 +146,7 @@ function migrate(g: Omit<GameState, 'version'> & { version: number }): GameState
   return g as GameState;
 }
 
-const serialize = () => JSON.stringify({ version: SAVE_VERSION, savedAt: Date.now(), game: store.game } satisfies SaveFile);
+const serialize = () => JSON.stringify({ version: SAVE_VERSION, savedAt: Date.now(), paused: store.speed === 0, game: store.game } satisfies SaveFile);
 
 export async function saveTo(slot: Slot, silent = false) {
   try {
@@ -178,7 +178,7 @@ export async function loadFrom(slot: Slot) {
   if (!t) return toast('That slot is empty.');
   try {
     const f = parseSave(t);
-    startFrom(f.game, f.savedAt);
+    startFrom(f.game, f.savedAt, f.paused);
     toast(`Loaded ${slotLabel(slot)}.`, 'ok');
   } catch (e) {
     toast((e as Error).message);
@@ -212,20 +212,27 @@ export function newGame() {
 }
 
 /** Loads a game and simulates the real time since it was saved, in chunks so the page stays responsive. */
-function startFrom(game: GameState, savedAt: number) {
+/** Off when the player left the game paused, or turned "keep farming while away" off in Settings. */
+export const offlineOn = () => { try { return localStorage.getItem('agrarian.ui.offline') !== 'false'; } catch { return true; } };
+
+function startFrom(game: GameState, savedAt: number, paused = false) {
   store.game = game;
-  set({ v: store.v + 1, page: 'farm' });
+  set({ v: store.v + 1, page: 'farm', ...(paused ? { speed: 0 as Speed } : {}) });
   const elapsed = Math.floor((Date.now() - savedAt) / 1000);
   const total = Math.min(elapsed, CONFIG.offlineCapTicks);
-  if (total < 60 || game.bankrupt) return;
+  if (total < 60 || game.bankrupt || paused || !offlineOn()) return;
   const before = { cash: game.cash, harvests: game.stats.harvests, sales: (game.lifetime.sale ?? 0) + (game.lifetime.contract ?? 0), wages: game.lifetime.wages ?? 0, spoiled: game.stats.spoiled, log: game.log.length ? game.log[game.log.length - 1].id : 0 };
   let done = 0;
   set({ catchUp: { done, total } });
   const chunk = () => {
     const n = Math.min(400, total - done);
-    advance(game, n);
-    done += n;
-    if (done < total && !game.bankrupt) {
+    // safety: the moment cash runs out, stop and pause so the player can fix it instead of coming back bankrupt
+    const floor = Math.min(0, before.cash);
+    let i = 0;
+    for (; i < n && game.cash >= floor; i++) advance(game, 1);
+    done += i;
+    const broke = game.cash < floor;
+    if (done < total && !game.bankrupt && !broke) {
       set({ catchUp: { done, total } });
       setTimeout(chunk, 0);
       return;
@@ -233,7 +240,7 @@ function startFrom(game: GameState, savedAt: number) {
     const days = (done / 24).toFixed(1);
     const sales = (game.lifetime.sale ?? 0) + (game.lifetime.contract ?? 0) - before.sales;
     const summary = [
-      `${days} in-game days passed${elapsed > total ? ' (offline time is capped at 6 hours)' : ''}.`,
+      `${days} in-game days passed${elapsed > total && !broke ? ' (offline time is capped at 6 hours)' : ''}.`,
       `Cash ${game.cash >= before.cash ? 'rose' : 'fell'} by $${Math.abs(Math.round(game.cash - before.cash)).toLocaleString()}.`,
       `${game.stats.harvests - before.harvests} harvests · $${Math.round(sales).toLocaleString()} in sales · $${Math.round(-(game.lifetime.wages ?? 0) + before.wages).toLocaleString()} in wages.`,
     ];
@@ -242,6 +249,7 @@ function startFrom(game: GameState, savedAt: number) {
     const important = game.log.filter((l) => l.id > before.log && (l.level === 'critical' || l.level === 'warning')).slice(-4).map((l) => l.text);
     summary.push(...important);
     if (game.bankrupt) summary.push('Your business became insolvent while you were away.');
+    else if (broke) (summary.push('Your cash ran out, so the farm was paused the moment it happened. Fix the problem, then press play.'), set({ speed: 0 }));
     set({ catchUp: null, away: { summary, earned: Math.round(game.cash - before.cash) }, v: store.v + 1 });
   };
   setTimeout(chunk, 0);
@@ -252,7 +260,7 @@ export async function boot() {
   if (t) {
     try {
       const f = parseSave(t);
-      startFrom(f.game, f.savedAt);
+      startFrom(f.game, f.savedAt, f.paused);
     } catch (e) {
       toast(`Your autosave could not be loaded (${(e as Error).message}). A new game was started.`);
     }
