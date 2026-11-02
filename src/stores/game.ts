@@ -1,7 +1,7 @@
 // The bridge between the pure simulation and React. The GameState object is mutated in place by
 // the engine; subscribers re-render on a version counter at most ~5 times a second.
 import { useSyncExternalStore } from 'react';
-import { CONFIG, CROP_IDS, GOOD_IDS, REGION_IDS } from '../simulation/config';
+import { CONFIG, CROPS, CROP_IDS, GOOD_IDS, REGION_IDS } from '../simulation/config';
 import { advance, createGame, dispatch as engineDispatch } from '../simulation/engine';
 import { createMarkets } from '../simulation/markets';
 import type { Action, GameState } from '../simulation/types';
@@ -121,6 +121,11 @@ function migrate(g: Omit<GameState, 'version'> & { version: number }): GameState
   g.herds ??= [];
   g.automation.policies.autoFeed ??= true;
   for (const f of g.fields) (f.greenhouse ??= false), (f.frost ??= 0), (f.cycleAt ??= 0);
+  // one-time repair (Nov 2026): orchards piled up pests from a bug; clear them once, marked in `rewarded` so it never repeats
+  if (!g.rewarded.includes('fix:orchardPests')) {
+    for (const f of g.fields) if (f.crop && CROPS[f.crop].perennial) (f.pest = 0), (f.streak = 0);
+    g.rewarded.push('fix:orchardPests');
+  }
   for (const w of g.workers) w.perk ??= null;
   for (const m of g.machines) m.tier ??= 1;
   for (const b of g.buildings) b.level ??= 1;
