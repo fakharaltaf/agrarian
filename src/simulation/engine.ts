@@ -2,7 +2,7 @@
 import {
   BUILDINGS, CONFIG, CROPS, GOODS, GOOD_IDS, MACHINES, PERKS, REGIONS, REGION_IDS, TECH, TICKS_PER_DAY, type CropId, type GoodId, type RegionId,
 } from './config';
-import { clamp, debt, equity, freeSpace, has, known, log, marketWage, nextId, post, round2, todayBook } from './core';
+import { clamp, debt, factoryCrop, equity, freeSpace, has, known, log, marketWage, nextId, post, round2, todayBook } from './core';
 import { addGoods, canGrow, clearField, fertilizeField, fieldsTick, frostNight, harvestField, isManual, isReady, newField, plantField, spoilageDaily } from './agriculture';
 import { buyAnimals, livestockDaily, sellAnimals } from './livestock';
 import { claimDaily, startDay } from './daily';
@@ -182,6 +182,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
     }
     case 'setPlan': {
       if (s.era < 2) return fail('Crop plans arrive with your first workers.');
+      if (a.fieldIds.some((id) => field(s, id)?.supplies)) return fail('A field supplying a factory grows that factory\'s crop. Stop supplying it first.');
       if (a.crop && !s.unlockedCrops.includes(a.crop)) return fail('That crop is not available.');
       let n = 0;
       for (const id of a.fieldIds) {
@@ -191,8 +192,26 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       return n ? ok() : fail('That crop cannot grow on the selected fields.');
     }
     case 'lockPlan': {
-      for (const id of a.fieldIds) { const f = field(s, id); if (f) f.planLocked = a.locked; }
+      for (const id of a.fieldIds) { const f = field(s, id); if (f && !f.supplies) f.planLocked = a.locked; }
       return ok();
+    }
+    case 'supplyFactory': {
+      const b = a.buildingId === null ? null : s.buildings.find((x) => x.id === a.buildingId);
+      const c = b ? factoryCrop(b) : null;
+      if (a.buildingId !== null && (!b || !c)) return fail('That building does not take a crop.');
+      if (c && !s.unlockedCrops.includes(c)) return fail(`${GOODS[c].name} is not available yet.`);
+      let n = 0;
+      for (const id of a.fieldIds) {
+        const f = field(s, id);
+        if (!f) continue;
+        if (!b || !c) { if (f.supplies) (f.supplies = null), (f.planLocked = false), n++; continue; }
+        if (f.region !== b.region || !canGrow(f, c)) continue;
+        f.supplies = b.id;
+        f.plan = c;
+        f.planLocked = true;
+        n++;
+      }
+      return n ? ok() : fail(b ? `Those fields can't grow ${GOODS[c!].name.toLowerCase()} for this factory (same region only).` : 'No dedicated fields selected.');
     }
     case 'fertilize': {
       if (s.era < 2) return fail('Fertiliser is not available yet.');
@@ -358,7 +377,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       const price = buildingPrice(s, a.building, a.region);
       if (price > s.cash) return fail(`Costs $${price.toLocaleString()}.`);
       post(s, 'building', -price, d.name, a.region);
-      s.buildings.push({ id: nextId(s), type: a.building, region: a.region, active: true, level: 1, cost: price, depreciated: 0, util: 0, reason: '', stats: { out: 0, inCost: 0, outValue: 0, opCost: 0 } });
+      s.buildings.push({ id: nextId(s), type: a.building, region: a.region, active: true, level: 1, cost: price, depreciated: 0, util: 0, reserved: 0, reason: '', stats: { out: 0, inCost: 0, outValue: 0, opCost: 0 } });
       log(s, 'info', `Built a ${d.name.toLowerCase()} in ${REGIONS[a.region].name}.`, BUILDINGS[a.building].category === 'storage' ? 'storage' : 'production');
       return ok();
     }
@@ -366,6 +385,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       const b = s.buildings.find((x) => x.id === a.buildingId);
       if (!b) return fail('No such building.');
       s.buildings.splice(s.buildings.indexOf(b), 1);
+      for (const f of s.fields) if (f.supplies === b.id) (f.supplies = null), (f.planLocked = false);
       post(s, 'assetSale', Math.round(Math.max(0, b.cost - b.depreciated) * 0.5), `Sold ${BUILDINGS[b.type].name}`, b.region);
       // contents that no longer fit are sold or lost through the normal overflow rule
       for (const g of GOOD_IDS) {

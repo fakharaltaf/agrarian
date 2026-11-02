@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CONFIG, CROPS, GOOD_IDS, REGION_IDS, TICKS_PER_DAY } from '../simulation/config';
 import { advance, createGame, dispatch, harvestField, quoteSell, step } from '../simulation/engine';
-import { capacity, debt, equity, post, stored, sumBooks } from '../simulation/core';
+import { capacity, debt, equity, post, reservedStock, stored, sumBooks } from '../simulation/core';
 import { frostNight, isReady } from '../simulation/agriculture';
 const frostNightForTest = (s: GameState) => frostNight(s, 'heartland');
 import { balanceSheet, cashFlow, incomeStatement } from '../simulation/statements';
@@ -688,5 +688,45 @@ describe('plan lock', () => {
     step(s);
     expect(a.plan).toBe(other);
     expect(b.plan).not.toBe(other);
+  });
+});
+
+describe('dedicated supply', () => {
+  it("a field's harvest is held for its factory and nothing else takes it", () => {
+    const s = fresh(10);
+    toEra(s, 4);
+    give(s, 200000);
+    expect(dispatch(s, { type: 'build', region: 'heartland', building: 'flourMill' }).ok).toBe(true);
+    const mill = s.buildings.find((b) => b.type === 'flourMill')!;
+    const f = s.fields[0];
+    expect(dispatch(s, { type: 'supplyFactory', fieldIds: [f.id], buildingId: mill.id }).ok).toBe(true);
+    expect(f.plan).toBe('wheat');
+    expect(f.planLocked).toBe(true);
+    expect(dispatch(s, { type: 'setPlan', fieldIds: [f.id], crop: 'corn' }).ok).toBe(false);
+    mill.active = false;
+    dispatch(s, { type: 'plant', fieldId: f.id, crop: 'wheat' });
+    advance(s, CROPS.wheat.growthTicks);
+    const inv0 = s.regions.heartland.inventory.wheat;
+    dispatch(s, { type: 'harvest', fieldId: f.id });
+    const got = s.regions.heartland.inventory.wheat - inv0;
+    expect(got).toBeGreaterThan(0);
+    expect(mill.reserved).toBeCloseTo(got, 5);
+    expect(reservedStock(s, 'heartland', 'wheat')).toBeCloseTo(got, 5);
+    // a second mill can't use the first one's reserve
+    dispatch(s, { type: 'build', region: 'heartland', building: 'flourMill' });
+    const other = s.buildings.filter((b) => b.type === 'flourMill')[1];
+    s.regions.heartland.inventory.wheat = mill.reserved; // only reserved wheat in store
+    step(s);
+    expect(other.reason).toMatch(/Not enough wheat/);
+    // the dedicated mill uses it once running
+    mill.active = true;
+    const r0 = mill.reserved;
+    step(s);
+    expect(mill.reserved).toBeLessThan(r0);
+    // demolishing frees the field
+    dispatch(s, { type: 'demolish', buildingId: mill.id });
+    expect(f.supplies).toBe(null);
+    expect(f.planLocked).toBe(false);
+    reconcile(s);
   });
 });

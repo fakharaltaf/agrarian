@@ -1,6 +1,6 @@
 // Fields, soil, water, pests, growth, yield and storage.
 import { CONFIG, CROPS, GOODS, REGIONS, TICKS_PER_DAY, TICKS_PER_YEAR, type CropId, type GoodId, type RegionId } from './config';
-import { buildingsIn, clamp, freeSpace, has, log, post, round2, seasonOf, seedCost, severity, stored, todayBook } from './core';
+import { buildingsIn, clamp, factoryCrop, freeSpace, has, log, post, round2, seasonOf, seedCost, severity, stored, todayBook } from './core';
 import { executeSell } from './markets';
 import type { Field, GameState, HarvestBreakdown } from './types';
 
@@ -9,7 +9,7 @@ export function newField(s: GameState, region: RegionId, ha: number, cost: numbe
   return {
     id: s.fields.reduce((m, f) => Math.max(m, f.id), 0) + 1, cost, region, ha, crop: null, plantedAt: 0, plan: null,
     soil: { n: clamp(q, 0.3, 1.3), p: clamp(q, 0.3, 1.3), k: clamp(q, 0.3, 1.3), organic: clamp(0.8 * q, 0.2, 1) },
-    moisture: REGIONS[region].rain, planLocked: false, irrigated: false, greenhouse: false, frost: 0, cycleAt: 0, pest: 0, lastCrop: null, streak: 0, work: 0, acc: { temp: 0, water: 0, n: 0 }, yields: [],
+    moisture: REGIONS[region].rain, planLocked: false, supplies: null, irrigated: false, greenhouse: false, frost: 0, cycleAt: 0, pest: 0, lastCrop: null, streak: 0, work: 0, acc: { temp: 0, water: 0, n: 0 }, yields: [],
   };
 }
 
@@ -162,7 +162,11 @@ export function harvestField(s: GameState, f: Field): HarvestBreakdown | null {
     post(s, 'insurancePayout', payout, `Crop insurance: field ${f.id}`, f.region);
   }
   if (s.research.licensed.includes('droughtLicense')) post(s, 'royalties', -0.05 * b.units * s.markets[f.region][c]!.price, 'Seed licence royalty', f.region);
+  const before = s.regions[f.region].inventory[c];
   addGoods(s, f.region, c, b.units, b.quality);
+  // a dedicated field's harvest is held for its factory (only what actually fitted in storage)
+  const mill = f.supplies ? s.buildings.find((x) => x.id === f.supplies) : undefined;
+  if (mill && factoryCrop(mill) === c) mill.reserved += Math.max(0, s.regions[f.region].inventory[c] - before);
   return b;
 }
 

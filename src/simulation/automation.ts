@@ -3,7 +3,7 @@
 // through the same primitives as the player, and never below the cash reserve.
 import { ANIMALS, BUILDINGS, CONFIG, CROPS, GOODS, GOOD_IDS, REGIONS, REGION_IDS, TICKS_PER_DAY, type CropId, type GoodId, type RegionId } from './config';
 import { canGrow, expectedYield, fertility, fertilizeField, soilAdequacy } from './agriculture';
-import { buildingsIn, clamp, levelMult, debt, execOn, has, hour, nextId, post, seasonOf, seedCost, stored, totalAssets } from './core';
+import { buildingsIn, clamp, levelMult, reservedStock, debt, execOn, has, hour, nextId, post, seasonOf, seedCost, stored, totalAssets } from './core';
 import { avg30, executeBuy, executeSell, forecast, quoteBuy } from './markets';
 import { CONTRACT_SIZE, FUTURES_GOODS, openFutures, futuresPrice, closeFutures } from './finance';
 import { serviceCost, service } from './operations';
@@ -53,7 +53,7 @@ function runRule(s: GameState, r: Rule): string | null {
   const budget = Math.min(spendable(s), r.maxSpend || Infinity);
   switch (r.action) {
     case 'sell': {
-      const q = Math.floor(inv[r.actionGood] * (r.amountPct / 100));
+      const q = Math.floor((inv[r.actionGood] - reservedStock(s, r.region, r.actionGood)) * (r.amountPct / 100));
       if (q <= 0 || !s.markets[r.region][r.actionGood]) return null;
       const done = executeSell(s, r.region, r.actionGood, q);
       return done.qty ? `sold ${Math.round(done.qty)} ${GOODS[r.actionGood].name} for $${Math.round(done.net)}` : null;
@@ -200,7 +200,7 @@ function sellRound(s: GameState, r: RegionId, midday: boolean) {
   if (!full && !midday) return;
   const feedKeep = s.herds.reduce((a, h) => a + (h.region === r ? h.count * ANIMALS[h.animal].feedPerDay * 3 : 0), 0);
   for (const g of GOOD_IDS) {
-    const q = s.regions[r].inventory[g] - contractsNeed(s, r, g) - (FEEDS.includes(g) ? feedKeep : 0);
+    const q = s.regions[r].inventory[g] - contractsNeed(s, r, g) - reservedStock(s, r, g) - (FEEDS.includes(g) ? feedKeep : 0);
     if (q < 1 || !s.markets[r][g] || GOODS[g].kind === 'input') continue;
     const perishable = GOODS[g].spoilProper > 0.02;
     const good = s.markets[r][g]!.price >= P.sellDiscipline * avg30(s, r, g);

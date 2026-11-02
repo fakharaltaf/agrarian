@@ -2,7 +2,7 @@
 import {
   BUILDINGS, CONFIG, CROPS, DAYS_PER_YEAR, GOODS, OPEX_KINDS, REGIONS, REVENUE_KINDS, SEASONS, TICKS_PER_DAY, type BuildingType, type CropId, type GoodId, type LedgerKind, type RegionId,
 } from './config';
-import type { Division, EventKind, GameEvent, GameState, LogLevel, Market } from './types';
+import type { Building, Division, EventKind, GameEvent, GameState, LogLevel, Market } from './types';
 
 export const round2 = (n: number) => Math.round(n * 100) / 100;
 export const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
@@ -181,3 +181,17 @@ export function sumBooks(s: GameState, days: number, kinds?: LedgerKind[]) {
 export const activeEvents = (s: GameState, kind: EventKind, r?: RegionId, g?: GoodId): GameEvent[] =>
   s.events.filter((e) => e.kind === kind && s.tick >= e.start && s.tick < e.end && (!r || !e.region || e.region === r) && (!g || !e.good || e.good === g));
 export const severity = (s: GameState, kind: EventKind, r?: RegionId, g?: GoodId) => activeEvents(s, kind, r, g).reduce((a, e) => Math.max(a, e.severity), 0);
+
+// ---------------------------------------------------------------- dedicated supply
+
+/** The crop a factory takes in, if fields can grow it for that factory. */
+export const factoryCrop = (b: Building): CropId | null => {
+  const ins = Object.keys(BUILDINGS[b.type].recipe?.inputs ?? {}) as GoodId[];
+  return ins.length === 1 && ins[0] in CROPS ? (ins[0] as CropId) : null;
+};
+
+/** Stock of a good held for factories in a region (never more than is actually in store). Pass a factory to leave its own share out. */
+export function reservedStock(s: GameState, r: RegionId, g: GoodId, except?: Building) {
+  const held = s.buildings.reduce((a, b) => a + (b.region === r && b !== except && factoryCrop(b) === g ? b.reserved : 0), 0);
+  return Math.min(held, s.regions[r].inventory[g]);
+}

@@ -28,6 +28,7 @@ export interface Field {
   plantedAt: number;
   plan: CropId | null; // crop workers replant automatically
   planLocked: boolean; // player fixed the plan: managers and rules leave it alone
+  supplies: number | null; // building id this field grows for: its harvest is reserved for that factory
   soil: Soil;
   moisture: number;
   irrigated: boolean;
@@ -83,6 +84,7 @@ export interface Building {
   cost: number;
   depreciated: number;
   util: number; // smoothed capacity utilisation
+  reserved: number; // input units held in storage for this factory by its supplying fields
   reason: string; // current bottleneck, '' when running at capacity
   stats: { out: number; inCost: number; outValue: number; opCost: number }; // smoothed per-hour economics
 }
@@ -314,6 +316,7 @@ export type Action =
   | { type: 'harvest'; fieldId: number }
   | { type: 'setPlan'; fieldIds: number[]; crop: CropId | null }
   | { type: 'lockPlan'; fieldIds: number[]; locked: boolean }
+  | { type: 'supplyFactory'; fieldIds: number[]; buildingId: number | null }
   | { type: 'fertilize'; fieldIds: number[]; source: 'fertilizer' | 'manure' }
   | { type: 'irrigate'; fieldIds: number[] }
   | { type: 'sell'; region: RegionId; good: GoodId; qty: number }

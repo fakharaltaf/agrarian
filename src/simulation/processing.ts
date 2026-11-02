@@ -1,7 +1,7 @@
 // Factories, energy and building upkeep. One production model for every industry:
 // batches = min(capacity, scarcest input, output room, power) — Leontief, like a real line.
 import { BUILDINGS, GOODS, REGIONS, REGION_IDS, WORK_START, type GoodId, type RegionId } from './config';
-import { buildingDivision, clamp, electricityPrice, execOn, freeSpace, has, hour, levelMult, post, priceUsd, severity } from './core';
+import { buildingDivision, clamp, electricityPrice, execOn, freeSpace, has, hour, levelMult, post, priceUsd, reservedStock, severity } from './core';
 import { addGoods } from './agriculture';
 import type { Building, GameState } from './types';
 
@@ -56,7 +56,7 @@ function produce(s: GameState, b: Building, staff: number) {
     reason = 'Disease outbreak: production halted';
   }
   for (const [g, q] of Object.entries(rec.inputs) as [GoodId, number][]) {
-    const can = inv[g] / q;
+    const can = Math.max(0, inv[g] - reservedStock(s, b.region, g, b)) / q; // other factories' reserved stock is off limits
     if (can < batches) {
       batches = can;
       reason = `Not enough ${GOODS[g].name.toLowerCase()}`;
@@ -80,6 +80,7 @@ function produce(s: GameState, b: Building, staff: number) {
   const quality = ins.length ? ins.reduce((a, g) => a + (reg.quality[g] ?? 0.65), 0) / ins.length : 0.7;
   for (const [g, q] of Object.entries(rec.inputs) as [GoodId, number][]) {
     inv[g] -= q * batches;
+    b.reserved = Math.max(0, Math.min(b.reserved - q * batches, inv[g])); // own reserve is used first
     inCost += q * batches * priceUsd(s, b.region, g);
   }
   for (const [g, q] of Object.entries(rec.outputs) as [GoodId, number][]) {

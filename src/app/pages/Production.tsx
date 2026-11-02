@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { BUILDINGS, CROPS, GOODS, REGIONS, type BuildingType, type GoodId, type RegionId, TECH } from '../../simulation/config';
-import { electricityPrice, has, priceUsd, stored, sumBooks } from '../../simulation/core';
+import { electricityPrice, factoryCrop, has, levelMult, priceUsd, stored, sumBooks } from '../../simulation/core';
 import { buildingPrice, expectedYield } from '../../simulation/engine';
 import { buildingMargin, solarOutput } from '../../simulation/processing';
 import type { Building, GameState } from '../../simulation/types';
@@ -168,9 +168,23 @@ function BuildCard({ s }: { s: GameState }) {
 
 // ---------------------------------------------------------------- facilities
 
+/** Dedicated fields feeding this factory: how much land, what they grow per day vs what it uses, and stock held for it. */
+function SupplyNote({ s, g }: { s: GameState; g: Group }) {
+  const c = factoryCrop(g.list[0]);
+  if (!c) return null;
+  const fields = s.fields.filter((f) => g.list.some((b) => b.id === f.supplies));
+  const reserved = g.list.reduce((a, b) => a + b.reserved, 0);
+  if (!fields.length && reserved < 1) return <div className="small faint">No dedicated fields</div>;
+  const grow = fields.reduce((a, f) => a + (expectedYield(s, f, c) * 24) / CROPS[c].growthTicks, 0);
+  const need = g.list.reduce((a, b) => a + BUILDINGS[b.type].recipe!.inputs[c]! * BUILDINGS[b.type].recipe!.batchesPerHour * levelMult(b.level) * 24, 0);
+  return <div className="small" title="Fields dedicated to this factory, their expected harvest per day against what it uses at full capacity, and stock reserved for it">
+    🌾 {fields.length} field{fields.length === 1 ? '' : 's'} · ~{num(grow)}/day of {num(need)} needed{reserved >= 1 && <> · 🏭 {num(reserved)} reserved</>}
+  </div>;
+}
+
 function FacilitiesCard({ s, groups }: { s: GameState; groups: Group[] }) {
   const cols: Col<Group>[] = [
-    { key: 'name', label: 'Facility', sort: (g) => BUILDINGS[g.type].name, render: (g) => <div><b>{BUILDINGS[g.type].name}</b>{g.list.length > 1 && <span className="muted"> ×{g.list.length}</span>}<div className="muted small">{REGIONS[g.region].name}</div></div> },
+    { key: 'name', label: 'Facility', sort: (g) => BUILDINGS[g.type].name, render: (g) => <div><b>{BUILDINGS[g.type].name}</b>{g.list.length > 1 && <span className="muted"> ×{g.list.length}</span>}<div className="muted small">{REGIONS[g.region].name}</div><SupplyNote s={s} g={g} /></div> },
     { key: 'state', label: 'Running', render: (g) => <span className={`pill ${g.active === g.list.length ? 'good' : g.active ? 'warn' : ''}`}>{g.active === g.list.length ? 'Active' : g.active ? `${g.active}/${g.list.length} active` : 'Paused'}</span> },
     { key: 'util', label: 'Utilisation', sort: (g) => g.util, width: 130, render: (g) => BUILDINGS[g.type].recipe ? <div className="stack s"><span className="mono small">{pct0(g.util)}</span><Bar thin value={g.util} label="Utilisation" color={g.util >= 0.85 ? 'var(--up)' : g.util >= 0.5 ? 'var(--warn)' : 'var(--down)'} /></div> : <span className="faint">—</span> },
     { key: 'reason', label: 'Bottleneck', render: (g) => g.reason ? <span className={g.reason === 'Paused' ? 'muted' : 'warn'}>{g.reason}</span> : BUILDINGS[g.type].recipe ? <span className="up">At capacity</span> : <span className="faint">—</span> },

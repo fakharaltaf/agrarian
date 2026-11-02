@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { CONFIG, CROPS, GOODS, GOOD_IDS, REGIONS, type CropId, type GoodId, type RegionId } from '../../simulation/config';
-import { has, known, priceUsd, seasonOf, seedCost, stored } from '../../simulation/core';
+import { BUILDINGS, CONFIG, CROPS, GOODS, GOOD_IDS, REGIONS, type CropId, type GoodId, type RegionId } from '../../simulation/config';
+import { factoryCrop, has, known, reservedStock, priceUsd, seasonOf, seedCost, stored } from '../../simulation/core';
 import {
   canGrow, expectedYield, fertility, grade, greenhousePrice, growth, homePlotPrice, irrigationPrice, isManual, isMature, isReady, parcelPrice, qualityMult, quoteSell, seedShortfall, soilFactor, tempFactor, timingFactor, waterFactor, techFactor,
 } from '../../simulation/engine';
@@ -226,6 +226,7 @@ export function FieldPanel({ s, f, crop, setCrop }: { s: GameState; f: Field; cr
           </>
         )}
         {s.era >= 2 && <PlanPicker s={s} fields={[f]} />}
+        <SupplyPicker s={s} fields={[f]} />
         {s.era >= 2 && <SoilPanel s={s} f={f} />}
         {f.lastHarvest && (
           <Tip text="Why this harvest came out as it did — every factor is from the simulation."
@@ -269,7 +270,28 @@ function CropCard({ s, f, id, on, pick }: { s: GameState; f: Field; id: CropId; 
   );
 }
 
+/** Dedicate fields to one factory: they grow its crop, and the harvest is held in storage for it. */
+function SupplyPicker({ s, fields }: { s: GameState; fields: Field[] }) {
+  const r = fields[0].region;
+  const mills = s.buildings.filter((b) => b.region === r && factoryCrop(b) && fields.every((f) => f.region === r));
+  if (!mills.length) return null;
+  const value = fields.every((f) => f.supplies === fields[0].supplies) ? String(fields[0].supplies ?? '') : 'mixed';
+  const label = (b: (typeof mills)[number]) => `${BUILDINGS[b.type].name}${mills.filter((x) => x.type === b.type).length > 1 ? ` #${mills.filter((x) => x.type === b.type).indexOf(b) + 1}` : ''} (${GOODS[factoryCrop(b)!].name.toLowerCase()})`;
+  return (
+    <div className="row between wrap">
+      <span className="small muted">Supplies factory <Info text="A dedicated field always grows its factory's crop, and its harvest is reserved in storage for that factory: auto-selling, rules and the Sell buttons leave it alone, and the factory uses it first." /></span>
+      <select className="input" aria-label="Supplies factory" value={value} onChange={(e) => act({ type: 'supplyFactory', fieldIds: fields.map((f) => f.id), buildingId: e.target.value ? Number(e.target.value) : null })}>
+        {value === 'mixed' && <option value="mixed" disabled>Mixed</option>}
+        <option value="">None — sell on the market</option>
+        {mills.map((b) => <option key={b.id} value={b.id} disabled={!fields.every((f) => canGrow(f, factoryCrop(b)!))}>{label(b)}</option>)}
+      </select>
+    </div>
+  );
+}
+
 function PlanPicker({ s, fields }: { s: GameState; fields: Field[] }) {
+  const mill = fields.every((f) => f.supplies) ? s.buildings.find((b) => b.id === fields[0].supplies) : undefined;
+  if (mill) return <div className="row between wrap" data-coach="plan-picker"><span className="small muted">Crop plan</span><span className="small">🔒 {GOODS[factoryCrop(mill)!].name} for the {BUILDINGS[mill.type].name.toLowerCase()}</span></div>;
   const value = fields.every((f) => f.plan === fields[0].plan) ? fields[0].plan ?? '' : 'mixed';
   const locked = fields.every((f) => f.planLocked);
   return (
@@ -344,6 +366,7 @@ export function BatchPanel({ s, fields }: { s: GameState; fields: Field[] }) {
           <div className="kpi"><span>Ready</span><strong className="mono">{fields.filter((f) => isReady(s, f)).length}</strong></div>
         </div>
         <PlanPicker s={s} fields={fields} />
+        <SupplyPicker s={s} fields={fields} />
         <div className="row wrap">
           <button className="btn ghost sm" onClick={() => act({ type: 'fertilize', fieldIds: fields.map((f) => f.id), source: 'fertilizer' })}>Spread fertiliser on all</button>
           {unirrigated.length > 0 && <Confirm label={`Irrigate ${unirrigated.length} · ${money(irrigationPrice(s, unirrigated.reduce((a, f) => a + f.ha, 0)))}`} title="Install irrigation?" body={`Equip ${unirrigated.length} fields with irrigation. Water is then bought whenever soil moisture falls below ${pct0(s.automation.policies.irrigateMin)}.`} onConfirm={() => act({ type: 'irrigate', fieldIds: unirrigated.map((f) => f.id) })} />}
@@ -379,7 +402,8 @@ function SellRow({ s, r, g }: { s: GameState; r: RegionId; g: GoodId }) {
   const m = s.markets[r][g]!;
   const inv = s.regions[r].inventory[g];
   const [frac, setFrac] = useState(1);
-  const qty = Math.floor(inv * frac);
+  const held = reservedStock(s, r, g); // kept for factories by their dedicated fields
+  const qty = Math.floor((inv - held) * frac);
   const q = quoteSell(s, r, g, qty);
   const dayAgo = m.history[Math.max(0, m.history.length - 1 - 24 / CONFIG.priceHistoryEvery)] ?? m.price;
   const change = m.price / dayAgo - 1;
@@ -394,7 +418,7 @@ function SellRow({ s, r, g }: { s: GameState; r: RegionId; g: GoodId }) {
         </div>
       </div>
       <div className="row between wrap">
-        <span className="muted small">In store <b className="mono" style={{ color: 'var(--text)' }}>{num(inv)}</b>{known(s, 'quality') && inv >= 1 && <> · <GradePill q={s.regions[r].quality[g] ?? 0.65} /></>}</span>
+        <span className="muted small">In store <b className="mono" style={{ color: 'var(--text)' }}>{num(inv)}</b>{held >= 1 && <> · <span title="Reserved for your factories by their dedicated fields">🏭 {num(held)} reserved</span></>}{known(s, 'quality') && inv >= 1 && <> · <GradePill q={s.regions[r].quality[g] ?? 0.65} /></>}</span>
         <div className="row">
           <Seg label="Amount to sell" value={frac} onChange={setFrac} options={[{ v: 0.25, label: '25%' }, { v: 0.5, label: '50%' }, { v: 1, label: 'All' }]} />
           <button className="btn primary sm" disabled={!q.qty} onClick={() => act({ type: 'sell', region: r, good: g, qty: q.qty })}>{q.qty ? `Sell ${num(q.qty)} → ${money(q.net)}` : 'Nothing to sell'}</button>
