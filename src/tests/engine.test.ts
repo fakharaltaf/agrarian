@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CONFIG, CROPS, GOOD_IDS, REGION_IDS, TICKS_PER_DAY } from '../simulation/config';
 import { advance, createGame, dispatch, harvestField, quoteSell, step } from '../simulation/engine';
-import { capacity, debt, equity, post, sumBooks } from '../simulation/core';
+import { capacity, debt, equity, post, stored, sumBooks } from '../simulation/core';
 import { frostNight, isReady } from '../simulation/agriculture';
 const frostNightForTest = (s: GameState) => frostNight(s, 'heartland');
 import { balanceSheet, cashFlow, incomeStatement } from '../simulation/statements';
@@ -598,5 +598,26 @@ describe('orchard pests', () => {
     }
     expect(s.stats.harvests).toBeGreaterThan(5);
     expect(max).toBeLessThan(0.4);
+  });
+});
+
+describe('manager selling policy', () => {
+  it('sells when storage is over the cap at any hour, but keeps animal feed', () => {
+    const s = fresh(5);
+    toEra(s, 3);
+    give(s, 80000);
+    dispatch(s, { type: 'hire', region: 'heartland', role: 'manager', wageFactor: 1 });
+    s.herds.push({ region: 'heartland', animal: 'chickens', count: 100, health: 1, fed: 1 });
+    s.automation.policies.sellDiscipline = 1.3;
+    s.automation.policies.sellStorageCap = 0.5;
+    const cap = stored(s, 'heartland').cap.dry;
+    s.regions.heartland.inventory.wheat = cap * 0.9;
+    while (s.tick % 24 !== 8) step(s); // well before the midday round
+    const before = s.regions.heartland.inventory.wheat;
+    step(s);
+    expect(s.regions.heartland.inventory.wheat).toBeLessThan(before);
+    for (let i = 0; i < 48; i++) step(s);
+    expect(s.regions.heartland.inventory.wheat).toBeGreaterThan(0); // feed reserve kept
+    reconcile(s);
   });
 });

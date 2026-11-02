@@ -134,7 +134,7 @@ const needsGood = (m: RuleMetric) => m === 'price' || m === 'inventory';
 /** Goods that exist for this player right now. */
 const goodsFor = (s: GameState) => GOOD_IDS.filter((g) => {
   const k = GOODS[g].kind;
-  return k === 'input' || (k === 'crop' ? s.unlockedCrops.includes(g as CropId) : s.era >= 4);
+  return k === 'input' || (k === 'crop' ? s.unlockedCrops.includes(g as CropId) : s.era >= 4 || (s.stats.produced[g] ?? 0) > 0 || s.regions.heartland.inventory[g] > 0);
 });
 const factoryTypes = (s: GameState) => BUILDING_TYPES.filter((t) => BUILDINGS[t].recipe && s.era >= BUILDINGS[t].minEra);
 

@@ -1,12 +1,13 @@
 // Levels 3–5 of automation: managers run field cycles, rules react to conditions,
 // policies steer everything toward strategic objectives. Automation spends real money
 // through the same primitives as the player, and never below the cash reserve.
-import { BUILDINGS, CONFIG, CROPS, GOODS, REGIONS, REGION_IDS, TICKS_PER_DAY, type CropId, type GoodId, type RegionId } from './config';
+import { ANIMALS, BUILDINGS, CONFIG, CROPS, GOODS, GOOD_IDS, REGIONS, REGION_IDS, TICKS_PER_DAY, type CropId, type GoodId, type RegionId } from './config';
 import { canGrow, expectedYield, fertility, fertilizeField, soilAdequacy } from './agriculture';
 import { buildingsIn, clamp, debt, execOn, has, hour, nextId, post, seasonOf, seedCost, stored, totalAssets } from './core';
 import { avg30, executeBuy, executeSell, forecast, quoteBuy } from './markets';
 import { CONTRACT_SIZE, FUTURES_GOODS, openFutures, futuresPrice, closeFutures } from './finance';
 import { serviceCost, service } from './operations';
+import { FEEDS } from './livestock';
 import { buildingMargin } from './processing';
 import { shipGoods } from './logistics';
 import type { GameState, Rule } from './types';
@@ -150,6 +151,8 @@ export function policiesTick(s: GameState) {
   const h = hour(s);
   // Managers set rotation each time a field is empty.
   if (P.autoRotate) for (const f of s.fields) if (!f.crop && f.work === 0 && hasManager(s, f.region)) f.plan = chooseCrop(s, f) ?? f.plan;
+  // Storage is watched every hour (harvests land any time); price-led selling waits for the midday round.
+  if (P.sellDiscipline > 0) for (const r of REGION_IDS) if (hasManager(s, r)) sellRound(s, r, h === 12);
   if (h !== 12) return;
   // Midday rounds: fertiliser and selling discipline.
   for (const r of REGION_IDS) {
@@ -172,18 +175,22 @@ export function policiesTick(s: GameState) {
         fertilizeField(s, f, 'fertilizer');
       }
     }
-    if (P.sellDiscipline > 0) {
-      const st = stored(s, r);
-      const full = st.cap.dry > 0 && st.dry / st.cap.dry > P.sellStorageCap;
-      for (const g in s.regions[r].inventory) {
-        const q = s.regions[r].inventory[g as GoodId];
-        if (q < 1 || !s.markets[r][g as GoodId] || GOODS[g as GoodId].kind === 'input') continue;
-        if (contractsNeed(s, r, g as GoodId) >= q) continue;
-        const perishable = GOODS[g as GoodId].spoilProper > 0.02;
-        const good = s.markets[r][g as GoodId]!.price >= P.sellDiscipline * avg30(s, r, g as GoodId);
-        if (perishable || good || full) executeSell(s, r, g as GoodId, Math.max(0, q - contractsNeed(s, r, g as GoodId)) * (perishable ? 1 : 0.25), undefined);
-      }
-    }
+  }
+}
+
+/** Manager selling: storage over the cap → sell 25% of each good now; at midday also sell perishables and anything priced well. Keeps contract stock and 3 days of animal feed. */
+function sellRound(s: GameState, r: RegionId, midday: boolean) {
+  const P = s.automation.policies;
+  const st = stored(s, r);
+  const full = st.cap.dry > 0 && st.dry / st.cap.dry > P.sellStorageCap;
+  if (!full && !midday) return;
+  const feedKeep = s.herds.reduce((a, h) => a + (h.region === r ? h.count * ANIMALS[h.animal].feedPerDay * 3 : 0), 0);
+  for (const g of GOOD_IDS) {
+    const q = s.regions[r].inventory[g] - contractsNeed(s, r, g) - (FEEDS.includes(g) ? feedKeep : 0);
+    if (q < 1 || !s.markets[r][g] || GOODS[g].kind === 'input') continue;
+    const perishable = GOODS[g].spoilProper > 0.02;
+    const good = s.markets[r][g]!.price >= P.sellDiscipline * avg30(s, r, g);
+    if (full || (midday && (perishable || good))) executeSell(s, r, g, q * (perishable && midday ? 1 : 0.25), undefined);
   }
 }
 
