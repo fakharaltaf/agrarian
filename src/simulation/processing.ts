@@ -23,6 +23,7 @@ export function buildingsTick(s: GameState) {
       if (!b.active) {
         b.util *= 1 - EMA;
         b.reason = 'Paused';
+        b.stats = { out: 0, inCost: 0, outValue: 0, opCost: 0 }; // a paused factory pays no staff and makes nothing
         continue;
       }
       const staff = def.staffPerHour * s.macro.cpi * (execOn(s, buildingDivision(b.type)) ? 0.92 : 1) * (1 + 0.3 * ((b.level || 1) - 1));
