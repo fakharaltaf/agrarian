@@ -550,3 +550,16 @@ describe('farm advisor fee', () => {
     expect(sumBooks(s, 999, ['advisor'])).toBe(before);
   });
 });
+
+describe('full barn', () => {
+  it('tells the player when a hand harvest is sold off the field', () => {
+    const s = fresh();
+    const f = s.fields[0];
+    dispatch(s, { type: 'plant', fieldId: f.id, crop: 'wheat' });
+    advance(s, CROPS.wheat.growthTicks);
+    s.regions.heartland.inventory.corn = 1e6; // fill the barn
+    const r = dispatch(s, { type: 'harvest', fieldId: f.id });
+    expect(r.ok).toBe(true);
+    expect(r.ok && r.note).toMatch(/Barn full! \d+ wheat/);
+  });
+});

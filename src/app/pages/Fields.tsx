@@ -363,6 +363,7 @@ export function SellCard({ s, r }: { s: GameState; r: RegionId }) {
         <div className="stack s" style={{ gap: 3 }}>
           <div className="row between small"><span className="muted">Dry storage</span><span className="mono">{num(st.dry)} / {num(st.cap.dry)}</span></div>
           <Bar value={st.cap.dry ? st.dry / st.cap.dry : 1} thin color={st.dry > st.cap.dry * 0.85 ? 'var(--down)' : undefined} label="Dry storage used" />
+          {st.dry >= st.cap.dry * 0.85 && <p className="callout warn small">{st.dry >= st.cap.dry - 1 ? <><b>Your barn is full.</b> Anything you harvest now is sold straight off the field at a knock-down price — sell some stock first to make room.</> : <><b>Your barn is almost full.</b> Sell some stock before your next harvest, or it will be sold off the field cheaply.</>}</p>}
           {st.cap.cold > 0 && <div className="row between small"><span className="muted">Cold storage</span><span className="mono">{num(st.cold)} / {num(st.cap.cold)}</span></div>}
         </div>
         {rows.map((g) => <SellRow key={g} s={s} r={r} g={g} />)}

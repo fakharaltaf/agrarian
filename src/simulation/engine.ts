@@ -173,8 +173,12 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       if (!f || !f.crop) return fail('Nothing to harvest.');
       if (!isManual(f)) return fail('This field is too large to harvest by hand — workers and harvesters do it.');
       if (!isReady(s, f)) return fail('Crop has not matured yet.');
+      const g = f.crop as GoodId, inv0 = s.regions[f.region].inventory[g], made0 = s.stats.produced[g] ?? 0, cash0 = s.cash, forced0 = s.stats.forcedSales;
       harvestField(s, f);
-      return ok();
+      if (s.stats.forcedSales === forced0) return ok();
+      // storage was full: tell the player every time, not just in the throttled log
+      const sold = (s.stats.produced[g] ?? 0) - made0 - (s.regions[f.region].inventory[g] - inv0);
+      return ok(`Barn full! ${Math.round(sold)} ${GOODS[g].name.toLowerCase()} had to be sold straight off the field for $${(s.cash - cash0).toFixed(2)}. Sell some stock or build more storage to keep your harvest.`);
     }
     case 'setPlan': {
       if (s.era < 2) return fail('Crop plans arrive with your first workers.');
