@@ -74,13 +74,14 @@ export function laborTick(s: GameState) {
         machineHour(s, m, tasks, t, machineRate(s, m) * (0.7 + 0.3 * p) * perkFor(t.kind));
         continue;
       }
-      // spread out: each hand takes the next field nobody is on; only when every field is covered do they double up
-      const t = tasks.find((x) => !x.done && !x.taken) ?? tasks.find((x) => !x.done);
+      // a free seat on an orchard platform comes first: it makes fruit-picking several times faster
+      const seatFor = (x: Task) => x.kind === 'harvest' ? s.machines.find((m) => m.region === r && !m.broken && MACHINES[m.type].assist && MACHINES[m.type].crops!.includes(x.f.crop!) && (riders.get(m.id) ?? 0) < MACHINES[m.type].riders!) : undefined;
+      // otherwise spread out: each hand takes the next field nobody is on; only when every field is covered do they double up
+      const t = tasks.find((x) => !x.done && seatFor(x)) ?? tasks.find((x) => !x.done && !x.taken) ?? tasks.find((x) => !x.done);
       if (!t) continue;
       t.taken = true;
       w.task = t.f.id;
-      // a free spot on an orchard platform makes fruit-picking several times faster
-      const plat = t.kind === 'harvest' ? s.machines.find((x) => x.region === r && !x.broken && MACHINES[x.type].assist && MACHINES[x.type].crops!.includes(t.f.crop!) && (riders.get(x.id) ?? 0) < MACHINES[x.type].riders!) : undefined;
+      const plat = seatFor(t);
       if (plat) {
         if (!riders.has(plat.id)) runMachine(s, plat);
         riders.set(plat.id, (riders.get(plat.id) ?? 0) + 1);
@@ -134,6 +135,7 @@ export const machineRate = (s: GameState, m: Machine) => (MACHINES[m.type].haPer
 
 /** Adds progress to a task; `by` is the machine that picked it (fruit machines can bruise the crop). */
 function work(s: GameState, t: Task, progress: number, by: Machine | null) {
+  if (t.kind === 'harvest' && t.f.work === 0) t.f.pickStart = s.tick;
   t.f.work += progress;
   if (t.f.work < 1) return;
   t.done = true;

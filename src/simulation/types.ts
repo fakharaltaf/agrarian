@@ -39,6 +39,7 @@ export interface Field {
   lastCrop: CropId | null;
   streak: number; // consecutive harvests of the same crop
   work: number; // 0..1 progress of the pending labour task
+  pickStart?: number; // tick the current harvest started (big fields take days to pick)
   acc: { temp: number; water: number; n: number }; // conditions accumulated over the growing period
   lastHarvest?: HarvestBreakdown;
   yields: number[]; // units/ha of recent harvests

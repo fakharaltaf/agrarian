@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { BUILDINGS, CONFIG, CROPS, GOODS, GOOD_IDS, REGIONS, type CropId, type GoodId, type RegionId } from '../../simulation/config';
+import { BUILDINGS, CONFIG, CROPS, GOODS, GOOD_IDS, MACHINES, REGIONS, WORK_END, WORK_START, type CropId, type GoodId, type RegionId } from '../../simulation/config';
 import { factoryCrop, has, known, reservedStock, priceUsd, seasonOf, seedCost, stored } from '../../simulation/core';
 import {
   canGrow, expectedYield, fertility, grade, greenhousePrice, growth, homePlotPrice, irrigationPrice, isManual, isMature, isReady, parcelPrice, qualityMult, quoteSell, seedShortfall, soilFactor, tempFactor, timingFactor, waterFactor, techFactor,
@@ -207,6 +207,7 @@ export function FieldPanel({ s, f, crop, setCrop }: { s: GameState; f: Field; cr
                 {ready ? `Harvest ${GOODS[f.crop].name.toLowerCase()}` : 'Not ready yet'}
               </button>
             ) : <p className="muted small">Harvested by your workers and machines when ready.</p>}
+            {!manual && !CROPS[f.crop].machineHarvest && <PickTime s={s} f={f} />}
             {CROPS[f.crop].perennial && <Confirm label="Uproot orchard" className="btn ghost sm" title="Uproot this orchard?" body="The trees are removed and the field becomes fallow. The years of growth are lost." onConfirm={() => act({ type: 'clearField', fieldId: f.id })} confirmLabel="Uproot" />}
           </>
         ) : (
@@ -267,6 +268,27 @@ function CropCard({ s, f, id, on, pick }: { s: GameState; f: Field; id: CropId; 
       {!c.frostHardy && !f.greenhouse && (seasonOf(s) === 'Winter' || seasonOf(s) === 'Autumn') && <span className="small warn">❄ Frost-tender</span>}
       {s.seeds[id] > 0 && <span className="small up">{num(s.seeds[id])} seeds in stock</span>}
     </button>
+  );
+}
+
+/** Fruit is picked by hand (or fruit machines): how long one harvest takes with today's crew, against how often it ripens. */
+function PickTime({ s, f }: { s: GameState; f: Field }) {
+  const c = f.crop!;
+  const hands = s.workers.filter((w) => w.region === f.region && w.role === 'hand').length;
+  const mine = s.machines.filter((m) => m.region === f.region && !m.broken && MACHINES[m.type].crops?.includes(c));
+  const seats = Math.min(hands, mine.reduce((a, m) => a + (MACHINES[m.type].riders ?? 0), 0));
+  const assist = mine.find((m) => MACHINES[m.type].assist)?.type;
+  const drivers = Math.min(hands - seats, mine.filter((m) => MACHINES[m.type].haPerHour).length);
+  const haPerHour = seats * (assist ? MACHINES[assist].assist! : 1) / CROPS[c].harvestHours + (hands - seats - drivers) / CROPS[c].harvestHours
+    + mine.filter((m) => MACHINES[m.type].haPerHour).slice(0, drivers).reduce((a, m) => a + MACHINES[m.type].haPerHour!, 0);
+  const days = haPerHour > 0 ? f.ha / haPerHour / (WORK_END - WORK_START) : Infinity;
+  const cycle = CROPS[c].growthTicks / 24;
+  const slow = days > cycle * 0.5;
+  return (
+    <p className={`small ${slow ? 'warn' : 'muted'}`} title="Assumes every hand in the region works this orchard, with average skill. Fruit left on the tree after ripening loses yield.">
+      {Number.isFinite(days) ? <>Picking takes ~{days < 1 ? `${Math.max(1, Math.round(days * (WORK_END - WORK_START)))} h` : `${days.toFixed(1)} days`} with your {hands} hand{hands === 1 ? '' : 's'}{seats ? ` (${seats} on ${assist ? 'platforms' : 'machines'})` : ''}; fruit ripens every {cycle} days.</> : 'No hands to pick this fruit — hire some.'}
+      {slow && ` ${c === 'grapes' ? 'Add hands or a grape harvester' : 'Add hands or orchard platforms'} to pick before it over-ripens.`}
+    </p>
   );
 }
 

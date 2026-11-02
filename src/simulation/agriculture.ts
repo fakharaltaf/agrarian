@@ -59,7 +59,9 @@ export function tempFactor(s: GameState, f: Field, c: CropId) {
 export const techFactor = (s: GameState) => (has(s, 'improvedSeeds') ? 1.1 : 1) * (has(s, 'hybrids') ? 1.2 : 1) * (s.research.licensed.includes('droughtLicense') ? 1.03 : 1);
 export const timingFactor = (s: GameState, f: Field) => {
   if (!f.crop) return 1;
-  const late = s.tick - readyAt(f) - CONFIG.overripeGrace;
+  // fruit is picked steadily, so a long harvest counts its average lateness, not the last hour's
+  const picking = f.pickStart !== undefined && f.work > 0 ? (s.tick - Math.max(f.pickStart, readyAt(f))) / 2 : 0;
+  const late = s.tick - readyAt(f) - CONFIG.overripeGrace - picking;
   return late > 0 ? Math.max(0.4, 1 - late * CONFIG.overripeLoss) : 1;
 };
 

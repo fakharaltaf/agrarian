@@ -782,3 +782,27 @@ describe('fruit machines', () => {
     expect(a.s.machines[0].usedThisTick || a.s.machines[0].task).toBeFalsy();
   });
 });
+
+describe('orchard crew', () => {
+  it('hands fill free platform seats before spreading to other fields, and long picks are scored fairly', () => {
+    const s = fresh(14);
+    toEra(s, 5);
+    give(s, 5e6);
+    s.unlockedCrops.push('apples');
+    dispatch(s, { type: 'buyParcel', region: 'heartland', ha: 500 });
+    for (let i = 0; i < 8; i++) dispatch(s, { type: 'buyPlot' });
+    const f = s.fields.find((x) => x.ha === 500)!;
+    for (const g of s.fields) if (g !== f) g.plan = 'wheat';
+    for (let i = 0; i < 12; i++) dispatch(s, { type: 'hire', region: 'heartland', role: 'hand', wageFactor: 1 });
+    for (let i = 0; i < 3; i++) dispatch(s, { type: 'buyMachine', region: 'heartland', machine: 'orchardPlatform', lease: false });
+    for (const w of s.workers) (w.skill = 1), (w.morale = 1);
+    s.automation.policies.autoRepair = 0.8;
+    f.crop = 'apples'; f.plan = 'apples'; f.plantedAt = s.tick - 60 * 24; f.cycleAt = s.tick - CROPS.apples.growthTicks; f.work = 0;
+    while (s.tick % 24 !== 10) step(s);
+    expect(s.workers.filter((w) => w.task === f.id).length).toBe(12); // 3 platforms × 4 seats
+    let timingFactorAtHarvest = 0;
+    while (!f.lastHarvest && s.tick < 24 * 400) step(s);
+    timingFactorAtHarvest = f.lastHarvest!.timing;
+    expect(timingFactorAtHarvest).toBeGreaterThan(0.6); // a ~6-day pick isn't scored as fully over-ripe
+  });
+});
