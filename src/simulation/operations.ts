@@ -81,13 +81,13 @@ export function laborTick(s: GameState) {
 function buildTasks(s: GameState, r: RegionId): Task[] {
   const harvest: Task[] = [];
   const plant: Task[] = [];
-  const budget = autoBudget(s);
+  const budget = essentialBudget(s);
   for (const f of s.fields) {
     if (f.region !== r) continue;
     if (isReady(s, f)) harvest.push({ f, kind: 'harvest' });
     else if (!f.crop && f.plan) {
       if (budget > 0) plant.push({ f, kind: 'plant' });
-      else warnOnce(s, `noplant-${r}`, 'warning', s.automation.policies.cashReserve > 0 ? `Workers can't buy seed to replant: cash is below your $${Math.round(s.automation.policies.cashReserve).toLocaleString()} reserve. Wages keep running.` : `Workers can't buy seed: your overdraft is exhausted. Sell stock or assets — wages keep running.`, 'finance', 48);
+      else warnOnce(s, `noplant-${r}`, 'warning', `Workers can't buy seed: your overdraft is exhausted. Sell stock or assets — wages keep running.`, 'finance', 48);
     }
   }
   harvest.sort((a, b) => a.f.plantedAt + CROPS[a.f.crop!].growthTicks - (b.f.plantedAt + CROPS[b.f.crop!].growthTicks));
@@ -103,7 +103,7 @@ function work(s: GameState, t: Task, progress: number, m: Machine | null) {
   t.done = true;
   if (t.kind === 'harvest') harvestField(s, t.f);
   else {
-    const err = plantField(s, t.f, t.f.plan!, autoBudget(s));
+    const err = plantField(s, t.f, t.f.plan!, essentialBudget(s));
     if (err) t.f.work = 0;
   }
   t.f.work = 0;
@@ -172,5 +172,7 @@ export function workforceDaily(s: GameState) {
 
 /** Seed is financed on the operating line like on a real farm: workers may plant into half the overdraft, never below the reserve. */
 export const autoBudget = (s: GameState) => (s.automation.policies.cashReserve > 0 ? s.cash - s.automation.policies.cashReserve : s.cash + overdraftLimit(s) * 0.5);
+/** Seed and feed ignore the cash reserve: idle hands and hungry animals cost more than they save. */
+export const essentialBudget = (s: GameState) => s.cash + overdraftLimit(s) * 0.5;
 
 export const isWorkHour = (s: GameState) => hour(s) >= WORK_START && hour(s) < WORK_END;

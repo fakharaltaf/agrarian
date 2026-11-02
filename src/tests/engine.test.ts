@@ -563,3 +563,20 @@ describe('full barn', () => {
     expect(r.ok && r.note).toMatch(/Barn full! \d+ wheat/);
   });
 });
+
+describe('cash reserve', () => {
+  it('never stops hands replanting planned fields', () => {
+    const s = fresh(3);
+    toEra(s, 3);
+    give(s, 5000);
+    for (let i = 0; i < 3; i++) dispatch(s, { type: 'buyPlot' });
+    for (const f of s.fields) f.plan = 'wheat';
+    dispatch(s, { type: 'hire', region: 'heartland', role: 'hand', wageFactor: 1 });
+    dispatch(s, { type: 'hire', region: 'heartland', role: 'hand', wageFactor: 1 });
+    s.automation.policies.cashReserve = s.cash + 5000;
+    const p = s.stats.plantings;
+    advance(s, 72);
+    expect(s.stats.plantings - p).toBeGreaterThan(4);
+    reconcile(s);
+  });
+});

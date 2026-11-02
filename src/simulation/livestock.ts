@@ -4,7 +4,7 @@ import { ANIMALS, GOODS, REGIONS, type AnimalId, type GoodId, type RegionId } fr
 import { addGoods } from './agriculture';
 import { buildingsIn, clamp, levelMult, post, severity } from './core';
 import { executeBuy, executeSell, quoteBuy } from './markets';
-import { autoBudget } from './operations';
+import { essentialBudget } from './operations';
 import { warnOnce } from './agriculture';
 import type { GameState, Herd } from './types';
 
@@ -32,7 +32,7 @@ export function livestockDaily(s: GameState) {
     }
     if (got < need && s.automation.policies.autoFeed && s.era >= 2) {
       const q = quoteBuy(s, h.region, 'feed', need - got);
-      if (q.qty > 0 && q.net <= autoBudget(s)) {
+      if (q.qty > 0 && q.net <= essentialBudget(s)) {
         const bought = executeBuy(s, h.region, 'feed', q.qty, `Feed for ${def.name.toLowerCase()}`).qty;
         inv.feed -= bought; // eaten straight away
         got += bought;

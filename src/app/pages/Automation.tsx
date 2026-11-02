@@ -53,7 +53,7 @@ function PoliciesCard({ s }: { s: GameState }) {
   const lacking = regions.filter((r) => !hasManager(s, r));
   const managers = lacking.length ? <>Managers do this. <span className="warn">No manager in {lacking.map((r) => REGIONS[r].name).join(', ')}</span> — <button className="btn ghost sm" onClick={() => go('workers')}>Hire one</button></> : execOn(s, 'crops') ? 'Run by your head of crops in every region.' : 'Managers do this in every region you operate.';
   const reserveNote = P.cashReserve > 0
-    ? <>Automation will spend down to {money(P.cashReserve)}; currently {money(Math.max(0, autoBudget(s)))} available.</>
+    ? <>Automation will spend down to {money(P.cashReserve)}; currently {money(Math.max(0, autoBudget(s)))} available. Seed for planned fields and animal feed are always bought, so your crew never stands idle.</>
     : <>With no reserve, workers may plant on up to half your overdraft ({money(overdraftLimit(s) * 0.5)}). Seed budget now: {money(autoBudget(s))}.</>;
   return (
     <Card title="Policies" info="Standing orders. Managers, maintenance crews and the irrigation system follow them every day. Automation never spends below the cash reserve.">
