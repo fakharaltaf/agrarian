@@ -100,7 +100,7 @@ function runRule(s: GameState, r: Rule): string | null {
     case 'setPlan': {
       const c = r.actionGood as CropId;
       if (!CROPS[c] || !s.unlockedCrops.includes(c)) return null;
-      const fs = s.fields.filter((f) => f.region === r.region && f.plan !== c && canGrow(f, c));
+      const fs = s.fields.filter((f) => f.region === r.region && !f.planLocked && f.plan !== c && canGrow(f, c));
       fs.forEach((f) => (f.plan = c));
       return fs.length ? `planned ${GOODS[c].name} on ${fs.length} field(s)` : null;
     }
@@ -164,7 +164,7 @@ export function policiesTick(s: GameState) {
   const P = s.automation.policies;
   const h = hour(s);
   // Managers set rotation each time a field is empty.
-  if (P.autoRotate) for (const f of s.fields) if (!f.crop && f.work === 0 && hasManager(s, f.region)) f.plan = chooseCrop(s, f) ?? f.plan;
+  if (P.autoRotate) for (const f of s.fields) if (!f.crop && !f.planLocked && f.work === 0 && hasManager(s, f.region)) f.plan = chooseCrop(s, f) ?? f.plan;
   // Storage is watched every hour (harvests land any time); price-led selling waits for the midday round.
   if (P.sellDiscipline > 0) for (const r of REGION_IDS) if (hasManager(s, r)) sellRound(s, r, h === 12);
   if (h !== 12) return;

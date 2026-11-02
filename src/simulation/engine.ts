@@ -190,6 +190,10 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       }
       return n ? ok() : fail('That crop cannot grow on the selected fields.');
     }
+    case 'lockPlan': {
+      for (const id of a.fieldIds) { const f = field(s, id); if (f) f.planLocked = a.locked; }
+      return ok();
+    }
     case 'fertilize': {
       if (s.era < 2) return fail('Fertiliser is not available yet.');
       const errs: string[] = [];

@@ -7,6 +7,7 @@ const frostNightForTest = (s: GameState) => frostNight(s, 'heartland');
 import { balanceSheet, cashFlow, incomeStatement } from '../simulation/statements';
 import { CONTRACT_SIZE, futuresPrice } from '../simulation/finance';
 import { runScenario } from '../simulation/scenario';
+import { chooseCrop } from '../simulation/automation';
 import { botAct, type Strategy } from './bot';
 import type { GameState } from '../simulation/types';
 
@@ -667,5 +668,25 @@ describe('manager crop choice', () => {
     expect(millValue(s, 'heartland', 'wheat')).toBeGreaterThan(s.markets.heartland.wheat!.price);
     s.regions.heartland.inventory.wheat = 1e5; // plenty waiting: no premium
     expect(millValue(s, 'heartland', 'wheat')).toBe(0);
+  });
+});
+
+describe('plan lock', () => {
+  it('managers on auto-rotate never change a locked plan', () => {
+    const s = fresh(9);
+    toEra(s, 3);
+    give(s, 50000);
+    dispatch(s, { type: 'buyPlot' });
+    dispatch(s, { type: 'hire', region: 'heartland', role: 'manager', wageFactor: 1 });
+    s.automation.policies.autoRotate = true;
+    const [a, b] = s.fields;
+    for (const f of [a, b]) (f.crop = null), (f.work = 0);
+    const best = chooseCrop(s, b);
+    const other = s.unlockedCrops.find((c) => c !== best && !CROPS[c].perennial)!; // a crop the manager would not pick
+    dispatch(s, { type: 'setPlan', fieldIds: [a.id, b.id], crop: other });
+    dispatch(s, { type: 'lockPlan', fieldIds: [a.id], locked: true });
+    step(s);
+    expect(a.plan).toBe(other);
+    expect(b.plan).not.toBe(other);
   });
 });

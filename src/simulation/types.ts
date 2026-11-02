@@ -27,6 +27,7 @@ export interface Field {
   crop: CropId | null;
   plantedAt: number;
   plan: CropId | null; // crop workers replant automatically
+  planLocked: boolean; // player fixed the plan: managers and rules leave it alone
   soil: Soil;
   moisture: number;
   irrigated: boolean;
@@ -312,6 +313,7 @@ export type Action =
   | { type: 'plant'; fieldId: number; crop: CropId }
   | { type: 'harvest'; fieldId: number }
   | { type: 'setPlan'; fieldIds: number[]; crop: CropId | null }
+  | { type: 'lockPlan'; fieldIds: number[]; locked: boolean }
   | { type: 'fertilize'; fieldIds: number[]; source: 'fertilizer' | 'manure' }
   | { type: 'irrigate'; fieldIds: number[] }
   | { type: 'sell'; region: RegionId; good: GoodId; qty: number }

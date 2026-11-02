@@ -9,7 +9,7 @@ export function newField(s: GameState, region: RegionId, ha: number, cost: numbe
   return {
     id: s.fields.reduce((m, f) => Math.max(m, f.id), 0) + 1, cost, region, ha, crop: null, plantedAt: 0, plan: null,
     soil: { n: clamp(q, 0.3, 1.3), p: clamp(q, 0.3, 1.3), k: clamp(q, 0.3, 1.3), organic: clamp(0.8 * q, 0.2, 1) },
-    moisture: REGIONS[region].rain, irrigated: false, greenhouse: false, frost: 0, cycleAt: 0, pest: 0, lastCrop: null, streak: 0, work: 0, acc: { temp: 0, water: 0, n: 0 }, yields: [],
+    moisture: REGIONS[region].rain, planLocked: false, irrigated: false, greenhouse: false, frost: 0, cycleAt: 0, pest: 0, lastCrop: null, streak: 0, work: 0, acc: { temp: 0, water: 0, n: 0 }, yields: [],
   };
 }
 

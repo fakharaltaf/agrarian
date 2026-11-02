@@ -271,9 +271,12 @@ function CropCard({ s, f, id, on, pick }: { s: GameState; f: Field; id: CropId; 
 
 function PlanPicker({ s, fields }: { s: GameState; fields: Field[] }) {
   const value = fields.every((f) => f.plan === fields[0].plan) ? fields[0].plan ?? '' : 'mixed';
+  const locked = fields.every((f) => f.planLocked);
   return (
     <div className="row between wrap" data-coach="plan-picker">
-      <span className="small muted">Crop plan <Info text="Workers plant fields that have a plan, and keep replanting the same crop after each harvest. With a manager and the auto-rotate policy, the manager chooses for you." /></span>
+      <span className="small muted">Crop plan <Info text="Workers plant fields that have a plan, and keep replanting the same crop after each harvest. With a manager and the auto-rotate policy, the manager chooses for you — unless you lock the plan." /></span>
+      {s.era >= 3 && <button className={`btn ${locked ? 'primary' : 'ghost'} sm`} aria-pressed={locked} title={locked ? 'Locked: managers and rules keep this plan. Click to unlock.' : 'Lock this plan so managers and rules never change it'}
+        onClick={() => act({ type: 'lockPlan', fieldIds: fields.map((f) => f.id), locked: !locked })}>{locked ? '🔒 Locked' : '🔓 Lock'}</button>}
       <select className="input" aria-label="Crop plan" value={value} onChange={(e) => act({ type: 'setPlan', fieldIds: fields.map((f) => f.id), crop: (e.target.value || null) as CropId | null })}>
         {value === 'mixed' && <option value="mixed" disabled>Mixed</option>}
         <option value="">No plan (leave fallow)</option>
