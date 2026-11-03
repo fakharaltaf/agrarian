@@ -272,6 +272,19 @@ describe('automation & research', () => {
     advance(s, TICKS_PER_DAY * 4);
     expect(s.research.done).toContain('soilTesting');
   });
+
+  it('researching drought resistance ends the licence royalty', () => {
+    const s = fresh();
+    toEra(s, 4);
+    give(s, 1e6);
+    dispatch(s, { type: 'build', region: 'heartland', building: 'lab' });
+    s.research.done.push('improvedSeeds');
+    s.research.licensed.push('droughtLicense');
+    expect(dispatch(s, { type: 'research', tech: 'droughtResistant' }).ok).toBe(true);
+    advance(s, TICKS_PER_DAY * 40);
+    expect(s.research.done).toContain('droughtResistant');
+    expect(s.research.licensed).not.toContain('droughtLicense');
+  });
 });
 
 describe('determinism, persistence and speed', () => {

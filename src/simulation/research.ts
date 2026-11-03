@@ -36,6 +36,7 @@ export function researchDaily(s: GameState) {
   if (a.progress >= 1) {
     s.research.done.push(a.id);
     s.research.active = null;
+    if (a.id === 'droughtResistant') s.research.licensed = s.research.licensed.filter((x) => x !== 'droughtLicense'); // own variety replaces the royalty licence
     log(s, 'opportunity', `Research complete: ${TECH[a.id].name}. ${TECH[a.id].benefit}`, 'research');
   }
 }
