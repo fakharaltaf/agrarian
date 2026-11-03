@@ -320,10 +320,10 @@ function LineCard({ s, g, groups }: { s: GameState; g: Group; groups: Group[] })
 }
 
 function LinesCard({ s, groups }: { s: GameState; groups: Group[] }) {
-  const rank = { bad: 0, warn: 1, ok: 2, off: 3 } as const;
-  const rows = groups.map((g) => ({ g, dot: lineState(s, g, groups).dot })).sort((a, b) => rank[a.dot] - rank[b.dot] || b.g.margin - a.g.margin);
+  // fixed order (name, then region) so cards never trade places as numbers move; colour carries the status
+  const rows = [...groups].sort((a, b) => BUILDINGS[a.type].name.localeCompare(BUILDINGS[b.type].name) || a.region.localeCompare(b.region)).map((g) => ({ g }));
   return (
-    <Card title="Production lines" info="Each line shows what goes in, how busy the facility is, what comes out, and whether it earns more than it costs. Problems sort to the top. Inputs are valued at what you could have sold them for.">
+    <Card title="Production lines" info="Each line shows what goes in, how busy the facility is, what comes out, and whether it earns more than it costs. Inputs are valued at what you could have sold them for.">
       <div className="stack">{rows.map(({ g }) => <LineCard key={g.key} s={s} g={g} groups={groups} />)}</div>
     </Card>
   );
