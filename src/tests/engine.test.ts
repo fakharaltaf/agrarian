@@ -654,6 +654,20 @@ describe('tractor', () => {
     expect(s.stats.plantings - p).toBe(4);
     reconcile(s);
   });
+
+  it('extra tractors join a big field instead of standing idle', () => {
+    const s = fresh(7);
+    toEra(s, 3);
+    give(s, 200000);
+    for (let i = 0; i < 3; i++) dispatch(s, { type: 'buyMachine', region: 'heartland', machine: 'tractor', lease: false });
+    for (let i = 0; i < 3; i++) dispatch(s, { type: 'hire', region: 'heartland', role: 'hand', wageFactor: 1 });
+    while (s.tick % 24 !== 9) step(s);
+    s.fields.length = 1;
+    Object.assign(s.fields[0], { crop: null, work: 0, plan: 'wheat', ha: 40 });
+    step(s);
+    expect(s.machines.filter((m) => m.usedThisTick).length).toBe(3);
+    reconcile(s);
+  });
 });
 
 describe('manager crop choice', () => {
