@@ -199,7 +199,7 @@ table.t td { padding: 8px 10px; border-bottom: 1px solid color-mix(in srgb, var(
 table.t tr:last-child td { border-bottom: 0; }
 table.t tr.sel td { background: var(--accent-soft); }
 table.t tbody tr:hover td { background: color-mix(in srgb, var(--surface-2) 60%, transparent); }
-table.t td.r, table.t th.r { text-align: right; }
+table.t td.r, table.t th.r { text-align: right; white-space: nowrap; }
 table.t td.num { text-align: right; }
 
 /* ---------- tooltips ---------- */

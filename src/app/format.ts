@@ -3,14 +3,14 @@ import { DAYS_PER_SEASON, DAYS_PER_YEAR, SEASONS, TICKS_PER_DAY } from '../simul
 const usd2 = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
 const usd0 = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
 
-/** $1,234.56 below $10k, $12,345 below $1M, then $1.23M / $4.5B. */
+/** $12.34 below $100, $1,234 below $1M, then $1.23M / $4.5B. */
 export function money(n: number, compact = true) {
   if (!Number.isFinite(n)) return '—';
   if (Math.abs(n) < 0.005) n = 0; // never show "−$0.00"
   const a = Math.abs(n);
   if (compact && a >= 1e9) return `${n < 0 ? '−' : ''}$${(a / 1e9).toFixed(2)}B`;
   if (compact && a >= 1e6) return `${n < 0 ? '−' : ''}$${(a / 1e6).toFixed(2)}M`;
-  return (a >= 10000 ? usd0 : usd2).format(n).replace('-', '−');
+  return (a >= 100 ? usd0 : usd2).format(n).replace('-', '−');
 }
 /** Unit prices always keep cents. */
 export const price = (n: number) => (Number.isFinite(n) ? usd2.format(n) : '—');

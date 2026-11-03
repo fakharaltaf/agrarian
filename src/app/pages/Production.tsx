@@ -184,15 +184,15 @@ function SupplyNote({ s, g }: { s: GameState; g: Group }) {
 
 function FacilitiesCard({ s, groups }: { s: GameState; groups: Group[] }) {
   const cols: Col<Group>[] = [
-    { key: 'name', label: 'Facility', sort: (g) => BUILDINGS[g.type].name, render: (g) => <div><b>{BUILDINGS[g.type].name}</b>{g.list.length > 1 && <span className="muted"> ×{g.list.length}</span>}<div className="muted small">{REGIONS[g.region].name}</div><SupplyNote s={s} g={g} /></div> },
+    { key: 'name', label: 'Facility', width: 190, sort: (g) => BUILDINGS[g.type].name, render: (g) => <div><b>{BUILDINGS[g.type].name}</b>{g.list.length > 1 && <span className="muted"> ×{g.list.length}</span>}<div className="muted small">{REGIONS[g.region].name}</div><SupplyNote s={s} g={g} /></div> },
     { key: 'state', label: 'Running', render: (g) => <span className={`pill ${g.active === g.list.length ? 'good' : g.active ? 'warn' : ''}`}>{g.active === g.list.length ? 'Active' : g.active ? `${g.active}/${g.list.length} active` : 'Paused'}</span> },
     { key: 'util', label: 'Utilisation', sort: (g) => g.util, width: 130, render: (g) => BUILDINGS[g.type].recipe ? <div className="stack s"><span className="mono small">{pct0(g.util)}</span><Bar thin value={g.util} label="Utilisation" color={g.util >= 0.85 ? 'var(--up)' : g.util >= 0.5 ? 'var(--warn)' : 'var(--down)'} /></div> : <span className="faint">—</span> },
-    { key: 'reason', label: 'Bottleneck', render: (g) => g.reason ? <span className={g.reason === 'Paused' ? 'muted' : 'warn'}>{g.reason}</span> : BUILDINGS[g.type].recipe ? <span className="up">At capacity</span> : <span className="faint">—</span> },
-    { key: 'out', label: 'Output/h', align: 'r', sort: (g) => g.outValue, render: (g) => <span className="mono">{money(g.outValue)}</span> },
-    { key: 'in', label: 'Inputs/h', align: 'r', sort: (g) => g.inCost, render: (g) => <span className="mono">−{money(g.inCost)}</span> },
-    { key: 'op', label: 'Staff+power/h', align: 'r', sort: (g) => g.opCost, render: (g) => <span className="mono">−{money(g.opCost)}</span> },
-    { key: 'margin', label: 'Margin/h', align: 'r', sort: (g) => g.margin, render: (g) => <span className={`mono ${tone(g.margin)}`}>{money(g.margin)}</span> },
-    { key: 'day', label: 'Per day', align: 'r', sort: (g) => g.margin, render: (g) => <span className={`mono ${tone(g.margin)}`}>{money(g.margin * 24)}</span> },
+    { key: 'reason', label: 'Bottleneck', width: 140, render: (g) => g.reason ? <span className={g.reason === 'Paused' ? 'muted' : 'warn'}>{g.reason}</span> : BUILDINGS[g.type].recipe ? <span className="up">At capacity</span> : <span className="faint">—</span> },
+    { key: 'out', width: 105, label: 'Output/h', align: 'r', sort: (g) => g.outValue, render: (g) => <span className="mono">{money(g.outValue)}</span> },
+    { key: 'in', width: 105, label: 'Inputs/h', align: 'r', sort: (g) => g.inCost, render: (g) => <span className="mono">−{money(g.inCost)}</span> },
+    { key: 'op', width: 105, label: 'Staff+power/h', align: 'r', sort: (g) => g.opCost, render: (g) => <span className="mono">−{money(g.opCost)}</span> },
+    { key: 'margin', width: 105, label: 'Margin/h', align: 'r', sort: (g) => g.margin, render: (g) => <span className={`mono ${tone(g.margin)}`}>{money(g.margin)}</span> },
+    { key: 'day', width: 105, label: 'Per day', align: 'r', sort: (g) => g.margin, render: (g) => <span className={`mono ${tone(g.margin)}`}>{money(g.margin * 24)}</span> },
     { key: 'act', label: '', render: (g) => {
       const allOn = g.active === g.list.length;
       const victim = [...g.list].sort((a, b) => Number(a.active) - Number(b.active) || a.util - b.util)[0];
@@ -209,7 +209,7 @@ function FacilitiesCard({ s, groups }: { s: GameState; groups: Group[] }) {
   ];
   return (
     <Card title="Facilities" info="Grouped by type and region. Economics are smoothed per-hour figures from the simulation; inputs are valued at today's market price — what you gave up by not selling them. Paused facilities pay no staff.">
-      <Table rows={groups} cols={cols} rowKey={(g) => g.key} initialSort={{ key: 'margin', dir: -1 }} search={(g) => `${BUILDINGS[g.type].name} ${REGIONS[g.region].name}`} />
+      <Table rows={groups} cols={cols} rowKey={(g) => g.key} initialSort={{ key: 'name', dir: 1 }} search={(g) => `${BUILDINGS[g.type].name} ${REGIONS[g.region].name}`} />
       {s.era >= 4 && <p className="small muted" style={{ marginTop: 8 }}>Tip: a factory below its break-even utilisation loses money every hour it runs. Pause it until inputs are back.</p>}
     </Card>
   );
