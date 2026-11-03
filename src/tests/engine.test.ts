@@ -655,6 +655,33 @@ describe('tractor', () => {
     reconcile(s);
   });
 
+  it('an assigned driver runs their machine and works by hand when it has nothing to do', () => {
+    const s = fresh(7);
+    toEra(s, 3);
+    give(s, 200000);
+    for (let i = 0; i < 3; i++) dispatch(s, { type: 'buyPlot' });
+    dispatch(s, { type: 'buyMachine', region: 'heartland', machine: 'tractor', lease: false });
+    for (let i = 0; i < 2; i++) dispatch(s, { type: 'hire', region: 'heartland', role: 'hand', wageFactor: 1 });
+    const m = s.machines[0];
+    const [a, b] = s.workers.filter((w) => w.role === 'hand');
+    expect(dispatch(s, { type: 'assignDriver', machineId: m.id, workerId: b.id }).ok).toBe(true);
+    while (s.tick % 24 !== 9) step(s);
+    for (const f of s.fields) (f.crop = null), (f.work = 0), (f.plan = 'wheat');
+    step(s);
+    expect(m.usedThisTick).toBe(true);
+    expect(b.task).toBe(m.task); // b drove it, not a
+    // broken machine: its driver works by hand instead of standing idle
+    for (const f of s.fields) (f.crop = null), (f.work = 0);
+    m.broken = true;
+    step(s);
+    expect(b.task).not.toBe(0);
+    expect(a.task).not.toBe(0);
+    // firing the driver frees the machine
+    dispatch(s, { type: 'fire', workerId: b.id });
+    expect(m.driver).toBe(null);
+    reconcile(s);
+  });
+
   it('extra tractors join a big field instead of standing idle', () => {
     const s = fresh(7);
     toEra(s, 3);
@@ -826,3 +853,60 @@ describe('orchard crew', () => {
     expect(timingFactorAtHarvest).toBeGreaterThan(0.6); // a ~6-day pick isn't scored as fully over-ripe
   });
 });
+
+describe('mechanics gaps', () => {
+  it('feed buying never pays more than e^1.2 × the price, herds leave the mill its corn, sensors skip empty fields', async () => {
+    const { quoteBuy } = await import('../simulation/markets');
+    const s = fresh(11);
+    toEra(s, 6);
+    give(s, 5e6);
+    const m = s.markets.heartland.feed!;
+    const q = quoteBuy(s, 'heartland', 'feed', 50000);
+    if (q.qty) expect(q.gross / q.qty).toBeLessThanOrEqual(m.price * Math.exp(1.2) + 1e-6);
+    // a running feed mill keeps its day of corn away from the herd
+    dispatch(s, { type: 'build', region: 'heartland', building: 'feedMill' });
+    for (let i = 0; i < 3; i++) dispatch(s, { type: 'build', region: 'heartland', building: 'warehouse' });
+    s.regions.heartland.inventory.corn = 1000; // less than the mill's 1,920/day
+    s.herds.push({ region: 'heartland', animal: 'pigs', count: 100, health: 1, fed: 1 });
+    s.automation.policies.autoFeed = false;
+    const { livestockDaily } = await import('../simulation/livestock');
+    livestockDaily(s);
+    expect(s.regions.heartland.inventory.corn).toBe(1000);
+    // precision sensors draw nothing on an empty field
+    s.research.done.push('precisionIrrigation');
+    for (const f of s.fields) (f.irrigated = true), (f.crop = null);
+    s.regions.heartland.powerUse = 0;
+    const { fieldsTick } = await import('../simulation/agriculture');
+    fieldsTick(s);
+    expect(s.regions.heartland.powerUse).toBe(0);
+  });
+
+  it('workers skip planting they cannot pay seed for instead of wasting the work', () => {
+    const s = fresh(12);
+    toEra(s, 3);
+    dispatch(s, { type: 'hire', region: 'heartland', role: 'hand', wageFactor: 1 });
+    const f = s.fields[0];
+    Object.assign(f, { crop: null, work: 0, plan: 'wheat', ha: 400 });
+    s.seeds.wheat = 0;
+    post(s, 'sharesIssued', -s.cash - 5000, 't'); // deep in the overdraft
+    while (s.tick % 24 !== 9) step(s);
+    step(s);
+    expect(f.work).toBe(0);
+    expect(s.log.some((l) => /can't afford seed/.test(l.text))).toBe(true);
+  });
+
+  it('a manager sells chilled stock that does not fit the cold store', () => {
+    const s = fresh(13);
+    toEra(s, 4);
+    give(s, 1e6);
+    dispatch(s, { type: 'hire', region: 'heartland', role: 'manager', wageFactor: 1 });
+    s.automation.policies.sellDiscipline = 1.3;
+    for (let i = 0; i < 3; i++) dispatch(s, { type: 'build', region: 'heartland', building: 'warehouse' });
+    s.regions.heartland.inventory.potatoes = 5000; // no cold store at all
+    while (hourOf(s) === 12) step(s);
+    const p0 = s.regions.heartland.inventory.potatoes;
+    step(s);
+    expect(s.regions.heartland.inventory.potatoes).toBeLessThan(p0);
+  });
+});
+const hourOf = (s: GameState) => s.tick % 24;

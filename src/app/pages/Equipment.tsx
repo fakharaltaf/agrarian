@@ -112,7 +112,13 @@ function Calculator({ s, r }: { s: GameState; r: RegionId }) {
   const avgHand = haDay ? handHrsPerHa / haDay : 0;
   const rate = rateOf(s, t);
   const opHours = d.autonomous ? 24 : HOURS;
-  const covered = Math.min(haDay, rate * opHours);
+  // what the machines you already own cover first; a new one only gets the rest, and only if someone can drive it
+  const fleet = s.machines.filter((m) => m.region === r && m.type === t && !m.broken).length;
+  const hands = s.workers.filter((w) => w.region === r && w.role === 'hand').length;
+  const drivable = s.machines.filter((m) => m.region === r && MACHINES[m.type].haPerHour && !MACHINES[m.type].autonomous && !m.broken).length;
+  const noDriver = !d.autonomous && hands <= drivable;
+  const owned = Math.min(haDay, fleet * rate * opHours);
+  const covered = noDriver ? 0 : Math.min(haDay - owned, rate * opHours);
   const machineHrs = covered / Math.max(rate, 1e-9);
   const handSaved = covered * avgHand - (d.autonomous ? 0 : machineHrs);
   const wage = marketWage(s, r);
@@ -129,12 +135,14 @@ function Calculator({ s, r }: { s: GameState; r: RegionId }) {
             <dl className="facts">
               <dt>Planted / planned area</dt><dd>{num(planted)} ha</dd>
               <dt>{d.task === 'plant' ? 'Planting' : 'Harvesting'} needed</dt><dd>{num(haDay, 1)} ha/day</dd>
-              <dt>One machine covers</dt><dd>{num(covered, 1)} ha/day ({pct0(covered / haDay)})</dd>
+              {fleet > 0 && <><dt>Your {fleet} already cover{fleet === 1 ? 's' : ''}</dt><dd>{num(owned, 1)} ha/day ({pct0(owned / haDay)})</dd></>}
+              <dt>One more covers</dt><dd>{num(covered, 1)} ha/day ({pct0(covered / haDay)})</dd>
               <dt>Hand labour saved</dt><dd>{num(handSaved, 1)} h/day</dd>
               <dt>Wages saved <Info text={`At the market wage of ${price(wage)}/h. ${d.autonomous ? 'No operator needed.' : 'One hand still drives the machine; that time is netted off.'}`} /></dt><dd className="up">{money(wageSaved)}/day</dd>
               <dt>Fuel + depreciation + service <Info text="Per operating hour" breakdown={[['Fuel', price(fuelOf(s, t) * fuelPrice(s, r))], ['Depreciation', price(machinePrice(s, t) / d.life)], ['Service wear', price(serviceOf(s, t) / d.servicePerHours)], ['Operating hours/day', num(machineHrs, 1)]]} /></dt><dd className="down">−{money(runCost)}/day</dd>
               <dt><b>Net</b></dt><dd className={net >= 0 ? 'up' : 'down'}><b>{money(net)}/day</b></dd>
             </dl>
+            {noDriver && <p className="warn small">No spare hand to drive another one: you have {hands} hand{hands === 1 ? '' : 's'} for {drivable} machine{drivable === 1 ? '' : 's'}. Hire a hand first — a machine without a driver does nothing.</p>}
             <p className="explain">{net > 0 ? `Worth it only if you also let ${num(handSaved / HOURS, 1)} hands go or redeploy them — wages are paid whether they work or not.` : 'At this scale hand labour is cheaper. Machines pay off on bigger acreage or where wages are high.'} Leasing instead costs {money(leaseDay(s, t))}/day with no depreciation.</p>
           </>
         )}
@@ -152,18 +160,33 @@ function TruckCard({ s, r }: { s: GameState; r: RegionId }) {
   const cap = MACHINES.truck.capacity!;
   const dep = machinePrice(s, 'truck') / (MACHINES.truck.life / 24);
   return (
-    <Card title="Trucks" info="Every sale or purchase is hauled. Your own trucks are used first; the rest goes by hired haulage, which is dearer and has a daily regional limit.">
+    <Card title="Trucks" info="Every sale or purchase is hauled. Your own trucks are used first; the rest goes by hired haulage, which is dearer; past its daily regional limit, short-notice lorries cost 3× more.">
       <dl className="facts">
         <dt>Own trucks here</dt><dd>{num(trucks)} · {num(trucks * cap)} units/day</dd>
         <dt>Used today</dt><dd>{num(s.regions[r].truckToday)}</dd>
         <dt>Own truck haulage</dt><dd>{price(own)}/unit</dd>
         <dt>Hired haulage</dt><dd>{price(hired)}/unit</dd>
-        <dt>Hired capacity</dt><dd>{num(CONFIG.haulCapacityPerDay * REGIONS[r].infra)} units/day</dd>
+        <dt>Hired capacity</dt><dd>{num(CONFIG.haulCapacityPerDay * REGIONS[r].infra)} units/day, then 3× rate</dd>
         <dt>Saving per full truck</dt><dd className="up">{money(cap * (hired - own))}/day</dd>
         <dt>Truck depreciation</dt><dd>{money(dep)}/day</dd>
       </dl>
       <p className="explain" style={{ marginTop: 8 }}>Each truck adds {num(cap)} units a day of cheap haulage. Worth it once you move more than about {num(dep / Math.max(1e-9, hired - own))} units a day here.</p>
     </Card>
+  );
+}
+
+/** Assign a hand to a machine: they run it whenever it has work and work by hand otherwise. */
+function DriverPicker({ s, m }: { s: GameState; m: Machine }) {
+  const d = MACHINES[m.type];
+  if (!d.haPerHour || d.autonomous) return <span className="faint small">{d.autonomous ? 'Self-driving' : '—'}</span>;
+  const hands = s.workers.filter((w) => w.role === 'hand' && w.region === m.region);
+  const busy = (id: number) => s.machines.find((x) => x.driver === id && x !== m);
+  return (
+    <select className="input" aria-label={`Driver for ${d.name} #${m.id}`} value={m.driver ?? ''} title="An assigned hand runs this machine whenever it has work, and works by hand when it doesn't. Unassigned machines are driven by whoever is free."
+      onChange={(e) => act({ type: 'assignDriver', machineId: m.id, workerId: e.target.value ? Number(e.target.value) : null })}>
+      <option value="">Anyone free</option>
+      {hands.map((w) => <option key={w.id} value={w.id}>{w.name}{busy(w.id) ? ` (moves from ${MACHINES[busy(w.id)!.type].name} #${busy(w.id)!.id})` : ''}</option>)}
+    </select>
   );
 }
 
@@ -175,11 +198,13 @@ function Fleet({ s }: { s: GameState }) {
       <Table rows={s.machines} rowKey={(m) => m.id} search={(m) => `${MACHINES[m.type].name} ${REGIONS[m.region].name}`} initialSort={{ key: 'cond', dir: 1 }}
         empty="No machines yet. A tractor plants 4 ha an hour with one hand at the wheel." cols={[
           { key: 'type', label: 'Machine', sort: (m) => m.type, render: (m) => <>{MACHINES[m.type].name} <span className="faint small">#{m.id}</span></> },
+          { key: 'driver', label: 'Driver', sort: (m) => m.driver ?? 0, render: (m) => <DriverPicker s={s} m={m} /> },
           ...(multi ? [{ key: 'region', label: 'Region', sort: (m: Machine) => m.region, render: (m: Machine) => REGIONS[m.region].name }] : []),
           { key: 'cond', label: 'Condition', width: 120, sort: (m) => (m.broken ? -1 : m.condition), render: (m) => m.broken ? <span className="pill bad">Broken</span> : (
             <div className="stack s"><Bar thin value={m.condition} color={m.condition < DUE ? 'var(--warn)' : undefined} label="Condition" /><span className="small mono">{pct0(m.condition)}</span></div>
           ) },
           { key: 'risk', label: 'Risk / h', align: 'r', sort: (m) => breakRisk(s, m.condition), render: (m) => m.broken || m.type === 'truck' ? <span className="faint">—</span> : <span className={breakRisk(s, m.condition) > 0.004 ? 'warn' : ''}>{(breakRisk(s, m.condition) * 100).toFixed(2)}%</span> },
+          { key: 'use', label: 'In use', align: 'r', sort: (m) => m.util, render: (m) => <span className={m.util < 0.05 ? 'faint' : ''} title="Share of recent hours this machine was working (about the last two days)">{pct0(m.util)}</span> },
           { key: 'hours', label: 'Hours', align: 'r', sort: (m) => m.hours, render: (m) => num(m.hours) },
           { key: 'own', label: 'Terms', render: (m) => <span className={`pill ${m.leased ? 'accent' : ''}`}>{m.leased ? `Leased ${money(leaseDay(s, m.type))}/d` : 'Owned'}</span> },
           { key: 'book', label: 'Book value', align: 'r', sort: (m) => m.cost - m.depreciated, render: (m) => m.leased ? <span className="faint">—</span> : money(Math.max(0, m.cost - m.depreciated)) },

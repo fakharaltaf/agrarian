@@ -91,6 +91,7 @@ function produce(s: GameState, b: Building, staff: number) {
   }
   for (const [g, q] of Object.entries(rec.outputs) as [GoodId, number][]) {
     addGoods(s, b.region, g, q * outMult * batches, quality);
+    s.stats.produced[g] = (s.stats.produced[g] ?? 0) + q * outMult * batches;
     outValue += q * outMult * batches * priceUsd(s, b.region, g);
   }
   const kwh = rec.kwh * batches * (has(s, 'foodTech') && rec.kwh > 0 ? 0.7 : 1);

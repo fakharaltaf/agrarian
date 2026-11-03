@@ -30,7 +30,7 @@ export default function LogisticsPage() {
   const transit = s.shipments.reduce((a, x) => a + x.qty * priceUsd(s, x.to, x.good), 0);
   return (
     <div className="stack l">
-      <PageHead title="Logistics" sub="Every unit you buy or sell has to be hauled. Own trucks are cheap per unit; hired haulage is limited by local roads." />
+      <PageHead title="Logistics" sub="Every unit you buy or sell has to be hauled. Own trucks are cheap per unit; regular hired haulage is limited by local roads, and beyond it short-notice lorries cost 3×." />
       <div className="kpis">
         <Kpi label="Trucks" value={num(s.machines.filter((m) => m.type === 'truck').length)} sub={`${num(s.machines.filter((m) => m.type === 'truck' && !m.broken).length * TRUCK_CAP)} units/day`} />
         <Kpi label="Haulage yesterday" value={money(-(dayKind(s, 'haulage')))} info="Loading and delivery cost for market trades and shipments over the last full day." />
@@ -65,7 +65,7 @@ const dayKind = (s: GameState, k: 'haulage' | 'shipping') => {
 function HaulCard({ s, regs }: { s: GameState; regs: RegionId[] }) {
   const truckCost = machinePrice(s, 'truck');
   return (
-    <Card title="Haulage today" info="Capacity resets at midnight. Trades use your own trucks first, then hired haulage. When both are used up you cannot sell or buy more in that region until tomorrow.">
+    <Card title="Haulage today" info="Capacity resets at midnight. Trades use your own trucks first, then hired haulage. When both are used up, extra loads go by short-notice lorry at 3× the hired rate — buy trucks if that happens often.">
       <div className="grid3">
         {regs.map((r) => {
           const h = haulage(s, r);

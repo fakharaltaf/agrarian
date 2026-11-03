@@ -74,6 +74,7 @@ export interface Machine {
   depreciated: number;
   usedThisTick: boolean;
   tier: number; // 1..3 upgrades: faster, thriftier, sturdier
+  driver: number | null; // hand assigned to run it; they work by hand when it has nothing to do
 }
 
 export interface Building {
@@ -317,6 +318,7 @@ export type Action =
   | { type: 'harvest'; fieldId: number }
   | { type: 'setPlan'; fieldIds: number[]; crop: CropId | null }
   | { type: 'lockPlan'; fieldIds: number[]; locked: boolean }
+  | { type: 'assignDriver'; machineId: number; workerId: number | null }
   | { type: 'supplyFactory'; fieldIds: number[]; buildingId: number | null }
   | { type: 'fertilize'; fieldIds: number[]; source: 'fertilizer' | 'manure' }
   | { type: 'irrigate'; fieldIds: number[] }

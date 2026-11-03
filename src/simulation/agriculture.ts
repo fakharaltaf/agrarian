@@ -213,9 +213,11 @@ export function fieldsTick(s: GameState) {
   for (const f of s.fields) {
     const reg = s.regions[f.region];
     const crop = f.crop;
+    const resting = !!crop && !!CROPS[crop].perennial && winter && !f.greenhouse; // orchards sleep through winter
+    const growing = !!crop && !resting; // only a growing crop needs water, sensors or heat
     if (f.greenhouse) {
       f.moisture = 0.6;
-      if (reg.temp < 12) reg.powerUse += f.ha * 5 * (12 - reg.temp) / 6; // heating
+      if (crop && reg.temp < 12) reg.powerUse += f.ha * 5 * (12 - reg.temp) / 6; // heating
     }
     // orchards rest through winter: the fruiting cycle pauses
     if (crop && CROPS[crop].perennial && winter && !f.greenhouse && isMature(s, f) && !isReady(s, f)) f.cycleAt++;
@@ -223,7 +225,7 @@ export function fieldsTick(s: GameState) {
     // Soil water relaxes toward a level set by today's rain, heat, crop demand and organic matter (retention).
     const eq = clamp(0.12 + reg.rainToday * 0.8 - (crop ? 0.08 : 0) - (reg.temp - 15) * 0.008 + (f.soil.organic - 0.5) * 0.1, 0, 1);
     f.moisture = clamp(f.moisture + (eq - f.moisture) * 0.04, 0, 1);
-    if (f.irrigated && f.moisture < s.automation.policies.irrigateMin) {
+    if (growing && f.irrigated && f.moisture < s.automation.policies.irrigateMin) {
       const want = (s.automation.policies.irrigateMin - f.moisture) * f.ha;
       const capLeft = REGIONS[f.region].waterCap === Infinity ? Infinity : REGIONS[f.region].waterCap * irrigatedHa(s, f.region) - reg.waterToday;
       const units = Math.max(0, Math.min(want * CONFIG.irrigationWaterPerHa * 4, capLeft));
@@ -235,7 +237,7 @@ export function fieldsTick(s: GameState) {
         reg.powerUse += units * 0.5;
       }
     }
-    if (f.irrigated && precision) reg.powerUse += f.ha;
+    if (growing && f.irrigated && precision) reg.powerUse += f.ha;
     // orchards resting in winter, or still too young to fruit, have nothing for pests to eat: they shed them like a fallow field
     const dormant = crop && CROPS[crop].perennial && ((winter && !f.greenhouse) || !isMature(s, f));
     if (crop && !dormant) {
@@ -311,25 +313,44 @@ export function warnOnce(s: GameState, key: string, level: 'warning' | 'critical
   log(s, level, text, page);
 }
 
-export function spoilageDaily(s: GameState) {
+/** Share of each good in a region's store that spoils today (cold goods out of the cold store rot much faster). */
+export function spoilRates(s: GameState, r: RegionId) {
   const coldChain = has(s, 'coldChain') ? 0.5 : 1;
+  const silo = buildingsIn(s, r, 'silo').length > 0 ? 0.5 : 1;
+  const st = stored(s, r);
+  const coldTotal = st.cold + st.coldOverflow;
+  const improperShare = coldTotal > 0 ? st.coldOverflow / coldTotal : 0;
+  const rate = (g: GoodId) => {
+    const def = GOODS[g];
+    if (def.storage === 'cold') return (1 - improperShare) * def.spoilProper * coldChain + improperShare * def.spoilImproper;
+    return def.kind === 'crop' ? def.spoilProper * silo : def.spoilProper;
+  };
+  return { rate, coldOverflow: st.coldOverflow };
+}
+
+/** Value of stock expected to spoil per day at today's prices, across all regions. */
+export function spoilValue(s: GameState) {
+  let v = 0;
+  for (const reg of Object.values(s.regions)) {
+    if (!reg.unlocked) continue;
+    const { rate } = spoilRates(s, reg.id);
+    for (const g in reg.inventory) v += reg.inventory[g as GoodId] * rate(g as GoodId) * (s.markets[reg.id][g as GoodId]?.price ?? GOODS[g as GoodId].basePrice);
+  }
+  return v;
+}
+
+export function spoilageDaily(s: GameState) {
   for (const r of Object.values(s.regions)) {
     if (!r.unlocked) continue;
-    const silo = buildingsIn(s, r.id, 'silo').length > 0 ? 0.5 : 1;
-    const st = stored(s, r.id);
-    const coldTotal = st.cold + st.coldOverflow;
-    const improperShare = coldTotal > 0 ? st.coldOverflow / coldTotal : 0;
+    const { rate, coldOverflow } = spoilRates(s, r.id);
+    if (coldOverflow > 1) warnOnce(s, `coldspill-${r.id}`, 'warning', `${Math.round(coldOverflow).toLocaleString('en-US')} units of chilled goods don't fit in your cold stores in ${REGIONS[r.id].name} and are rotting fast. Sell milk, eggs and other chilled stock first; build cold stores only for what you can't sell.`, 'storage', 48);
     for (const g in r.inventory) {
       const q = r.inventory[g as GoodId];
       if (!q) continue;
-      const def = GOODS[g as GoodId];
-      let rate = def.spoilProper;
-      if (def.storage === 'cold') rate = (1 - improperShare) * def.spoilProper * coldChain + improperShare * def.spoilImproper;
-      else if (def.kind === 'crop') rate *= silo;
-      const lost = q * rate;
+      const lost = q * rate(g as GoodId);
       if (lost <= 0) continue;
       r.inventory[g as GoodId] = q - lost;
-      s.stats.spoiled += lost * (s.markets[r.id][g as GoodId]?.price ?? def.basePrice);
+      s.stats.spoiled += lost * (s.markets[r.id][g as GoodId]?.price ?? GOODS[g as GoodId].basePrice);
     }
   }
 }

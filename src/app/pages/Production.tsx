@@ -375,7 +375,7 @@ function EnergyCard({ s, elecY, gridY }: { s: GameState; elecY: number; gridY: n
   const rows = regs.map((r) => {
     const bs = s.buildings.filter((b) => b.region === r && b.active);
     const solar = bs.reduce((a, b) => a + (BUILDINGS[b.type].solarKw ?? 0), 0) * solarOutput(s, r);
-    const biogas = bs.filter((b) => b.type === 'biogas').reduce((a, b) => a + b.stats.out * 60, 0);
+    const biogas = bs.filter((b) => b.type === 'biogas').reduce((a, b) => a + b.stats.out * -BUILDINGS.biogas.recipe!.kwh, 0);
     let demand = 0;
     for (const b of bs) {
       const d = BUILDINGS[b.type];
@@ -414,7 +414,7 @@ function EnergyCard({ s, elecY, gridY }: { s: GameState; elecY: number; gridY: n
             </table>
           </div>
         ) : <Empty>No running facilities yet. Factories, cold stores and labs draw power; solar and biogas plants make it.</Empty>}
-        <p className="explain">Demand is estimated from each factory's smoothed batch rate. Solar only generates 06:00–18:00 and less in rain; biogas burns 10 manure per batch for 60 kWh. Electricity price follows the global energy index{has(s, 'foodTech') ? '; Low-energy food tech already cuts factory use by 30%' : ''}.</p>
+        <p className="explain">Demand is estimated from each factory's smoothed batch rate. Solar only generates 06:00–18:00 and less in rain; biogas burns {BUILDINGS.biogas.recipe!.inputs.manure} manure per batch for {-BUILDINGS.biogas.recipe!.kwh} kWh. Precision-irrigation sensors (1 kWh per ha per hour on growing fields), irrigation pumps and greenhouse heating also draw power and appear on the grid bill. Electricity price follows the global energy index{has(s, 'foodTech') ? '; Low-energy food tech already cuts factory use by 30%' : ''}.</p>
         {!has(s, 'solar') && !has(s, 'biogas') && <p className="faint small">Research Solar power or Biogas digestion to generate your own electricity.</p>}
       </div>
     </Card>

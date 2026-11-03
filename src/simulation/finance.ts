@@ -155,6 +155,7 @@ function contractsDaily(s: GameState) {
   }
   for (const c of [...s.contracts]) {
     if (!c.accepted && s.tick >= c.expires) s.contracts.splice(s.contracts.indexOf(c), 1);
+    else if (c.accepted && s.tick < c.deadline) deliver(s, c); // ship what is in store each day, not all on the last one
     else if (c.accepted && s.tick >= c.deadline) {
       deliver(s, c);
       const short = c.qty - c.delivered;
@@ -172,9 +173,10 @@ function contractsDaily(s: GameState) {
 }
 
 function recentOutput(s: GameState, g: GoodId) {
-  // rough units/day from fields and factories
+  // what the farm has really produced per day over its life (labour, weather and selling all included), never more than plans could grow
   const fromFields = s.fields.reduce((a, f) => a + (f.plan === g || f.crop === g ? (f.ha * 10 * (CROPS[g as CropId]?.yieldPerSeed ?? 0)) / ((CROPS[g as CropId]?.growthTicks ?? 24) / 24) : 0), 0);
-  return fromFields || 30;
+  const actual = (s.stats.produced[g] ?? 0) / Math.max(1, day(s));
+  return Math.max(30, fromFields ? Math.min(fromFields, actual * 1.5) : actual);
 }
 
 /** Delivers what the contract's region has in stock; deliveries use haulage like a sale. */

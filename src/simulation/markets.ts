@@ -266,6 +266,11 @@ function sellRevenue(s: GameState, g: GoodId, P: number, D: number, q: number) {
 }
 const FLOOR = 0.25;
 const MAX_IMPACT = 1.2; // order-book impact saturates; beyond it the floor buyer takes the rest
+/** Purchase cost: the ask walks up through the book, but never past e^MAX_IMPACT × today's price (sellers of last resort). */
+function buyCost(P: number, D: number, q: number) {
+  const cap = D * MAX_IMPACT;
+  return q <= cap ? integral(P, D, q, -1) : integral(P, D, cap, -1) + P * Math.exp(MAX_IMPACT) * (q - cap);
+}
 
 export function haulCost(s: GameState, r: RegionId, qty: number) {
   const reg = s.regions[r];
@@ -275,9 +280,11 @@ export function haulCost(s: GameState, r: RegionId, qty: number) {
   const hiredLeft = Math.max(0, hiredCap - reg.haulToday);
   const viaTruck = Math.min(qty, truckLeft);
   const viaHired = Math.min(qty - viaTruck, hiredLeft);
+  const viaSpot = qty - viaTruck - viaHired; // short-notice lorries: always available, at 3× the rate
   const opt = has(s, 'routeOptimization') ? 0.8 : 1;
-  const cost = viaTruck * 0.015 * fuelPrice(s, r) + viaHired * (CONFIG.haulPerUnit / REGIONS[r].infra) * fuelPrice(s, r) * opt;
-  return { cost, viaTruck, viaHired, possible: viaTruck + viaHired };
+  const hired = (CONFIG.haulPerUnit / REGIONS[r].infra) * fuelPrice(s, r) * opt;
+  const cost = viaTruck * 0.015 * fuelPrice(s, r) + viaHired * hired + viaSpot * hired * 3;
+  return { cost, viaTruck, viaHired: viaHired + viaSpot, viaSpot, possible: qty };
 }
 
 export function retailPremium(s: GameState, r: RegionId, g: GoodId) {
@@ -289,10 +296,7 @@ export function quoteSell(s: GameState, r: RegionId, g: GoodId, qty: number): Qu
   if (!m || qty <= 0) return { qty: 0, gross: 0, avgPrice: m?.price ?? 0, priceAfter: m?.price ?? 0, haul: 0, net: 0 };
   const h = haulCost(s, r, qty);
   let limitedBy: string | undefined;
-  if (h.possible < qty) {
-    qty = Math.floor(h.possible);
-    limitedBy = 'Haulage capacity for today is used up. Buy trucks or sell tomorrow.';
-  }
+  if (h.viaSpot > 0) limitedBy = `Regular haulage is full today: ${Math.round(h.viaSpot).toLocaleString('en-US')} units go by short-notice lorry at 3× the rate. Own trucks are cheapest.`;
   const gross = sellRevenue(s, g, m.price, depth(m), qty) * retailPremium(s, r, g) * qualityMult(s.regions[r].quality[g] ?? 0.65);
   const priceAfter = priceFromInv(s, g, m, m.inv + qty, m.impact + qty / depth(m));
   const hc = haulCost(s, r, qty).cost;
@@ -306,8 +310,8 @@ export function quoteBuy(s: GameState, r: RegionId, g: GoodId, qty: number): Quo
   const maxQ = Math.floor(Math.min(m.inv * 0.5, depth(m) * 3));
   if (qty > maxQ) (qty = maxQ), (limitedBy = 'The market does not hold that much stock.');
   const h = haulCost(s, r, qty);
-  if (h.possible < qty) (qty = Math.floor(h.possible)), (limitedBy = 'Haulage capacity for today is used up.');
-  const gross = integral(m.price, depth(m), qty, -1);
+  if (h.viaSpot > 0) limitedBy = 'Regular haulage is full today: part comes by short-notice lorry at 3× the rate.';
+  const gross = buyCost(m.price, depth(m), qty);
   const priceAfter = priceFromInv(s, g, m, m.inv - qty, m.impact - qty / depth(m));
   const hc = haulCost(s, r, qty).cost;
   return { qty, gross: round2(gross), avgPrice: qty ? gross / qty : m.price, priceAfter, haul: round2(hc), net: round2(gross + hc), limitedBy };
@@ -317,6 +321,9 @@ function useHaul(s: GameState, r: RegionId, qty: number) {
   const h = haulCost(s, r, qty);
   s.regions[r].truckToday += h.viaTruck;
   s.regions[r].haulToday += h.viaHired;
+  // trucks that carried today's loads count as in use (their wear and utilisation follow)
+  let load = s.regions[r].truckToday;
+  for (const m of s.machines) if (m.region === r && m.type === 'truck' && !m.broken && load > 0) (m.usedThisTick = true), (load -= 1500);
   if (h.cost > 0) post(s, 'haulage', -h.cost, h.viaTruck >= qty ? 'Own trucks' : 'Hired haulage', r);
   return h;
 }

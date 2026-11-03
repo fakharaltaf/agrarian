@@ -1,12 +1,12 @@
 // Levels 3–5 of automation: managers run field cycles, rules react to conditions,
 // policies steer everything toward strategic objectives. Automation spends real money
 // through the same primitives as the player, and never below the cash reserve.
-import { ANIMALS, BUILDINGS, CONFIG, CROPS, GOODS, GOOD_IDS, REGIONS, REGION_IDS, TICKS_PER_DAY, type CropId, type GoodId, type RegionId } from './config';
+import { ANIMALS, BUILDINGS, CONFIG, CROPS, GOODS, GOOD_IDS, MACHINES, REGIONS, REGION_IDS, TICKS_PER_DAY, WORK_END, WORK_START, type CropId, type GoodId, type RegionId } from './config';
 import { canGrow, expectedYield, fertility, fertilizeField, soilAdequacy } from './agriculture';
 import { buildingsIn, clamp, levelMult, reservedStock, debt, execOn, has, hour, nextId, post, seasonOf, seedCost, stored, totalAssets } from './core';
 import { avg30, executeBuy, executeSell, forecast, quoteBuy } from './markets';
 import { CONTRACT_SIZE, FUTURES_GOODS, openFutures, futuresPrice, closeFutures } from './finance';
-import { serviceCost, service } from './operations';
+import { machineRate, serviceCost, service } from './operations';
 import { FEEDS } from './livestock';
 import { buildingMargin } from './processing';
 import { shipGoods } from './logistics';
@@ -113,11 +113,25 @@ export function newRule(s: GameState, rule: Omit<Rule, 'id' | 'lastRun' | 'histo
 
 // ---------------------------------------------------------------- managers & policies
 
-/** Expected profit per hour per ha of a crop on this field at today's prices. */
+/** Hectares per working hour the region's crew can plant or harvest a crop: drivable machines (one per hand) plus hands left over working by hand. */
+export function crewRate(s: GameState, r: RegionId, kind: 'plant' | 'harvest', c: CropId) {
+  const hands = s.workers.filter((w) => w.region === r && w.role === 'hand').length;
+  const rates = s.machines.filter((m) => m.region === r && !m.broken && MACHINES[m.type].task === kind && MACHINES[m.type].haPerHour
+    && (MACHINES[m.type].crops ? MACHINES[m.type].crops!.includes(c) : kind === 'plant' || CROPS[c].machineHarvest))
+    .map((m) => ({ auto: !!MACHINES[m.type].autonomous, ha: machineRate(s, m) * (MACHINES[m.type].autonomous ? 2 : 1) })) // autonomous run round the clock
+    .sort((a, b) => Number(b.auto) - Number(a.auto) || b.ha - a.ha);
+  let drivers = hands, ha = 0;
+  for (const m of rates) if (m.auto) ha += m.ha; else if (drivers > 0) (ha += m.ha), drivers--;
+  return ha + drivers / (kind === 'plant' ? CONFIG.plantHours : CROPS[c].harvestHours);
+}
+
+/** Expected profit per hour per ha of a crop on this field at today's prices, over a whole cycle: growing plus the crew's time to plant and harvest it. */
 export function cropScore(s: GameState, f: import('./types').Field, c: CropId, price = s.markets[f.region][c]!.price) {
   const y = expectedYield(s, f, c) / f.ha;
   const seed = CONFIG.seedsPerHa * seedCost(s, c);
-  return (y * price - seed) / CROPS[c].growthTicks;
+  const area = Math.max(f.ha, s.fields.reduce((a, x) => a + (x.region === f.region && x.plan ? x.ha : 0), 0)); // one crew works every planned field in the region
+  const work = area * ((CROPS[c].perennial ? 0 : 1) / Math.max(0.01, crewRate(s, f.region, 'plant', c)) + 1 / Math.max(0.01, crewRate(s, f.region, 'harvest', c)));
+  return (y * price - seed) / (CROPS[c].growthTicks + work * (24 / (WORK_END - WORK_START)));
 }
 
 /** What one unit of a crop is worth to your own running factories here (outputs at market, less staff), while they are short of it. 0 if none. */
@@ -171,6 +185,11 @@ export function policiesTick(s: GameState) {
   // Midday rounds: fertiliser and selling discipline.
   for (const r of REGION_IDS) {
     if (!hasManager(s, r)) continue;
+    // manure is free fertiliser: managers spread it on empty fields that would benefit instead of letting it pile up
+    for (const f of s.fields) {
+      if (f.region !== r || f.crop || f.soil.organic >= 0.7 || Math.max(f.soil.n, f.soil.p, f.soil.k) > 1.1) continue;
+      if (s.regions[r].inventory.manure >= f.ha * CONFIG.manurePerHa) fertilizeField(s, f, 'manure');
+    }
     if (P.autoFertilize) {
       for (const f of s.fields) {
         if (f.region !== r || f.crop || fertility(f) >= P.soilTarget) continue;
@@ -197,14 +216,15 @@ function sellRound(s: GameState, r: RegionId, midday: boolean) {
   const P = s.automation.policies;
   const st = stored(s, r);
   const full = st.cap.dry > 0 && st.dry / st.cap.dry > P.sellStorageCap;
-  if (!full && !midday) return;
+  const coldSpill = st.coldOverflow > 1; // chilled goods out of the cold store rot fast: sell them every hour until they fit
+  if (!full && !coldSpill && !midday) return;
   const feedKeep = s.herds.reduce((a, h) => a + (h.region === r ? h.count * ANIMALS[h.animal].feedPerDay * 3 : 0), 0);
   for (const g of GOOD_IDS) {
     const q = s.regions[r].inventory[g] - contractsNeed(s, r, g) - reservedStock(s, r, g) - (FEEDS.includes(g) ? feedKeep : 0);
     if (q < 1 || !s.markets[r][g] || GOODS[g].kind === 'input') continue;
     const perishable = GOODS[g].spoilProper > 0.02;
     const good = s.markets[r][g]!.price >= P.sellDiscipline * avg30(s, r, g);
-    if (full || (midday && (perishable || good))) executeSell(s, r, g, q * (perishable && midday ? 1 : 0.25), undefined);
+    if (full || (coldSpill && GOODS[g].storage === 'cold') || (midday && (perishable || good))) executeSell(s, r, g, q * (perishable && midday ? 1 : 0.25), undefined);
   }
 }
 

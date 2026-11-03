@@ -1,8 +1,8 @@
 // Farm advisor: reads the books and the farm, and explains in plain words what is costing money
 // and what to try. Pure and deterministic; each tip names the page that fixes it.
-import { CROPS, GOODS, LEDGER_KINDS, OPEX_KINDS, REVENUE_KINDS, type GoodId, type LedgerKind } from './config';
-import { day, refPrice, sumBooks } from './core';
-import { fertility, isManual, isReady, readyAt } from './agriculture';
+import { BUILDINGS, CROPS, GOODS, LEDGER_KINDS, MACHINES, OPEX_KINDS, REVENUE_KINDS, REGION_IDS, type GoodId, type LedgerKind } from './config';
+import { day, refPrice, stored, sumBooks } from './core';
+import { fertility, isManual, isReady, readyAt, spoilValue } from './agriculture';
 import type { GameState } from './types';
 
 export interface Advice { id: string; icon: string; title: string; body: string; page: string; perDay: number }
@@ -45,10 +45,22 @@ export function diagnose(s: GameState): Diagnosis {
   }
 
   // fields ripening with no one to pick them
-  const late = s.fields.filter((f) => isReady(s, f) && !f.plan && s.tick - readyAt(f) > 12);
-  if (late.length) add({ id: 'overripe', icon: '🥀', page: 'farm', perDay: 0,
+  const late = s.fields.filter((f) => isReady(s, f) && s.tick - readyAt(f) > 12);
+  if (late.length) add({ id: 'overripe', icon: '🥀', page: late.some((f) => f.plan) ? 'workers' : 'farm', perDay: 0,
     title: `${late.length} field${late.length > 1 ? 's are' : ' is'} over-ripening`,
-    body: 'A ripe crop loses yield every hour it waits after the first half day. Harvest it, or give the field a crop plan so your hands bring it in.' });
+    body: late.some((f) => !f.plan)
+      ? 'A ripe crop loses yield every hour it waits after the first half day. Harvest it, or give the field a crop plan so your hands bring it in.'
+      : 'Your crew can\'t get to ripe fields fast enough, and every hour they wait costs yield. Hire hands, and give each idle machine a driver.' });
+
+  // more machines than people to drive them, or planned land the crew can't keep up with
+  const drivable = s.machines.filter((m) => MACHINES[m.type].haPerHour && !MACHINES[m.type].autonomous && !m.broken).length;
+  const waiting = s.fields.filter((f) => f.plan && !f.crop).length;
+  if (hands > 0 && (drivable > hands + 1 || (waiting > 1 && needHours > hands * 12 * 1.2))) {
+    const short = Math.max(drivable - hands, Math.ceil(needHours / 12 - hands));
+    add({ id: 'shortHands', icon: '🧑‍🌾', page: 'workers', perDay: 0,
+      title: drivable > hands ? `${drivable - hands} machine${drivable - hands > 1 ? 's have' : ' has'} no one to drive ${drivable - hands > 1 ? 'them' : 'it'}` : `Your crew can't keep up with ${waiting} waiting field${waiting > 1 ? 's' : ''}`,
+      body: `Every tractor and harvester needs a hand at the wheel. You have ${hands} hand${hands === 1 ? '' : 's'} and ${drivable} machine${drivable === 1 ? '' : 's'}; your planned land needs about ${Math.round(needHours)} work-hours a day. Hire about ${short} more hand${short === 1 ? '' : 's'} before buying more machines — empty fields earn nothing.` });
+  }
 
   // selling into a market the player is flooding
   for (const g of Object.keys(GOODS) as GoodId[]) {
@@ -72,11 +84,37 @@ export function diagnose(s: GameState): Diagnosis {
     title: 'Interest is eating your profit',
     body: `You pay about ${r0(interest)} a day in interest — ${revenue ? Math.round((interest / revenue) * 100) : 100}% of what you earn. Repay the most expensive loan first, or let the overdraft clear before borrowing more.` });
 
+  // stock rotting in storage (not on the books, but money all the same)
+  const spoil = spoilValue(s);
+  const spill = REGION_IDS.reduce((a, r) => a + (s.regions[r].unlocked ? stored(s, r).coldOverflow : 0), 0);
+  if (spoil > Math.max(500, revenue * 0.1)) add({ id: 'spoil', icon: '🦠', page: 'storage', perDay: spoil,
+    title: 'Stock is rotting in storage',
+    body: `About ${r0(spoil)} of goods spoil every day${spill > 1 ? ` — ${Math.round(spill).toLocaleString('en-US')} units of chilled goods don't fit in your cold stores` : ''}. Sell perishables (milk, eggs, potatoes) first; only build cold stores for what you can't sell.` });
+
+  // a pile of stock that isn't being sold
+  const held = REGION_IDS.reduce((a, r) => a + (Object.keys(s.regions[r].inventory) as GoodId[]).reduce((b, g) => b + (GOODS[g].kind !== 'input' && s.markets[r][g] ? s.regions[r].inventory[g] * s.markets[r][g]!.price : 0), 0), 0);
+  if (held > Math.max(20000, revenue * 20)) add({ id: 'idleStock', icon: '📦', page: 'automation', perDay: 0,
+    title: `${r0(held)} of stock is sitting unsold`,
+    body: s.automation.policies.sellDiscipline > 0
+      ? `Your manager only sells when the price is at least ${s.automation.policies.sellDiscipline.toFixed(2)}× its 30-day average, or when storage passes ${Math.round(s.automation.policies.sellStorageCap * 100)}% full — and spare warehouses keep it below that. Set the sell price to 0.90× in Automation, or sell some yourself on Fields → Sell.`
+      : 'Nothing is selling it. Turn on Selling discipline in Automation (needs a manager), or sell on Fields → Sell.' });
+
+  // paying for buildings that do nothing
+  const st = stored(s, 'heartland');
+  const storeStaff = s.buildings.filter((b) => b.active && BUILDINGS[b.type].category === 'storage').reduce((a, b) => a + BUILDINGS[b.type].staffPerHour * s.macro.cpi * 24, 0);
+  if (st.cap.dry > 0 && st.dry / st.cap.dry < 0.5 && storeStaff > 1000) add({ id: 'overStorage', icon: '🏚️', page: 'storage', perDay: storeStaff * (1 - st.dry / st.cap.dry / 0.75),
+    title: 'You\'re paying for empty storage',
+    body: `Dry storage is only ${Math.round((st.dry / st.cap.dry) * 100)}% full but storage staff cost ${r0(storeStaff)} a day. Sell what you're holding, then demolish the warehouses you don't need.` });
+  const lab = s.buildings.filter((b) => b.active && b.type === 'lab');
+  if (lab.length && !s.research.active) add({ id: 'idleLab', icon: '🧪', page: 'research', perDay: lab.reduce((a, b) => a + BUILDINGS[b.type].staffPerHour * s.macro.cpi * 24, 0),
+    title: 'Your research station has no project',
+    body: 'Its staff are paid every hour whether it researches or not. Start a project on Research, or pause the station.' });
+
   // the general picture, if nothing specific explains it
   const profit = revenue - costs;
   if (profit < 0 && !advice.some((a) => a.perDay > -profit * 0.5) && topCosts[0]) add({ id: 'loss', icon: '🧾', page: 'finance', perDay: -profit,
-    title: `Your biggest cost is ${topCosts[0].label.toLowerCase()}`,
-    body: `It runs about ${r0(topCosts[0].perDay)} a day against ${r0(revenue)} of sales. Open Finance to see every line — anything that costs more than the extra harvest it brings is worth cutting.` });
+    title: `You're spending more than you sell`,
+    body: `Costs run about ${r0(costs)} a day against ${r0(revenue)} of sales; the biggest line is ${topCosts[0].label.toLowerCase()} (${r0(topCosts[0].perDay)}). ${topCosts[0].label === 'Seed' ? 'Seed is paid at planting and comes back at harvest and sale, so check that harvests are being brought in and sold.' : 'Open Finance to see every line — anything that costs more than what it brings in is worth cutting.'}` });
 
   advice.sort((a, b) => b.perDay - a.perDay);
   return { revenue, costs, profit, topCosts, advice };

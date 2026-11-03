@@ -1,8 +1,8 @@
 // Labour and machinery. Every field operation needs labour-hours; machines multiply what one
 // operator can do but burn fuel, wear out and depreciate. Workers cost wages whether busy or not.
-import { CONFIG, CROPS, MACHINES, REGIONS, WORK_END, WORK_START, type RegionId } from './config';
+import { CONFIG, CROPS, GOODS, MACHINES, REGIONS, WORK_END, WORK_START, type RegionId } from './config';
 import { clamp, execOn, fuelPrice, has, hour, log, marketWage, nextId, pick, post, random, severity } from './core';
-import { harvestField, isReady, plantField, warnOnce } from './agriculture';
+import { harvestField, isReady, plantField, seedShortfall, warnOnce } from './agriculture';
 import { overdraftLimit } from './finance';
 import type { Field, GameState, Machine, Worker } from './types';
 
@@ -66,10 +66,14 @@ export function laborTick(s: GameState) {
       w.skill = Math.max(w.skill, Math.min(1.3, w.skill + 0.0002)); // learning by doing, up to 1.3
       const p = productivity(s, w);
       const perkFor = (kind: Task['kind']) => (kind === 'plant' && w.perk === 'planter') || (kind === 'harvest' && w.perk === 'harvester') ? 1.3 : 1;
-      // a free machine with work waiting gets a driver first
-      const m = s.machines.find((x) => x.region === r && !x.usedThisTick && !x.broken && !MACHINES[x.type].autonomous && !!nextFor(tasks, x));
+      // their own machine first; with nothing for it to do they drive any unassigned machine, else work by hand
+      const usable = (x: Machine) => !x.usedThisTick && !x.broken && !!nextFor(tasks, x);
+      const own = s.machines.find((x) => x.driver === w.id);
+      const free = (x: Machine) => x.region === r && x.driver === null && !MACHINES[x.type].autonomous && !x.usedThisTick && !x.broken;
+      const urgent = own && usable(own) ? undefined : tasks.find((t) => !t.done && s.machines.some((x) => free(x) && fits(t, x)));
+      const m = own && usable(own) ? own : urgent ? s.machines.find((x) => free(x) && fits(urgent, x)) : undefined;
       if (m) {
-        const t = nextFor(tasks, m)!;
+        const t = urgent && !urgent.taken ? urgent : nextFor(tasks, m)!;
         w.task = t.f.id;
         machineHour(s, m, tasks, t, machineRate(s, m) * (0.7 + 0.3 * p) * perkFor(t.kind));
         continue;
@@ -87,7 +91,7 @@ export function laborTick(s: GameState) {
         riders.set(plat.id, (riders.get(plat.id) ?? 0) + 1);
         plat.task = t.f.id;
       }
-      work(s, t, (p * perkFor(t.kind) * (plat ? MACHINES[plat.type].assist! : 1)) / (t.f.ha * (t.kind === 'plant' ? CONFIG.plantHours : CROPS[t.f.crop!].harvestHours)), null);
+      work(s, t, (p * perkFor(t.kind) * (plat ? MACHINES[plat.type].assist! * (1 + 0.25 * ((plat.tier || 1) - 1)) : 1)) / (t.f.ha * (t.kind === 'plant' ? CONFIG.plantHours : CROPS[t.f.crop!].harvestHours)), null);
     }
     if (tasks.some((t) => !t.done)) s.regions[r].backlog++;
   }
@@ -103,8 +107,8 @@ function buildTasks(s: GameState, r: RegionId): Task[] {
     if (f.region !== r) continue;
     if (isReady(s, f)) harvest.push({ f, kind: 'harvest' });
     else if (!f.crop && f.plan) {
-      if (budget > 0) plant.push({ f, kind: 'plant' });
-      else warnOnce(s, `noplant-${r}`, 'warning', `Workers can't buy seed: your overdraft is exhausted. Sell stock or assets — wages keep running.`, 'finance', 48);
+      if (seedShortfall(s, f, f.plan).cost <= budget) plant.push({ f, kind: 'plant' });
+      else warnOnce(s, `noplant-${r}`, 'warning', `Workers can't afford seed for field ${f.id} (${GOODS[f.plan].name.toLowerCase()}): it needs $${Math.round(seedShortfall(s, f, f.plan).cost).toLocaleString('en-US')} and only $${Math.round(Math.max(0, budget)).toLocaleString('en-US')} is available. Sell stock or plan a cheaper crop.`, 'finance', 48);
     }
   }
   harvest.sort((a, b) => a.f.plantedAt + CROPS[a.f.crop!].growthTicks - (b.f.plantedAt + CROPS[b.f.crop!].growthTicks));
@@ -206,7 +210,7 @@ export function workforceDaily(s: GameState) {
       const dep = m.cost / (d.life / 24);
       m.depreciated = Math.min(m.cost, m.depreciated + dep);
       post(s, 'depreciation', -dep, 'Truck depreciation', m.region, 'logistics');
-      if (s.regions[m.region].truckToday > 0) m.condition = Math.max(0, m.condition - 0.01);
+      if (m.util > 0.02) m.condition = Math.max(0, m.condition - 0.01); // a truck in regular use wears
     }
   }
 }

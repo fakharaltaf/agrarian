@@ -195,6 +195,19 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       for (const id of a.fieldIds) { const f = field(s, id); if (f && !f.supplies) f.planLocked = a.locked; }
       return ok();
     }
+    case 'assignDriver': {
+      const m = s.machines.find((x) => x.id === a.machineId);
+      if (!m) return fail('No such machine.');
+      if (MACHINES[m.type].autonomous) return fail('This machine drives itself.');
+      if (a.workerId !== null) {
+        const w = s.workers.find((x) => x.id === a.workerId);
+        if (!w || w.role !== 'hand') return fail('Only farm hands can drive machines.');
+        if (w.region !== m.region) return fail('That hand works in another region.');
+        for (const o of s.machines) if (o.driver === w.id) o.driver = null; // one machine per person
+      }
+      m.driver = a.workerId;
+      return ok();
+    }
     case 'supplyFactory': {
       const b = a.buildingId === null ? null : s.buildings.find((x) => x.id === a.buildingId);
       const c = b ? factoryCrop(b) : null;
@@ -312,6 +325,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       if (!w) return fail('No such worker.');
       post(s, w.role === 'manager' ? 'salaries' : 'wages', -wageOf(s, w) * 12, `Severance: ${w.name}`, w.region);
       s.workers.splice(s.workers.indexOf(w), 1);
+      for (const m of s.machines) if (m.driver === w.id) m.driver = null;
       for (const o of s.workers) if (o.region === w.region) o.morale = clamp(o.morale - 0.05, 0, 1);
       return ok();
     }
@@ -349,7 +363,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       const price = a.lease ? Math.round(d.leasePerDay * s.macro.cpi * 3) : machinePrice(s, a.machine);
       if (price > s.cash) return fail(a.lease ? `The lease needs a 3-day deposit of $${price.toLocaleString()}.` : `Costs $${price.toLocaleString()}.`);
       post(s, a.lease ? 'lease' : 'machine', -price, a.lease ? `${d.name} lease deposit` : d.name, a.region);
-      s.machines.push({ id: nextId(s), type: a.machine, region: a.region, condition: 1, hours: 0, util: 0, task: 0, tier: 1, broken: false, leased: a.lease, cost: a.lease ? 0 : price, depreciated: 0, usedThisTick: false });
+      s.machines.push({ id: nextId(s), type: a.machine, region: a.region, condition: 1, hours: 0, util: 0, task: 0, tier: 1, broken: false, leased: a.lease, cost: a.lease ? 0 : price, depreciated: 0, usedThisTick: false, driver: null });
       return ok();
     }
     case 'sellMachine': {

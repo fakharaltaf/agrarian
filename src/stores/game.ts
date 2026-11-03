@@ -138,7 +138,7 @@ function migrate(g: Omit<GameState, 'version'> & { version: number }): GameState
     for (const gd in fresh[r]) g.markets[r][gd as keyof typeof fresh.heartland] ??= fresh[r][gd as keyof typeof fresh.heartland];
   }
   for (const c of CROP_IDS) g.seeds[c] ??= 0;
-  for (const m of g.machines) (m.util ??= 0), (m.task ??= 0);
+  for (const m of g.machines) (m.util ??= 0), (m.task ??= 0), (m.driver ??= null);
   for (const w of g.workers) w.task ??= 0;
   for (const rule of g.automation.rules) if (typeof rule.lastRun !== 'number') rule.lastRun = -1e9;
   for (const r of REGION_IDS) g.regions[r].insuredFrom ??= 0;
