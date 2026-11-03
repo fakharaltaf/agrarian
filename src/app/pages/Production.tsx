@@ -6,7 +6,7 @@ import { buildingMargin, solarOutput } from '../../simulation/processing';
 import type { Building, GameState } from '../../simulation/types';
 import { act, useGame } from '../../stores/game';
 import { money, num, pct0, price } from '../format';
-import { Bar, Card, Confirm, Empty, Info, Kpi, PageHead, Select, Table, usePref, type Col } from '../ui';
+import { Bar, Card, Confirm, Empty, Info, Kpi, PageHead, Select, Table, Tip, usePref, type Col } from '../ui';
 import { regionOptions, unlockedRegions } from './shared';
 
 const FACTORY_CATS = ['processing', 'energy', 'commerce'];
@@ -168,75 +168,96 @@ function BuildCard({ s }: { s: GameState }) {
 
 // ---------------------------------------------------------------- facilities
 
-/** Dedicated fields feeding this factory: how much land, what they grow per day vs what it uses, and stock held for it. */
-function SupplyNote({ s, g }: { s: GameState; g: Group }) {
+/** Dedicated fields feeding this factory, as a short line: how many, and how their harvest compares with what it uses. */
+function supplyOf(s: GameState, g: Group) {
   const c = factoryCrop(g.list[0]);
   if (!c) return null;
   const fields = s.fields.filter((f) => g.list.some((b) => b.id === f.supplies));
-  const reserved = g.list.reduce((a, b) => a + b.reserved, 0);
-  if (!fields.length && reserved < 1) return <div className="small faint">No dedicated fields</div>;
+  if (!fields.length) return null;
   const grow = fields.reduce((a, f) => a + (expectedYield(s, f, c) * 24) / CROPS[c].growthTicks, 0);
   const need = g.list.reduce((a, b) => a + BUILDINGS[b.type].recipe!.inputs[c]! * BUILDINGS[b.type].recipe!.batchesPerHour * levelMult(b.level) * 24, 0);
-  return <div className="small" title="Fields dedicated to this factory, their expected harvest per day against what it uses at full capacity, and stock reserved for it">
-    🌾 {fields.length} field{fields.length === 1 ? '' : 's'} · ~{num(grow)}/day of {num(need)} needed{reserved >= 1 && <> · 🏭 {num(reserved)} reserved</>}
-  </div>;
+  return { c, n: fields.length, grow, need, reserved: g.list.reduce((a, b) => a + b.reserved, 0) };
 }
 
-/** Should you build one more of this facility here? A verdict, the reason, and what one more earns per day at full speed. */
+/** Should you build one more of this facility here? A verdict, a short reason, and what one more earns per day. */
 function addMore(s: GameState, g: Group): { verdict: 'yes' | 'maybe' | 'no'; why: string; gain: number } | null {
   const rec = BUILDINGS[g.type].recipe;
   if (!rec) return null;
-  const gain = fullEcon(s, g.type, g.region).margin * 24;
-  if (gain <= 0) return { verdict: 'no', why: 'Loses money even at full speed at today\'s prices', gain };
-  if (g.margin < 0 && !g.reason) return { verdict: 'no', why: 'The ones you have are losing money', gain };
-  if (g.reason && g.reason !== 'Paused' && g.util < 0.85) return { verdict: 'no', why: `The ones you have already run short: ${g.reason.toLowerCase()}`, gain };
+  // a full-speed unit's real result beats the price-sheet estimate (it includes dairy cows, smoothing, actual prices)
+  const gain = g.active > 0 && g.util >= 0.85 ? (g.margin * 24) / g.active : fullEcon(s, g.type, g.region).margin * 24;
+  if (gain <= 0) return { verdict: 'no', why: 'Loses money at today\'s prices', gain };
+  if (g.reason && g.reason !== 'Paused' && g.util < 0.85) return { verdict: 'no', why: `Already ${g.reason.toLowerCase().replace('not enough', 'short of')}`, gain };
   if (g.type === 'dairy') {
-    const cows = s.herds.filter((h) => h.region === g.region && h.animal === 'cows').reduce((a, h) => a + h.count, 0);
-    const spare = cows - g.list.length * rec.batchesPerHour * COWS_PER_DAIRY_BATCH;
-    if (spare < rec.batchesPerHour * COWS_PER_DAIRY_BATCH) return { verdict: 'no', why: `Needs ${num(rec.batchesPerHour * COWS_PER_DAIRY_BATCH)} more cows; you have ${num(Math.max(0, spare))} spare`, gain };
+    const per = rec.batchesPerHour * COWS_PER_DAIRY_BATCH;
+    const spare = s.herds.filter((h) => h.region === g.region && h.animal === 'cows').reduce((a, h) => a + h.count, 0) - g.list.length * per;
+    if (spare < per) return { verdict: 'no', why: `Needs ${num(per - Math.max(0, spare))} more cows`, gain };
   }
-  const c = factoryCrop(g.list[0]);
+  const sup = supplyOf(s, g);
   const oneDay = (x: GoodId) => (rec.inputs[x] ?? 0) * rec.batchesPerHour * 24;
-  if (c) {
-    const fields = s.fields.filter((f) => g.list.some((b) => b.id === f.supplies));
-    if (fields.length) {
-      const grow = fields.reduce((a, f) => a + (expectedYield(s, f, c) * 24) / CROPS[c].growthTicks, 0);
-      const need = g.list.reduce((a, b) => a + oneDay(c) * levelMult(b.level), 0);
-      const n = Math.floor((grow - need) / oneDay(c));
-      if (n >= 1) return { verdict: 'yes', why: `Your dedicated fields grow enough for ${n > 20 ? '20+' : n} more`, gain };
-      return { verdict: 'maybe', why: `Dedicate more ${GOODS[c].name.toLowerCase()} fields first`, gain };
-    }
+  if (sup) {
+    const n = Math.floor((sup.grow - sup.need) / oneDay(sup.c));
+    return n >= 1 ? { verdict: 'yes', why: `Your fields can feed ${n > 20 ? '20+' : n} more`, gain } : { verdict: 'maybe', why: `Dedicate more ${GOODS[sup.c].name.toLowerCase()} fields first`, gain };
   }
-  const inv = s.regions[g.region].inventory;
   const [x] = ins(g.type)[0] ?? [];
   if (!x) return { verdict: 'yes', why: 'Needs no inputs', gain };
-  const days = inv[x] / oneDay(x);
-  return { verdict: 'maybe', why: `Needs ${num(oneDay(x))} ${GOODS[x].name.toLowerCase()}/day more; stock covers ${days >= 1 ? `${num(days)} days` : 'less than a day'}`, gain };
+  const days = s.regions[g.region].inventory[x] / oneDay(x);
+  return { verdict: 'maybe', why: `${GOODS[x].name} in stock: ${days >= 1 ? `${num(days)} days` : 'under a day'} for one more`, gain };
 }
+
+const statusText = (g: Group) => {
+  if (!BUILDINGS[g.type].recipe) return { text: g.active ? 'Running' : 'Paused', tone: g.active ? '' : 'muted' };
+  if (g.active === 0) return { text: 'Paused', tone: 'muted' };
+  if (g.reason) return { text: g.reason, tone: 'warn' };
+  if (g.margin < 0) return { text: 'Losing money', tone: 'down' };
+  return { text: g.active < g.list.length ? `${g.active} of ${g.list.length} running` : 'Running well', tone: 'up' };
+};
 
 function FacilitiesCard({ s, groups }: { s: GameState; groups: Group[] }) {
   const cols: Col<Group>[] = [
-    { key: 'name', label: 'Facility', width: 190, sort: (g) => BUILDINGS[g.type].name, render: (g) => <div><b>{BUILDINGS[g.type].name}</b>{g.list.length > 1 && <span className="muted"> ×{g.list.length}</span>}<div className="muted small">{REGIONS[g.region].name}</div><SupplyNote s={s} g={g} /></div> },
-    { key: 'util', label: 'Utilisation', sort: (g) => g.util, width: 130, render: (g) => BUILDINGS[g.type].recipe ? <div className="stack s"><span className="mono small">{pct0(g.util)}</span><Bar thin value={g.util} label="Utilisation" color={g.util >= 0.85 ? 'var(--up)' : g.util >= 0.5 ? 'var(--warn)' : 'var(--down)'} /></div> : <span className="faint">—</span> },
-    { key: 'reason', label: 'Bottleneck', width: 140, render: (g) => g.active > 0 && g.active < g.list.length ? <span className="warn">{g.active}/{g.list.length} running{g.reason ? ` · ${g.reason}` : ''}</span> : g.reason ? <span className={g.reason === 'Paused' ? 'muted' : 'warn'}>{g.reason}</span> : !BUILDINGS[g.type].recipe ? <span className="faint">—</span> : g.margin < 0 ? <span className="warn">At capacity, but losing money</span> : <span className="up">At capacity</span> },
-    { key: 'out', width: 105, label: 'Output/h', align: 'r', sort: (g) => g.outValue, render: (g) => <span className="mono">{money(g.outValue)}</span> },
-    { key: 'in', width: 105, label: 'Inputs/h', align: 'r', sort: (g) => g.inCost, render: (g) => <span className="mono">−{money(g.inCost)}</span> },
-    { key: 'op', width: 105, label: 'Staff+power/h', align: 'r', sort: (g) => g.opCost, render: (g) => <span className="mono">−{money(g.opCost)}</span> },
-    { key: 'margin', width: 105, label: 'Margin/h', align: 'r', sort: (g) => g.margin, render: (g) => <span className={`mono ${tone(g.margin)}`}>{money(g.margin)}</span> },
-    { key: 'day', width: 105, label: 'Per day', align: 'r', sort: (g) => g.margin, render: (g) => <span className={`mono ${tone(g.margin)}`}>{money(g.margin * 24)}</span> },
-    { key: 'more', label: 'Add another?', width: 190, sort: (g) => addMore(s, g)?.gain ?? -Infinity, render: (g) => {
+    { key: 'name', label: 'Facility', sort: (g) => BUILDINGS[g.type].name, render: (g) => {
+      const sup = supplyOf(s, g);
+      return <div className="stack s">
+        <div><b>{BUILDINGS[g.type].name}</b>{g.list.length > 1 && <span className="muted"> ×{g.list.length}</span>}</div>
+        <span className="muted small">{REGIONS[g.region].name}</span>
+        {sup && <Tip text={`${sup.n} field${sup.n === 1 ? '' : 's'} grow ${GOODS[sup.c].name.toLowerCase()} for ${g.list.length > 1 ? 'these' : 'this'}: about ${num(sup.grow)} a day against ${num(sup.need)} needed at full speed.${sup.reserved >= 1 ? ` ${num(sup.reserved)} is held in reserve for it.` : ''}`}>
+          <span className="pill" style={{ width: 'fit-content' }}>🌾 {sup.n} field{sup.n === 1 ? '' : 's'} · {sup.grow >= sup.need ? `${sup.grow / sup.need >= 10 ? '10×+' : `${(sup.grow / sup.need).toFixed(1)}×`} enough` : `${pct0(sup.grow / sup.need)} of need`}</span>
+        </Tip>}
+      </div>;
+    } },
+    { key: 'status', label: 'Status', sort: (g) => g.util, render: (g) => {
+      const st = statusText(g);
+      const has = !!BUILDINGS[g.type].recipe;
+      return <div className="stack s" style={{ minWidth: 150 }}>
+        <span className={`small ${st.tone}`} style={{ fontWeight: 600 }}>{st.text}</span>
+        {has && <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+          <div className="grow"><Bar thin value={g.util} label="Utilisation" color={st.tone === 'up' ? 'var(--up)' : st.tone === 'muted' ? 'var(--faint)' : st.tone === 'down' ? 'var(--down)' : 'var(--warn)'} /></div>
+          <span className="mono small muted" style={{ minWidth: 34, textAlign: 'right' }}>{pct0(g.util)}</span>
+        </div>}
+      </div>;
+    } },
+    { key: 'day', label: 'Profit / day', align: 'r', sort: (g) => g.margin, render: (g) => (
+      <Tip text="Profit at the current pace: what the output sells for, minus inputs (at what you could sell them for), staff and power." breakdown={[['Output', money(g.outValue * 24)], ['Inputs', `−${money(g.inCost * 24)}`], ['Staff & power', `−${money(g.opCost * 24)}`], ['Profit', money(g.margin * 24)]]}>
+        <span className={`mono ${tone(g.margin)}`} style={{ fontSize: 15 }}>{g.margin > 0.005 ? '+' : ''}{money(g.margin * 24)}</span>
+      </Tip>
+    ) },
+    { key: 'more', label: 'Build another?', sort: (g) => addMore(s, g)?.gain ?? -Infinity, render: (g) => {
       const a = addMore(s, g);
       if (!a) return <span className="faint">—</span>;
-      return <div className="small"><span className={`pill ${a.verdict === 'yes' ? 'good' : a.verdict === 'maybe' ? 'warn' : ''}`}>{a.verdict === 'yes' ? 'Yes' : a.verdict === 'maybe' ? 'Maybe' : 'No'}</span>
-        {a.verdict !== 'no' && <span className="mono up"> +{money(a.gain)}/day</span>}<div className="muted">{a.why}</div></div>;
+      return <div className="stack s" style={{ minWidth: 170 }}>
+        <div className="row" style={{ gap: 6 }}>
+          <span className={`pill ${a.verdict === 'yes' ? 'good' : a.verdict === 'maybe' ? 'warn' : 'bad'}`}>{a.verdict === 'yes' ? 'Yes' : a.verdict === 'maybe' ? 'Maybe' : 'No'}</span>
+          {a.verdict !== 'no' && <span className="mono small up">+{money(a.gain)}/day each</span>}
+        </div>
+        <span className="small muted">{a.why}</span>
+      </div>;
     } },
-    { key: 'act', label: '', render: (g) => {
+    { key: 'act', label: '', align: 'r', render: (g) => {
       const allOn = g.active === g.list.length;
       const victim = [...g.list].sort((a, b) => Number(a.active) - Number(b.active) || a.util - b.util)[0];
       const refund = Math.round(Math.max(0, victim.cost - victim.depreciated) * 0.5);
       return (
-        <div className="row">
-          <button className="btn ghost sm" onClick={() => g.list.filter((b) => b.active === allOn).forEach((b) => act({ type: 'toggleBuilding', buildingId: b.id }))}>{allOn ? (g.list.length > 1 ? 'Pause all' : 'Pause') : (g.list.length > 1 ? 'Resume all' : 'Resume')}</button>
+        <div className="row" style={{ gap: 6, justifyContent: 'flex-end', flexWrap: 'nowrap' }}>
+          <button className="btn ghost sm" onClick={() => g.list.filter((b) => b.active === allOn).forEach((b) => act({ type: 'toggleBuilding', buildingId: b.id }))}>{allOn ? 'Pause' : 'Resume'}{g.list.length > 1 ? ' all' : ''}</button>
           <Confirm className="btn danger sm" label="Demolish" title={`Demolish a ${BUILDINGS[g.type].name.toLowerCase()}?`} confirmLabel={`Demolish for ${money(refund)}`}
             body={<>You recover 50% of its book value: {money(refund)} (book {money(victim.cost - victim.depreciated)}). {g.list.length > 1 ? 'The least-used one in this group goes first.' : ''}</>}
             onConfirm={() => act({ type: 'demolish', buildingId: victim.id }, 'Facility demolished.')} />
@@ -245,9 +266,8 @@ function FacilitiesCard({ s, groups }: { s: GameState; groups: Group[] }) {
     } },
   ];
   return (
-    <Card title="Facilities" info="Grouped by type and region. Economics are smoothed per-hour figures from the simulation; inputs are valued at today's market price — what you gave up by not selling them. Paused facilities pay no staff.">
-      <Table rows={groups} cols={cols} rowKey={(g) => g.key} initialSort={{ key: 'name', dir: 1 }} search={(g) => `${BUILDINGS[g.type].name} ${REGIONS[g.region].name}`} />
-      {s.era >= 4 && <p className="small muted" style={{ marginTop: 8 }}>Tip: a factory below its break-even utilisation loses money every hour it runs. Pause it until inputs are back.</p>}
+    <Card title="Facilities" info="One row per facility type and region. Hover the profit for its breakdown. 'Build another?' checks your supply and today's prices. Paused facilities pay no staff.">
+      <Table rows={groups} cols={cols} rowKey={(g) => g.key} initialSort={{ key: 'name', dir: 1 }} scroll={false} />
     </Card>
   );
 }
