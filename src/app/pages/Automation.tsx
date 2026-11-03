@@ -85,7 +85,7 @@ function PoliciesCard({ s }: { s: GameState }) {
 
         <Policy title="Selling discipline" info="At midday, managers sell 25% of each crop or product when the price is at least this multiple of its 30-day average, or when dry storage is fuller than the cap. Fast-spoiling goods (over 2%/day) are sold in full every day. Stock promised to accepted contracts is kept."
           who={managers} note={P.sellDiscipline > 0 ? <span className="small muted">Caveat: selling into a thin market moves the price; 25% at a time limits the damage.</span> : undefined}>
-          <Seg label="Sell when price above" value={P.sellDiscipline} onChange={(v) => setP({ sellDiscipline: v })} options={[{ v: 0, label: 'Off' }, ...[1, 1.05, 1.1, 1.2, 1.3].map((v) => ({ v, label: `${v.toFixed(2)}×` }))]} />
+          <Seg label="Sell when price above" value={P.sellDiscipline} onChange={(v) => setP({ sellDiscipline: v })} options={[{ v: 0, label: 'Off' }, ...[0.8, 0.9, 1, 1.05, 1.1, 1.2, 1.3].map((v) => ({ v, label: `${v.toFixed(2)}×` }))]} />
           {P.sellDiscipline > 0 && <Seg label="Or storage above" value={P.sellStorageCap} onChange={(v) => setP({ sellStorageCap: v })} options={[0.7, 0.8, 0.85, 0.9, 0.95].map((v) => ({ v, label: `${Math.round(v * 100)}% full` }))} />}
         </Policy>
 
