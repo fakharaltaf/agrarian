@@ -1,12 +1,21 @@
 // Farm advisor: reads the books and the farm, and explains in plain words what is costing money
 // and what to try. Pure and deterministic; each tip names the page that fixes it.
-import { BUILDINGS, CROPS, GOODS, LEDGER_KINDS, MACHINES, OPEX_KINDS, REVENUE_KINDS, REGION_IDS, type GoodId, type LedgerKind } from './config';
-import { day, refPrice, stored, sumBooks } from './core';
-import { fertility, isManual, isReady, readyAt, spoilValue } from './agriculture';
+import { BUILDINGS, CONFIG, CROPS, GOODS, LEDGER_KINDS, MACHINES, OPEX_KINDS, REVENUE_KINDS, REGION_IDS, type GoodId, type LedgerKind } from './config';
+import { day, equity, refPrice, seedCost, stored, sumBooks } from './core';
+import { buildingMargin } from './processing';
+import { cropScore } from './automation';
+import { expectedYield, fertility, isManual, isReady, readyAt, spoilValue } from './agriculture';
 import type { GameState } from './types';
 
-export interface Advice { id: string; icon: string; title: string; body: string; page: string; perDay: number }
-export interface Diagnosis { revenue: number; costs: number; profit: number; topCosts: { label: string; perDay: number }[]; advice: Advice[] }
+/** perDay: money it costs (or would earn) per day, shown to the player. weight: ranking when there is no clean $ figure. */
+export interface Advice { id: string; icon: string; title: string; body: string; page: string; perDay: number; weight?: number }
+export interface Diagnosis {
+  revenue: number; costs: number; profit: number; topCosts: { label: string; perDay: number }[];
+  /** every cost line, biggest first */ costLines: { label: string; perDay: number }[];
+  /** change in what the farm is worth per day (cash, stock, assets, less debt), net of money raised or paid out to shareholders */ realProfit: number;
+  /** things going well, so the player knows what not to touch */ working: string[];
+  advice: Advice[];
+}
 
 const r0 = (n: number) => `$${Math.round(n).toLocaleString('en-US')}`;
 
@@ -16,8 +25,12 @@ export function diagnose(s: GameState): Diagnosis {
   const rate = (k: LedgerKind[]) => -sumBooks(s, 3, k) / days; // positive = money out
   const revenue = -rate(REVENUE_KINDS);
   const costs = rate([...OPEX_KINDS, 'interest']);
-  const topCosts = [...OPEX_KINDS, 'interest' as LedgerKind].map((k) => ({ label: LEDGER_KINDS[k], perDay: rate([k]) }))
-    .filter((c) => c.perDay > 1).sort((a, b) => b.perDay - a.perDay).slice(0, 3);
+  const costLines = [...OPEX_KINDS, 'interest' as LedgerKind, 'tax' as LedgerKind].map((k) => ({ label: LEDGER_KINDS[k], perDay: rate([k]) }))
+    .filter((c) => c.perDay > 1).sort((a, b) => b.perDay - a.perDay);
+  const topCosts = costLines.slice(0, 3);
+  // what the farm is really earning: change in equity, minus money that came from (or went to) shareholders
+  const start = s.books.find((b) => b.day >= day(s) - 2);
+  const realProfit = start && start.equity ? (equity(s) - start.equity + sumBooks(s, 3, ['sharesIssued', 'dividends', 'buyback'] as LedgerKind[]) * -1) / days : revenue - costs;
   const advice: Advice[] = [];
   const add = (a: Advice) => advice.push(a);
 
@@ -55,11 +68,14 @@ export function diagnose(s: GameState): Diagnosis {
   // more machines than people to drive them, or planned land the crew can't keep up with
   const drivable = s.machines.filter((m) => MACHINES[m.type].haPerHour && !MACHINES[m.type].autonomous && !m.broken).length;
   const waiting = s.fields.filter((f) => f.plan && !f.crop).length;
-  if (hands > 0 && (drivable > hands + 1 || (waiting > 1 && needHours > hands * 12 * 1.2))) {
-    const short = Math.max(drivable - hands, Math.ceil(needHours / 12 - hands));
-    add({ id: 'shortHands', icon: '🧑‍🌾', page: 'workers', perDay: 0,
-      title: drivable > hands ? `${drivable - hands} machine${drivable - hands > 1 ? 's have' : ' has'} no one to drive ${drivable - hands > 1 ? 'them' : 'it'}` : `Your crew can't keep up with ${waiting} waiting field${waiting > 1 ? 's' : ''}`,
-      body: `Every tractor and harvester needs a hand at the wheel. You have ${hands} hand${hands === 1 ? '' : 's'} and ${drivable} machine${drivable === 1 ? '' : 's'}; your planned land needs about ${Math.round(needHours)} work-hours a day. Hire about ${short} more hand${short === 1 ? '' : 's'} before buying more machines — empty fields earn nothing.` });
+  if (hands > 0 && (drivable > hands || (waiting > 1 && drivable < hands && needHours > hands * 12 * 1.2))) { // hand-hour estimate only holds where hands work without machines
+    const lost = s.fields.filter((f) => f.plan && !f.crop).reduce((a, f) => a + Math.max(0, cropScore(s, f, f.plan!)) * 24 * f.ha, 0);
+    const spare = drivable - hands;
+    add({ id: 'shortHands', icon: '🧑‍🌾', page: 'workers', perDay: lost,
+      title: spare > 0 ? `${spare} machine${spare > 1 ? 's have' : ' has'} no one to drive ${spare > 1 ? 'them' : 'it'}` : `Your crew can't keep up with ${waiting} waiting field${waiting > 1 ? 's' : ''}`,
+      body: spare > 0
+        ? `Every tractor and harvester needs a hand at the wheel. You have ${hands} hand${hands === 1 ? '' : 's'} and ${drivable} machines, so ${spare} stand in the yard while ${waiting} field${waiting === 1 ? '' : 's'} wait${waiting === 1 ? 's' : ''} to be planted or harvested. Hire ${spare} hand${spare > 1 ? 's' : ''} — a hand costs far less than a day of an empty field.`
+        : `${waiting} planned field${waiting > 1 ? 's are' : ' is'} waiting for your ${hands} hand${hands === 1 ? '' : 's'}. Hire more hands, or give them machines: a tractor or harvester does many times what a hand does alone.` });
   }
 
   // selling into a market the player is flooding
@@ -93,7 +109,7 @@ export function diagnose(s: GameState): Diagnosis {
 
   // a pile of stock that isn't being sold
   const held = REGION_IDS.reduce((a, r) => a + (Object.keys(s.regions[r].inventory) as GoodId[]).reduce((b, g) => b + (GOODS[g].kind !== 'input' && s.markets[r][g] ? s.regions[r].inventory[g] * s.markets[r][g]!.price : 0), 0), 0);
-  if (held > Math.max(20000, revenue * 20)) add({ id: 'idleStock', icon: '📦', page: 'automation', perDay: 0,
+  if (held > Math.max(20000, revenue * 20)) add({ id: 'idleStock', icon: '📦', page: 'automation', perDay: 0, weight: held / 30,
     title: `${r0(held)} of stock is sitting unsold`,
     body: s.automation.policies.sellDiscipline > 0
       ? `Your manager only sells when the price is at least ${s.automation.policies.sellDiscipline.toFixed(2)}× its 30-day average, or when storage passes ${Math.round(s.automation.policies.sellStorageCap * 100)}% full — and spare warehouses keep it below that. Set the sell price to 0.90× in Automation, or sell some yourself on Fields → Sell.`
@@ -116,6 +132,18 @@ export function diagnose(s: GameState): Diagnosis {
     title: `You're spending more than you sell`,
     body: `Costs run about ${r0(costs)} a day against ${r0(revenue)} of sales; the biggest line is ${topCosts[0].label.toLowerCase()} (${r0(topCosts[0].perDay)}). ${topCosts[0].label === 'Seed' ? 'Seed is paid at planting and comes back at harvest and sale, so check that harvests are being brought in and sold.' : 'Open Finance to see every line — anything that costs more than what it brings in is worth cutting.'}` });
 
-  advice.sort((a, b) => b.perDay - a.perDay);
-  return { revenue, costs, profit, topCosts, advice };
+  // what is working, so the player doesn't break it
+  const working: string[] = [];
+  const goodMills = s.buildings.filter((b) => b.active && BUILDINGS[b.type].recipe && b.util > 0.85 && buildingMargin(b) > 0);
+  if (goodMills.length) working.push(`${[...new Set(goodMills.map((b) => BUILDINGS[b.type].name))].join(', ')} running near full capacity at a profit (${r0(goodMills.reduce((a, b) => a + buildingMargin(b) * 24, 0))}/day).`);
+  if (s.herds.length && s.herds.every((h) => h.fed > 0.99 && h.health > 0.8)) working.push('Your animals are fed and healthy.');
+  const plans = s.fields.filter((f) => f.plan && !CROPS[f.plan].perennial);
+  if (plans.length) {
+    const ret = plans.map((f) => { const c = f.plan!; return (expectedYield(s, f, c) * s.markets[f.region][c]!.price) / Math.max(1, f.ha * CONFIG.seedsPerHa * seedCost(s, c)); }).sort((a, b) => a - b)[Math.floor(plans.length / 2)];
+    if (ret > 2) working.push(`Your crops pay back about ${ret.toFixed(1)}× their seed at today's prices — planting is worth it; the problem is never the seed bill itself.`);
+  }
+  if (realProfit > 0 && profit < 0) working.push(`You're building value: counting stock and assets, the farm gains about ${r0(realProfit)} a day even though cash is going down.`);
+
+  advice.sort((a, b) => (b.perDay || b.weight || 0) - (a.perDay || a.weight || 0));
+  return { revenue, costs, profit, topCosts, costLines, realProfit, working, advice };
 }

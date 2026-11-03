@@ -48,7 +48,7 @@ export const TIPS: CoachTip[] = [
   { id: 'plan', page: 'farm', target: 'plan-picker', title: 'Give fields a crop plan', body: 'Workers only replant fields that have a plan. Select fields, choose a crop plan, and they will keep them cycling.',
     when: (s) => s.workers.length > 0 && !anyField(s, (f) => !!f.plan), done: (s) => anyField(s, (f) => !!f.plan) },
   { id: 'advisorHire', page: 'workers', target: 'hire-advisor', title: 'Money is draining away', body: 'Your farm has been spending more than it earns these last days. A farm advisor (Workers page) reads your books and tells you exactly what is costing you — for a daily fee.',
-    when: (s) => s.era >= 2 && !s.advisor && s.stats.sales > 0 && diagnose(s).profit < 0, done: (s) => s.advisor },
+    when: (s) => s.era >= 2 && !s.advisor && s.stats.sales > 0 && diagnose(s).realProfit < 0, done: (s) => s.advisor },
   { id: 'soil', page: 'farm', target: 'soil-panel', title: 'Your soil is wearing out', body: 'Every harvest removes nutrients. Rotate crops — soybeans put nitrogen back — rest fields, or spread fertiliser (which costs money and can harm soil if overused).',
     when: (s) => s.era >= 2 && anyField(s, (f) => fertility(f) < 0.75) },
   { id: 'storage', page: 'storage', target: 'nav-storage', title: 'Storage is filling up', body: 'Whatever does not fit in storage at harvest is sold on the spot at whatever price the market gives. More storage lets you wait for better prices — but stock slowly spoils.',
