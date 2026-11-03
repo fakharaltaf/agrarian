@@ -352,11 +352,12 @@ function SoilPanel({ s, f }: { s: GameState; f: Field }) {
       ) : <p className="faint small">Research soil testing to see nitrogen, phosphorus, potassium and organic matter.</p>}
       <Meter label="Soil moisture" value={f.moisture} info={`Rain sets the soil's water level; heat dries it. ${f.crop ? `${GOODS[f.crop].name} grows best around ${pct0(CROPS[f.crop].water)}.` : ''} Irrigation tops it up to ${pct0(s.automation.policies.irrigateMin)} at a water cost.`} color="#5aa3c8" />
       {f.pest > 0.05 && <Meter label="Pest pressure" value={f.pest} info={f.crop && CROPS[f.crop].perennial ? 'Pests build while the trees bear fruit, faster in heat. Each harvest halves them, and they die back while the orchard rests in winter.' : `Pests build while crops grow, faster in heat and in monocultures (this field has grown the same crop ${f.streak + 1}× in a row). Resting or rotating clears them.`} tone="down" />}
+      {f.spreading ? <p className="small">🧪 {f.spreading === 'manure' ? 'Manure' : 'Fertiliser'} is waiting for your crew to spread it ({pct0(f.spreadWork)} done){f.crop ? ' — after the harvest' : ''}. Tractors do it fastest; it goes on before the next sowing.</p> : (
       <div className="row wrap">
         <button className="btn ghost sm" disabled={inv.fertilizer < fertNeed} onClick={() => act({ type: 'fertilize', fieldIds: [f.id], source: 'fertilizer' })} title={`Uses ${fertNeed} fertiliser from storage (${num(inv.fertilizer)} held). Buy it on the Markets page.`}>Spread fertiliser ({fertNeed})</button>
         {inv.manure >= f.ha * CONFIG.manurePerHa && <button className="btn ghost sm" onClick={() => act({ type: 'fertilize', fieldIds: [f.id], source: 'manure' })}>Spread manure ({num(f.ha * CONFIG.manurePerHa)})</button>}
         {inv.fertilizer < fertNeed && <span className="faint small">{num(inv.fertilizer)} fertiliser in storage</span>}
-      </div>
+      </div>)}
     </div>
   );
 }

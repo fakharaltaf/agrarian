@@ -1,7 +1,7 @@
 // Levels 3–5 of automation: managers run field cycles, rules react to conditions,
 // policies steer everything toward strategic objectives. Automation spends real money
 // through the same primitives as the player, and never below the cash reserve.
-import { ANIMALS, BUILDINGS, CONFIG, CROPS, GOODS, GOOD_IDS, MACHINES, REGIONS, REGION_IDS, TICKS_PER_DAY, WORK_END, WORK_START, type CropId, type GoodId, type RegionId } from './config';
+import { ANIMALS, BUILDINGS, CONFIG, CROPS, DAYS_PER_YEAR, GOODS, GOOD_IDS, MACHINES, REGIONS, REGION_IDS, TICKS_PER_DAY, WORK_END, WORK_START, type CropId, type GoodId, type RegionId } from './config';
 import { canGrow, expectedYield, fertility, fertilizeField, soilAdequacy } from './agriculture';
 import { buildingsIn, clamp, levelMult, reservedStock, debt, execOn, has, hour, log, nextId, post, priceUsd, seasonOf, seedCost, stored, totalAssets } from './core';
 import { avg30, closedPort, executeBuy, executeSell, forecast, marketDepth, quoteBuy } from './markets';
@@ -69,7 +69,7 @@ function runRule(s: GameState, r: Rule): string | null {
     }
     case 'fertilizeLow': {
       let n = 0;
-      for (const f of s.fields) if (f.region === r.region && !f.crop && fertility(f) < 0.6 && !fertilizeField(s, f, 'fertilizer')) n++;
+      for (const f of s.fields) if (f.region === r.region && !f.crop && !f.spreading && fertility(f) < 0.6 && !fertilizeField(s, f, 'fertilizer')) n++;
       return n ? `fertilised ${n} field(s)` : null;
     }
     case 'repairAll': {
@@ -153,7 +153,12 @@ export function millValue(s: GameState, r: RegionId, c: CropId) {
 export function frostRisk(s: GameState, f: import('./types').Field, c: CropId) {
   if (CROPS[c].frostHardy || f.greenhouse) return false;
   const season = seasonOf(s);
-  return season === 'Winter' || (season === 'Autumn' && forecast(s, f.region).some((d) => d.frost));
+  if (season === 'Winter' || (season === 'Autumn' && forecast(s, f.region).some((d) => d.frost))) return true;
+  if (season !== 'Autumn') return false;
+  // a big field takes days to sow: would the crop still be in the ground when winter comes?
+  const daysToWinter = 30 - ((Math.floor(s.tick / TICKS_PER_DAY) % DAYS_PER_YEAR) % 30);
+  const sowDays = (f.ha / Math.max(0.01, crewRate(s, f.region, 'plant', c))) * (24 / (WORK_END - WORK_START)) / 24;
+  return sowDays + CROPS[c].growthTicks / 24 > daysToWinter;
 }
 
 export function chooseCrop(s: GameState, f: import('./types').Field): CropId | null {
@@ -187,12 +192,12 @@ export function policiesTick(s: GameState) {
     if (!hasManager(s, r)) continue;
     // manure is free fertiliser: managers spread it on empty fields that would benefit instead of letting it pile up
     for (const f of s.fields) {
-      if (f.region !== r || f.crop || f.soil.organic >= 0.7 || Math.max(f.soil.n, f.soil.p, f.soil.k) > 1.1) continue;
+      if (f.region !== r || f.crop || f.spreading || f.soil.organic >= 0.7 || Math.max(f.soil.n, f.soil.p, f.soil.k) > 1.1) continue;
       if (s.regions[r].inventory.manure >= f.ha * CONFIG.manurePerHa) fertilizeField(s, f, 'manure');
     }
     if (P.autoFertilize) {
       for (const f of s.fields) {
-        if (f.region !== r || f.crop || fertility(f) >= P.soilTarget) continue;
+        if (f.region !== r || f.crop || f.spreading || fertility(f) >= P.soilTarget) continue;
         // a competent manager never overdoses: skip if any nutrient would exceed the runoff threshold
         if (Math.max(f.soil.n, f.soil.p, f.soil.k) + CONFIG.fertilizerDose > 1.2 && !has(s, 'precisionFert')) {
           if (f.soil.organic < 0.7 && s.regions[r].inventory.manure >= f.ha * CONFIG.manurePerHa) fertilizeField(s, f, 'manure');

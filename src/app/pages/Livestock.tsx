@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ANIMALS, ANIMAL_IDS, BUILDINGS, GOODS, REGIONS, type AnimalId, type RegionId } from '../../simulation/config';
+import { ANIMALS, ANIMAL_IDS, BUILDINGS, COWS_PER_DAIRY_BATCH, GOODS, REGIONS, type AnimalId, type RegionId } from '../../simulation/config';
 import { known, priceUsd } from '../../simulation/core';
 import { animalPrice, herdOf, housing } from '../../simulation/engine';
 import type { GameState } from '../../simulation/types';
@@ -41,8 +41,11 @@ function HerdCard({ s, r, a }: { s: GameState; r: RegionId; a: AnimalId }) {
   const [n, setN] = useState(10);
   const room = Math.max(0, Math.floor(cap - (h?.count ?? 0)));
   const product = def.product ? GOODS[def.product] : null;
-  const perDay = (h?.count ?? 0) * def.perDay * (h?.health ?? 0) * (h?.fed ?? 0);
-  const feedCost = (h?.count ?? 0) * def.feedPerDay * priceUsd(s, r, 'feed');
+  // cows milked in a dairy show up on the Production page instead
+  const inDairy = a === 'cows' ? Math.min(h?.count ?? 0, s.buildings.reduce((x, b) => x + (b.type === 'dairy' && b.region === r && b.active ? b.stats.out * COWS_PER_DAIRY_BATCH : 0), 0)) : 0;
+  const shed = (h?.count ?? 0) - inDairy;
+  const perDay = shed * def.perDay * (h?.health ?? 0) * (h?.fed ?? 0);
+  const feedCost = shed * def.feedPerDay * priceUsd(s, r, 'feed');
   const income = def.product ? perDay * priceUsd(s, r, def.product) : 0;
   const bt = def.building;
   return (
@@ -59,6 +62,7 @@ function HerdCard({ s, r, a }: { s: GameState; r: RegionId; a: AnimalId }) {
               <div className="kpi"><span>{product ? `${product.name} / day` : 'Output'}</span><strong className="mono">{num(perDay, 1)}</strong></div>
               <div className="kpi"><span>Margin / day <Info text="Value of today's output at market price minus the cost of feed if it all had to be bought." /></span><strong className={`mono ${income - feedCost < 0 ? 'down' : 'up'}`}>{money(income - feedCost)}</strong></div>
             </div>
+            {inDairy >= 1 && <p className="small muted">🥛 {num(inDairy)} of these cows are milked in your dairy (fed and milked there — see Production). The figures above are for the rest.</p>}
             <Bar value={cap ? (h?.count ?? 0) / cap : 0} label="Housing used" color={(h?.count ?? 0) > cap ? 'var(--down)' : undefined} />
             <div className="row wrap">
               <NumberInput label="Number of animals" value={n} min={1} max={9999} onChange={(v) => setN(Math.round(v))} width={80} />

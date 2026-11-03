@@ -1,6 +1,6 @@
 // Farm animals. Herds live in their buildings, eat every day, produce in proportion to their
 // health, breed when they have space, and suffer when hungry or crowded.
-import { ANIMALS, BUILDINGS, GOODS, REGIONS, type AnimalId, type GoodId, type RegionId } from './config';
+import { ANIMALS, BUILDINGS, COWS_PER_DAIRY_BATCH, GOODS, REGIONS, type AnimalId, type GoodId, type RegionId } from './config';
 import { addGoods } from './agriculture';
 import { buildingsIn, clamp, levelMult, post, reservedStock, severity } from './core';
 import { avg30, executeBuy, executeSell, quoteBuy } from './markets';
@@ -21,8 +21,11 @@ export function livestockDaily(s: GameState) {
     if (h.count < 0.5) continue;
     const def = ANIMALS[h.animal];
     const inv = s.regions[h.region].inventory;
+    // cows a dairy milks are fed and milked there (their feed and milk run through the dairy's recipe)
+    const inDairy = h.animal === 'cows' ? Math.min(h.count, s.buildings.reduce((a, b) => a + (b.type === 'dairy' && b.region === h.region && b.active ? b.stats.out * COWS_PER_DAIRY_BATCH : 0), 0)) : 0;
+    const own = 1 - inDairy / h.count; // share of the herd looked after in the cowshed
     // feed: what is in store first, then buy feed if the policy allows
-    const need = h.count * def.feedPerDay;
+    const need = h.count * def.feedPerDay * own;
     let got = 0;
     for (const g of FEEDS) {
       // stock your factories need comes first: reserved input and a day of what running mills use
@@ -55,11 +58,11 @@ export function livestockDaily(s: GameState) {
     if (h.health < 0.35) h.count *= 0.96; // sick, hungry animals die
     // produce
     if (def.product) {
-      const made = h.count * def.perDay * h.health * h.fed;
+      const made = h.count * own * def.perDay * h.health * h.fed;
       addGoods(s, h.region, def.product, made, 0.45 + 0.45 * h.health);
       s.stats.produced[def.product] = (s.stats.produced[def.product] ?? 0) + made;
     }
-    inv.manure += h.count * MANURE[h.animal];
+    inv.manure += h.count * own * MANURE[h.animal];
     // breed
     if (h.health > 0.7 && h.fed > 0.95 && h.count >= 2 && h.count < cap) h.count = Math.min(cap, h.count * (1 + def.breedPerDay));
   }

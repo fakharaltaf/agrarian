@@ -29,6 +29,8 @@ export interface Field {
   plan: CropId | null; // crop workers replant automatically
   planLocked: boolean; // player fixed the plan: managers and rules leave it alone
   supplies: number | null; // building id this field grows for: its harvest is reserved for that factory
+  spreading: 'fertilizer' | 'manure' | null; // bought and waiting for the crew to spread it
+  spreadWork: number; // 0..1 progress spreading it
   soil: Soil;
   moisture: number;
   irrigated: boolean;

@@ -122,7 +122,7 @@ function migrate(g: Omit<GameState, 'version'> & { version: number }): GameState
   g.automation.policies.autoFeed ??= true;
   g.automation.policies.autoExport ??= true;
   g.automation.policies.supplyFactories ??= false;
-  for (const f of g.fields) (f.supplies ??= null), (f.planLocked ??= false), (f.greenhouse ??= false), (f.frost ??= 0), (f.cycleAt ??= 0);
+  for (const f of g.fields) (f.supplies ??= null), (f.spreading ??= null), (f.spreadWork ??= 0), (f.planLocked ??= false), (f.greenhouse ??= false), (f.frost ??= 0), (f.cycleAt ??= 0);
   // one-time repair (Nov 2026): orchards piled up pests from a bug; clear them once, marked in `rewarded` so it never repeats
   if (!g.rewarded.includes('fix:orchardPests')) {
     for (const f of g.fields) if (f.crop && CROPS[f.crop].perennial) (f.pest = 0), (f.streak = 0);

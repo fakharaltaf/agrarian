@@ -939,3 +939,56 @@ describe('exports', () => {
     reconcile(s);
   });
 });
+
+describe('connected mechanics', () => {
+  it('a dairy milks your own cows and those cows are fed through it', async () => {
+    const s = fresh(31);
+    toEra(s, 4);
+    give(s, 1e6);
+    dispatch(s, { type: 'build', region: 'heartland', building: 'dairy' });
+    for (let i = 0; i < 3; i++) dispatch(s, { type: 'build', region: 'heartland', building: 'warehouse' });
+    dispatch(s, { type: 'build', region: 'heartland', building: 'coldStore' });
+    s.regions.heartland.inventory.feed = 5000;
+    const dairy = s.buildings.find((b) => b.type === 'dairy')!;
+    step(s);
+    expect(dairy.reason).toBe('Not enough cows');
+    s.herds.push({ region: 'heartland', animal: 'cows', count: 60, health: 1, fed: 1 });
+    for (let i = 0; i < 30; i++) step(s);
+    expect(dairy.util).toBeGreaterThan(0.1);
+    expect(dairy.reason).toBe('Not enough cows'); // 60 cows run half a dairy
+    expect(dairy.stats.out).toBeLessThanOrEqual(2 + 1e-6);
+  });
+
+  it('fertiliser is spread by the crew before sowing, not instantly', () => {
+    const s = fresh(32);
+    toEra(s, 3);
+    give(s, 1e5);
+    dispatch(s, { type: 'hire', region: 'heartland', role: 'hand', wageFactor: 1 });
+    const f = s.fields[0];
+    Object.assign(f, { crop: null, work: 0, plan: 'wheat' });
+    s.regions.heartland.inventory.fertilizer = 1000;
+    const n0 = f.soil.n;
+    expect(dispatch(s, { type: 'fertilize', fieldIds: [f.id], source: 'fertilizer' }).ok).toBe(true);
+    expect(f.soil.n).toBe(n0);
+    expect(f.spreading).toBe('fertilizer');
+    while (s.tick % 24 !== 9) step(s);
+    for (let i = 0; i < 4 && f.spreading; i++) step(s);
+    expect(f.spreading).toBe(null);
+    expect(f.soil.n).toBeGreaterThan(n0);
+    reconcile(s);
+  });
+
+  it('managers do not sow tender crops that would still be in the ground at winter', async () => {
+    const { frostRisk } = await import('../simulation/automation');
+    const s = fresh(33);
+    toEra(s, 3);
+    const f = s.fields[0];
+    Object.assign(f, { crop: null, ha: 500 });
+    s.tick = (60 + 28) * 24 + 12; // two days before winter
+    s.regions.heartland.forecast = s.regions.heartland.forecast.map(() => ({ temp: 5, rain: 0 }));
+    expect(frostRisk(s, f, 'corn')).toBe(true);
+    s.tick = (60 + 2) * 24 + 12; // early autumn, little to sow
+    f.ha = 1;
+    expect(frostRisk(s, f, 'corn')).toBe(false);
+  });
+});

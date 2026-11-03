@@ -1,5 +1,5 @@
 // Fields, soil, water, pests, growth, yield and storage.
-import { CONFIG, CROPS, GOODS, REGIONS, TICKS_PER_DAY, TICKS_PER_YEAR, type CropId, type GoodId, type RegionId } from './config';
+import { CONFIG, CROPS, GOODS, MACHINES, REGIONS, TICKS_PER_DAY, TICKS_PER_YEAR, type CropId, type GoodId, type RegionId } from './config';
 import { buildingsIn, clamp, factoryCrop, reserveCap, freeSpace, has, log, post, round2, seasonOf, seedCost, severity, stored, todayBook } from './core';
 import { executeSell } from './markets';
 import type { Field, GameState, HarvestBreakdown } from './types';
@@ -9,7 +9,7 @@ export function newField(s: GameState, region: RegionId, ha: number, cost: numbe
   return {
     id: s.fields.reduce((m, f) => Math.max(m, f.id), 0) + 1, cost, region, ha, crop: null, plantedAt: 0, plan: null,
     soil: { n: clamp(q, 0.3, 1.3), p: clamp(q, 0.3, 1.3), k: clamp(q, 0.3, 1.3), organic: clamp(0.8 * q, 0.2, 1) },
-    moisture: REGIONS[region].rain, planLocked: false, supplies: null, irrigated: false, greenhouse: false, frost: 0, cycleAt: 0, pest: 0, lastCrop: null, streak: 0, work: 0, acc: { temp: 0, water: 0, n: 0 }, yields: [],
+    moisture: REGIONS[region].rain, planLocked: false, supplies: null, spreading: null, spreadWork: 0, irrigated: false, greenhouse: false, frost: 0, cycleAt: 0, pest: 0, lastCrop: null, streak: 0, work: 0, acc: { temp: 0, water: 0, n: 0 }, yields: [],
   };
 }
 
@@ -183,7 +183,21 @@ export function fertilizeField(s: GameState, f: Field, source: 'fertilizer' | 'm
   const inv = s.regions[f.region].inventory;
   const need = f.ha * (source === 'fertilizer' ? CONFIG.fertilizerPerHa * (has(s, 'precisionFert') ? 0.7 : 1) : CONFIG.manurePerHa);
   if (inv[source] < need) return `Need ${Math.ceil(need)} ${GOODS[source].name.toLowerCase()} in ${REGIONS[f.region].name} storage.`;
+  if (f.spreading) return `Field ${f.id} is already waiting to be spread.`;
   inv[source] -= need;
+  // with a crew in the region it's field work for them (tractors spread fastest); with none, a contractor does it at once
+  if (s.workers.some((w) => w.region === f.region && w.role === 'hand') || s.machines.some((m) => m.region === f.region && MACHINES[m.type].autonomous && MACHINES[m.type].task === 'plant')) {
+    f.spreading = source;
+    f.spreadWork = 0;
+    return null;
+  }
+  applySpread(s, f, source);
+  post(s, 'maintenance', -4 * f.ha * s.macro.cpi, 'Spreading contractor', f.region);
+  return null;
+}
+
+/** The soil effect of fertiliser or manure once it is on the field. */
+export function applySpread(s: GameState, f: Field, source: 'fertilizer' | 'manure') {
   const dose = source === 'fertilizer' ? CONFIG.fertilizerDose : 0.12;
   const cap = has(s, 'precisionFert') ? 1.1 : 1.5;
   let overdose = false;
@@ -198,10 +212,6 @@ export function fertilizeField(s: GameState, f: Field, source: 'fertilizer' | 'm
     s.corp.runoff++;
     s.corp.reputation = clamp(s.corp.reputation - 0.3, 0, 100);
   }
-  // Application work: own tractors burn fuel, otherwise a contractor charges per hectare.
-  const tractor = s.machines.some((m) => m.region === f.region && (m.type === 'tractor' || m.type === 'robotTractor') && !m.broken);
-  post(s, tractor ? 'fuel' : 'maintenance', -(tractor ? 1.5 : 4) * f.ha * s.macro.cpi, tractor ? 'Spreading fuel' : 'Spreading contractor', f.region);
-  return null;
 }
 
 // ---------------------------------------------------------------- hourly field physics

@@ -2,7 +2,7 @@
 // operator can do but burn fuel, wear out and depreciate. Workers cost wages whether busy or not.
 import { CONFIG, CROPS, GOODS, MACHINES, REGIONS, WORK_END, WORK_START, type RegionId } from './config';
 import { clamp, execOn, fuelPrice, has, hour, log, marketWage, nextId, pick, post, random, severity } from './core';
-import { harvestField, isReady, plantField, seedShortfall, warnOnce } from './agriculture';
+import { applySpread, harvestField, isReady, plantField, seedShortfall, warnOnce } from './agriculture';
 import { overdraftLimit } from './finance';
 import type { Field, GameState, Machine, Worker } from './types';
 
@@ -31,7 +31,7 @@ export function hire(s: GameState, region: RegionId, role: 'hand' | 'manager', w
 
 // ---------------------------------------------------------------- hourly labour
 
-interface Task { f: Field; kind: 'plant' | 'harvest'; done?: boolean; taken?: boolean }
+interface Task { f: Field; kind: 'plant' | 'harvest' | 'spread'; done?: boolean; taken?: boolean }
 
 export function laborTick(s: GameState) {
   const h = hour(s);
@@ -91,7 +91,7 @@ export function laborTick(s: GameState) {
         riders.set(plat.id, (riders.get(plat.id) ?? 0) + 1);
         plat.task = t.f.id;
       }
-      work(s, t, (p * perkFor(t.kind) * (plat ? MACHINES[plat.type].assist! * (1 + 0.25 * ((plat.tier || 1) - 1)) : 1)) / (t.f.ha * (t.kind === 'plant' ? CONFIG.plantHours : CROPS[t.f.crop!].harvestHours)), null);
+      work(s, t, (p * perkFor(t.kind) * (plat ? MACHINES[plat.type].assist! * (1 + 0.25 * ((plat.tier || 1) - 1)) : 1)) / (t.f.ha * (t.kind === 'plant' ? CONFIG.plantHours : t.kind === 'spread' ? CONFIG.fertilizeHours : CROPS[t.f.crop!].harvestHours)), null);
     }
     if (tasks.some((t) => !t.done)) s.regions[r].backlog++;
   }
@@ -102,22 +102,25 @@ export function laborTick(s: GameState) {
 function buildTasks(s: GameState, r: RegionId): Task[] {
   const harvest: Task[] = [];
   const plant: Task[] = [];
+  const spread: Task[] = [];
   const budget = essentialBudget(s);
   for (const f of s.fields) {
     if (f.region !== r) continue;
     if (isReady(s, f)) harvest.push({ f, kind: 'harvest' });
+    else if (!f.crop && f.spreading) spread.push({ f, kind: 'spread' }); // fertilise before sowing
     else if (!f.crop && f.plan) {
       if (seedShortfall(s, f, f.plan).cost <= budget) plant.push({ f, kind: 'plant' });
       else warnOnce(s, `noplant-${r}`, 'warning', `Workers can't afford seed for field ${f.id} (${GOODS[f.plan].name.toLowerCase()}): it needs $${Math.round(seedShortfall(s, f, f.plan).cost).toLocaleString('en-US')} and only $${Math.round(Math.max(0, budget)).toLocaleString('en-US')} is available. Sell stock or plan a cheaper crop.`, 'finance', 48);
     }
   }
   harvest.sort((a, b) => a.f.plantedAt + CROPS[a.f.crop!].growthTicks - (b.f.plantedAt + CROPS[b.f.crop!].growthTicks));
-  return [...harvest, ...plant];
+  return [...harvest, ...spread, ...plant];
 }
 
 const fits = (t: Task, m: Machine) => {
   const d = MACHINES[m.type];
-  if (!d.haPerHour || t.kind !== d.task) return false; // platforms carry pickers rather than working a field themselves
+  if (!d.haPerHour || (t.kind === 'spread' ? 'plant' : t.kind) !== d.task) return false; // tractors also spread; platforms carry pickers rather than working a field themselves
+  if (t.kind === 'spread') return !d.crops;
   return d.crops ? d.crops.includes(t.f.crop!) : t.kind !== 'harvest' || CROPS[t.f.crop!].machineHarvest;
 };
 
@@ -130,7 +133,7 @@ function machineHour(s: GameState, m: Machine, tasks: Task[], first: Task, haPer
   m.task = first.f.id;
   let left = 1;
   for (let t: Task | undefined = first; t && left > 1e-6; t = nextFor(tasks, m)) {
-    const rate = haPerHour / t.f.ha; // share of this field per hour
+    const rate = (haPerHour * (t.kind === 'spread' ? CONFIG.plantHours / CONFIG.fertilizeHours : 1)) / t.f.ha; // share of this field per hour (spreading is quicker than sowing)
     const use = Math.min(left, (1 - t.f.work) / rate);
     t.taken = true;
     work(s, t, use * rate + 1e-9, m);
@@ -142,6 +145,15 @@ export const machineRate = (s: GameState, m: Machine) => (MACHINES[m.type].haPer
 
 /** Adds progress to a task; `by` is the machine that picked it (fruit machines can bruise the crop). */
 function work(s: GameState, t: Task, progress: number, by: Machine | null) {
+  if (t.kind === 'spread') {
+    t.f.spreadWork += progress;
+    if (t.f.spreadWork < 1) return;
+    t.done = true;
+    applySpread(s, t.f, t.f.spreading!);
+    t.f.spreading = null;
+    t.f.spreadWork = 0;
+    return;
+  }
   if (t.kind === 'harvest' && t.f.work === 0) t.f.pickStart = s.tick;
   t.f.work += progress;
   if (t.f.work < 1) return;

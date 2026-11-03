@@ -348,7 +348,8 @@ function NodeDetail({ s, n, r, cropDay, fill }: { s: GameState; n: ChainNode; r:
   const units = g.active || g.list.length;
   const lost = Math.max(0, (1 - g.util) * e.perBatch * e.bph * units);
   const short = ins(g.type).filter(([x, q]) => inv[x] < q * e.bph);
-  const advice = g.reason.startsWith('Not enough')
+  const advice = g.reason === 'Not enough cows' ? 'A dairy milks your own cows: up to 120 per dairy. Buy cows and build cowsheds on the Livestock page, or run fewer dairies.'
+    : g.reason.startsWith('Not enough')
     ? `Grow more ${short.map(([x]) => GOODS[x].name.toLowerCase()).join(' and ') || 'input'}, buy it on Markets${s.era >= 6 ? ', ship it in' : ''}, or build an upstream facility.`
     : g.reason === 'Output storage full' ? 'Sell the output or add storage (warehouse for dry goods, cold store for chilled).'
     : g.reason === 'Paused' ? 'Resume it when inputs and prices support running. Paused facilities pay no staff.'

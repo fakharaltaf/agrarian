@@ -1,6 +1,6 @@
 // Factories, energy and building upkeep. One production model for every industry:
 // batches = min(capacity, scarcest input, output room, power) — Leontief, like a real line.
-import { BUILDINGS, GOODS, REGIONS, REGION_IDS, WORK_START, type GoodId, type RegionId } from './config';
+import { BUILDINGS, COWS_PER_DAIRY_BATCH, GOODS, REGIONS, REGION_IDS, WORK_START, type GoodId, type RegionId } from './config';
 import { buildingDivision, clamp, electricityPrice, execOn, freeSpace, has, hour, levelMult, post, priceUsd, reserveCap, reservedStock, severity } from './core';
 import { addGoods } from './agriculture';
 import type { Building, GameState } from './types';
@@ -17,6 +17,7 @@ export function buildingsTick(s: GameState) {
   for (const r of REGION_IDS) {
     const reg = s.regions[r];
     let gen = 0;
+    let cows = s.herds.find((h) => h.region === r && h.animal === 'cows')?.count ?? 0; // dairies share the region's herd
     for (const b of s.buildings) {
       if (b.region !== r) continue;
       const def = BUILDINGS[b.type];
@@ -30,7 +31,7 @@ export function buildingsTick(s: GameState) {
       if (staff) post(s, 'staff', -staff, `${def.name} staff`, r, buildingDivision(b.type));
       if (def.coldKwh) reg.powerUse += def.coldKwh * (has(s, 'coldChain') ? 1.3 : 1);
       if (def.solarKw) gen += def.solarKw * solarOutput(s, r);
-      if (def.recipe) produce(s, b, staff);
+      if (def.recipe) cows -= produce(s, b, staff, cows);
     }
     // settle electricity: own generation first, buy the rest, sell surplus at half price
     gen += reg.powerGen;
@@ -43,7 +44,8 @@ export function buildingsTick(s: GameState) {
   }
 }
 
-function produce(s: GameState, b: Building, staff: number) {
+/** Runs one factory hour; returns how many cows a dairy milked. */
+function produce(s: GameState, b: Building, staff: number, cows = 0) {
   const def = BUILDINGS[b.type];
   const rec = def.recipe!;
   const reg = s.regions[b.region];
@@ -54,6 +56,10 @@ function produce(s: GameState, b: Building, staff: number) {
   if ((b.type === 'ranch' || b.type === 'dairy') && severity(s, 'livestockDisease', b.region) > 0) {
     batches = 0;
     reason = 'Disease outbreak: production halted';
+  }
+  if (b.type === 'dairy' && cows / COWS_PER_DAIRY_BATCH < batches) {
+    batches = Math.max(0, cows / COWS_PER_DAIRY_BATCH);
+    reason = 'Not enough cows';
   }
   for (const [g, q] of Object.entries(rec.inputs) as [GoodId, number][]) {
     const can = Math.max(0, inv[g] - reservedStock(s, b.region, g, b)) / q; // other factories' reserved stock is off limits
@@ -108,6 +114,7 @@ function produce(s: GameState, b: Building, staff: number) {
   st.inCost = st.inCost * (1 - EMA) + inCost * EMA;
   st.outValue = st.outValue * (1 - EMA) + outValue * EMA;
   st.opCost = st.opCost * (1 - EMA) + opCost * EMA;
+  return b.type === 'dairy' ? batches * COWS_PER_DAIRY_BATCH : 0;
 }
 
 /** Hourly operating margin at market prices (inputs valued at what you could have sold them for). */
