@@ -5,7 +5,7 @@ import { buildingPrice, expectedYield } from '../../simulation/engine';
 import { buildingMargin, solarOutput } from '../../simulation/processing';
 import type { Building, GameState } from '../../simulation/types';
 import { act, go, useGame } from '../../stores/game';
-import { breakEven, lineEcon, upgradeOutlook } from '../../simulation/lines';
+import { breakEven, dayPrice, lineEcon, upgradeOutlook } from '../../simulation/lines';
 import { portrait } from '../world/portrait';
 import { money, num, pct0, price } from '../format';
 import { Card, Confirm, Empty, Info, Kpi, PageHead, Select, usePref } from '../ui';
@@ -313,7 +313,7 @@ function LineCard({ s, g, groups }: { s: GameState; g: Group; groups: Group[] })
             <Belt live={live} color={GOODS[outs(g.type)[0][0]].color} />
             <div className="ln-side out">
               {outs(g.type).filter(([x]) => x !== 'manure').map(([x, q]) => (
-                <Token key={x} g={x} top={`${num(perDay(q * (has(s, 'processEfficiency') ? 1.1 : 1)))}/day`} sub={`${price(priceUsd(s, g.region, x))} each`} />
+                <Token key={x} g={x} top={`${num(perDay(q * (has(s, 'processEfficiency') ? 1.1 : 1)))}/day`} sub={`${price(dayPrice(s, g.region, x))} each`} />
               ))}
             </div>
           </div>

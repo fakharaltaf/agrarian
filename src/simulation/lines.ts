@@ -1,7 +1,7 @@
 // Production-line economics for the UI: one source of truth for what a group of same-type
 // facilities in a region earns per day, what pausing it really saves, the prices it needs
 // to break even, and whether upgrading would pay. Everything is valued at today's prices.
-import { ANIMALS, BUILDINGS, COWS_PER_DAIRY_BATCH, type BuildingType, type GoodId, type RegionId } from './config';
+import { ANIMALS, BUILDINGS, CONFIG, COWS_PER_DAIRY_BATCH, type BuildingType, type GoodId, type RegionId } from './config';
 import { buildingDivision, electricityPrice, execOn, has, levelMult, priceUsd } from './core';
 import { upgradeCost } from './engine';
 import { MANURE } from './livestock';
@@ -22,6 +22,12 @@ export interface LineEcon {
   qty: Partial<Record<GoodId, number>>;
 }
 
+/** Average price over the last 24 hours: the cards value lines on it so one sale's dip doesn't flip them red. */
+export function dayPrice(s: GameState, r: RegionId, g: GoodId) {
+  const h = s.markets[r][g]?.history.slice(-24 / CONFIG.priceHistoryEvery);
+  return h?.length ? h.reduce((a, x) => a + x, 0) / h.length : priceUsd(s, r, g);
+}
+
 const outMult = (s: GameState) => (has(s, 'processEfficiency') ? 1.1 : 1);
 const kwhMult = (s: GameState, kwh: number) => (has(s, 'foodTech') && kwh > 0 ? 0.7 : 1);
 const staffDay = (s: GameState, t: BuildingType, level: number) =>
@@ -34,7 +40,7 @@ function cowsheds(s: GameState, r: RegionId) {
 
 function econOf(s: GameState, t: BuildingType, r: RegionId, units: Unit[]): LineEcon {
   const rec = BUILDINGS[t].recipe!;
-  const p = (g: GoodId) => priceUsd(s, r, g);
+  const p = (g: GoodId) => dayPrice(s, r, g);
   const elec = electricityPrice(s, r);
   const batches = units.reduce((a, u) => a + u.bph, 0) * 24; // per day
   const qty: Partial<Record<GoodId, number>> = {};
@@ -85,7 +91,7 @@ export function breakEven(s: GameState, e: LineEcon, r: RegionId): Target[] {
   const out: Target[] = [];
   for (const [g, q] of Object.entries(e.qty) as [GoodId, number][]) {
     if (g === 'manure' || Math.abs(q) < 1e-6) continue;
-    const now = priceUsd(s, r, g);
+    const now = dayPrice(s, r, g);
     const need = now - e.worth / q; // worth + (need − now)·q = 0
     if (need <= 0 || now <= 0) continue; // no positive price fixes it
     out.push({ good: g, side: q > 0 ? 'sell' : 'buy', now, need, change: need / now - 1 });

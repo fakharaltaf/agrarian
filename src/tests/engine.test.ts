@@ -990,7 +990,7 @@ describe('connected mechanics', () => {
     const t = breakEven(s, e, 'heartland').find((x) => x.good === 'meat')!;
     expect(t.side).toBe('sell');
     expect(t.need).toBeGreaterThan(t.now);
-    s.markets.heartland.meat!.price *= t.need / t.now; // priceUsd is linear in the local price
+    s.markets.heartland.meat!.history = s.markets.heartland.meat!.history.map((x) => x * (t.need / t.now)); // lines value goods at the 24h average
     expect(lineEcon(s, [ranch]).worth).toBeCloseTo(0, 3);
 
     // a full dairy: same feed as the cowshed, so it is worth the extra milk minus staff and power
