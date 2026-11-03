@@ -13,6 +13,7 @@ import { regionOptions, unlockedRegions } from './shared';
 
 type Draft = Omit<Rule, 'id' | 'lastRun' | 'history'>;
 const setP = (patch: Partial<Policies>) => act({ type: 'setPolicies', patch });
+const Labeled = ({ text, children }: { text: string; children: ReactNode }) => <span className="row" style={{ gap: 6 }}><span className="small muted">{text}</span>{children}</span>;
 const OnOff = ({ value, onChange, label }: { value: boolean; onChange: (v: boolean) => void; label: string }) =>
   <Seg label={label} value={value ? 1 : 0} onChange={(v) => onChange(v === 1)} options={[{ v: 0, label: 'Off' }, { v: 1, label: 'On' }]} />;
 
@@ -49,25 +50,25 @@ function Policy({ title, who, children, info, note }: { title: string; who: Reac
 
 function PoliciesCard({ s }: { s: GameState }) {
   const P = s.automation.policies;
-  const regions = unlockedRegions(s);
-  const lacking = regions.filter((r) => !hasManager(s, r));
-  const managers = lacking.length ? <>Managers do this. <span className="warn">No manager in {lacking.map((r) => REGIONS[r].name).join(', ')}</span> — <button className="btn ghost sm" onClick={() => go('workers')}>Hire one</button></> : execOn(s, 'crops') ? 'Run by your head of crops in every region.' : 'Managers do this in every region you operate.';
+  const farmed = unlockedRegions(s).filter((r) => s.fields.some((f) => f.region === r) || s.buildings.some((b) => b.region === r) || s.herds.some((h) => h.region === r));
+  const lacking = farmed.filter((r) => !hasManager(s, r));
+  const managers = lacking.length ? <><span className="warn">Needs a manager — none in {lacking.map((r) => REGIONS[r].name).join(', ')}.</span> <button className="btn ghost sm" onClick={() => go('workers')}>Hire one</button></> : execOn(s, 'crops') ? 'Run by your head of crops.' : 'Done by your managers.';
   const reserveNote = P.cashReserve > 0
-    ? <>Automation will spend down to {money(P.cashReserve)}; currently {money(Math.max(0, autoBudget(s)))} available. Seed for planned fields and animal feed are always bought, so your crew never stands idle.</>
-    : <>With no reserve, workers may plant on up to half your overdraft ({money(overdraftLimit(s) * 0.5)}). Seed budget now: {money(autoBudget(s))}.</>;
+    ? <>Currently {money(Math.max(0, autoBudget(s)))} available above the reserve.</>
+    : <>With no reserve, automation may spend into half your overdraft ({money(overdraftLimit(s) * 0.5)}). Available now: {money(autoBudget(s))}.</>;
   return (
     <Card title="Policies" info="Standing orders. Managers, maintenance crews and the irrigation system follow them every day. Automation never spends below the cash reserve.">
       <div className="stack">
-        <Policy title="Cash reserve" info="Floor for every automated purchase: seed for replanting, fertiliser, repairs, rule purchases and debt repayment. Wages and running costs are still paid regardless."
+        <Policy title="Cash reserve" info="Automation won't spend below this on fertiliser, repairs, rule purchases or early debt repayment. Seed for planned fields and animal feed are always bought so the farm keeps running; wages and running costs are always paid."
           who="Applies to automated spending such as fertiliser, purchases, repairs and rules. Seed and animal feed are always bought." note={<span className="small">{reserveNote}</span>}>
           <NumberInput label="Cash reserve" value={P.cashReserve} step={1000} onChange={(v) => setP({ cashReserve: Math.round(v) })} />
         </Policy>
 
         <Policy title="Crop rotation" info="Each time a field is empty, its manager plans the crop with the best expected profit per hour at today's prices, avoiding repeat crops that build pests. With Agricultural AI they also spare depleted soil and rotate in soybeans to fix nitrogen."
           who={managers}>
-          <OnOff label="Crop rotation" value={P.autoRotate} onChange={(v) => setP({ autoRotate: v })} />
+          <Labeled text="Choose crops"><OnOff label="Crop rotation" value={P.autoRotate} onChange={(v) => setP({ autoRotate: v })} /></Labeled>
           {P.autoRotate && s.buildings.some((b) => BUILDINGS[b.type].recipe) && (
-            <OnOff label="Grow for my factories" value={P.supplyFactories} onChange={(v) => setP({ supplyFactories: v })} />
+            <Labeled text="Grow for my factories"><OnOff label="Grow for my factories" value={P.supplyFactories} onChange={(v) => setP({ supplyFactories: v })} /></Labeled>
           )}
           {P.autoRotate && P.supplyFactories && <p className="small muted">A crop is worth whichever pays more: the market price, or what your own factory turns it into (less staff costs) while that factory is short of it. Once two days of input are waiting, the market decides again.</p>}
         </Policy>
@@ -75,36 +76,36 @@ function PoliciesCard({ s }: { s: GameState }) {
         <Policy title="Fertilise fallow fields" info="At midday, managers fertilise empty fields whose fertility is below the target, buying fertiliser if stock is short (within the cash reserve)."
           who={managers}>
           <OnOff label="Auto fertilise" value={P.autoFertilize} onChange={(v) => setP({ autoFertilize: v })} />
-          {P.autoFertilize && <Seg label="Soil target" value={P.soilTarget} onChange={(v) => setP({ soilTarget: v })} options={[0.4, 0.5, 0.6, 0.7, 0.8].map((v) => ({ v, label: `${v * 100}%` }))} />}
+          {P.autoFertilize && <Labeled text="Up to"><Seg label="Soil target" value={P.soilTarget} onChange={(v) => setP({ soilTarget: v })} options={[0.4, 0.5, 0.6, 0.7, 0.8].map((v) => ({ v, label: `${Math.round(v * 100)}%` }))} /></Labeled>}
         </Policy>
 
         <Policy title="Auto-repair" info="Once a day, every machine below this condition (or broken) is serviced, if cash above the reserve covers it. Repairs of broken machines cost 3× a service."
           who="Your maintenance crew — no manager needed.">
-          <Seg label="Auto-repair threshold" value={P.autoRepair} onChange={(v) => setP({ autoRepair: v })} options={[{ v: 0, label: 'Off' }, ...[0.4, 0.5, 0.6, 0.7, 0.8].map((v) => ({ v, label: `<${v * 100}%` }))]} />
+          <Seg label="Auto-repair threshold" value={P.autoRepair} onChange={(v) => setP({ autoRepair: v })} options={[{ v: 0, label: 'Off' }, ...[0.4, 0.5, 0.6, 0.7, 0.8].map((v) => ({ v, label: `<${Math.round(v * 100)}%` }))]} />
         </Policy>
 
-        <Policy title="Selling discipline" info="At midday, managers sell 25% of each crop or product when the price is at least this multiple of its 30-day average, or when dry storage is fuller than the cap. Fast-spoiling goods (over 2%/day) are sold in full every day. Stock promised to accepted contracts is kept."
-          who={managers} note={P.sellDiscipline > 0 ? <span className="small muted">Caveat: selling into a thin market moves the price; 25% at a time limits the damage.</span> : undefined}>
-          <Seg label="Sell when price above" value={P.sellDiscipline} onChange={(v) => setP({ sellDiscipline: v })} options={[{ v: 0, label: 'Off' }, ...[0.8, 0.9, 1, 1.05, 1.1, 1.2, 1.3].map((v) => ({ v, label: `${v.toFixed(2)}×` }))]} />
-          {P.sellDiscipline > 0 && <Seg label="Or storage above" value={P.sellStorageCap} onChange={(v) => setP({ sellStorageCap: v })} options={[0.7, 0.8, 0.85, 0.9, 0.95].map((v) => ({ v, label: `${Math.round(v * 100)}% full` }))} />}
+        <Policy title="Selling discipline" info="At midday, managers sell 25% of each crop or product whose price is at least this multiple of its 30-day average (0.90× = up to 10% below average). Whenever dry storage is fuller than the cap they sell 25% every hour regardless of price. Fast-spoiling goods are sold in full at midday. Stock promised to contracts, reserved for your factories and 3 days of animal feed are kept. Selling moves the price; 25% at a time limits the damage."
+          who={managers}>
+          <Labeled text="Sell when price ≥"><Seg label="Sell when price above" value={P.sellDiscipline} onChange={(v) => setP({ sellDiscipline: v })} options={[{ v: 0, label: 'Off' }, ...[0.8, 0.9, 1, 1.05, 1.1, 1.2, 1.3].map((v) => ({ v, label: `${v.toFixed(2)}× avg` }))]} /></Labeled>
+          {P.sellDiscipline > 0 && <Labeled text="or storage over"><Seg label="Or storage above" value={P.sellStorageCap} onChange={(v) => setP({ sellStorageCap: v })} options={[0.7, 0.8, 0.85, 0.9, 0.95].map((v) => ({ v, label: `${Math.round(v * 100)}%` }))} /></Labeled>}
         </Policy>
 
         <Policy title="Irrigation level" info="Irrigated fields are topped up every hour to this soil moisture. Higher means safer yields but a bigger water bill; regions with water caps may not reach it."
           who="Automatic on irrigated fields — no manager needed.">
-          <Seg label="Irrigate to" value={P.irrigateMin} onChange={(v) => setP({ irrigateMin: v })} options={[0.3, 0.4, 0.5, 0.6, 0.7, 0.8].map((v) => ({ v, label: `${v * 100}%` }))} />
+          <Seg label="Irrigate to" value={P.irrigateMin} onChange={(v) => setP({ irrigateMin: v })} options={[0.3, 0.4, 0.5, 0.6, 0.7, 0.8].map((v) => ({ v, label: `${Math.round(v * 100)}%` }))} />
         </Policy>
 
         {has(s, 'agAI') ? (
           <Policy title="Debt ceiling" info="Daily: while debt is above this share of total assets, up to half of the cash above the reserve goes to repaying loans early."
             who="Agricultural AI, company-wide.">
-            <Seg label="Debt ceiling" value={P.debtCeiling} onChange={(v) => setP({ debtCeiling: v })} options={[{ v: 0, label: 'Off' }, ...[0.2, 0.3, 0.4, 0.5, 0.6].map((v) => ({ v, label: `${v * 100}%` }))]} />
+            <Seg label="Debt ceiling" value={P.debtCeiling} onChange={(v) => setP({ debtCeiling: v })} options={[{ v: 0, label: 'Off' }, ...[0.2, 0.3, 0.4, 0.5, 0.6].map((v) => ({ v, label: `${Math.round(v * 100)}%` }))]} />
           </Policy>
         ) : <p className="muted small">Debt ceiling policy unlocks with Agricultural AI research.</p>}
 
         {execOn(s, 'trading') ? (
           <Policy title="Hedging" info="Daily: your head of trading keeps a 30-day short futures position covering this share of the crop output your plans are expected to produce. Locks in prices — you give up gains if prices rise, and margin calls need cash."
             who="Head of commodity trading.">
-            <Seg label="Hedge ratio" value={P.hedgeRatio} onChange={(v) => setP({ hedgeRatio: v })} options={[{ v: 0, label: 'Off' }, ...[0.25, 0.5, 0.75].map((v) => ({ v, label: `${v * 100}%` }))]} />
+            <Seg label="Hedge ratio" value={P.hedgeRatio} onChange={(v) => setP({ hedgeRatio: v })} options={[{ v: 0, label: 'Off' }, ...[0.25, 0.5, 0.75].map((v) => ({ v, label: `${Math.round(v * 100)}%` }))]} />
           </Policy>
         ) : s.era >= 7 ? <p className="muted small">Hedging policy needs a head of commodity trading (Corporation page).</p> : null}
       </div>
