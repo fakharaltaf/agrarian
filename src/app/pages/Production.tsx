@@ -6,7 +6,7 @@ import { buildingMargin, solarOutput } from '../../simulation/processing';
 import type { Building, GameState } from '../../simulation/types';
 import { act, useGame } from '../../stores/game';
 import { money, num, pct0, price } from '../format';
-import { Bar, Card, Confirm, Empty, Info, Kpi, PageHead, Select, Table, usePref, type Col } from '../ui';
+import { Bar, Card, Confirm, Empty, Info, Kpi, PageHead, Select, usePref } from '../ui';
 import { regionOptions, unlockedRegions } from './shared';
 
 const FACTORY_CATS = ['processing', 'energy', 'commerce'];
@@ -104,8 +104,8 @@ export default function ProductionPage() {
           info="Share of rated capacity your factories actually ran, smoothed over roughly the last day." />
         <Kpi label="Electricity yesterday" value={money(-elecY)} sub={gridY ? `grid sales ${money(gridY)}` : undefined} info="Grid electricity bought (and surplus sold back) over the last full day, all regions." />
       </div>
-      {groups.length > 0 && <ChainCard s={s} groups={groups} />}
       {groups.length > 0 && <FacilitiesCard s={s} groups={groups} />}
+      {groups.length > 0 && <ChainCard s={s} groups={groups} />}
       <div className="grid2">
         <BuildCard s={s} />
         <EnergyCard s={s} elecY={elecY} gridY={gridY} />
@@ -182,35 +182,71 @@ function SupplyNote({ s, g }: { s: GameState; g: Group }) {
   </div>;
 }
 
-function FacilitiesCard({ s, groups }: { s: GameState; groups: Group[] }) {
-  const cols: Col<Group>[] = [
-    { key: 'name', label: 'Facility', width: 190, sort: (g) => BUILDINGS[g.type].name, render: (g) => <div><b>{BUILDINGS[g.type].name}</b>{g.list.length > 1 && <span className="muted"> ×{g.list.length}</span>}<div className="muted small">{REGIONS[g.region].name}</div><SupplyNote s={s} g={g} /></div> },
-    { key: 'state', label: 'Running', render: (g) => <span className={`pill ${g.active === g.list.length ? 'good' : g.active ? 'warn' : ''}`}>{g.active === g.list.length ? 'Active' : g.active ? `${g.active}/${g.list.length} active` : 'Paused'}</span> },
-    { key: 'util', label: 'Utilisation', sort: (g) => g.util, width: 130, render: (g) => BUILDINGS[g.type].recipe ? <div className="stack s"><span className="mono small">{pct0(g.util)}</span><Bar thin value={g.util} label="Utilisation" color={g.util >= 0.85 ? 'var(--up)' : g.util >= 0.5 ? 'var(--warn)' : 'var(--down)'} /></div> : <span className="faint">—</span> },
-    { key: 'reason', label: 'Bottleneck', width: 140, render: (g) => g.reason ? <span className={g.reason === 'Paused' ? 'muted' : 'warn'}>{g.reason}</span> : BUILDINGS[g.type].recipe ? <span className="up">At capacity</span> : <span className="faint">—</span> },
-    { key: 'out', width: 105, label: 'Output/h', align: 'r', sort: (g) => g.outValue, render: (g) => <span className="mono">{money(g.outValue)}</span> },
-    { key: 'in', width: 105, label: 'Inputs/h', align: 'r', sort: (g) => g.inCost, render: (g) => <span className="mono">−{money(g.inCost)}</span> },
-    { key: 'op', width: 105, label: 'Staff+power/h', align: 'r', sort: (g) => g.opCost, render: (g) => <span className="mono">−{money(g.opCost)}</span> },
-    { key: 'margin', width: 105, label: 'Margin/h', align: 'r', sort: (g) => g.margin, render: (g) => <span className={`mono ${tone(g.margin)}`}>{money(g.margin)}</span> },
-    { key: 'day', width: 105, label: 'Per day', align: 'r', sort: (g) => g.margin, render: (g) => <span className={`mono ${tone(g.margin)}`}>{money(g.margin * 24)}</span> },
-    { key: 'act', label: '', render: (g) => {
-      const allOn = g.active === g.list.length;
-      const victim = [...g.list].sort((a, b) => Number(a.active) - Number(b.active) || a.util - b.util)[0];
-      const refund = Math.round(Math.max(0, victim.cost - victim.depreciated) * 0.5);
-      return (
+/** What to do about a facility's bottleneck, in plain words. */
+function adviceFor(s: GameState, g: Group) {
+  const inv = s.regions[g.region].inventory;
+  const bph = BUILDINGS[g.type].recipe?.batchesPerHour ?? 0;
+  const short = ins(g.type).filter(([x, q]) => inv[x] < q * bph);
+  return g.reason === 'Not enough cows' ? 'A dairy milks your own cows: up to 120 per dairy. Buy cows and build cowsheds on the Livestock page, or run fewer dairies.'
+    : g.reason.startsWith('Not enough')
+    ? `Grow more ${short.map(([x]) => GOODS[x].name.toLowerCase()).join(' and ') || 'input'} (or dedicate fields to it), buy it on Markets${s.era >= 6 ? ', ship it in' : ''}, or pause it until stock is back.`
+    : g.reason === 'Output storage full' ? 'Sell the output or add storage (warehouse for dry goods, cold store for chilled).'
+    : g.reason === 'Paused' ? 'Resume it when inputs and prices support running. Paused facilities pay no staff.'
+    : g.reason.startsWith('Disease') ? 'Livestock disease halts production until the outbreak ends; staff are still paid.'
+    : '';
+}
+
+const perDayAtFull = (g: Group, xs: [GoodId, number][]) =>
+  xs.filter(([x]) => x !== 'manure').map(([x, q]) => `${num(g.list.reduce((a, b) => a + q * BUILDINGS[b.type].recipe!.batchesPerHour * levelMult(b.level) * 24, 0))} ${GOODS[x].name.toLowerCase()}`).join(' + ');
+
+function FacilityRow({ s, g }: { s: GameState; g: Group }) {
+  const d = BUILDINGS[g.type];
+  const paused = g.active === 0;
+  const day = g.margin * 24;
+  const losing = d.recipe && !paused && !g.reason && day < 0;
+  const status = losing ? 'warn' : d.recipe ? statusOf(g.util, paused, g.reason) : paused ? 'warn' : 'ok';
+  const e = fullEcon(s, g.type, g.region);
+  const lost = d.recipe && !paused && g.reason && e.perBatch > 0 ? (1 - g.util) * e.perBatch * e.bph * (g.active || g.list.length) * 24 : 0;
+  const advice = losing ? `${e.perBatch > 0 ? 'Each batch earns a little, but not enough to cover staff and power.' : "Its inputs are worth more than what it makes at today's prices."} Selling the ${ins(g.type).map(([x]) => GOODS[x].name.toLowerCase()).join(' and ')} instead would earn more — pause it until prices turn.` : status !== 'ok' ? adviceFor(s, g) : '';
+  const allOn = g.active === g.list.length;
+  const victim = [...g.list].sort((a, b) => Number(a.active) - Number(b.active) || a.util - b.util)[0];
+  const refund = Math.round(Math.max(0, victim.cost - victim.depreciated) * 0.5);
+  const headline = paused ? '⏸ Paused — no staff costs while paused'
+    : !d.recipe ? '● Running'
+    : losing ? `⚠️ Running flat out (${pct0(g.util)}) — but losing money`
+    : !g.reason ? `✅ Running flat out (${pct0(g.util)})`
+    : `⚠️ ${g.reason} — running at ${pct0(g.util)}`;
+  return (
+    <div className="stack s" style={{ borderTop: '1px solid var(--line)', paddingTop: 12 }}>
+      <div className="row between wrap">
+        <div><b>{d.name}</b>{g.list.length > 1 && <span className="muted"> ×{g.list.length}</span>}<span className="muted small"> · {REGIONS[g.region].name}</span>
+          {g.active > 0 && g.active < g.list.length && <span className="pill warn" style={{ marginLeft: 6 }}>{g.active}/{g.list.length} running</span>}</div>
         <div className="row">
+          <span className={`mono ${tone(day)}`} style={{ minWidth: 120, textAlign: 'right' }} title="Profit per day at the current pace, after inputs, staff and power">{day > 0 ? '+' : ''}{money(day)}<span className="faint small"> /day</span></span>
           <button className="btn ghost sm" onClick={() => g.list.filter((b) => b.active === allOn).forEach((b) => act({ type: 'toggleBuilding', buildingId: b.id }))}>{allOn ? (g.list.length > 1 ? 'Pause all' : 'Pause') : (g.list.length > 1 ? 'Resume all' : 'Resume')}</button>
-          <Confirm className="btn danger sm" label="Demolish" title={`Demolish a ${BUILDINGS[g.type].name.toLowerCase()}?`} confirmLabel={`Demolish for ${money(refund)}`}
+          <Confirm className="btn danger sm" label="Demolish" title={`Demolish a ${d.name.toLowerCase()}?`} confirmLabel={`Demolish for ${money(refund)}`}
             body={<>You recover 50% of its book value: {money(refund)} (book {money(victim.cost - victim.depreciated)}). {g.list.length > 1 ? 'The least-used one in this group goes first.' : ''}</>}
             onConfirm={() => act({ type: 'demolish', buildingId: victim.id }, 'Facility demolished.')} />
         </div>
-      );
-    } },
-  ];
+      </div>
+      {d.recipe && <Bar thin value={g.util} label="Utilisation" color={status === 'ok' ? 'var(--up)' : status === 'warn' ? 'var(--warn)' : 'var(--down)'} />}
+      <div className={`small ${status === 'ok' ? '' : status === 'warn' ? 'warn' : 'down'}`}>{headline}</div>
+      {d.recipe ? <>
+        <div className="small muted">At full speed: {perDayAtFull(g, ins(g.type)) || 'electricity'} → {perDayAtFull(g, outs(g.type)) || `${num(-e.kwhBatch * e.bph * 24 * g.list.length)} kWh`} a day.</div>
+        <div className="small muted">At today's pace: sells for {money(g.outValue * 24)} · uses {money(g.inCost * 24)} of inputs · staff &amp; power {money(g.opCost * 24)} a day.</div>
+        <SupplyNote s={s} g={g} />
+      </> : <div className="small muted">{d.blurb}</div>}
+      {advice && <div className="small">👉 {advice}{lost >= 1 ? ` Running flat out would earn about ${money(lost)} more a day.` : ''}</div>}
+    </div>
+  );
+}
+
+function FacilitiesCard({ s, groups }: { s: GameState; groups: Group[] }) {
+  const sorted = [...groups].sort((a, b) => BUILDINGS[a.type].name.localeCompare(BUILDINGS[b.type].name) || a.region.localeCompare(b.region));
   return (
-    <Card title="Facilities" info="Grouped by type and region. Economics are smoothed per-hour figures from the simulation; inputs are valued at today's market price — what you gave up by not selling them. Paused facilities pay no staff.">
-      <Table rows={groups} cols={cols} rowKey={(g) => g.key} initialSort={{ key: 'name', dir: 1 }} search={(g) => `${BUILDINGS[g.type].name} ${REGIONS[g.region].name}`} />
-      {s.era >= 4 && <p className="small muted" style={{ marginTop: 8 }}>Tip: a factory below its break-even utilisation loses money every hour it runs. Pause it until inputs are back.</p>}
+    <Card title="Your facilities" info="Grouped by type and region. Figures are smoothed from the simulation; inputs are valued at today's market price — what you gave up by not selling them. Paused facilities pay no staff.">
+      <div className="stack">{sorted.map((g) => <FacilityRow key={g.key} s={s} g={g} />)}</div>
+      {s.era >= 4 && <p className="small muted" style={{ marginTop: 12 }}>A factory that can't get enough inputs still pays its staff every hour. If it shows red for long, pause it until stock is back.</p>}
     </Card>
   );
 }
@@ -347,14 +383,7 @@ function NodeDetail({ s, n, r, cropDay, fill }: { s: GameState; n: ChainNode; r:
   const e = fullEcon(s, g.type, r);
   const units = g.active || g.list.length;
   const lost = Math.max(0, (1 - g.util) * e.perBatch * e.bph * units);
-  const short = ins(g.type).filter(([x, q]) => inv[x] < q * e.bph);
-  const advice = g.reason === 'Not enough cows' ? 'A dairy milks your own cows: up to 120 per dairy. Buy cows and build cowsheds on the Livestock page, or run fewer dairies.'
-    : g.reason.startsWith('Not enough')
-    ? `Grow more ${short.map(([x]) => GOODS[x].name.toLowerCase()).join(' and ') || 'input'}, buy it on Markets${s.era >= 6 ? ', ship it in' : ''}, or build an upstream facility.`
-    : g.reason === 'Output storage full' ? 'Sell the output or add storage (warehouse for dry goods, cold store for chilled).'
-    : g.reason === 'Paused' ? 'Resume it when inputs and prices support running. Paused facilities pay no staff.'
-    : g.reason.startsWith('Disease') ? 'Livestock disease halts production until the outbreak ends; staff are still paid.'
-    : '';
+  const advice = adviceFor(s, g);
   const bad = n.status !== 'ok';
   return box(n.status === 'ok' ? 'good' : n.status, (
     <div className="stack s">
