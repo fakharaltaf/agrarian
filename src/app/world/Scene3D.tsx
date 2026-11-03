@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { ANIMALS, BUILDINGS, CROPS, GOODS, REGIONS, SEASONS, type AnimalId, type CropId, type RegionId } from '../../simulation/config';
 import { fertility, growth, isMature, isReady } from '../../simulation/engine';
 import type { GameState } from '../../simulation/types';
-import { getGame } from '../../stores/game';
+import { getGame, getSpeed } from '../../stores/game';
 import { num, pct0 } from '../format';
 import { layoutRegion, type Layout, type Lot, type Plot } from './layout';
 import { animal, buildLot, cached, mat, mesh, PAL, person, tree, vehicle, type Model } from './models';
@@ -580,7 +580,7 @@ function animateUnits(R: Rig, L: Layout, s: GameState, t: number) {
 }
 
 function atmosphere(R: Rig, s: GameState, t: number) {
-  const hour = (s.tick % 24) + 0.5;
+  const hour = getSpeed() >= 10 ? 13 : (s.tick % 24) + 0.5; // at 10×+ a day flashes past in ~2s, so hold the light at early afternoon
   const dayIdx = Math.floor(s.tick / 24);
   const season = SEASONS[Math.floor((((dayIdx % 120) + 120) % 120) / 30)];
   const r = R.region;

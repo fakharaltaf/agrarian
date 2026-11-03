@@ -35,6 +35,7 @@ const set = (patch: Partial<Store>) => {
 const bump = () => set({ v: store.v + 1 });
 
 export const getGame = () => store.game;
+export const getSpeed = () => store.speed;
 
 // ---------------------------------------------------------------- persistence (IndexedDB, localStorage fallback)
 
