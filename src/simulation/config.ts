@@ -263,7 +263,7 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
   bakery: { type: 'bakery', name: 'Bakery', category: 'processing', price: 40000, staffPerHour: 60, recipe: { inputs: { flour: 6 }, outputs: { bread: 10 }, kwh: 40, batchesPerHour: 8 }, minEra: 4, blurb: 'Flour → bread. Bread goes stale fast: sell it daily.' },
   feedMill: { type: 'feedMill', name: 'Feed mill', category: 'processing', price: 18000, staffPerHour: 45, recipe: { inputs: { corn: 10 }, outputs: { feed: 10 }, kwh: 10, batchesPerHour: 8 }, minEra: 4, blurb: 'Corn → livestock feed.' },
   ranch: { type: 'ranch', name: 'Cattle ranch', category: 'processing', price: 60000, staffPerHour: 50, recipe: { inputs: { feed: 20 }, outputs: { meat: 2, manure: 6 }, kwh: 10, batchesPerHour: 2 }, minEra: 4, blurb: 'Feed → meat, with manure as a by-product.' },
-  dairy: { type: 'dairy', name: 'Dairy farm', category: 'processing', price: 50000, staffPerHour: 45, recipe: { inputs: { feed: 10 }, outputs: { milk: 12, manure: 3 }, kwh: 12, batchesPerHour: 4 }, minEra: 4, blurb: 'Milks your own cows by machine: up to 120 cows per dairy give 20% more milk than in the cowshed alone, fed from your feed stock. Needs cows in cowsheds in the same region.' },
+  dairy: { type: 'dairy', name: 'Dairy farm', category: 'processing', price: 50000, staffPerHour: 45, recipe: { inputs: { feed: 6.25 }, outputs: { milk: 15, manure: 1.875 }, kwh: 12, batchesPerHour: 4 }, minEra: 4, blurb: 'Milks your own cows by machine: up to 120 cows per dairy eat the same feed as in the cowshed but give 50% more milk. Needs cows in cowsheds in the same region.' },
   creamery: { type: 'creamery', name: 'Creamery', category: 'processing', price: 45000, staffPerHour: 50, recipe: { inputs: { milk: 10 }, outputs: { cheese: 1, butter: 0.6 }, kwh: 18, batchesPerHour: 6 }, minEra: 4, blurb: 'Milk → cheese and butter.' },
   oilPress: { type: 'oilPress', name: 'Oilseed press', category: 'processing', price: 35000, staffPerHour: 35, recipe: { inputs: { soybeans: 10 }, outputs: { soyoil: 2, soymeal: 7.5 }, kwh: 20, batchesPerHour: 5 }, minEra: 4, blurb: 'Soybeans → oil and meal.' },
   sugarMill: { type: 'sugarMill', name: 'Sugar mill', category: 'processing', price: 30000, staffPerHour: 55, recipe: { inputs: { sugarcane: 10 }, outputs: { sugar: 2 }, kwh: 25, batchesPerHour: 5 }, minEra: 4, blurb: 'Cane → sugar. Cut cane spoils in days.' },
@@ -279,7 +279,7 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
   lab: { type: 'lab', name: 'Research station', category: 'research', price: 30000, staffPerHour: 50, minEra: 4, blurb: 'Runs one research project at a time.' },
   lab2: { type: 'lab2', name: 'Advanced laboratory', category: 'research', price: 150000, staffPerHour: 120, research: 'advancedLab', minEra: 5, blurb: 'Required for advanced research; projects run twice as fast.' },
 };
-/** Cows one dairy batch per hour needs (a full dairy milks 4 × this). */
+/** Cows one dairy batch per hour needs (a full dairy milks 4 × this). A batch is 30 cows' hour at 0.8 batches per cow-day, so the recipe is cowshed rates (5 feed, 8 milk, 1.5 manure a day) with milk ×1.5. */
 export const COWS_PER_DAIRY_BATCH = 30;
 export const BUILDING_TYPES = Object.keys(BUILDINGS) as BuildingType[];
 

@@ -9,7 +9,7 @@ import { warnOnce } from './agriculture';
 import type { GameState, Herd } from './types';
 
 export const FEEDS: GoodId[] = ['feed', 'corn', 'soymeal', 'wheat']; // eaten in this order, 1:1
-const MANURE: Record<AnimalId, number> = { chickens: 0.02, pigs: 0.6, cows: 1.5, sheep: 0.2 };
+export const MANURE: Record<AnimalId, number> = { chickens: 0.02, pigs: 0.6, cows: 1.5, sheep: 0.2 };
 
 export const herdOf = (s: GameState, r: RegionId, a: AnimalId) => s.herds.find((h) => h.region === r && h.animal === a);
 export const housing = (s: GameState, r: RegionId, a: AnimalId) =>

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { CONFIG, CROPS, GOOD_IDS, REGION_IDS, TICKS_PER_DAY } from '../simulation/config';
 import { advance, createGame, dispatch, harvestField, quoteSell, step } from '../simulation/engine';
-import { capacity, debt, equity, post, reserveCap, reservedStock, stored, sumBooks } from '../simulation/core';
+import { capacity, debt, equity, has, post, priceUsd, reserveCap, reservedStock, stored, sumBooks } from '../simulation/core';
+import { breakEven, lineEcon, upgradeOutlook } from '../simulation/lines';
 import { frostNight, isReady } from '../simulation/agriculture';
 const frostNightForTest = (s: GameState) => frostNight(s, 'heartland');
 import { balanceSheet, cashFlow, incomeStatement } from '../simulation/statements';
@@ -970,6 +971,46 @@ describe('connected mechanics', () => {
     expect(dairy.util).toBeGreaterThan(0.1);
     expect(dairy.reason).toBe('Not enough cows'); // 60 cows run half a dairy
     expect(dairy.stats.out).toBeLessThanOrEqual(2 + 1e-6);
+  });
+
+  it('line economics: break-even price really zeroes the loss, and a dairy is judged against the cowshed', () => {
+    const s = fresh(33);
+    toEra(s, 4);
+    give(s, 1e7);
+    for (let i = 0; i < 3; i++) dispatch(s, { type: 'build', region: 'heartland', building: 'warehouse' });
+    dispatch(s, { type: 'build', region: 'heartland', building: 'coldStore' });
+    dispatch(s, { type: 'build', region: 'heartland', building: 'ranch' });
+    s.regions.heartland.inventory.feed = 20000;
+    const ranch = s.buildings.find((b) => b.type === 'ranch')!;
+    for (let i = 0; i < 80; i++) step(s);
+    s.macro.cpi = 40; // staff so dear that the ranch loses money
+    const e = lineEcon(s, [ranch]);
+    expect(e.worth).toBeLessThan(0);
+    expect(e.worth).toBeCloseTo(e.earn - e.inputs - e.staff - e.power, 6);
+    const t = breakEven(s, e, 'heartland').find((x) => x.good === 'meat')!;
+    expect(t.side).toBe('sell');
+    expect(t.need).toBeGreaterThan(t.now);
+    s.markets.heartland.meat!.price *= t.need / t.now; // priceUsd is linear in the local price
+    expect(lineEcon(s, [ranch]).worth).toBeCloseTo(0, 3);
+
+    // a full dairy: same feed as the cowshed, so it is worth the extra milk minus staff and power
+    const d = fresh(34);
+    toEra(d, 4);
+    give(d, 1e7);
+    for (let i = 0; i < 3; i++) dispatch(d, { type: 'build', region: 'heartland', building: 'warehouse' });
+    dispatch(d, { type: 'build', region: 'heartland', building: 'coldStore' });
+    dispatch(d, { type: 'build', region: 'heartland', building: 'dairy' });
+    d.herds.push({ region: 'heartland', animal: 'cows', count: 120, health: 1, fed: 1 });
+    const dairy = d.buildings.find((b) => b.type === 'dairy')!;
+    const de = lineEcon(d, [dairy], true);
+    expect(de.qty.feed ?? 0).toBeCloseTo(0, 6);
+    const milk = 120 * 8 * 0.5 * priceUsd(d, 'heartland', 'milk') * (has(d, 'processEfficiency') ? 1.1 : 1);
+    expect(de.worth).toBeCloseTo(milk - de.staff - de.power, 3);
+    // short of inputs: upgrading cannot help
+    dispatch(s, { type: 'build', region: 'heartland', building: 'ranch' });
+    s.regions.heartland.inventory.feed = 0;
+    for (let i = 0; i < 40; i++) step(s);
+    expect(upgradeOutlook(s, s.buildings.filter((b) => b.type === 'ranch'))?.blocked).toMatch(/short of inputs/);
   });
 
   it('fertiliser is spread by the crew before sowing, not instantly', () => {

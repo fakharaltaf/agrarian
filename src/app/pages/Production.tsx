@@ -1,11 +1,14 @@
-import { BUILDINGS, COWS_PER_DAIRY_BATCH, CROPS, GOODS, REGIONS, type BuildingType, type GoodId, type RegionId, TECH } from '../../simulation/config';
+import type { ReactNode } from 'react';
+import { ANIMALS, BUILDINGS, COWS_PER_DAIRY_BATCH, CROPS, GOODS, REGIONS, type BuildingType, type GoodId, type RegionId, TECH } from '../../simulation/config';
 import { electricityPrice, factoryCrop, has, levelMult, priceUsd, sumBooks } from '../../simulation/core';
 import { buildingPrice, expectedYield } from '../../simulation/engine';
 import { buildingMargin, solarOutput } from '../../simulation/processing';
 import type { Building, GameState } from '../../simulation/types';
 import { act, go, useGame } from '../../stores/game';
+import { breakEven, lineEcon, upgradeOutlook } from '../../simulation/lines';
+import { portrait } from '../world/portrait';
 import { money, num, pct0, price } from '../format';
-import { Bar, Card, Confirm, Empty, Info, Kpi, PageHead, Select, Swatch, usePref } from '../ui';
+import { Card, Confirm, Empty, Info, Kpi, PageHead, Select, usePref } from '../ui';
 import { regionOptions, unlockedRegions } from './shared';
 
 const FACTORY_CATS = ['processing', 'energy', 'commerce'];
@@ -163,9 +166,9 @@ function BuildCard({ s }: { s: GameState }) {
   );
 }
 
-// ---------------------------------------------------------------- facilities
+// ---------------------------------------------------------------- production lines
 
-/** Dedicated fields feeding this factory, as a short line: how many, and how their harvest compares with what it uses. */
+/** Dedicated fields feeding this factory: how many, and how their harvest compares with what it uses. */
 function supplyOf(s: GameState, g: Group) {
   const c = factoryCrop(g.list[0]);
   if (!c) return null;
@@ -173,158 +176,225 @@ function supplyOf(s: GameState, g: Group) {
   if (!fields.length) return null;
   const grow = fields.reduce((a, f) => a + (expectedYield(s, f, c) * 24) / CROPS[c].growthTicks, 0);
   const need = g.list.reduce((a, b) => a + BUILDINGS[b.type].recipe!.inputs[c]! * BUILDINGS[b.type].recipe!.batchesPerHour * levelMult(b.level) * 24, 0);
-  return { c, n: fields.length, grow, need, reserved: g.list.reduce((a, b) => a + b.reserved, 0) };
+  return { c, n: fields.length, grow, need };
 }
 
-/** Should you build one more of this facility here? A verdict, a short reason, and what one more earns per day. */
-function addMore(s: GameState, g: Group): { verdict: 'yes' | 'maybe' | 'no'; why: string; gain: number } | null {
-  const rec = BUILDINGS[g.type].recipe;
-  if (!rec) return null;
-  // a full-speed unit's real result beats the price-sheet estimate (it includes dairy cows, smoothing, actual prices)
-  const gain = g.active > 0 && g.util >= 0.85 ? (g.margin * 24) / g.active : fullEcon(s, g.type, g.region).margin * 24;
-  if (gain <= 0) return { verdict: 'no', why: 'Loses money at today\'s prices', gain };
-  if (g.reason && g.reason !== 'Paused' && g.util < 0.85) return { verdict: 'no', why: `Already ${g.reason.toLowerCase().replace('not enough', 'short of')}`, gain };
+/** Spare daily supply of a line's main input: dedicated fields' harvest beyond need, or your own mills' output beyond what every line here uses at full speed. Null when nothing of yours makes it. */
+function spareOf(s: GameState, g: Group, groups: Group[]): { good: GoodId; spare: number } | null {
+  const main = ins(g.type)[0]?.[0];
+  if (!main) return null;
+  const sup = supplyOf(s, g);
+  if (sup && sup.c === main) return { good: main, spare: sup.grow - sup.need };
+  const here = groups.filter((x) => x.region === g.region && BUILDINGS[x.type].recipe);
+  const day = (x: Group, q: number) => x.list.reduce((a, b) => a + q * BUILDINGS[b.type].recipe!.batchesPerHour * levelMult(b.level) * 24, 0);
+  const made = here.reduce((a, x) => a + day(x, (BUILDINGS[x.type].recipe!.outputs[main] ?? 0) * (has(s, 'processEfficiency') ? 1.1 : 1)), 0);
+  if (made <= 0) return null;
+  const used = here.reduce((a, x) => a + day(x, BUILDINGS[x.type].recipe!.inputs[main] ?? 0), 0);
+  // herds eat feed first (cows a dairy milks are already counted in its recipe)
+  const milked = here.filter((x) => x.type === 'dairy').reduce((a, x) => a + x.list.reduce((c, b) => c + (b.active ? b.stats.out * COWS_PER_DAIRY_BATCH : 0), 0), 0);
+  const herds = main === 'feed' ? s.herds.filter((h) => h.region === g.region).reduce((a, h) => a + Math.max(0, h.count - (h.animal === 'cows' ? milked : 0)) * ANIMALS[h.animal].feedPerDay, 0) : 0;
+  return { good: main, spare: made - used - herds };
+}
+
+const extraNeed = (g: Group, levels: number) => {
+  if (g.type === 'dairy') return 0; // its cows move in from the cowshed and eat the same feed there
+  const rec = BUILDINGS[g.type].recipe!;
+  const q = Object.values(rec.inputs)[0] ?? 0;
+  return g.list.filter((b) => b.active && (b.level || 1) < 3).reduce((a, b) => a + q * rec.batchesPerHour * 24 * (levelMult(Math.min(3, (b.level || 1) + levels)) - levelMult(b.level)), 0);
+};
+
+/** Is one more of these worth building? The gain is what one running unit is worth today. */
+function addMore(s: GameState, g: Group, groups: Group[], worth: number): { ok: boolean; why: string; gain: number } {
+  const rec = BUILDINGS[g.type].recipe!;
+  const gain = g.active > 0 ? worth / g.active : lineEcon(s, g.list.slice(0, 1), true).worth;
+  if (gain <= 0) return { ok: false, why: 'Not while it loses money', gain };
+  if (g.reason && g.reason !== 'Paused' && g.util < 0.85) return { ok: false, why: `Not while it's ${g.reason.toLowerCase().replace('not enough', 'short of')}`, gain };
   if (g.type === 'dairy') {
     const per = rec.batchesPerHour * COWS_PER_DAIRY_BATCH;
-    const spare = s.herds.filter((h) => h.region === g.region && h.animal === 'cows').reduce((a, h) => a + h.count, 0) - g.list.length * per;
-    if (spare < per) return { verdict: 'no', why: `Needs ${num(per - Math.max(0, spare))} more cows`, gain };
+    const cows = s.herds.filter((h) => h.region === g.region && h.animal === 'cows').reduce((a, h) => a + h.count, 0);
+    if (cows - g.list.reduce((a, b) => a + per * levelMult(b.level), 0) < per) return { ok: false, why: `Needs ${num(per)} more cows than you have spare`, gain };
   }
-  const sup = supplyOf(s, g);
-  const oneDay = (x: GoodId) => (rec.inputs[x] ?? 0) * rec.batchesPerHour * 24;
-  if (sup) {
-    const n = Math.floor((sup.grow - sup.need) / oneDay(sup.c));
-    return n >= 1 ? { verdict: 'yes', why: `Your fields can feed ${n > 20 ? '20+' : n} more`, gain } : { verdict: 'maybe', why: `Dedicate more ${GOODS[sup.c].name.toLowerCase()} fields first`, gain };
-  }
-  const [x] = ins(g.type)[0] ?? [];
-  if (!x) return { verdict: 'yes', why: 'Needs no inputs', gain };
-  const days = s.regions[g.region].inventory[x] / oneDay(x);
-  return { verdict: 'maybe', why: `${GOODS[x].name} in stock: ${days >= 1 ? `${num(days)} days` : 'under a day'} for one more`, gain };
+  if (g.type === 'dairy') return { ok: true, why: 'You have the cows for it, and they eat the same feed either way', gain };
+  const sp = spareOf(s, g, groups);
+  const one = (Object.values(rec.inputs)[0] ?? 0) * rec.batchesPerHour * 24;
+  if (!sp) return { ok: false, why: `Nothing of yours makes its ${lower(ins(g.type))} — you'd be buying it`, gain };
+  if (sp.spare >= one) return { ok: true, why: `You make enough ${GOODS[sp.good].name.toLowerCase()} for it`, gain };
+  return { ok: false, why: factoryCrop(g.list[0]) === sp.good ? `Dedicate more ${GOODS[sp.good].name.toLowerCase()} fields first` : `You'd need ${num(one - Math.max(0, sp.spare))} more ${GOODS[sp.good].name.toLowerCase()} a day`, gain };
 }
 
-type Act = { label: string; onClick?: () => void; build?: true; tone?: 'primary' | 'warn' };
+type Dot = 'ok' | 'bad' | 'off';
 
-/** A line's state, the one-line reason when something is off, and the single next move. */
-function lineState(s: GameState, g: Group, groups: Group[]): { dot: 'ok' | 'warn' | 'bad' | 'off'; label: string; note: string; act: Act | null; shortOf: GoodId | null } {
-  const d = BUILDINGS[g.type];
-  const day = g.margin * 24;
-  const pause: Act = { label: `Pause · saves ${money(-day)}/day`, tone: 'warn', onClick: () => g.list.filter((b) => b.active).forEach((b) => act({ type: 'toggleBuilding', buildingId: b.id })) };
-  if (g.active === 0) return { dot: 'off', label: 'Paused', note: 'Paused facilities pay no staff.', act: { label: 'Resume', onClick: () => g.list.forEach((b) => act({ type: 'toggleBuilding', buildingId: b.id })) }, shortOf: null };
-  if (!d.recipe) return { dot: day < 0 ? 'warn' : 'ok', label: 'Running', note: '', act: null, shortOf: null };
-  const rec = d.recipe;
-  const inv = s.regions[g.region].inventory;
-  if (g.reason === 'Output storage full') return { dot: 'bad', label: 'Storage full', note: 'Nowhere to put what it makes.', act: { label: 'Make room on Storage →', onClick: () => go('storage') }, shortOf: null };
-  if (g.reason === 'Not enough cows') return { dot: 'bad', label: 'Not enough cows', note: 'Each dairy milks 120 of your cows.', act: { label: 'Get cows on Livestock →', onClick: () => go('livestock') }, shortOf: null };
-  if (g.reason.startsWith('Not enough')) {
-    const x = ins(g.type).find(([y, q]) => inv[y] < q * rec.batchesPerHour)?.[0] ?? ins(g.type)[0][0];
-    const fromUs = groups.some((p) => p.region === g.region && outs(p.type).some(([o]) => o === x));
-    return { dot: 'bad', label: `Short of ${GOODS[x].name.toLowerCase()}`, note: `Running at ${pct0(g.util)} — staff are paid either way.`,
-      act: day < 0 ? pause : factoryCrop(g.list[0]) === x ? { label: 'Dedicate fields →', onClick: () => go('fields') } : fromUs ? null : { label: `Buy ${GOODS[x].name.toLowerCase()} →`, onClick: () => go('markets') }, shortOf: x };
-  }
-  if (day < 0) return { dot: 'bad', label: 'Losing money', note: g.inCost > g.outValue ? 'Its inputs are worth more than what it makes.' : 'Staff & power tip it into a loss.', act: pause, shortOf: null };
-  const more = addMore(s, g);
-  return { dot: 'ok', label: 'Running well', note: more && more.verdict !== 'yes' ? `Build another? ${more.why}.` : '', act: more?.verdict === 'yes' ? { label: `＋ Build another · +${money(more.gain)}/day`, build: true, tone: 'primary' } : null, shortOf: null };
+function Coin() {
+  return <svg className="coin" viewBox="0 0 16 16" aria-hidden><circle cx="8" cy="8" r="7" /><circle cx="8" cy="8" r="4.6" className="coin-in" /></svg>;
 }
 
-function Chip({ g, top, sub, bad }: { g: GoodId; top: string; sub?: string; bad?: boolean }) {
+function Token({ g, top, sub, bad }: { g: GoodId; top: string; sub?: string; bad?: boolean }) {
   return (
-    <div className={`pl-chip${bad ? ' bad' : ''}`}>
-      <span className="pl-chip-name"><Swatch color={GOODS[g].color} />{GOODS[g].name}</span>
-      <span className="mono">{top}</span>
-      {sub && <span className="pl-chip-sub">{sub}</span>}
+    <div className={`ln-token${bad ? ' bad' : ''}`}>
+      <span className="ln-ball" style={{ background: GOODS[g].color }} />
+      <span className="ln-token-name">{GOODS[g].name}</span>
+      <b className="mono">{top}</b>
+      {sub && <span className="ln-token-sub">{sub}</span>}
+    </div>
+  );
+}
+
+function Belt({ live, color }: { live: boolean; color: string }) {
+  return <div className={`ln-belt${live ? ' live' : ''}`} aria-hidden>{[0, 1, 2].map((i) => <i key={i} style={{ background: color, animationDelay: `${-i * 0.6}s` }} />)}</div>;
+}
+
+function Option({ icon, title, sub, children, good }: { icon: string; title: ReactNode; sub: ReactNode; children?: ReactNode; good?: boolean }) {
+  return (
+    <div className={`ln-opt${good ? ' good' : ''}`}>
+      <span className="ln-opt-icon" aria-hidden>{icon}</span>
+      <div className="ln-opt-text"><b>{title}</b><span>{sub}</span></div>
+      {children}
     </div>
   );
 }
 
 function LineCard({ s, g, groups }: { s: GameState; g: Group; groups: Group[] }) {
   const d = BUILDINGS[g.type];
-  const st = lineState(s, g, groups);
-  const day = g.margin * 24;
+  const rec = d.recipe;
+  const paused = g.active === 0;
+  const e = rec ? lineEcon(s, g.list, paused) : null; // paused lines show what they would make flat out
+  const worth = e ? e.worth : g.margin * 24;
   const inv = s.regions[g.region].inventory;
+  const shortOf = rec && g.reason.startsWith('Not enough') && g.reason !== 'Not enough cows' ? ins(g.type).find(([x, q]) => inv[x] < q * rec.batchesPerHour)?.[0] ?? null : null;
+  const dot: Dot = paused ? 'off' : worth < 0 || (g.reason && g.reason !== '' && g.util < 0.85) ? 'bad' : 'ok';
+  const label = paused ? 'Paused' : !rec ? 'Running' : g.reason === 'Output storage full' ? 'Storage full' : g.reason === 'Not enough cows' ? 'Short of cows' : shortOf ? `Short of ${GOODS[shortOf].name.toLowerCase()}` : worth < 0 ? 'Losing money' : 'Running well';
   const sup = supplyOf(s, g);
-  const perDay = (q: number) => g.list.reduce((a, b) => a + q * (d.recipe?.batchesPerHour ?? 0) * levelMult(b.level) * 24, 0);
-  const earn = g.outValue * 24, inC = g.inCost * 24, opC = g.opCost * 24;
-  const scale = Math.max(earn, inC + opC, 1);
+  const perDay = (q: number) => g.list.reduce((a, b) => a + q * (rec?.batchesPerHour ?? 0) * levelMult(b.level) * 24, 0);
+  const live = !paused && g.util > 0.05;
+  const targets = e && !paused ? breakEven(s, e, g.region).slice(0, 2) : [];
+  const up = e && !paused ? upgradeOutlook(s, g.list) : null;
+  const more = e && !paused && worth > 0 ? addMore(s, g, groups, worth) : null;
+  const sp = rec && !paused ? spareOf(s, g, groups) : null;
+  const upShort = up && !up.blocked && sp && extraNeed(g, 1) > Math.max(0, sp.spare) ? `Needs ${num(extraNeed(g, 1) - Math.max(0, sp.spare))} more ${GOODS[sp.good].name.toLowerCase()} a day than you make` : undefined;
+  const buildCost = buildingPrice(s, g.type, g.region);
+  const toggle = (on: boolean) => g.list.filter((b) => b.active !== on).forEach((b) => act({ type: 'toggleBuilding', buildingId: b.id }));
+  const upgradeAll = () => g.list.filter((b) => b.active && (b.level || 1) < 3).forEach((b) => act({ type: 'upgradeBuilding', buildingId: b.id }));
   const victim = [...g.list].sort((a, b) => Number(a.active) - Number(b.active) || a.util - b.util)[0];
   const refund = Math.round(Math.max(0, victim.cost - victim.depreciated) * 0.5);
-  const cost = buildingPrice(s, g.type, g.region);
-  const allOn = g.active === g.list.length;
+  const img = portrait(g.type);
+  const days = (cost: number, gain: number) => (gain > 0 ? `pays back in ${Math.ceil(cost / gain)} days` : '');
+  const pauseSaves = e ? -e.worth : -g.margin * 24;
+
   return (
-    <div className={`pl pl-${st.dot}`}>
-      <div className="pl-head">
-        <div>
-          <b>{d.name}</b>{g.list.length > 1 && <span className="muted"> ×{g.list.length}</span>}
-          <span className="muted small"> · {REGIONS[g.region].name}</span>
-        </div>
-        <div className="pl-profit"><span className={`mono ${tone(day)}`}>{day > 0.005 ? '+' : ''}{money(day)}</span><span className="faint small"> /day</span></div>
+    <article className={`ln ln-${dot}`}>
+      <div className="ln-portrait">
+        {img ? <img src={img} alt="" /> : <span className="ln-portrait-fallback">🏭</span>}
+        {g.list.length > 1 && <span className="ln-count">×{g.list.length}</span>}
+        {g.list.some((b) => (b.level || 1) > 1) && <span className="ln-level">Lv {Math.max(...g.list.map((b) => b.level || 1))}</span>}
       </div>
 
-      {d.recipe && (
-        <div className="pl-flow">
-          <div className="pl-side">
-            {ins(g.type).map(([x, q]) => {
-              const short = st.shortOf === x;
-              const fromMill = groups.some((p) => p.region === g.region && outs(p.type).some(([o]) => o === x));
-              const sub = short ? `only ${num(inv[x])} in stock` : sup && sup.c === x ? `🌾 ${sup.n} field${sup.n === 1 ? '' : 's'} · ${sup.grow >= sup.need * 10 ? '10×+' : `${(sup.grow / sup.need).toFixed(1)}×`} enough` : fromMill ? 'from your mill' : `${num(inv[x])} in stock`;
-              return <Chip key={x} g={x} top={`${num(perDay(q))}/day`} sub={sub} bad={short} />;
-            })}
+      <div className="ln-body">
+        <header className="ln-head">
+          <div><h4>{d.name}</h4><span className="ln-region">{REGIONS[g.region].name}</span></div>
+          <div className={`ln-coins ${tone(worth)}`} title={g.type === 'dairy' ? 'Per day, compared with keeping these cows in the cowshed' : 'Profit per day at the current pace'}>
+            <Coin /><span className="mono">{worth > 0.005 ? '+' : ''}{money(worth)}</span><small>{paused ? 'a day if running' : 'a day'}</small>
           </div>
-          <span className={`pl-arrow${g.active && g.util > 0.05 ? ' live' : ''}`} aria-hidden>→</span>
-          <div className={`pl-plant pl-${st.dot}`}>
-            <span className={`pl-dot ${st.dot}`} />
-            <b className="small">{st.label}</b>
-            <Bar thin value={g.util} label="How busy" color={st.dot === 'ok' ? 'var(--up)' : st.dot === 'off' ? 'var(--faint)' : st.dot === 'warn' ? 'var(--warn)' : 'var(--down)'} />
-            <span className="mono small muted">{pct0(g.util)} busy</span>
+        </header>
+
+        {rec && (
+          <div className="ln-flow">
+            <div className="ln-side in">
+              {ins(g.type).map(([x, q]) => {
+                const fromMill = groups.some((p) => p.region === g.region && outs(p.type).some(([o]) => o === x));
+                const sub = shortOf === x ? `only ${num(inv[x])} left` : sup && sup.c === x ? `🌾 ${sup.n} field${sup.n === 1 ? '' : 's'}` : fromMill ? 'from your mill' : g.type === 'dairy' && x === 'feed' ? 'for your cows' : `${num(inv[x])} in store`;
+                return <Token key={x} g={x} top={`${num(perDay(q))}/day`} sub={sub} bad={shortOf === x} />;
+              })}
+            </div>
+            <Belt live={live} color={GOODS[ins(g.type)[0][0]].color} />
+            <div className={`ln-puck ${dot}`} style={{ ['--p' as string]: `${Math.round(Math.min(1, g.util) * 100)}` }}>
+              <div className="ln-ring"><span className="mono">{pct0(g.util)}</span></div>
+              <b>{label}</b>
+            </div>
+            <Belt live={live} color={GOODS[outs(g.type)[0][0]].color} />
+            <div className="ln-side out">
+              {outs(g.type).filter(([x]) => x !== 'manure').map(([x, q]) => (
+                <Token key={x} g={x} top={`${num(perDay(q * (has(s, 'processEfficiency') ? 1.1 : 1)))}/day`} sub={`${price(priceUsd(s, g.region, x))} each`} />
+              ))}
+            </div>
           </div>
-          <span className={`pl-arrow${g.active && g.util > 0.05 ? ' live' : ''}`} aria-hidden>→</span>
-          <div className="pl-side">
-            {outs(g.type).filter(([x]) => x !== 'manure').map(([x, q]) => (
-              <Chip key={x} g={x} top={`${num(perDay(q * (has(s, 'processEfficiency') ? 1.1 : 1)))}/day`} sub={`${price(priceUsd(s, g.region, x))} each`} />
+        )}
+
+        {e && !paused && (
+          <div className="ln-money">
+            <span className="ln-mlabel">Sells for</span>
+            <div className="ln-bar"><div className="earn" style={{ width: `${(e.earn / Math.max(e.earn, e.inputs + e.staff + e.power + e.alt, 1)) * 100}%` }} /></div>
+            <span className="mono">{money(e.earn)}</span>
+            <span className="ln-mlabel">Costs</span>
+            <div className="ln-bar">
+              {[['inputs', e.inputs, 'Inputs'], ['staff', e.staff + e.power, 'Staff & power'], ['alt', e.alt, 'What these cows earn in the cowshed']].filter(([, v]) => (v as number) > 0).map(([k, v, l]) => (
+                <div key={k as string} className={k as string} title={`${l}: ${money(v as number)}`} style={{ width: `${((v as number) / Math.max(e.earn, e.inputs + e.staff + e.power + e.alt, 1)) * 100}%` }} />
+              ))}
+            </div>
+            <span className="mono">{money(e.inputs + e.staff + e.power + e.alt)}</span>
+            <span />
+            <span className="ln-legend"><i className="inputs" />inputs {money(e.inputs)} <i className="staff" />staff &amp; power {money(e.staff + e.power)}{e.alt > 0 && <> <i className="alt" />what the cows earn in the cowshed {money(e.alt)}</>}</span>
+            <span />
+          </div>
+        )}
+
+        {/* the player's next moves */}
+        <div className="ln-opts">
+          {paused && <Option icon="▶" title="Paused — paying no staff" sub={e && e.worth > 0 ? `Flat out it would make ${money(e.worth)} a day at today's prices` : 'Flat out it would still lose money at today\'s prices'}>
+            <button className={`btn sm ${e && e.worth > 0 ? 'primary' : 'ghost'}`} onClick={() => toggle(true)}>Resume</button></Option>}
+
+          {!paused && g.reason === 'Output storage full' && <Option icon="📦" title="Storage is full" sub="It stops when there's nowhere to put what it makes."><button className="btn sm" onClick={() => go('storage')}>Storage →</button></Option>}
+          {!paused && g.reason === 'Not enough cows' && <Option icon="🐄" title="Not enough cows" sub="Each dairy milks up to 120 of your cows."><button className="btn sm" onClick={() => go('livestock')}>Livestock →</button></Option>}
+          {!paused && shortOf && <Option icon="🌾" title={`Short of ${GOODS[shortOf].name.toLowerCase()}`} sub={`It needs ${num(perDay(rec!.inputs[shortOf]!))} a day; staff are paid either way.`}>
+            <button className="btn sm" onClick={() => go(factoryCrop(g.list[0]) === shortOf ? 'fields' : 'markets')}>{factoryCrop(g.list[0]) === shortOf ? 'Dedicate fields →' : 'Markets →'}</button></Option>}
+
+          {targets.length > 0 && <div className="ln-targets">
+            <span className="ln-kicker">To break even, any one of</span>
+            {targets.map((x) => (
+              <div key={x.good} className="ln-target">
+                <span className="ln-ball" style={{ background: GOODS[x.good].color }} />
+                <span>{GOODS[x.good].name} {x.side === 'sell' ? 'sells for' : 'costs'} <b className="mono">{x.side === 'sell' ? '≥' : '≤'} {price(x.need)}</b></span>
+                <div className="ln-gauge" title={`now ${price(x.now)}`}><div style={{ width: `${Math.min(100, (x.side === 'sell' ? x.now / x.need : x.need / x.now) * 100)}%` }} /></div>
+                <span className="mono small muted">now {price(x.now)} · {x.change > 0 ? '+' : ''}{Math.round(x.change * 100)}%</span>
+              </div>
             ))}
-          </div>
-        </div>
-      )}
+          </div>}
 
-      {(earn > 0 || opC > 0) && (
-        <div className="pl-money">
-          <span className="small muted">Earns</span>
-          <div className="pl-bar"><div style={{ width: `${(earn / scale) * 100}%`, background: 'var(--up)' }} /></div>
-          <span className="mono small">{money(earn)}</span>
-          <span className="small muted">Costs</span>
-          <div className="pl-bar">
-            {inC > 0 && <div title={`Inputs ${money(inC)}`} style={{ width: `${(inC / scale) * 100}%`, background: 'var(--warn)' }} />}
-            <div title={`Staff & power ${money(opC)}`} style={{ width: `${(opC / scale) * 100}%`, background: 'var(--down)' }} />
-          </div>
-          <span className="mono small">{money(inC + opC)}</span>
-          <span />
-          <span className="pl-legend small faint">{inC > 0 && <><i style={{ background: 'var(--warn)' }} />inputs {money(inC)} </>}<i style={{ background: 'var(--down)' }} />staff &amp; power {money(opC)}</span>
-          <span />
-        </div>
-      )}
+          {up && (up.gain > 0 || up.blocked) && <Option icon="⬆" good={!up.blocked && !upShort && up.worthAfter > 0}
+            title={`Upgrade to level ${up.level} · ${money(up.cost)}`}
+            sub={up.blocked ?? upShort ?? `${up.worthAfter >= 0 ? `Then makes ${money(up.worthAfter)} a day` : `Still loses ${money(-up.worthAfter)} a day`} (+${money(up.gain)}) · ${days(up.cost, up.gain)}`}>
+            {!up.blocked && !upShort && up.gain > 0 && <Confirm className={`btn sm ${up.worthAfter > 0 ? 'primary' : 'ghost'}`} disabled={up.cost > s.cash} label="Upgrade" title={`Upgrade ${d.name.toLowerCase()} to level ${up.level}?`} confirmLabel={`Pay ${money(up.cost)}`}
+              body={<>Costs {money(up.cost)}. More capacity, and 30% more staff per level. At today's prices it should then make {money(up.worthAfter)} a day.</>} onConfirm={upgradeAll} />}
+          </Option>}
 
-      <div className="pl-foot">
-        <span className={`small ${st.dot === 'bad' ? 'down' : 'muted'}`}>{st.note}</span>
-        <div className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
-          {g.active > 0 && st.act?.tone !== 'warn' && <button className="btn ghost sm" onClick={() => g.list.filter((b) => b.active === allOn).forEach((b) => act({ type: 'toggleBuilding', buildingId: b.id }))}>Pause</button>}
-          <Confirm className="btn ghost sm" label="Demolish" title={`Demolish a ${d.name.toLowerCase()}?`} confirmLabel={`Demolish for ${money(refund)}`}
+          {more && <Option icon="＋" good={more.ok} title={`Build another · ${money(buildCost)}`} sub={more.ok ? `About +${money(more.gain)} a day · ${days(buildCost, more.gain)}` : more.why}>
+            {more.ok && <Confirm className="btn sm primary" disabled={buildCost > s.cash} label="Build" title={`Build another ${d.name.toLowerCase()}?`} confirmLabel={`Pay ${money(buildCost)}`}
+              body={<>Costs {money(buildCost)}. At today's prices one more should make about {money(more.gain)} a day. Extra output lowers its price a little.</>}
+              onConfirm={() => act({ type: 'build', region: g.region, building: g.type }, `${d.name} built.`)} />}
+          </Option>}
+
+          {!paused && worth < 0 && <Option icon="⏸" title={`Pause it · saves ${money(pauseSaves)} a day`} sub={g.type === 'dairy' ? 'Its cows go back to the cowshed and keep giving milk.' : `The ${lower(ins(g.type))} gets sold instead.`}>
+            <button className="btn sm warn" onClick={() => toggle(false)}>Pause</button></Option>}
+        </div>
+
+        <footer className="ln-foot">
+          {!paused && worth >= 0 && <button className="btn ghost xs" onClick={() => toggle(false)}>Pause</button>}
+          <Confirm className="btn ghost xs" label="Demolish" title={`Demolish a ${d.name.toLowerCase()}?`} confirmLabel={`Demolish for ${money(refund)}`}
             body={<>You get back {money(refund)}, half its book value. {g.list.length > 1 ? 'The least-used one goes first.' : ''}</>}
             onConfirm={() => act({ type: 'demolish', buildingId: victim.id }, 'Facility demolished.')} />
-          {st.act && (st.act.build
-            ? <Confirm className="btn primary sm" disabled={cost > s.cash} label={st.act.label} title={`Build another ${d.name.toLowerCase()}?`} confirmLabel={`Pay ${money(cost)}`}
-                body={<>Costs {money(cost)}. At today's prices one more should earn about {st.act.label.split('+')[1]}.</>}
-                onConfirm={() => act({ type: 'build', region: g.region, building: g.type }, `${d.name} built.`)} />
-            : <button className={`btn sm ${st.act.tone === 'warn' ? 'warn' : ''}`} onClick={st.act.onClick}>{st.act.label}</button>)}
-        </div>
+        </footer>
       </div>
-    </div>
+    </article>
   );
 }
 
+const lower = (xs: [GoodId, number][]) => xs.filter(([x]) => x !== 'manure').map(([x]) => GOODS[x].name.toLowerCase()).join(' and ');
+
 function LinesCard({ s, groups }: { s: GameState; groups: Group[] }) {
-  // fixed order (name, then region) so cards never trade places as numbers move; colour carries the status
-  const rows = [...groups].sort((a, b) => BUILDINGS[a.type].name.localeCompare(BUILDINGS[b.type].name) || a.region.localeCompare(b.region)).map((g) => ({ g }));
+  // fixed order (name, then region) so lines never trade places as numbers move; colour carries the status
+  const rows = [...groups].sort((a, b) => BUILDINGS[a.type].name.localeCompare(BUILDINGS[b.type].name) || a.region.localeCompare(b.region));
   return (
-    <Card title="Production lines" info="Each line shows what goes in, how busy the facility is, what comes out, and whether it earns more than it costs. Inputs are valued at what you could have sold them for.">
-      <div className="stack">{rows.map(({ g }) => <LineCard key={g.key} s={s} g={g} groups={groups} />)}</div>
+    <Card title="Production lines" info="Each line shows what goes in, how busy it is, what comes out and what it earns a day at today's prices (inputs valued at what you could sell them for). Losing lines show the prices they need to break even.">
+      <div className="ln-list">{rows.map((g) => <LineCard key={g.key} s={s} g={g} groups={groups} />)}</div>
     </Card>
   );
 }
