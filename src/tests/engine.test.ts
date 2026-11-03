@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { CONFIG, CROPS, GOOD_IDS, REGION_IDS, TICKS_PER_DAY } from '../simulation/config';
 import { advance, createGame, dispatch, harvestField, quoteSell, step } from '../simulation/engine';
-import { capacity, debt, equity, has, post, priceUsd, reserveCap, reservedStock, stored, sumBooks } from '../simulation/core';
-import { breakEven, lineEcon, upgradeOutlook } from '../simulation/lines';
+import { capacity, debt, equity, has, post, reserveCap, reservedStock, stored, sumBooks } from '../simulation/core';
+import { breakEven, dayPrice, lineEcon, upgradeOutlook } from '../simulation/lines';
 import { frostNight, isReady } from '../simulation/agriculture';
 const frostNightForTest = (s: GameState) => frostNight(s, 'heartland');
 import { balanceSheet, cashFlow, incomeStatement } from '../simulation/statements';
@@ -1004,7 +1004,7 @@ describe('connected mechanics', () => {
     const dairy = d.buildings.find((b) => b.type === 'dairy')!;
     const de = lineEcon(d, [dairy], true);
     expect(de.qty.feed ?? 0).toBeCloseTo(0, 6);
-    const milk = 120 * 8 * 0.5 * priceUsd(d, 'heartland', 'milk') * (has(d, 'processEfficiency') ? 1.1 : 1);
+    const milk = 120 * 8 * 0.5 * dayPrice(d, 'heartland', 'milk') * (has(d, 'processEfficiency') ? 1.1 : 1);
     expect(de.worth).toBeCloseTo(milk - de.staff - de.power, 3);
     // short of inputs: upgrading cannot help
     dispatch(s, { type: 'build', region: 'heartland', building: 'ranch' });
