@@ -42,7 +42,7 @@ function AdvisorBody({ d, onGo }: { d: Diagnosis; onGo?: () => void }) {
             <dt>Sales</dt><dd className="up">+{money(d.revenue)}</dd>
             {d.costLines.map((c) => <Fragment key={c.label}><dt>{c.label}</dt><dd className="down">−{money(c.perDay)}</dd></Fragment>)}
             <dt><b>Cash from running the farm</b></dt><dd className={d.profit < 0 ? 'down' : 'up'}><b>{money(d.profit)}</b></dd>
-            <dt>Counting stock & assets</dt><dd className={d.realProfit < 0 ? 'down' : 'up'}>{money(d.realProfit)}</dd>
+            <dt title="Change in what the farm is worth per day: cash plus stock (at today's prices), goods in transit, land, machines and buildings, less debt">Change in farm value (incl. stock)</dt><dd className={d.realProfit < 0 ? 'down' : 'up'}>{money(d.realProfit)}</dd>
           </dl>
         </details>
       )}

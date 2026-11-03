@@ -132,6 +132,17 @@ export function diagnose(s: GameState): Diagnosis {
     title: `You're spending more than you sell`,
     body: `Costs run about ${r0(costs)} a day against ${r0(revenue)} of sales; the biggest line is ${topCosts[0].label.toLowerCase()} (${r0(topCosts[0].perDay)}). ${topCosts[0].label === 'Seed' ? 'Seed is paid at planting and comes back at harvest and sale, so check that harvests are being brought in and sold.' : 'Open Finance to see every line — anything that costs more than what it brings in is worth cutting.'}` });
 
+  // cash coming in while value goes down: explain where the value went
+  if (profit > 0 && realProfit < 0) {
+    const dep = rate(['depreciation']);
+    const other = -realProfit - dep - spoil + profit; // what's left of the gap after the known parts
+    add({ id: 'destock', icon: '🔄', page: 'markets', perDay: 0, weight: -realProfit / 2,
+      title: 'You\'re turning stock into cash at less than it was worth',
+      body: `Cash is up about ${r0(profit)} a day, but counting what's in storage the farm is worth ${r0(-realProfit)} a day less. Where the value goes: ` +
+        [spoil > 1 && `${r0(spoil)} rots in storage`, dep > 1 && `${r0(dep)} is machine and building wear (depreciation)`, other > 1 && `about ${r0(other)} is stock sold below the price it was valued at, or prices falling on what you hold`].filter(Boolean).join('; ') +
+        '. Stock is valued at today\'s market price, but selling a big pile pushes that price down. Selling steadily as you harvest, rather than letting stock pile up and dumping it, keeps more of its value. This settles once the backlog is gone.' });
+  }
+
   // what is working, so the player doesn't break it
   const working: string[] = [];
   const goodMills = s.buildings.filter((b) => b.active && BUILDINGS[b.type].recipe && b.util > 0.85 && buildingMargin(b) > 0);

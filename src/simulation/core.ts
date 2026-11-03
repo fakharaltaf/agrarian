@@ -150,6 +150,7 @@ export function inventoryValue(s: GameState) {
   let v = 0;
   for (const r of Object.values(s.regions)) for (const g in r.inventory) v += (r.inventory[g as GoodId] || 0) * priceUsd(s, r.id, g as GoodId);
   for (const c in s.seeds) v += s.seeds[c as CropId] * CROPS[c as CropId].seedCost;
+  for (const sh of s.shipments) v += sh.qty * priceUsd(s, sh.to, sh.good); // goods on the road are still yours
   return v;
 }
 
