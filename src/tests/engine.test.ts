@@ -910,3 +910,32 @@ describe('mechanics gaps', () => {
   });
 });
 const hourOf = (s: GameState) => s.tick % 24;
+
+describe('exports', () => {
+  it('a sell-on-arrival shipment is sold off in the destination, and managers export when it pays', async () => {
+    const { exportGain } = await import('../simulation/logistics');
+    const s = fresh(21);
+    toEra(s, 6);
+    give(s, 5e6);
+    for (const r of REGION_IDS) s.regions[r].unlocked = true;
+    for (let i = 0; i < 3; i++) dispatch(s, { type: 'build', region: 'heartland', building: 'warehouse' });
+    s.regions.heartland.inventory.wheat = 20000;
+    const to = REGION_IDS.find((r) => r !== 'heartland' && s.markets[r].wheat && exportGain(s, 'wheat', 'heartland', r) > -1e9)!;
+    expect(dispatch(s, { type: 'ship', good: 'wheat', qty: 5000, from: 'heartland', to, sell: true }).ok).toBe(true);
+    const sh = s.shipments[0];
+    expect(sh.sell).toBe(true);
+    const sales0 = s.stats.sales;
+    advance(s, sh.arrives - s.tick + 48);
+    expect(s.shipments.length).toBe(0);
+    expect(s.stats.sales).toBeGreaterThan(sales0);
+    expect(s.regions[to].inventory.wheat).toBeLessThan(1); // nothing parked in a region with no storage
+    // manager export: make another region pay far more
+    dispatch(s, { type: 'hire', region: 'heartland', role: 'manager', wageFactor: 1 });
+    s.automation.policies.sellDiscipline = 1.3;
+    s.markets[to].wheat!.sent = 2; // buyers there pay far more
+    while (s.tick % 24 !== 11) step(s);
+    step(s); // the midday round
+    expect(s.shipments.some((x) => x.to === to && x.good === 'wheat' && x.sell)).toBe(true);
+    reconcile(s);
+  });
+});

@@ -100,6 +100,7 @@ function ShipCard({ s, regs }: { s: GameState; regs: RegionId[] }) {
   const [to, setTo] = useState<RegionId>(regs[1] ?? regs[0]);
   const [good, setGood] = useState<GoodId>('wheat');
   const [qty, setQty] = useState(1000);
+  const [sell, setSell] = useState(true);
   if (regs.length < 2) return <Card title="Ship goods"><p className="explain">Open a second region on the World page to move goods between regions.</p></Card>;
   const f = regs.includes(from) ? from : regs[0];
   const t = regs.includes(to) && to !== f ? to : regs.find((x) => x !== f)!;
@@ -137,7 +138,10 @@ function ShipCard({ s, regs }: { s: GameState; regs: RegionId[] }) {
           <Info text="Destination price minus origin price minus shipping cost per unit. Prices can move while goods are in transit, and selling a large lot pushes the destination price down." breakdown={[[`${REGIONS[t].name} price`, price(pTo)], [`− ${REGIONS[f].name} price`, price(pFrom)], ['− Shipping per unit', price(perUnit)], ['= Gain per unit', price(gain)]]} />{' '}
           {gain > 0 ? <>Worth it at today's prices: about <b>{price(gain)}</b>/unit, {money(gain * qty)} on this lot.</> : <>Not worth it today: you would lose {price(-gain)}/unit versus selling in {REGIONS[f].name}.</>}
         </div>
-        <button className="btn primary" disabled={!!block} title={block ?? undefined} onClick={() => act({ type: 'ship', good, qty, from: f, to: t }, `Shipping ${num(qty)} ${GOODS[good].name.toLowerCase()} to ${REGIONS[t].name}.`)}>
+        <label className="row small" style={{ gap: 6 }} title="Sold a slice every hour after arrival, so the lot doesn't crash the market there and needs no storage. Untick to store it in that region instead.">
+          <input type="checkbox" checked={sell} onChange={(e) => setSell(e.target.checked)} /> Sell it there on arrival (no storage needed)
+        </label>
+        <button className="btn primary" disabled={!!block} title={block ?? undefined} onClick={() => act({ type: 'ship', good, qty, from: f, to: t, sell }, `Shipping ${num(qty)} ${GOODS[good].name.toLowerCase()} to ${REGIONS[t].name}${sell ? ' to sell there' : ''}.`)}>
           {block ?? `Ship ${num(qty)} ${GOODS[good].name.toLowerCase()} · ${money(q.total)}`}
         </button>
       </div>
@@ -152,7 +156,7 @@ function TransitCard({ s }: { s: GameState }) {
     { key: 'route', label: 'Route', render: (x) => <span>{REGIONS[x.from].name} → {REGIONS[x.to].name}</span> },
     { key: 'cost', label: 'Cost', align: 'r', sort: (x) => x.cost, render: (x) => <span className="mono">{money(x.cost)}</span> },
     { key: 'arr', label: 'Arrives', sort: (x) => x.arrives, render: (x) => <span className="mono small">{stamp(x.arrives)}</span> },
-    { key: 'left', label: 'Time left', align: 'r', sort: (x) => x.arrives, render: (x) => <span className={closedPort(s, x.from, x.to) ? 'warn' : ''}>{closedPort(s, x.from, x.to) ? 'Held at port' : duration(x.arrives - s.tick)}</span> },
+    { key: 'left', label: 'Time left', align: 'r', sort: (x) => x.arrives, render: (x) => <span className={closedPort(s, x.from, x.to) ? 'warn' : ''}>{closedPort(s, x.from, x.to) ? 'Held at port' : x.arrives <= s.tick ? 'Selling…' : `${duration(x.arrives - s.tick)}${x.sell ? ' · then sold' : ''}`}</span> },
   ];
   return (
     <Card title="In transit">

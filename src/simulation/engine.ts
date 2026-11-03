@@ -423,7 +423,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
     }
     case 'ship': {
       if (s.era < 6) return fail('Shipping opens with regional expansion.');
-      const e = shipGoods(s, a.good, Math.floor(a.qty), a.from, a.to);
+      const e = shipGoods(s, a.good, Math.floor(a.qty), a.from, a.to, s.cash, !!a.sell);
       return e ? fail(e) : ok();
     }
     case 'takeLoan': {

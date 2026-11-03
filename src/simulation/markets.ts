@@ -20,6 +20,7 @@ export function priceFromInv(s: GameState, g: GoodId, m: Market, inv = m.inv, im
   return clamp(p, refPrice(s, g) * FLOOR, refPrice(s, g) * 4);
 }
 const depth = (m: Market) => m.d0 * CONFIG.marketDepth;
+export const marketDepth = (s: GameState, r: RegionId, g: GoodId) => (s.markets[r][g] ? depth(s.markets[r][g]!) : 0);
 
 export function createMarkets(): GameState['markets'] {
   const out = {} as GameState['markets'];

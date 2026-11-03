@@ -84,9 +84,10 @@ function PoliciesCard({ s }: { s: GameState }) {
           <Seg label="Auto-repair threshold" value={P.autoRepair} onChange={(v) => setP({ autoRepair: v })} options={[{ v: 0, label: 'Off' }, ...[0.4, 0.5, 0.6, 0.7, 0.8].map((v) => ({ v, label: `<${Math.round(v * 100)}%` }))]} />
         </Policy>
 
-        <Policy title="Selling discipline" info="At midday, managers sell 25% of each crop or product whose price is at least this multiple of its 30-day average (0.90× = up to 10% below average). Whenever dry storage is fuller than the cap they sell 25% every hour regardless of price. Fast-spoiling goods are sold in full at midday. Stock promised to contracts, reserved for your factories and 3 days of animal feed are kept. Selling moves the price; 25% at a time limits the damage."
+        <Policy title="Selling discipline" info="At midday, managers sell 25% of each crop or product whose price is at least this multiple of its 30-day average (0.90× = up to 10% below average). Whenever dry storage is fuller than the cap they sell 25% every hour regardless of price. Fast-spoiling goods are sold in full at midday. Stock promised to contracts, reserved for your factories and 3 days of animal feed are kept. Selling moves the price; 25% at a time limits the damage. With Export surplus on (Era 6+), at midday they ship up to half of a good to another region that pays at least 10% more after freight and tariff, where it is sold on arrival."
           who={managers}>
           <Labeled text="Sell when price ≥"><Seg label="Sell when price above" value={P.sellDiscipline} onChange={(v) => setP({ sellDiscipline: v })} options={[{ v: 0, label: 'Off' }, ...[0.8, 0.9, 1, 1.05, 1.1, 1.2, 1.3].map((v) => ({ v, label: `${v.toFixed(2)}× avg` }))]} /></Labeled>
+          {P.sellDiscipline > 0 && s.era >= 6 && <Labeled text="Export surplus"><OnOff label="Export surplus" value={P.autoExport} onChange={(v) => setP({ autoExport: v })} /></Labeled>}
           {P.sellDiscipline > 0 && <Labeled text="or storage over"><Seg label="Or storage above" value={P.sellStorageCap} onChange={(v) => setP({ sellStorageCap: v })} options={[0.7, 0.8, 0.85, 0.9, 0.95].map((v) => ({ v, label: `${Math.round(v * 100)}%` }))} /></Labeled>}
         </Policy>
 

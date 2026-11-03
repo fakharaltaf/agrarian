@@ -179,6 +179,7 @@ export interface Shipment {
   to: RegionId;
   arrives: number;
   cost: number;
+  sell?: boolean; // sold into the destination market on arrival, a little each hour, instead of stored
 }
 
 export type RuleMetric = 'price' | 'inventory' | 'cash' | 'storageUtil' | 'minFertility' | 'minCondition' | 'facilityMargin';
@@ -218,6 +219,7 @@ export interface Policies {
   irrigateMin: number; // irrigation tops moisture up to this
   hedgeRatio: number; // trading head shorts this share of expected 30-day crop output (0 = off)
   autoFeed: boolean; // buy feed when animals would otherwise go hungry
+  autoExport: boolean; // managers ship surplus to another region when it pays more after freight and tariffs
 }
 
 export type EventKind =
@@ -338,7 +340,7 @@ export type Action =
   | { type: 'build'; region: RegionId; building: BuildingType; count?: number }
   | { type: 'demolish'; buildingId: number }
   | { type: 'toggleBuilding'; buildingId: number }
-  | { type: 'ship'; good: GoodId; qty: number; from: RegionId; to: RegionId }
+  | { type: 'ship'; good: GoodId; qty: number; from: RegionId; to: RegionId; sell?: boolean }
   | { type: 'takeLoan'; amount: number; termDays: number }
   | { type: 'repayLoan'; loanId: number; amount: number }
   | { type: 'openFutures'; good: GoodId; contracts: number; days: number }

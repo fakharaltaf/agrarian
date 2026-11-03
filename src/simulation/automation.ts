@@ -3,13 +3,13 @@
 // through the same primitives as the player, and never below the cash reserve.
 import { ANIMALS, BUILDINGS, CONFIG, CROPS, GOODS, GOOD_IDS, MACHINES, REGIONS, REGION_IDS, TICKS_PER_DAY, WORK_END, WORK_START, type CropId, type GoodId, type RegionId } from './config';
 import { canGrow, expectedYield, fertility, fertilizeField, soilAdequacy } from './agriculture';
-import { buildingsIn, clamp, levelMult, reservedStock, debt, execOn, has, hour, nextId, post, seasonOf, seedCost, stored, totalAssets } from './core';
-import { avg30, executeBuy, executeSell, forecast, quoteBuy } from './markets';
+import { buildingsIn, clamp, levelMult, reservedStock, debt, execOn, has, hour, log, nextId, post, priceUsd, seasonOf, seedCost, stored, totalAssets } from './core';
+import { avg30, closedPort, executeBuy, executeSell, forecast, marketDepth, quoteBuy } from './markets';
 import { CONTRACT_SIZE, FUTURES_GOODS, openFutures, futuresPrice, closeFutures } from './finance';
-import { machineRate, serviceCost, service } from './operations';
+import { autoBudget, machineRate, serviceCost, service } from './operations';
 import { FEEDS } from './livestock';
 import { buildingMargin } from './processing';
-import { shipGoods } from './logistics';
+import { exportGain, shipGoods } from './logistics';
 import type { GameState, Rule } from './types';
 
 export const hasManager = (s: GameState, r: RegionId) => s.workers.some((w) => w.region === r && w.role === 'manager') || execOn(s, 'crops');
@@ -223,6 +223,20 @@ function sellRound(s: GameState, r: RegionId, midday: boolean) {
     const q = s.regions[r].inventory[g] - contractsNeed(s, r, g) - reservedStock(s, r, g) - (FEEDS.includes(g) ? feedKeep : 0);
     if (q < 1 || !s.markets[r][g] || GOODS[g].kind === 'input') continue;
     const perishable = GOODS[g].spoilProper > 0.02;
+    // midday: send surplus to whichever region pays at least 10% more after freight and tariff, sold there on arrival
+    if (midday && P.autoExport && s.era >= 6) {
+      const home = priceUsd(s, r, g);
+      const to = REGION_IDS.filter((x) => x !== r && s.regions[x].unlocked && s.markets[x][g] && !closedPort(s, r, x))
+        .sort((a, b) => exportGain(s, g, r, b) - exportGain(s, g, r, a))[0];
+      if (to && home > 0 && exportGain(s, g, r, to) > home * 0.1) {
+        const moving = s.shipments.filter((x) => x.to === to && x.good === g).reduce((a, x) => a + x.qty, 0);
+        const amount = Math.floor(Math.min(q * 0.5, marketDepth(s, to, g) * 3 - moving));
+        if (amount >= 50 && !shipGoods(s, g, amount, r, to, autoBudget(s), true)) {
+          log(s, 'info', `Manager exported ${amount.toLocaleString('en-US')} ${GOODS[g].name.toLowerCase()} to ${REGIONS[to].name}: it pays about ${Math.round((exportGain(s, g, r, to) / home) * 100)}% more there after freight.`, 'logistics');
+          continue;
+        }
+      }
+    }
     const good = s.markets[r][g]!.price >= P.sellDiscipline * avg30(s, r, g);
     if (full || (coldSpill && GOODS[g].storage === 'cold') || (midday && (perishable || good))) executeSell(s, r, g, q * (perishable && midday ? 1 : 0.25), undefined);
   }
@@ -265,7 +279,7 @@ function hedge(s: GameState, ratio: number) {
 }
 
 export const DEFAULT_POLICIES = {
-  cashReserve: 0, autoFertilize: false, soilTarget: 0.6, autoRepair: 0, autoRotate: false, supplyFactories: false, sellDiscipline: 0, sellStorageCap: 0.85, debtCeiling: 0, irrigateMin: 0.5, hedgeRatio: 0, autoFeed: true,
+  cashReserve: 0, autoFertilize: false, soilTarget: 0.6, autoRepair: 0, autoRotate: false, supplyFactories: false, sellDiscipline: 0, sellStorageCap: 0.85, debtCeiling: 0, irrigateMin: 0.5, hedgeRatio: 0, autoFeed: true, autoExport: true,
 };
 export const clampPolicy = (v: number) => clamp(v, 0, 1e12);
 void TICKS_PER_DAY;
