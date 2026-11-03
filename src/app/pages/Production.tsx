@@ -1,12 +1,11 @@
-import { useMemo, useState, type ReactNode } from 'react';
 import { BUILDINGS, COWS_PER_DAIRY_BATCH, CROPS, GOODS, REGIONS, type BuildingType, type GoodId, type RegionId, TECH } from '../../simulation/config';
-import { electricityPrice, factoryCrop, has, levelMult, priceUsd, stored, sumBooks } from '../../simulation/core';
+import { electricityPrice, factoryCrop, has, levelMult, priceUsd, sumBooks } from '../../simulation/core';
 import { buildingPrice, expectedYield } from '../../simulation/engine';
 import { buildingMargin, solarOutput } from '../../simulation/processing';
 import type { Building, GameState } from '../../simulation/types';
-import { act, useGame } from '../../stores/game';
+import { act, go, useGame } from '../../stores/game';
 import { money, num, pct0, price } from '../format';
-import { Bar, Card, Confirm, Empty, Info, Kpi, PageHead, Select, Table, Tip, usePref, type Col } from '../ui';
+import { Bar, Card, Confirm, Empty, Info, Kpi, PageHead, Select, Swatch, usePref } from '../ui';
 import { regionOptions, unlockedRegions } from './shared';
 
 const FACTORY_CATS = ['processing', 'energy', 'commerce'];
@@ -46,7 +45,6 @@ function recipeText(s: GameState, t: BuildingType) {
 }
 
 const tone = (n: number) => (n > 0.005 ? 'up' : n < -0.005 ? 'down' : '');
-const statusOf = (util: number, paused: boolean, reason: string) => (paused ? 'warn' : util >= 0.85 || !reason ? 'ok' : util >= 0.5 ? 'warn' : 'bad');
 
 interface Group { key: string; type: BuildingType; region: RegionId; list: Building[]; active: number; util: number; reason: string; outValue: number; inCost: number; opCost: number; margin: number }
 
@@ -104,8 +102,7 @@ export default function ProductionPage() {
           info="Share of rated capacity your factories actually ran, smoothed over roughly the last day." />
         <Kpi label="Electricity yesterday" value={money(-elecY)} sub={gridY ? `grid sales ${money(gridY)}` : undefined} info="Grid electricity bought (and surplus sold back) over the last full day, all regions." />
       </div>
-      {groups.length > 0 && <ChainCard s={s} groups={groups} />}
-      {groups.length > 0 && <FacilitiesCard s={s} groups={groups} />}
+      {groups.length > 0 && <LinesCard s={s} groups={groups} />}
       <div className="grid2">
         <BuildCard s={s} />
         <EnergyCard s={s} elecY={elecY} gridY={gridY} />
@@ -204,225 +201,132 @@ function addMore(s: GameState, g: Group): { verdict: 'yes' | 'maybe' | 'no'; why
   return { verdict: 'maybe', why: `${GOODS[x].name} in stock: ${days >= 1 ? `${num(days)} days` : 'under a day'} for one more`, gain };
 }
 
-const statusText = (g: Group) => {
-  if (!BUILDINGS[g.type].recipe) return { text: g.active ? 'Running' : 'Paused', tone: g.active ? '' : 'muted' };
-  if (g.active === 0) return { text: 'Paused', tone: 'muted' };
-  if (g.reason) return { text: g.reason, tone: 'warn' };
-  if (g.margin < 0) return { text: 'Losing money', tone: 'down' };
-  return { text: g.active < g.list.length ? `${g.active} of ${g.list.length} running` : 'Running well', tone: 'up' };
-};
+type Act = { label: string; onClick?: () => void; build?: true; tone?: 'primary' | 'warn' };
 
-function FacilitiesCard({ s, groups }: { s: GameState; groups: Group[] }) {
-  const cols: Col<Group>[] = [
-    { key: 'name', label: 'Facility', sort: (g) => BUILDINGS[g.type].name, render: (g) => {
-      const sup = supplyOf(s, g);
-      return <div className="stack s">
-        <div><b>{BUILDINGS[g.type].name}</b>{g.list.length > 1 && <span className="muted"> ×{g.list.length}</span>}</div>
-        <span className="muted small">{REGIONS[g.region].name}</span>
-        {sup && <Tip text={`${sup.n} field${sup.n === 1 ? '' : 's'} grow ${GOODS[sup.c].name.toLowerCase()} for ${g.list.length > 1 ? 'these' : 'this'}: about ${num(sup.grow)} a day against ${num(sup.need)} needed at full speed.${sup.reserved >= 1 ? ` ${num(sup.reserved)} is held in reserve for it.` : ''}`}>
-          <span className="pill" style={{ width: 'fit-content' }}>🌾 {sup.n} field{sup.n === 1 ? '' : 's'} · {sup.grow >= sup.need ? `${sup.grow / sup.need >= 10 ? '10×+' : `${(sup.grow / sup.need).toFixed(1)}×`} enough` : `${pct0(sup.grow / sup.need)} of need`}</span>
-        </Tip>}
-      </div>;
-    } },
-    { key: 'status', label: 'Status', sort: (g) => g.util, render: (g) => {
-      const st = statusText(g);
-      const has = !!BUILDINGS[g.type].recipe;
-      return <div className="stack s" style={{ minWidth: 150 }}>
-        <span className={`small ${st.tone}`} style={{ fontWeight: 600 }}>{st.text}</span>
-        {has && <div className="row" style={{ gap: 8, alignItems: 'center' }}>
-          <div className="grow"><Bar thin value={g.util} label="Utilisation" color={st.tone === 'up' ? 'var(--up)' : st.tone === 'muted' ? 'var(--faint)' : st.tone === 'down' ? 'var(--down)' : 'var(--warn)'} /></div>
-          <span className="mono small muted" style={{ minWidth: 34, textAlign: 'right' }}>{pct0(g.util)}</span>
-        </div>}
-      </div>;
-    } },
-    { key: 'day', label: 'Profit / day', align: 'r', sort: (g) => g.margin, render: (g) => (
-      <Tip text="Profit at the current pace: what the output sells for, minus inputs (at what you could sell them for), staff and power." breakdown={[['Output', money(g.outValue * 24)], ['Inputs', `−${money(g.inCost * 24)}`], ['Staff & power', `−${money(g.opCost * 24)}`], ['Profit', money(g.margin * 24)]]}>
-        <span className={`mono ${tone(g.margin)}`} style={{ fontSize: 15 }}>{g.margin > 0.005 ? '+' : ''}{money(g.margin * 24)}</span>
-      </Tip>
-    ) },
-    { key: 'more', label: 'Build another?', sort: (g) => addMore(s, g)?.gain ?? -Infinity, render: (g) => {
-      const a = addMore(s, g);
-      if (!a) return <span className="faint">—</span>;
-      return <div className="stack s" style={{ minWidth: 170 }}>
-        <div className="row" style={{ gap: 6 }}>
-          <span className={`pill ${a.verdict === 'yes' ? 'good' : a.verdict === 'maybe' ? 'warn' : 'bad'}`}>{a.verdict === 'yes' ? 'Yes' : a.verdict === 'maybe' ? 'Maybe' : 'No'}</span>
-          {a.verdict !== 'no' && <span className="mono small up">+{money(a.gain)}/day each</span>}
-        </div>
-        <span className="small muted">{a.why}</span>
-      </div>;
-    } },
-    { key: 'act', label: '', align: 'r', render: (g) => {
-      const allOn = g.active === g.list.length;
-      const victim = [...g.list].sort((a, b) => Number(a.active) - Number(b.active) || a.util - b.util)[0];
-      const refund = Math.round(Math.max(0, victim.cost - victim.depreciated) * 0.5);
-      return (
-        <div className="row" style={{ gap: 6, justifyContent: 'flex-end', flexWrap: 'nowrap' }}>
-          <button className="btn ghost sm" onClick={() => g.list.filter((b) => b.active === allOn).forEach((b) => act({ type: 'toggleBuilding', buildingId: b.id }))}>{allOn ? 'Pause' : 'Resume'}{g.list.length > 1 ? ' all' : ''}</button>
-          <Confirm className="btn danger sm" label="Demolish" title={`Demolish a ${BUILDINGS[g.type].name.toLowerCase()}?`} confirmLabel={`Demolish for ${money(refund)}`}
-            body={<>You recover 50% of its book value: {money(refund)} (book {money(victim.cost - victim.depreciated)}). {g.list.length > 1 ? 'The least-used one in this group goes first.' : ''}</>}
-            onConfirm={() => act({ type: 'demolish', buildingId: victim.id }, 'Facility demolished.')} />
-        </div>
-      );
-    } },
-  ];
-  return (
-    <Card title="Facilities" info="One row per facility type and region. Hover the profit for its breakdown. 'Build another?' checks your supply and today's prices. Paused facilities pay no staff.">
-      <Table rows={groups} cols={cols} rowKey={(g) => g.key} initialSort={{ key: 'name', dir: 1 }} scroll={false} />
-    </Card>
-  );
-}
-
-// ---------------------------------------------------------------- chain
-
-const DEPTH: Partial<Record<BuildingType, number>> = { flourMill: 2, feedMill: 2, oilPress: 2, sugarMill: 2, verticalFarm: 2, solar: 2, distribution: 5, bakery: 3, ranch: 3, dairy: 3, creamery: 4, biogas: 4 };
-const NW = 168, NH = 84, CG = 46, RG = 16;
-
-interface ChainNode { id: string; title: string; lines: string[]; status: 'ok' | 'warn' | 'bad'; col: number; group?: Group }
-
-function ChainCard({ s, groups }: { s: GameState; groups: Group[] }) {
-  const regs = unlockedRegions(s).filter((r) => groups.some((g) => g.region === r));
-  const [pref, setPref] = usePref<RegionId>('prod.chain', 'heartland');
-  const r = regs.includes(pref) ? pref : regs[0];
-  const [sel, setSel] = useState<string | null>(null);
-  const inv = s.regions[r].inventory;
-  const here = groups.filter((g) => g.region === r);
-  const has_ = (t: BuildingType) => here.some((g) => g.type === t);
-
-  const cropDay = useMemo(() => {
-    const out: Partial<Record<GoodId, number>> = {};
-    for (const f of s.fields) if (f.region === r && f.crop) out[f.crop] = (out[f.crop] ?? 0) + (expectedYield(s, f, f.crop) / CROPS[f.crop].growthTicks) * 24;
-    return out;
-  }, [s.tick, r]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const st = stored(s, r);
-  const fill = st.cap.dry ? st.dry / st.cap.dry : 1;
-  const nodes: ChainNode[] = [];
-  const cropTotal = Object.values(cropDay).reduce((a, x) => a + x!, 0);
-  const topCrops = (Object.entries(cropDay) as [GoodId, number][]).sort((a, b) => b[1] - a[1]).slice(0, 2);
-  nodes.push({ id: 'fields', title: 'Fields', col: 0, status: cropTotal > 0 ? 'ok' : 'warn', lines: [cropTotal ? `≈${num(cropTotal)} units/day` : 'Nothing growing', topCrops.map(([g, q]) => `${GOODS[g].name} ${num(q)}`).join(' · ')] });
-  const keyGoods = new Set<GoodId>();
-  for (const g of here) for (const [x] of ins(g.type)) keyGoods.add(x);
-  const keyList = [...keyGoods].sort((a, b) => inv[b] - inv[a]).slice(0, 2);
-  nodes.push({ id: 'storage', title: 'Storage', col: 1, status: fill > 0.95 ? 'bad' : fill > 0.8 ? 'warn' : 'ok', lines: [`Dry ${pct0(fill)} full`, keyList.map((g) => `${GOODS[g].name} ${num(inv[g])}`).join(' · ') || `${num(st.dry)} units held`] });
-  for (const g of here) {
-    const d = BUILDINGS[g.type];
-    const paused = g.active === 0;
-    const inS = ins(g.type).map(([x]) => `${GOODS[x].name.split(' ')[0]} ${num(inv[x])}`).join(', ');
-    const outS = outs(g.type).filter(([x]) => x !== 'manure').map(([x]) => `${GOODS[x].name.split(' ')[0]} ${num(inv[x])}`).join(', ');
-    nodes.push({
-      id: g.key, group: g, col: DEPTH[g.type] ?? 2, title: `${d.name}${g.list.length > 1 ? ` ×${g.list.length}` : ''}`,
-      status: d.recipe ? statusOf(g.util, paused, g.reason) : paused ? 'warn' : 'ok',
-      lines: d.recipe ? [`${pct0(g.util)} · ${money(g.margin)}/h`, inS ? `in: ${inS}` : `out: ${outS}`, inS && outS ? `out: ${outS}` : ''] : [paused ? 'Paused' : 'Running', `${money(g.margin)}/h`],
-    });
-  }
-  const salesToday = sumBooks(s, 1, ['sale', 'contract']);
-  nodes.push({ id: 'markets', title: 'Markets', col: 5, status: 'ok', lines: [`Sales today ${money(salesToday)}`, 'all regions'] });
-
-  // compact columns
-  const usedCols = [...new Set(nodes.map((n) => n.col))].sort((a, b) => a - b);
-  const colIdx = (c: number) => usedCols.indexOf(c);
-  const rowsIn: Record<number, number> = {};
-  const pos: Record<string, { x: number; y: number }> = {};
-  for (const n of nodes) {
-    const i = (rowsIn[n.col] = (rowsIn[n.col] ?? -1) + 1);
-    pos[n.id] = { x: colIdx(n.col) * (NW + CG), y: i * (NH + RG) };
-  }
-  const maxRows = Math.max(...Object.values(rowsIn)) + 1;
-  const W = usedCols.length * NW + (usedCols.length - 1) * CG;
-  const H = maxRows * NH + (maxRows - 1) * RG;
-  for (const n of nodes) if ((rowsIn[n.col] ?? 0) + 1 < maxRows) pos[n.id].y += ((maxRows - rowsIn[n.col] - 1) * (NH + RG)) / 2;
-
-  // edges: storage feeds anything whose input nobody here makes; producers feed consumers; finished goods go to market
-  const edges: { a: string; b: string; good: string; live: boolean }[] = [];
-  const add = (a: string, b: string, good: string, live: boolean) => pos[a] && pos[b] && !edges.some((e) => e.a === a && e.b === b) && edges.push({ a, b, good, live });
-  add('fields', 'storage', 'crops', cropTotal > 0);
-  const live = (g: Group) => g.active > 0 && g.util > 0.05;
-  for (const g of here) {
-    for (const [x] of ins(g.type)) {
-      const makers = here.filter((p) => outs(p.type).some(([o]) => o === x));
-      if (makers.length) makers.forEach((p) => add(p.key, g.key, GOODS[x].name, live(p) && live(g)));
-      else add('storage', g.key, GOODS[x].name, live(g));
-    }
-    const sold = outs(g.type).filter(([o]) => o !== 'manure' && !here.some((c) => ins(c.type).some(([i]) => i === o)));
-    if (sold.length) add(g.key, 'markets', sold.map(([o]) => GOODS[o].name).join(', '), live(g));
-    if (outs(g.type).some(([o]) => o === 'manure') && !has_('biogas')) add(g.key, 'fields', 'Manure', live(g));
-    if (g.type === 'distribution') add('storage', g.key, 'processed goods', g.active > 0);
-  }
-  const selNode = nodes.find((n) => n.id === sel) ?? null;
-  const tip = (n: ChainNode) => `${n.title}: ${n.lines.filter(Boolean).join(', ')}`;
-
-  return (
-    <Card title={<>Production chain{regs.length > 1 ? '' : <span className="muted"> · {REGIONS[r].name}</span>}</>}
-      info="Material flows through your regional inventory. Animated edges are moving goods right now. Node border: green at capacity, amber partly limited or paused, red mostly idle. Click a node for the bottleneck and what it costs you."
-      actions={regs.length > 1 ? <Select label="Region" value={r} onChange={setPref} options={regs.map((x) => ({ v: x, label: REGIONS[x].name }))} /> : undefined}>
-      <div style={{ overflowX: 'auto' }}>
-        <svg className="chain" viewBox={`-6 -6 ${W + 12} ${H + 12}`} style={{ minWidth: Math.min(W, 640) }} role="group" aria-label={`Production chain in ${REGIONS[r].name}`}>
-          <defs><marker id="prod-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L8 4L0 8z" fill="var(--faint)" /></marker></defs>
-          {edges.map((e) => {
-            const a = pos[e.a], b = pos[e.b];
-            const back = b.x <= a.x;
-            const x1 = back ? a.x + NW / 2 : a.x + NW, y1 = back ? a.y + NH : a.y + NH / 2;
-            const x2 = back ? b.x + NW / 2 : b.x, y2 = back ? b.y + NH : b.y + NH / 2;
-            const d = back ? `M${x1} ${y1} C${x1} ${y1 + 40} ${x2} ${y2 + 40} ${x2} ${y2}` : `M${x1} ${y1} C${x1 + CG / 2} ${y1} ${x2 - CG / 2} ${y2} ${x2} ${y2}`;
-            return <path key={`${e.a}-${e.b}`} className={`edge${e.live ? ' flow' : ''}`} d={d} markerEnd="url(#prod-arrow)"><title>{e.good}</title></path>;
-          })}
-          {nodes.map((n) => {
-            const p = pos[n.id];
-            const pick = () => setSel(sel === n.id ? null : n.id);
-            return (
-              <g key={n.id} className={`node ${n.status}`} transform={`translate(${p.x} ${p.y})`} role="button" tabIndex={0} aria-pressed={sel === n.id} aria-label={tip(n)} style={{ cursor: 'pointer' }}
-                onClick={pick} onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), pick())}>
-                <rect width={NW} height={NH} rx={10} style={sel === n.id ? { strokeWidth: 3 } : undefined} />
-                <text x={10} y={20} style={{ fontWeight: 600, fontSize: 12 }}>{n.title}</text>
-                {n.lines.filter(Boolean).map((l, i) => <text key={i} className="sub" x={10} y={40 + i * 15}>{l.length > 30 ? `${l.slice(0, 29)}…` : l}</text>)}
-                {n.group && BUILDINGS[n.group.type].recipe && <rect x={0} y={NH - 4} height={4} width={NW * Math.min(1, n.group.util)} rx={2} style={{ fill: n.status === 'ok' ? 'var(--up)' : n.status === 'warn' ? 'var(--warn)' : 'var(--down)', stroke: 'none' }} />}
-              </g>
-            );
-          })}
-        </svg>
-      </div>
-      {selNode ? <NodeDetail s={s} n={selNode} r={r} cropDay={cropDay} fill={fill} /> : <p className="small muted" style={{ marginTop: 8 }}>Click a node to see what is holding it back.</p>}
-    </Card>
-  );
-}
-
-function NodeDetail({ s, n, r, cropDay, fill }: { s: GameState; n: ChainNode; r: RegionId; cropDay: Partial<Record<GoodId, number>>; fill: number }) {
-  const inv = s.regions[r].inventory;
-  const box = (tone: string, body: ReactNode) => <div className={`callout ${tone}`} style={{ marginTop: 10 }}>{body}</div>;
-  if (n.id === 'fields') {
-    const rows = (Object.entries(cropDay) as [GoodId, number][]).sort((a, b) => b[1] - a[1]);
-    return box('', rows.length ? <>Fields in {REGIONS[r].name} are on course to produce {rows.map(([g, q]) => `${num(q)} ${GOODS[g].name.toLowerCase()}`).join(', ')} per day (forecast yield ÷ growing time). Harvests land in regional storage, where factories draw from them.</> : <>Nothing is growing in {REGIONS[r].name}. Factories here will need inputs bought on Markets{s.era >= 6 ? ' or shipped in' : ''}.</>);
-  }
-  if (n.id === 'storage') {
-    const st = stored(s, r);
-    return box(fill > 0.95 ? 'bad' : fill > 0.8 ? 'warn' : '', <>Dry storage holds {num(st.dry)} of {num(st.cap.dry)} units ({pct0(fill)}){st.cap.cold ? `; cold ${num(st.cold)} of ${num(st.cap.cold)}` : ''}. {fill > 0.8 ? 'When it fills, factories stop with “Output storage full” and harvests overflow. Sell output or build a warehouse.' : 'Factories take inputs from here and put outputs back here.'}</>);
-  }
-  if (n.id === 'markets') return box('', <>Finished goods wait in storage until you sell them on Markets{s.era >= 6 ? ' or ship them to a better-priced region' : ''}. Sales today across all regions: {money(sumBooks(s, 1, ['sale', 'contract']))}.</>);
-  const g = n.group!;
+/** A line's state, the one-line reason when something is off, and the single next move. */
+function lineState(s: GameState, g: Group, groups: Group[]): { dot: 'ok' | 'warn' | 'bad' | 'off'; label: string; note: string; act: Act | null; shortOf: GoodId | null } {
   const d = BUILDINGS[g.type];
-  if (!d.recipe) return box(g.active ? 'good' : 'warn', <>{d.name}{g.list.length > 1 ? ` ×${g.list.length}` : ''} is {g.active ? 'running' : 'paused'}. {d.blurb} {d.solarKw ? 'See the Energy panel for its output.' : ''}</>);
-  const e = fullEcon(s, g.type, r);
-  const units = g.active || g.list.length;
-  const lost = Math.max(0, (1 - g.util) * e.perBatch * e.bph * units);
-  const short = ins(g.type).filter(([x, q]) => inv[x] < q * e.bph);
-  const advice = g.reason === 'Not enough cows' ? 'A dairy milks your own cows: up to 120 per dairy. Buy cows and build cowsheds on the Livestock page, or run fewer dairies.'
-    : g.reason.startsWith('Not enough')
-    ? `Grow more ${short.map(([x]) => GOODS[x].name.toLowerCase()).join(' and ') || 'input'}, buy it on Markets${s.era >= 6 ? ', ship it in' : ''}, or build an upstream facility.`
-    : g.reason === 'Output storage full' ? 'Sell the output or add storage (warehouse for dry goods, cold store for chilled).'
-    : g.reason === 'Paused' ? 'Resume it when inputs and prices support running. Paused facilities pay no staff.'
-    : g.reason.startsWith('Disease') ? 'Livestock disease halts production until the outbreak ends; staff are still paid.'
-    : '';
-  const bad = n.status !== 'ok';
-  return box(n.status === 'ok' ? 'good' : n.status, (
-    <div className="stack s">
-      <b>{d.name}{g.list.length > 1 ? ` ×${g.list.length}` : ''} at {pct0(g.util)} capacity{g.reason ? ` — ${g.reason.toLowerCase()}` : ''}.</b>
-      {bad && e.perBatch > 0 && <span>Lost margin ≈ <b className="mono">{money(lost)}/h</b> ({money(lost * 24)}/day) at current {REGIONS[r].name} prices versus running flat out.</span>}
-      {e.perBatch <= 0 && <span className="down">Each batch loses {money(-e.perBatch)} at today's prices before staff — running harder makes it worse.</span>}
-      <span className="small">Inputs on hand: {ins(g.type).map(([x, q]) => `${num(inv[x])} ${GOODS[x].name.toLowerCase()} (needs ${num(q * e.bph * units)}/h)`).join(', ') || 'none needed'}. Outputs held: {outs(g.type).map(([x]) => `${num(inv[x])} ${GOODS[x].name.toLowerCase()}`).join(', ')}.</span>
-      <span className="small">Margin now {money(g.margin)}/h; at full capacity {money(e.margin * units)}/h. Break-even {Number.isFinite(e.breakEven) ? pct0(e.breakEven) : 'not reachable'}.</span>
-      {advice && <span className="small">{advice}</span>}
+  const day = g.margin * 24;
+  const pause: Act = { label: `Pause · saves ${money(-day)}/day`, tone: 'warn', onClick: () => g.list.filter((b) => b.active).forEach((b) => act({ type: 'toggleBuilding', buildingId: b.id })) };
+  if (g.active === 0) return { dot: 'off', label: 'Paused', note: 'Paused facilities pay no staff.', act: { label: 'Resume', onClick: () => g.list.forEach((b) => act({ type: 'toggleBuilding', buildingId: b.id })) }, shortOf: null };
+  if (!d.recipe) return { dot: day < 0 ? 'warn' : 'ok', label: 'Running', note: '', act: null, shortOf: null };
+  const rec = d.recipe;
+  const inv = s.regions[g.region].inventory;
+  if (g.reason === 'Output storage full') return { dot: 'bad', label: 'Storage full', note: 'Nowhere to put what it makes.', act: { label: 'Make room on Storage →', onClick: () => go('storage') }, shortOf: null };
+  if (g.reason === 'Not enough cows') return { dot: 'bad', label: 'Not enough cows', note: 'Each dairy milks 120 of your cows.', act: { label: 'Get cows on Livestock →', onClick: () => go('livestock') }, shortOf: null };
+  if (g.reason.startsWith('Not enough')) {
+    const x = ins(g.type).find(([y, q]) => inv[y] < q * rec.batchesPerHour)?.[0] ?? ins(g.type)[0][0];
+    const fromUs = groups.some((p) => p.region === g.region && outs(p.type).some(([o]) => o === x));
+    return { dot: 'bad', label: `Short of ${GOODS[x].name.toLowerCase()}`, note: `Running at ${pct0(g.util)} — staff are paid either way.`,
+      act: day < 0 ? pause : factoryCrop(g.list[0]) === x ? { label: 'Dedicate fields →', onClick: () => go('fields') } : fromUs ? null : { label: `Buy ${GOODS[x].name.toLowerCase()} →`, onClick: () => go('markets') }, shortOf: x };
+  }
+  if (day < 0) return { dot: 'bad', label: 'Losing money', note: g.inCost > g.outValue ? 'Its inputs are worth more than what it makes.' : 'Staff & power tip it into a loss.', act: pause, shortOf: null };
+  const more = addMore(s, g);
+  return { dot: 'ok', label: 'Running well', note: more && more.verdict !== 'yes' ? `Build another? ${more.why}.` : '', act: more?.verdict === 'yes' ? { label: `＋ Build another · +${money(more.gain)}/day`, build: true, tone: 'primary' } : null, shortOf: null };
+}
+
+function Chip({ g, top, sub, bad }: { g: GoodId; top: string; sub?: string; bad?: boolean }) {
+  return (
+    <div className={`pl-chip${bad ? ' bad' : ''}`}>
+      <span className="pl-chip-name"><Swatch color={GOODS[g].color} />{GOODS[g].name}</span>
+      <span className="mono">{top}</span>
+      {sub && <span className="pl-chip-sub">{sub}</span>}
     </div>
-  ));
+  );
+}
+
+function LineCard({ s, g, groups }: { s: GameState; g: Group; groups: Group[] }) {
+  const d = BUILDINGS[g.type];
+  const st = lineState(s, g, groups);
+  const day = g.margin * 24;
+  const inv = s.regions[g.region].inventory;
+  const sup = supplyOf(s, g);
+  const perDay = (q: number) => g.list.reduce((a, b) => a + q * (d.recipe?.batchesPerHour ?? 0) * levelMult(b.level) * 24, 0);
+  const earn = g.outValue * 24, inC = g.inCost * 24, opC = g.opCost * 24;
+  const scale = Math.max(earn, inC + opC, 1);
+  const victim = [...g.list].sort((a, b) => Number(a.active) - Number(b.active) || a.util - b.util)[0];
+  const refund = Math.round(Math.max(0, victim.cost - victim.depreciated) * 0.5);
+  const cost = buildingPrice(s, g.type, g.region);
+  const allOn = g.active === g.list.length;
+  return (
+    <div className={`pl pl-${st.dot}`}>
+      <div className="pl-head">
+        <div>
+          <b>{d.name}</b>{g.list.length > 1 && <span className="muted"> ×{g.list.length}</span>}
+          <span className="muted small"> · {REGIONS[g.region].name}</span>
+        </div>
+        <div className="pl-profit"><span className={`mono ${tone(day)}`}>{day > 0.005 ? '+' : ''}{money(day)}</span><span className="faint small"> /day</span></div>
+      </div>
+
+      {d.recipe && (
+        <div className="pl-flow">
+          <div className="pl-side">
+            {ins(g.type).map(([x, q]) => {
+              const short = st.shortOf === x;
+              const fromMill = groups.some((p) => p.region === g.region && outs(p.type).some(([o]) => o === x));
+              const sub = short ? `only ${num(inv[x])} in stock` : sup && sup.c === x ? `🌾 ${sup.n} field${sup.n === 1 ? '' : 's'} · ${sup.grow >= sup.need * 10 ? '10×+' : `${(sup.grow / sup.need).toFixed(1)}×`} enough` : fromMill ? 'from your mill' : `${num(inv[x])} in stock`;
+              return <Chip key={x} g={x} top={`${num(perDay(q))}/day`} sub={sub} bad={short} />;
+            })}
+          </div>
+          <span className={`pl-arrow${g.active && g.util > 0.05 ? ' live' : ''}`} aria-hidden>→</span>
+          <div className={`pl-plant pl-${st.dot}`}>
+            <span className={`pl-dot ${st.dot}`} />
+            <b className="small">{st.label}</b>
+            <Bar thin value={g.util} label="How busy" color={st.dot === 'ok' ? 'var(--up)' : st.dot === 'off' ? 'var(--faint)' : st.dot === 'warn' ? 'var(--warn)' : 'var(--down)'} />
+            <span className="mono small muted">{pct0(g.util)} busy</span>
+          </div>
+          <span className={`pl-arrow${g.active && g.util > 0.05 ? ' live' : ''}`} aria-hidden>→</span>
+          <div className="pl-side">
+            {outs(g.type).filter(([x]) => x !== 'manure').map(([x, q]) => (
+              <Chip key={x} g={x} top={`${num(perDay(q * (has(s, 'processEfficiency') ? 1.1 : 1)))}/day`} sub={`${price(priceUsd(s, g.region, x))} each`} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {(earn > 0 || opC > 0) && (
+        <div className="pl-money">
+          <span className="small muted">Earns</span>
+          <div className="pl-bar"><div style={{ width: `${(earn / scale) * 100}%`, background: 'var(--up)' }} /></div>
+          <span className="mono small">{money(earn)}</span>
+          <span className="small muted">Costs</span>
+          <div className="pl-bar">
+            {inC > 0 && <div title={`Inputs ${money(inC)}`} style={{ width: `${(inC / scale) * 100}%`, background: 'var(--warn)' }} />}
+            <div title={`Staff & power ${money(opC)}`} style={{ width: `${(opC / scale) * 100}%`, background: 'var(--down)' }} />
+          </div>
+          <span className="mono small">{money(inC + opC)}</span>
+          <span />
+          <span className="pl-legend small faint">{inC > 0 && <><i style={{ background: 'var(--warn)' }} />inputs {money(inC)} </>}<i style={{ background: 'var(--down)' }} />staff &amp; power {money(opC)}</span>
+          <span />
+        </div>
+      )}
+
+      <div className="pl-foot">
+        <span className={`small ${st.dot === 'bad' ? 'down' : 'muted'}`}>{st.note}</span>
+        <div className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
+          {g.active > 0 && st.act?.tone !== 'warn' && <button className="btn ghost sm" onClick={() => g.list.filter((b) => b.active === allOn).forEach((b) => act({ type: 'toggleBuilding', buildingId: b.id }))}>Pause</button>}
+          <Confirm className="btn ghost sm" label="Demolish" title={`Demolish a ${d.name.toLowerCase()}?`} confirmLabel={`Demolish for ${money(refund)}`}
+            body={<>You get back {money(refund)}, half its book value. {g.list.length > 1 ? 'The least-used one goes first.' : ''}</>}
+            onConfirm={() => act({ type: 'demolish', buildingId: victim.id }, 'Facility demolished.')} />
+          {st.act && (st.act.build
+            ? <Confirm className="btn primary sm" disabled={cost > s.cash} label={st.act.label} title={`Build another ${d.name.toLowerCase()}?`} confirmLabel={`Pay ${money(cost)}`}
+                body={<>Costs {money(cost)}. At today's prices one more should earn about {st.act.label.split('+')[1]}.</>}
+                onConfirm={() => act({ type: 'build', region: g.region, building: g.type }, `${d.name} built.`)} />
+            : <button className={`btn sm ${st.act.tone === 'warn' ? 'warn' : ''}`} onClick={st.act.onClick}>{st.act.label}</button>)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LinesCard({ s, groups }: { s: GameState; groups: Group[] }) {
+  const rank = { bad: 0, warn: 1, ok: 2, off: 3 } as const;
+  const rows = groups.map((g) => ({ g, dot: lineState(s, g, groups).dot })).sort((a, b) => rank[a.dot] - rank[b.dot] || b.g.margin - a.g.margin);
+  return (
+    <Card title="Production lines" info="Each line shows what goes in, how busy the facility is, what comes out, and whether it earns more than it costs. Problems sort to the top. Inputs are valued at what you could have sold them for.">
+      <div className="stack">{rows.map(({ g }) => <LineCard key={g.key} s={s} g={g} groups={groups} />)}</div>
+    </Card>
+  );
 }
 
 // ---------------------------------------------------------------- energy
