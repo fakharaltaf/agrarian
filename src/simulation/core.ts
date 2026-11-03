@@ -190,8 +190,14 @@ export const factoryCrop = (b: Building): CropId | null => {
   return ins.length === 1 && ins[0] in CROPS ? (ins[0] as CropId) : null;
 };
 
-/** Stock of a good held for factories in a region (never more than is actually in store). Pass a factory to leave its own share out. */
+/** Most a factory holds in reserve: a week at full capacity. Surplus harvest stays free to sell. */
+export const reserveCap = (b: Building) => {
+  const rec = BUILDINGS[b.type].recipe!;
+  return Object.values(rec.inputs)[0]! * rec.batchesPerHour * levelMult(b.level) * 24 * 7;
+};
+
+/** Stock of a good held for factories in a region (never more than is actually in store). Pass a factory to leave out its own share and that of its same-type siblings, which share one pool. */
 export function reservedStock(s: GameState, r: RegionId, g: GoodId, except?: Building) {
-  const held = s.buildings.reduce((a, b) => a + (b.region === r && b !== except && factoryCrop(b) === g ? b.reserved : 0), 0);
+  const held = s.buildings.reduce((a, b) => a + (b.region === r && b.type !== except?.type && factoryCrop(b) === g ? b.reserved : 0), 0);
   return Math.min(held, s.regions[r].inventory[g]);
 }

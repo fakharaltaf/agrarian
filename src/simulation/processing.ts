@@ -1,7 +1,7 @@
 // Factories, energy and building upkeep. One production model for every industry:
 // batches = min(capacity, scarcest input, output room, power) — Leontief, like a real line.
 import { BUILDINGS, GOODS, REGIONS, REGION_IDS, WORK_START, type GoodId, type RegionId } from './config';
-import { buildingDivision, clamp, electricityPrice, execOn, freeSpace, has, hour, levelMult, post, priceUsd, reservedStock, severity } from './core';
+import { buildingDivision, clamp, electricityPrice, execOn, freeSpace, has, hour, levelMult, post, priceUsd, reserveCap, reservedStock, severity } from './core';
 import { addGoods } from './agriculture';
 import type { Building, GameState } from './types';
 
@@ -80,7 +80,13 @@ function produce(s: GameState, b: Building, staff: number) {
   const quality = ins.length ? ins.reduce((a, g) => a + (reg.quality[g] ?? 0.65), 0) / ins.length : 0.7;
   for (const [g, q] of Object.entries(rec.inputs) as [GoodId, number][]) {
     inv[g] -= q * batches;
-    b.reserved = Math.max(0, Math.min(b.reserved - q * batches, inv[g])); // own reserve is used first
+    // the shared pool of same-type factories is used first, own share before siblings'
+    let used = q * batches;
+    for (const x of [b, ...s.buildings.filter((x) => x !== b && x.type === b.type && x.region === b.region)]) {
+      const take = Math.min(x.reserved, used);
+      x.reserved = Math.max(0, Math.min(x.reserved - take, inv[g], reserveCap(x)));
+      used -= take;
+    }
     inCost += q * batches * priceUsd(s, b.region, g);
   }
   for (const [g, q] of Object.entries(rec.outputs) as [GoodId, number][]) {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CONFIG, CROPS, GOOD_IDS, REGION_IDS, TICKS_PER_DAY } from '../simulation/config';
 import { advance, createGame, dispatch, harvestField, quoteSell, step } from '../simulation/engine';
-import { capacity, debt, equity, post, reservedStock, stored, sumBooks } from '../simulation/core';
+import { capacity, debt, equity, post, reserveCap, reservedStock, stored, sumBooks } from '../simulation/core';
 import { frostNight, isReady } from '../simulation/agriculture';
 const frostNightForTest = (s: GameState) => frostNight(s, 'heartland');
 import { balanceSheet, cashFlow, incomeStatement } from '../simulation/statements';
@@ -712,12 +712,18 @@ describe('dedicated supply', () => {
     expect(got).toBeGreaterThan(0);
     expect(mill.reserved).toBeCloseTo(got, 5);
     expect(reservedStock(s, 'heartland', 'wheat')).toBeCloseTo(got, 5);
-    // a second mill can't use the first one's reserve
+    // a second mill of the same type shares the reserve
     dispatch(s, { type: 'build', region: 'heartland', building: 'flourMill' });
-    const other = s.buildings.filter((b) => b.type === 'flourMill')[1];
     s.regions.heartland.inventory.wheat = mill.reserved; // only reserved wheat in store
+    const r1 = mill.reserved;
     step(s);
-    expect(other.reason).toMatch(/Not enough wheat/);
+    expect(mill.reserved).toBeLessThan(r1); // the paused mill's reserve was used by its sibling
+    // the reserve never holds more than a week of the factory's needs
+    s.regions.heartland.inventory.wheat = 1e7;
+    mill.reserved = 1e7;
+    step(s);
+    expect(mill.reserved).toBeLessThanOrEqual(reserveCap(mill));
+    s.regions.heartland.inventory.wheat = mill.reserved = 100; // the starter barn holds 400
     // the dedicated mill uses it once running
     mill.active = true;
     const r0 = mill.reserved;

@@ -1,6 +1,6 @@
 // Fields, soil, water, pests, growth, yield and storage.
 import { CONFIG, CROPS, GOODS, REGIONS, TICKS_PER_DAY, TICKS_PER_YEAR, type CropId, type GoodId, type RegionId } from './config';
-import { buildingsIn, clamp, factoryCrop, freeSpace, has, log, post, round2, seasonOf, seedCost, severity, stored, todayBook } from './core';
+import { buildingsIn, clamp, factoryCrop, reserveCap, freeSpace, has, log, post, round2, seasonOf, seedCost, severity, stored, todayBook } from './core';
 import { executeSell } from './markets';
 import type { Field, GameState, HarvestBreakdown } from './types';
 
@@ -168,7 +168,7 @@ export function harvestField(s: GameState, f: Field, bruise = 0): HarvestBreakdo
   addGoods(s, f.region, c, b.units, b.quality);
   // a dedicated field's harvest is held for its factory (only what actually fitted in storage)
   const mill = f.supplies ? s.buildings.find((x) => x.id === f.supplies) : undefined;
-  if (mill && factoryCrop(mill) === c) mill.reserved += Math.max(0, s.regions[f.region].inventory[c] - before);
+  if (mill && factoryCrop(mill) === c) mill.reserved = Math.min(reserveCap(mill), mill.reserved + Math.max(0, s.regions[f.region].inventory[c] - before));
   return b;
 }
 
