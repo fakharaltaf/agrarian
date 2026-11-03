@@ -216,13 +216,13 @@ export function policiesTick(s: GameState) {
   }
 }
 
-/** Manager selling: storage over the cap → sell 25% of each good now; at midday also sell perishables and anything priced well. Keeps contract stock and 3 days of animal feed. */
+/** Manager selling: storage over the cap → sell 25% of each good now; perishables are sold every hour as they are made
+ *  (one daily dump crashed the price); at midday export surplus and sell anything priced well. Keeps contract stock and 3 days of animal feed. */
 function sellRound(s: GameState, r: RegionId, midday: boolean) {
   const P = s.automation.policies;
   const st = stored(s, r);
   const full = st.cap.dry > 0 && st.dry / st.cap.dry > P.sellStorageCap;
   const coldSpill = st.coldOverflow > 1; // chilled goods out of the cold store rot fast: sell them every hour until they fit
-  if (!full && !coldSpill && !midday) return;
   const feedKeep = s.herds.reduce((a, h) => a + (h.region === r ? h.count * ANIMALS[h.animal].feedPerDay * 3 : 0), 0);
   for (const g of GOOD_IDS) {
     const q = s.regions[r].inventory[g] - contractsNeed(s, r, g) - reservedStock(s, r, g) - (FEEDS.includes(g) ? feedKeep : 0);
@@ -243,7 +243,7 @@ function sellRound(s: GameState, r: RegionId, midday: boolean) {
       }
     }
     const good = s.markets[r][g]!.price >= P.sellDiscipline * avg30(s, r, g);
-    if (full || (coldSpill && GOODS[g].storage === 'cold') || (midday && (perishable || good))) executeSell(s, r, g, q * (perishable && midday ? 1 : 0.25), undefined);
+    if (perishable || full || (coldSpill && GOODS[g].storage === 'cold') || (midday && good)) executeSell(s, r, g, q * (perishable ? 1 : 0.25), undefined);
   }
 }
 
