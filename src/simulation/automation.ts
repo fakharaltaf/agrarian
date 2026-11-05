@@ -243,7 +243,7 @@ function sellRound(s: GameState, r: RegionId, midday: boolean) {
       }
     }
     const good = s.markets[r][g]!.price >= P.sellDiscipline * avg30(s, r, g);
-    if (perishable || full || (coldSpill && GOODS[g].storage === 'cold') || (midday && good)) executeSell(s, r, g, q * (perishable ? 1 : 0.25), undefined);
+    if (perishable || full || (coldSpill && GOODS[g].storage === 'cold') || (midday && good)) executeSell(s, r, g, q * (perishable ? 1 : 0.25), `Manager sales: ${GOODS[g].name}`);
   }
 }
 

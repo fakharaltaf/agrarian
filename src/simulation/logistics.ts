@@ -32,12 +32,12 @@ export function shipGoods(s: GameState, g: GoodId, qty: number, from: RegionId, 
   if (closedPort(s, from, to)) return 'This route is closed by an embargo or port closure.';
   const q = shipQuote(s, g, qty, from, to);
   if (!q.haulOk) return 'Not enough haulage capacity today to load this shipment.';
+  if (q.total > budget) return `Shipping costs $${Math.round(q.total).toLocaleString()}.`;
   if (q.portFrom) {
     const cap = portCapacity(s, q.portFrom);
     if (s.regions[q.portFrom].portToday + qty > cap) return `Port capacity at ${REGIONS[q.portFrom].name} is full for today.`;
     s.regions[q.portFrom].portToday += qty;
   }
-  if (q.total > budget) return `Shipping costs $${Math.round(q.total).toLocaleString()}.`;
   s.regions[from].inventory[g] -= qty;
   const h = haulCost(s, from, qty);
   s.regions[from].truckToday += h.viaTruck;

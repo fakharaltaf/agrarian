@@ -45,10 +45,10 @@ export function post(s: GameState, kind: LedgerKind, amount: number, memo: strin
   // Merge repeated charges (wages, fuel, power...) into one line per kind/region/memo/day so the ledger stays readable.
   const d = Math.floor(s.tick / 24);
   let merged = false;
-  for (let i = s.ledger.length - 1; i >= Math.max(0, s.ledger.length - 40); i--) {
+  for (let i = s.ledger.length - 1; i >= 0; i--) {
     const e = s.ledger[i];
     if (Math.floor(e.tick / 24) !== d) break;
-    if (e.kind === kind && e.region === region && e.memo === memo) {
+    if (e.kind === kind && e.region === region && e.division === division && e.memo === memo) {
       e.amount = round2(e.amount + amount);
       merged = true;
       break;

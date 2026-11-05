@@ -28,14 +28,14 @@ try {
     await page.goto('http://127.0.0.1:4317/agrarian/');
     await page.getByRole('button',{name:save?'Continue your farm':'Start farming',exact:true}).click();
     for(const speed of save?[1,10,50]:[1]){
-      await page.getByRole('radio',{name:`${speed}×`,exact:true}).click();
+      if(save) await page.getByRole('radio',{name:`${speed}×`,exact:true}).click();
       await page.waitForTimeout(1500);
       await page.screenshot({path:`${out}/${width}-${theme}-${speed}x-farm.png`});
     }
     if(save){
       await page.getByRole('radio',{name:'❚❚',exact:true}).click();
       for(const section of ['production','research','equipment','automation','fields']){
-        const nav=page.locator(`[data-coach="nav-${section}"]`);
+        const nav=width < 700 ? page.getByRole('navigation',{name:'Pages',exact:true}).getByRole('button',{name:section,exact:false}) : page.locator(`[data-coach="nav-${section}"]`);
         if(await nav.count()){
           await nav.click(); await page.waitForTimeout(350);
           await page.screenshot({path:`${out}/${width}-${theme}-${section}.png`});
