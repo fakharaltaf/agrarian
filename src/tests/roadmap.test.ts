@@ -1,0 +1,58 @@
+import { expect, it } from 'vitest';
+// Node-only local evidence; real player files are never included in the repository.
+// @ts-expect-error Node types are deliberately absent from the browser project
+import { readFileSync, writeFileSync } from 'node:fs';
+import { parseSave } from '../simulation/persistence';
+import { createGame, step } from '../simulation/engine';
+import { BUILDINGS, GOOD_IDS, OPEX_KINDS, REGION_IDS } from '../simulation/config';
+import { lineEcon } from '../simulation/lines';
+import type { GameState } from '../simulation/types';
+
+function finiteTree(value: unknown, path = 'state') {
+  if (typeof value === 'number') expect(Number.isFinite(value), path).toBe(true);
+  if (value === undefined) throw new Error(`${path} is undefined`);
+  if (value && typeof value === 'object') for (const [key, child] of Object.entries(value)) finiteTree(child, `${path}.${key}`);
+}
+const cashFlows = (s: GameState) => Object.entries(s.lifetime).reduce((n, [k, v]) => n + (k === 'depreciation' ? 0 : v ?? 0), 0);
+it('pure save migration round-trips and preserves deterministic continuation', () => {
+  const a = parseSave(JSON.stringify({version: 2, game: createGame(819)})).game;
+  const b = parseSave(JSON.stringify({version: 2, game: a, paused: true, savedAt: 1})).game;
+  for (let i = 0; i < 72; i++) { step(a); step(b); }
+  expect(b).toEqual(a);
+  finiteTree(b);
+});
+// @ts-expect-error Node environment only
+const root = process.env.AGRARIAN_SAVES;
+const names = ['year10-day4-repaired', 'year35-day52', 'year55-day118', 'year125-day22'];
+const reports: unknown[] = [];
+for (const name of names) (root ? it : it.skip)(`real-save baseline: ${name}, 30 days`, () => {
+  const s = parseSave(readFileSync(`${root}/agrarian-${name}.json`, 'utf8')).game;
+  const before = structuredClone(s.lifetime), cash = s.cash, flows = cashFlows(s), tick = s.tick;
+  const groups = [...new Set(s.buildings.filter(b => BUILDINGS[b.type].recipe).map(b => `${b.region}:${b.type}`))].map(key => ({key, buildings: s.buildings.filter(b => `${b.region}:${b.type}` === key)}));
+  const signs = new Map<string, boolean>(), prices: Record<string, number[]> = {};
+  let flips = 0;
+  const t = performance.now();
+  for (let i = 0; i < 720; i++) {
+    step(s);
+    for (const g of groups) { const positive = lineEcon(s, g.buildings).worth >= 0; if (signs.has(g.key) && signs.get(g.key) !== positive) flips++; signs.set(g.key, positive); }
+    for (const good of ['wheat', 'corn', 'flour', 'feed', 'bread'] as const) (prices[good] ??= []).push(s.markets.heartland[good]!.price);
+  }
+  const elapsed = performance.now() - t;
+  expect(s.tick - tick === 720 || !!s.bankrupt).toBe(true);
+  finiteTree(JSON.parse(JSON.stringify(s)));
+  expect(s.cash - cash).toBeCloseTo(cashFlows(s) - flows, 1);
+  expect(JSON.parse(JSON.stringify(s))).toEqual(s);
+  for (const r of REGION_IDS) for (const g of GOOD_IDS) expect(s.regions[r].inventory[g]).toBeGreaterThanOrEqual(-1e-6);
+  const delta = (k: keyof typeof before) => (s.lifetime[k] ?? 0) - (before[k] ?? 0);
+  const sales = delta('sale') + delta('contract');
+  const op = sales + OPEX_KINDS.filter(k => k !== 'fines').reduce((n,k) => n + delta(k),0);
+  const volatility = Object.fromEntries(Object.entries(prices).map(([g, values]) => { const mean = values.reduce((a,b)=>a+b,0)/values.length; return [g, {min: Math.min(...values),max:Math.max(...values),cv: Math.sqrt(values.reduce((a,b)=>a+(b-mean)**2,0)/values.length)/mean}]; }));
+  // Separate timing pass: no validation, chart calculations or file IO in the measured loop.
+  const timed = parseSave(readFileSync(`${root}/agrarian-${name}.json`, 'utf8')).game;
+  const start = performance.now(); for (let i = 0; i < 720; i++) step(timed);
+  const ticksPerSecond = 720000 / (performance.now()-start);
+  const report = {name,simulatedTicks:s.tick-tick,bankrupt:!!s.bankrupt,sales,operatingProfitExcludingFinesAndTax:op,cashDelta:s.cash-cash,flipsPerDay:flips/30,ticksPerSecond,elapsed,volatility};
+  reports.push(report); console.log(JSON.stringify(report));
+  // @ts-expect-error Node environment only
+  if (process.env.AGRARIAN_REPORT) writeFileSync(process.env.AGRARIAN_REPORT, JSON.stringify(reports,null,2));
+}, 120000);
