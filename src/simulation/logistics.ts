@@ -25,7 +25,7 @@ export function shipQuote(s: GameState, g: GoodId, qty: number, from: RegionId, 
 }
 
 /** Moves goods between your regions. Freight, tariffs and loading are paid up front. */
-export function shipGoods(s: GameState, g: GoodId, qty: number, from: RegionId, to: RegionId, budget = s.cash, sell = false): string | null {
+export function shipGoods(s: GameState, g: GoodId, qty: number, from: RegionId, to: RegionId, budget = s.cash, sell = false, dailyBatch = false): string | null {
   if (from === to) return 'Pick a different destination.';
   if (!s.regions[to].unlocked) return `You have no operations in ${REGIONS[to].name}.`;
   if (qty <= 0 || s.regions[from].inventory[g] < qty) return 'Not enough stock to ship.';
@@ -44,7 +44,11 @@ export function shipGoods(s: GameState, g: GoodId, qty: number, from: RegionId, 
   s.regions[from].haulToday += h.viaHired;
   post(s, 'haulage', -h.cost, 'Loading haulage', from);
   post(s, 'shipping', -(q.freight + q.tariff), `Freight${q.tariff ? ' + tariff' : ''}: ${GOODS[g].name} → ${REGIONS[to].name}`, to, 'logistics');
-  s.shipments.push({ id: nextId(s), good: g, qty, from, to, arrives: s.tick + q.ticks, cost: q.total, sell: sell && !!s.markets[to][g] });
+  const batchDay = dailyBatch ? Math.floor(s.tick / 24) : -1;
+  const arrives = (dailyBatch ? (batchDay + 1) * 24 : s.tick) + q.ticks;
+  const load = dailyBatch && s.shipments.find(x => x.batchDay === batchDay && x.from === from && x.to === to && x.good === g && x.sell === sell);
+  if (load) { load.qty += qty; load.cost += q.total; load.arrives = Math.max(load.arrives, arrives); }
+  else s.shipments.push({ id: nextId(s), good: g, qty, from, to, arrives, cost: q.total, sell: sell && !!s.markets[to][g], batchDay });
   return null;
 }
 

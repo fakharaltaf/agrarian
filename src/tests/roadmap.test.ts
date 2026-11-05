@@ -39,7 +39,7 @@ for (const name of names) (root ? it : it.skip)(`real-save baseline: ${name}, 30
   }
   const elapsed = performance.now() - t;
   expect(s.tick - tick === 720 || !!s.bankrupt).toBe(true);
-  finiteTree(JSON.parse(JSON.stringify(s)));
+  finiteTree(s);
   expect(s.cash - cash).toBeCloseTo(cashFlows(s) - flows, 1);
   expect(JSON.parse(JSON.stringify(s))).toEqual(s);
   for (const r of REGION_IDS) for (const g of GOOD_IDS) expect(s.regions[r].inventory[g]).toBeGreaterThanOrEqual(-1e-6);

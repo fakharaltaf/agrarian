@@ -2,7 +2,7 @@
 import { CROPS, CROP_IDS, GOOD_IDS, REGION_IDS } from './config';
 import { createMarkets } from './markets';
 import type { GameState } from './types';
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
 export interface SaveFile { version: number; savedAt: number; paused?: boolean; game: GameState }
 
 /** Trust boundary: stored or imported JSON may be stale, hand-edited or corrupt. */
@@ -30,7 +30,7 @@ export function parseSave(text: string): SaveFile {
 /** Upgrades older saves in place. Version 1 (the prototype) predates the full economy. */
 export function migrate(g: Omit<GameState, 'version'> & { version: number }): GameState {
   if (g.version === 1) throw new Error('This save is from the early prototype and cannot be upgraded. Please start a new game.');
-  if (g.version !== SAVE_VERSION) throw new Error(`Unsupported save version ${g.version}.`);
+  if (g.version !== 2 && g.version !== SAVE_VERSION) throw new Error(`Unsupported save version ${g.version}.`);
   g.warned ??= {};
   g.bench ??= {};
   g.discovered ??= [];
@@ -68,6 +68,8 @@ export function migrate(g: Omit<GameState, 'version'> & { version: number }): Ga
   for (const r of REGION_IDS) g.regions[r].insuredFrom ??= 0;
   g.seenTips ??= [];
   for (const r of REGION_IDS) for (const k in g.markets[r]) g.markets[r][k as keyof typeof g.markets.heartland]!.impact ??= 0;
+  for (const shipment of g.shipments) shipment.batchDay ??= -1;
+  g.version = SAVE_VERSION;
   return g as GameState;
 }
 

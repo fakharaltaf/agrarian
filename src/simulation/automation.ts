@@ -216,34 +216,45 @@ export function policiesTick(s: GameState) {
   }
 }
 
-/** Manager selling: storage over the cap → sell 25% of each good now; perishables are sold every hour as they are made
+/** Manager selling: storage over the cap → sell only excess in depth-limited slices; perishables are sold every hour as they are made
  *  (one daily dump crashed the price); at midday export surplus and sell anything priced well. Keeps contract stock and 3 days of animal feed. */
 function sellRound(s: GameState, r: RegionId, midday: boolean) {
   const P = s.automation.policies;
   const st = stored(s, r);
-  const full = st.cap.dry > 0 && st.dry / st.cap.dry > P.sellStorageCap;
+  let excess = Math.max(0, st.dry - st.cap.dry * P.sellStorageCap);
   const coldSpill = st.coldOverflow > 1; // chilled goods out of the cold store rot fast: sell them every hour until they fit
   const feedKeep = s.herds.reduce((a, h) => a + (h.region === r ? h.count * ANIMALS[h.animal].feedPerDay * 3 : 0), 0);
-  for (const g of GOOD_IDS) {
+  const ordered = GOOD_IDS.filter(g => s.markets[r][g] && GOODS[g].kind !== 'input')
+    .map(g => ({ g, score: s.markets[r][g]!.price / Math.max(0.01, avg30(s, r, g)) }))
+    .sort((a, b) => b.score - a.score).map(x => x.g);
+  for (const g of ordered) {
     const q = s.regions[r].inventory[g] - contractsNeed(s, r, g) - reservedStock(s, r, g) - (FEEDS.includes(g) ? feedKeep : 0);
     if (q < 1 || !s.markets[r][g] || GOODS[g].kind === 'input') continue;
     const perishable = GOODS[g].spoilProper > 0.02;
     // midday: send surplus to whichever region pays at least 10% more after freight and tariff, sold there on arrival
-    if (midday && P.autoExport && s.era >= 6) {
+    if ((midday || perishable) && P.autoExport && s.era >= 6) {
       const home = priceUsd(s, r, g);
       const to = REGION_IDS.filter((x) => x !== r && s.regions[x].unlocked && s.markets[x][g] && !closedPort(s, r, x))
         .sort((a, b) => exportGain(s, g, r, b) - exportGain(s, g, r, a))[0];
       if (to && home > 0 && exportGain(s, g, r, to) > home * 0.1) {
         const moving = s.shipments.filter((x) => x.to === to && x.good === g).reduce((a, x) => a + x.qty, 0);
         const amount = Math.floor(Math.min(q * 0.5, marketDepth(s, to, g) * 3 - moving));
-        if (amount >= 50 && !shipGoods(s, g, amount, r, to, autoBudget(s), true)) {
-          log(s, 'info', `Manager exported ${amount.toLocaleString('en-US')} ${GOODS[g].name.toLowerCase()} to ${REGIONS[to].name}: it pays about ${Math.round((exportGain(s, g, r, to) / home) * 100)}% more there after freight.`, 'logistics');
+        const existingLoad = s.shipments.some(x => x.batchDay === Math.floor(s.tick / 24) && x.from === r && x.to === to && x.good === g && x.sell);
+        if (amount >= 50 && !shipGoods(s, g, amount, r, to, autoBudget(s), true, perishable)) {
+          if (!existingLoad) log(s, 'info', `Manager exported ${amount.toLocaleString('en-US')} ${GOODS[g].name.toLowerCase()} to ${REGIONS[to].name}: it pays about ${Math.round((exportGain(s, g, r, to) / home) * 100)}% more there after freight.`, 'logistics');
           continue;
         }
       }
     }
     const good = s.markets[r][g]!.price >= P.sellDiscipline * avg30(s, r, g);
-    if (perishable || full || (coldSpill && GOODS[g].storage === 'cold') || (midday && good)) executeSell(s, r, g, q * (perishable ? 1 : 0.25), `Manager sales: ${GOODS[g].name}`);
+    const cold = GOODS[g].storage === 'cold';
+    const overflow = cold ? stored(s, r).coldOverflow : Infinity;
+    const relief = Math.min(q, excess, overflow, marketDepth(s, r, g) * 0.15);
+    const planned = perishable ? q : (coldSpill && cold) || (midday && good) ? q * 0.25 : relief;
+    if (planned >= 1) {
+      const sold = executeSell(s, r, g, planned, `Manager sales: ${GOODS[g].name}`).qty;
+      excess = Math.max(0, excess - Math.min(sold, overflow));
+    }
   }
 }
 

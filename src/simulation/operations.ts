@@ -233,3 +233,7 @@ export const autoBudget = (s: GameState) => (s.automation.policies.cashReserve >
 export const essentialBudget = (s: GameState) => s.cash + overdraftLimit(s) * 0.5;
 
 export const isWorkHour = (s: GameState) => hour(s) >= WORK_START && hour(s) < WORK_END;
+
+/** Recent inactivity is a sale candidate, never an automatic redundancy decision. */
+export const idleMachine = (m: Machine) => !m.leased && m.driver === null && !m.usedThisTick && m.util < 0.01;
+export const machineSaleValue = (m: Machine) => m.leased ? 0 : Math.round(Math.max(0, m.cost - m.depreciated) * 0.8 * (m.broken ? 0.5 : 1));

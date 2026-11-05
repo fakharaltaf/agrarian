@@ -149,7 +149,7 @@ function contractsDaily(s: GameState) {
       s.contracts.push({
         id: nextId(s), buyer: govt ? 'Ministry of Food Reserves' : pick(s, BUYERS), region: r, good: g, qty, delivered: 0,
         price: round2(price), deadline: s.tick + (10 + Math.floor(random(s) * 20)) * TICKS_PER_DAY, penalty: round2(price * (govt ? 0.5 : 0.3)),
-        expires: s.tick + 4 * TICKS_PER_DAY, accepted: false, minQuality: premiumBuyer ? 0.8 : undefined,
+        expires: s.tick + 4 * TICKS_PER_DAY, accepted: false, ...(premiumBuyer ? { minQuality: 0.8 } : {}),
       });
     }
   }

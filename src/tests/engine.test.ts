@@ -626,8 +626,8 @@ describe('manager selling policy', () => {
     s.automation.policies.sellDiscipline = 1.3;
     s.automation.policies.sellStorageCap = 0.5;
     const cap = stored(s, 'heartland').cap.dry;
-    s.regions.heartland.inventory.wheat = cap * 0.9;
     while (s.tick % 24 !== 8) step(s); // well before the midday round
+    s.regions.heartland.inventory.wheat = cap * 0.9;
     const before = s.regions.heartland.inventory.wheat;
     step(s);
     expect(s.regions.heartland.inventory.wheat).toBeLessThan(before);

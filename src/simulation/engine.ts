@@ -1,3 +1,4 @@
+import { idleMachine, machineSaleValue } from './operations';
 // Orchestrates every system. Pure: no React, no DOM. Functions mutate the GameState passed in.
 import {
   BUILDINGS, CONFIG, CROPS, GOODS, GOOD_IDS, MACHINES, PERKS, REGIONS, REGION_IDS, TECH, TICKS_PER_DAY, type CropId, type GoodId, type RegionId,
@@ -35,7 +36,7 @@ export function createGame(seed = (Date.now() % 2147483646) + 1): GameState {
     haulToday: 0, truckToday: 0, portToday: 0, insured: false, insuredFrom: 0, forecast: [], frostTonight: false, quality: {}, homePlotsBought: 1, parcelsBought: 0, waterToday: 0, powerGen: 0, powerUse: 0, backlog: 0,
   }])) as Record<RegionId, RegionState>;
   const s: GameState = {
-    version: 2, seed, rng: seed, tick: 0, cash: CONFIG.startingCash, marginAccount: 0,
+    version: 3, seed, rng: seed, tick: 0, cash: CONFIG.startingCash, marginAccount: 0,
     fields: [], workers: [], machines: [], buildings: [], regions, markets: createMarkets(),
     seeds: Object.fromEntries(Object.keys(CROPS).map((c) => [c, c === 'wheat' ? 10 : 0])) as Record<CropId, number>,
     macro: { cpi: 1, inflation: 0.025, baseRate: 0.045, energy: 1, income: 1, climate: 0, crunch: 0, emissions: 0 },
@@ -366,10 +367,18 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       s.machines.push({ id: nextId(s), type: a.machine, region: a.region, condition: 1, hours: 0, util: 0, task: 0, tier: 1, broken: false, leased: a.lease, cost: a.lease ? 0 : price, depreciated: 0, usedThisTick: false, driver: null });
       return ok();
     }
+    case 'sellIdleMachines': {
+      const ids = new Set(a.machineIds);
+      const candidates = s.machines.filter(m => ids.has(m.id));
+      if (!ids.size || candidates.length !== ids.size || candidates.some(m => !idleMachine(m))) return fail('The fleet changed. Review idle machines again.');
+      for (const m of candidates) post(s, 'assetSale', machineSaleValue(m), `Sold idle ${MACHINES[m.type].name}`, m.region);
+      s.machines = s.machines.filter(m => !ids.has(m.id));
+      return ok();
+    }
     case 'sellMachine': {
       const m = s.machines.find((x) => x.id === a.machineId);
       if (!m) return fail('No such machine.');
-      if (!m.leased) post(s, 'assetSale', Math.round(Math.max(0, m.cost - m.depreciated) * 0.8 * (m.broken ? 0.5 : 1)), `Sold ${MACHINES[m.type].name}`, m.region);
+      if (!m.leased) post(s, 'assetSale', machineSaleValue(m), `Sold ${MACHINES[m.type].name}`, m.region);
       s.machines.splice(s.machines.indexOf(m), 1);
       return ok(m.leased ? 'Lease returned.' : undefined);
     }

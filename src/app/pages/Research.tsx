@@ -1,7 +1,7 @@
 import { BUILDINGS, TECH, TECHS, type TechDef } from '../../simulation/config';
 import { has } from '../../simulation/core';
 import { buildingPrice } from '../../simulation/engine';
-import { canResearch, labLevel } from '../../simulation/research';
+import { canResearch, labLevel, researchSpeed } from '../../simulation/research';
 import type { GameState } from '../../simulation/types';
 import { act, useGame } from '../../stores/game';
 import { money, num, pct0 } from '../format';
@@ -10,14 +10,13 @@ import { Bar, Card, Confirm, Info, Kpi, PageHead } from '../ui';
 const CATEGORIES = [...new Set(TECHS.map((t) => t.category))];
 const depth = (t: TechDef): number => (t.requires.length ? 1 + Math.max(...t.requires.map((r) => depth(TECH[r]))) : 0);
 const COLUMNS = CATEGORIES.map((c) => ({ c, techs: TECHS.filter((t) => t.category === c).sort((a, b) => depth(a) - depth(b) || a.cost - b.cost) }));
-const speed = (lvl: number) => (lvl === 2 ? 2 : 1);
 
 export default function ResearchPage() {
   const s = useGame();
   const lvl = labLevel(s);
   const a = s.research.active;
   const at = a ? TECH[a.id] : null;
-  const left = a && at ? ((1 - a.progress) * at.days) / speed(lvl) : 0;
+  const left = a && at ? ((1 - a.progress) * at.days) / researchSpeed(s) : 0;
   const spent = -(s.lifetime.research ?? 0);
   return (
     <div className="stack l">
@@ -26,7 +25,7 @@ export default function ResearchPage() {
         <Kpi label="Laboratory" value={lvl === 2 ? 'Advanced' : lvl === 1 ? 'Research station' : 'None'} tone={lvl ? undefined : 'warn'} info="A paused or demolished lab stalls the running project." />
         <Kpi label="Technologies" value={`${s.research.done.length} / ${TECHS.length}`} sub={s.research.licensed.length ? `+ ${s.research.licensed.length} licensed` : undefined} />
         <Kpi label="Spent on research" value={money(spent)} />
-        <Kpi label="Research speed" value={lvl ? `${speed(lvl)}×` : '—'} info="Progress per day is (lab speed ÷ project days). The advanced laboratory runs at 2×." />
+        <Kpi label="Research speed" value={lvl ? `${researchSpeed(s)}×` : '—'} info="Strongest active lab leads. Station levels: 1× / 1.5× / 2×. Advanced levels: 2× / 3× / 4×. Extra labs do not stack." />
       </div>
       <div className="grid2">
         <LabCard s={s} lvl={lvl} />
@@ -72,7 +71,7 @@ function LabCard({ s, lvl }: { s: GameState; lvl: number }) {
     <Card title="Laboratory" info="Labs are built in Heartland Valley and pay staff every hour they run.">
       <div className="stack">
         {lvl === 0 ? <p className="explain">You need a research station to run projects. Staff cost {money(BUILDINGS.lab.staffPerHour * s.macro.cpi)}/h.</p>
-          : <p className="explain">{lvl === 2 ? 'Advanced laboratory: runs every project, at double speed.' : 'Research station: runs standard projects at normal speed.'} Staff {money(BUILDINGS[lvl === 2 ? 'lab2' : 'lab'].staffPerHour * s.macro.cpi)}/h.</p>}
+          : <p className="explain">{lvl === 2 ? 'Advanced laboratory: runs every project.' : 'Research station: runs standard projects.'} Staff {money(BUILDINGS[lvl === 2 ? 'lab2' : 'lab'].staffPerHour * s.macro.cpi)}/h.</p>}
         {paused.length > 0 && (
           <div className="callout warn row between wrap">
             <span>{paused.length} lab{paused.length > 1 ? 's are' : ' is'} paused.</span>
@@ -110,7 +109,7 @@ function TechCard({ s, t }: { s: GameState; t: TechDef }) {
   const locked = !done && (missing.length > 0 || (t.advanced && labLevel(s) < 2));
   const state = done ? 'Done' : active ? 'Researching' : locked ? 'Locked' : 'Available';
   const cost = t.cost * s.macro.cpi;
-  const days = t.days / speed(labLevel(s) || 1);
+  const days = t.days / (researchSpeed(s) || 1);
   return (
     <article className="card" style={{ padding: 12, borderColor: done ? 'var(--up)' : active ? 'var(--gold)' : undefined, background: done ? 'color-mix(in srgb, var(--up) 7%, var(--surface))' : undefined, opacity: locked ? 0.72 : 1, borderLeftWidth: 1 + depth(t) * 2 }}>
       <div className="stack s">
@@ -130,7 +129,7 @@ function TechCard({ s, t }: { s: GameState; t: TechDef }) {
           <div className="row between wrap">
             <span className="mono small">{money(cost)} · {num(days, days % 1 ? 1 : 0)} days</span>
             {!active && (
-              <Info text={why ?? 'Ready to start. The cost is paid up front.'} breakdown={[['Cost', money(cost)], ['Base days', String(t.days)], ['Lab speed', `${speed(labLevel(s))}×`]]} />
+              <Info text={why ?? 'Ready to start. The cost is paid up front.'} breakdown={[['Cost', money(cost)], ['Base days', String(t.days)], ['Lab speed', `${researchSpeed(s)}×`]]} />
             )}
           </div>
         )}

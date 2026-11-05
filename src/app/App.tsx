@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ERAS } from '../simulation/config';
-import { equity } from '../simulation/core';
+import { equity, sumBooks } from '../simulation/core';
 import { ACHIEVEMENTS, PAGES } from '../simulation/engine';
 import {
   act, deleteSlot, getGame, offlineOn, dismissAway, toast, exportSave, go, importSave, loadFrom, newGame, saveTo, setSpeed, slotInfo, slotLabel, SLOTS, SPEEDS, useGame, useStore, type Slot, type Speed,
@@ -9,7 +9,7 @@ import { Coach, resetTips, tipsOff, tipsOn } from './Coach';
 import { clock, money, stamp } from './format';
 import { Icon } from './icons';
 import { LogoMark, Wordmark } from './Logo';
-import { Modal, usePref } from './ui';
+import { Bar, Modal, usePref } from './ui';
 import { FieldsPage } from './pages/Fields';
 import { Hud } from './world/Hud';
 import { setVolume, sfx, volumes } from './audio';
@@ -326,11 +326,18 @@ function LogDrawer({ onClose }: { onClose: () => void }) {
 
 function Decisions() {
   const s = useGame();
+  const speed = useStore(x => x.speed);
   const e = s.events.find((x) => x.choice && !x.choice.chosen && s.tick >= x.start);
   if (!e?.choice) return null;
   return (
     <Modal title={e.title}>
       <p>{e.text}</p>
+      {e.kind === 'antitrust' && <div className="stack s">
+        <strong className="mono">{money(Math.max(10000, sumBooks(s,120,['sale'])*0.03))} · {Math.max(0,Math.ceil((e.choice.deadline-s.tick)/24))} days to auto-settle</strong>
+        <Bar value={Math.max(0,(e.choice.deadline-s.tick)/(e.choice.deadline-e.start))} label="Time remaining to decide" />
+        <span className="muted">Keep regional crop market share below 35% to reduce probes.</span>
+        <button className="btn primary" disabled={speed===0} onClick={()=>setSpeed(0)}>{speed===0?'Paused · take your time':'Pause to decide'}</button>
+      </div>}
       <p className="muted small">Decide by {stamp(e.choice.deadline)} — otherwise the cautious option is taken for you.</p>
       <div className="stack s">
         {e.choice.options.map((o) => (

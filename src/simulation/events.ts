@@ -160,7 +160,11 @@ export function antitrustCheck(s: GameState, shareOf: (r: RegionId, g: CropId) =
 
 /** Unanswered decisions resolve to the cautious default at their deadline. */
 export function expireChoices(s: GameState) {
-  for (const e of s.events) if (e.choice && !e.choice.chosen && s.tick >= e.choice.deadline) chooseEvent(s, e.id, e.kind === 'antitrust' ? 'settle' : 'decline');
+  for (const e of s.events) if (e.choice && !e.choice.chosen && s.tick >= e.choice.deadline) {
+    const before = s.cash;
+    chooseEvent(s, e.id, e.kind === 'antitrust' ? 'settle' : 'decline');
+    if (e.kind === 'antitrust') log(s, 'critical', `Antitrust auto-settled: $${Math.round(before-s.cash).toLocaleString('en-US')} paid; reputation −3. Keep regional crop share below 35% to reduce probes.`, 'policy');
+  }
 }
 
 export const EVENT_KINDS: EventKind[] = ['drought', 'flood', 'pests', 'energyShock', 'strike', 'portClosure', 'embargo', 'recession', 'demandSurge', 'creditCrunch', 'breakthrough', 'livestockDisease', 'antitrust', 'foodCrisis', 'cropFailureAbroad'];

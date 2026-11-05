@@ -174,6 +174,8 @@ export interface SupplyContract {
 }
 
 export interface Shipment {
+  /** Manager load day; -1 or absent means a normal immediate shipment. */
+  batchDay?: number;
   id: number;
   good: GoodId;
   qty: number;
@@ -271,7 +273,7 @@ export interface LedgerEntry { tick: number; kind: LedgerKind; amount: number; r
 export interface DayBook { day: number; kinds: Partial<Record<LedgerKind, number>>; regions: Partial<Record<RegionId, number>>; divisions: Partial<Record<Division, number>>; op: Partial<Record<RegionId, number>>; cash: number; debt: number; equity: number; produced: number }
 
 export interface GameState {
-  version: 2;
+  version: 3;
   seed: number;
   rng: number;
   tick: number;
@@ -338,6 +340,7 @@ export type Action =
   | { type: 'train'; workerId: number }
   | { type: 'buyMachine'; region: RegionId; machine: MachineType; lease: boolean }
   | { type: 'sellMachine'; machineId: number }
+  | { type: 'sellIdleMachines'; machineIds: number[] }
   | { type: 'service'; machineId: number }
   | { type: 'build'; region: RegionId; building: BuildingType; count?: number }
   | { type: 'demolish'; buildingId: number }
