@@ -76,7 +76,7 @@ try {
         await page.getByRole('button',{name:'Ledger',exact:true}).click();
         const nav=page.locator(`[data-coach="nav-${section}"]`);
         if(await nav.count()){
-          await nav.click(); await page.locator('.page-drawer .card, .modal .charter-grid').first().waitFor({state:'visible'});
+          await nav.click(); await page.locator('.page-drawer .page-head, .page-drawer .card, .modal .charter-grid').first().waitFor({state:'visible'});
           await page.screenshot({animations:'disabled',path:`${out}/${width}-${theme}-${section}.png`});
           if(section==='community' && process.env.AUDIT_COMMUNITY) {
             const found=page.getByRole('button',{name:'Found free settlement',exact:true});
@@ -99,13 +99,32 @@ try {
             await page.waitForTimeout(3200);
             await page.screenshot({animations:'disabled',path:`${out}/${width}-${theme}-local-hiring.png`});
           }
+          if(section==='town') {
+            const choose=page.getByRole('button',{name:'Choose Public',exact:true});
+            if(await choose.count()) {
+              await page.screenshot({animations:'disabled',path:`${out}/${width}-${theme}-town-charter.png`});
+              await choose.click();await page.locator('[data-coach=town-fund]').click();await page.locator('[data-coach=town-fund]').click();
+            }
+            await page.screenshot({animations:'disabled',path:`${out}/${width}-${theme}-town-services.png`});
+            await page.locator('.town-budget').first().locator(':scope > summary').click();
+            await page.locator('.town-budget').first().scrollIntoViewIfNeeded();
+            await page.screenshot({animations:'disabled',path:`${out}/${width}-${theme}-town-budget.png`});
+            const grip=page.locator('.sheet-grip');await grip.scrollIntoViewIfNeeded();
+            const box=await grip.boundingBox();if(!box)throw new Error('Town sheet grip missing.');
+            await page.mouse.move(box.x+box.width/2,box.y+box.height/2);await page.mouse.down();await page.mouse.move(box.x+box.width/2,box.y+box.height/2+80,{steps:8});await page.mouse.up();
+            await page.locator('.page-drawer').waitFor({state:'hidden'});
+            if(await page.locator('[data-k=place-act]').count()&&await page.locator('[data-k=act]').count())throw new Error('Field and building radial menus must never show together.');
+            await page.screenshot({animations:'disabled',path:`${out}/${width}-${theme}-town-world.png`});
+          }
           if(section==='overview'){const frontier=page.getByRole('heading',{name:/Frontier/});if(await frontier.count()){await frontier.scrollIntoViewIfNeeded();await page.screenshot({animations:'disabled',path:`${out}/${width}-${theme}-frontier.png`});}}
           if(section==='equipment'){const idle=page.getByRole('heading',{name:'Idle fleet',exact:false});if(await idle.count()){await idle.scrollIntoViewIfNeeded();await page.screenshot({animations:'disabled',path:`${out}/${width}-${theme}-idle-fleet.png`});}}
         } else { await page.keyboard.press('Escape'); await page.getByRole('dialog',{name:'Ledger',exact:true}).waitFor({state:'hidden'}); }
       }
     }
     results.push({width,theme,testedSpeeds,captureMode:save?'paused after live interval':'live',errors,assets:await page.locator('.world-canvas').getAttribute('data-art'),overflow:await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)});
+    console.log(JSON.stringify({width,theme,status:'captured'}));
     await context.close();
+    console.log(JSON.stringify({width,theme,status:'closed'}));
   }
   await writeFile(`${out}/results.json`,JSON.stringify(results,null,2));
 }finally{await browser?.close();server.kill();}

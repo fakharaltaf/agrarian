@@ -1,3 +1,4 @@
+import { townWorkerFactor } from '../../simulation/town-state';
 import { communityOf, availableResidents, residentPayFactor } from '../../simulation/community-state';
 import { useState } from 'react';
 import { CONFIG, CROPS, CROP_IDS, GOODS, PERKS, REGIONS, WORK_END, WORK_START, type PerkId, type RegionId } from '../../simulation/config';
@@ -103,7 +104,7 @@ function HireCard({ s }: { s: GameState }) {
   const cost = hireCost(s, r);
   const local = r === 'heartland' && communityOf(s).active;
   const base = (role === 'manager' ? CONFIG.managerWage * s.macro.cpi : marketWage(s, r)) * (local ? residentPayFactor(s, 1) : 1);
-  const townProductivity = local ? 0.6 + communityOf(s).happiness * 0.4 : 1;
+  const townProductivity = local ? (0.6 + communityOf(s).happiness * 0.4) * townWorkerFactor(s) : 1;
   const target = moraleTarget(s, r, pay);
   const span = spanPenalty(s, r);
   const prodLo = townProductivity * 0.75 * (0.6 + 0.4 * target) * span, prodHi = townProductivity * 1.1 * (0.6 + 0.4 * target) * span;
@@ -167,7 +168,7 @@ function WorkerTable({ s }: { s: GameState }) {
   const tc = trainCost(s);
   const multi = unlockedRegions(s).length > 1;
   const live: Col<Worker>[] = [
-    { key: 'name', label: 'Name', sort: (w) => w.name, render: (w) => <span>{w.name}{communityOf(s).active && <small className="worker-origin">{w.resident ? '🏘️ Local resident' : '↗ Commuter'}</small>}</span> },
+    { key: 'name', label: 'Name', sort: (w) => w.name, render: (w) => <span>{w.name}{communityOf(s).active && <small className="worker-origin">{w.resident ? '🏘️ Local resident' : '↗ Commuter'}{!w.resident&&w.region==='heartland'&&<button className="btn ghost worker-relocate" title="Move this employee into a local adult slot. Local wages and community wellbeing apply after relocation." disabled={availableResidents(s)<1||s.cash<150*s.macro.cpi} onClick={()=>act({type:'settleWorker',workerId:w.id})}>Move here · {money(150*s.macro.cpi)}</button>}</small>}</span> },
     { key: 'role', label: 'Role', sort: (w) => w.role, render: (w) => <span className={`pill ${w.role === 'manager' ? 'accent' : ''}`}>{w.role === 'manager' ? 'Manager' : 'Hand'}</span> },
     ...(multi ? [{ key: 'region', label: 'Region', sort: (w: Worker) => w.region, render: (w: Worker) => REGIONS[w.region].name }] : []),
     { key: 'skill', label: 'Skill', align: 'r', sort: (w) => w.skill, render: (w) => w.skill.toFixed(2) },

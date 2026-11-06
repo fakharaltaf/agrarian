@@ -1,3 +1,5 @@
+import { SERVICE_DEFS } from '../../simulation/town-state';
+import type { ServiceType } from '../../simulation/types';
 import { communityOf, population, residentWorkers } from '../../simulation/community-state';
 // The 3D farm. A live, lit, low-poly picture of the simulation: everything shown is read from game state.
 import { useEffect, useRef, useState } from 'react';
@@ -11,7 +13,7 @@ import { stageAtLeast } from '../../simulation/stages';
 import { preloadArt, artRevision } from './art';
 import { num, pct0 } from '../format';
 import { layoutRegion, type Layout, type Lot, type Plot } from './layout';
-import { animal, buildCommunityHome, buildLot, box, cached, mat, mesh, PAL, person, tree, vehicle, type Model } from './models';
+import { animal, buildCivic, buildCommunityHome, buildLot, box, cached, mat, mesh, PAL, person, tree, vehicle, type Model } from './models';
 
 /** Graphics quality chosen in Settings (per browser). Low turns off shadows and high-DPI rendering. */
 export const graphicsQuality = (): 'high' | 'low' => {
@@ -133,7 +135,7 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
       overlayLabels(R, L, s, W, H, overlay.current, now / 1000, live.current.selected, live.current.plantLabel, live.current.selectedLot);
     };
     raf = requestAnimationFrame(frame);
-    return () => { cancelAnimationFrame(raf); renderer.dispose(); rig.current = null; };
+    return () => { cancelAnimationFrame(raf); renderer.dispose(); renderer.forceContextLoss(); rig.current = null; };
   }, []);
 
   // ---------------------------------------------------------------- input
@@ -316,7 +318,7 @@ function syncLots(R: Rig, L: Layout) {
   R.models = [];
   R.pick = R.pick.filter((o) => o.userData.kind !== 'lot');
   for (const lot of L.lots) {
-    const model = lot.key.startsWith('community:') ? buildCommunityHome(lot.key.split(':')[1], lot.w, lot.d) : buildLot(lot.type, lot.w, lot.d);
+    const model = lot.key.startsWith('civic:') ? buildCivic(lot.key.split(':')[1],lot.w,lot.d) : lot.key.startsWith('community:') ? buildCommunityHome(lot.key.split(':')[1], lot.w, lot.d) : buildLot(lot.type, lot.w, lot.d);
     model.group.position.set(lot.x, 0, lot.y);
     const lvl = Math.max(1, ...lot.buildings.map((b) => b.level));
     if (lvl > 1) model.group.scale.set(1, 1 + (lvl - 1) * 0.18, 1); // upgraded buildings stand taller
@@ -722,7 +724,7 @@ function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el
   if(selectedLot){
     const lot=L.lots.find(x=>x.key===selectedLot);
     if(lot){const [px,py]=project(lot.x+lot.w/2,2.5,lot.y+lot.d/2);
-      const label=lot.key.startsWith('community:')?'🏠 Families':lot.key==='crew'?'👒 Crew':lot.key==='office'?'⚙ Policies':lot.key==='market'?'🪙 Trade':lot.type==='house'||lot.type==='shed'?'📖 Books':BUILDINGS[lot.type].category==='storage'?'📦 Store':'⚙ Manage';
+      const label=lot.key.startsWith('civic:')?'🏛 Town':lot.key.startsWith('community:')?'🏠 Families':lot.key==='crew'?'👒 Crew':lot.key==='office'?'⚙ Policies':lot.key==='market'?'🪙 Trade':lot.type==='house'||lot.type==='shed'?'📖 Books':BUILDINGS[lot.type].category==='storage'?'📦 Store':'⚙ Manage';
       want.push({key:'place-act',x:Math.max(100,Math.min(W-100,px)),y:Math.max(80,Math.min(H-30,py)),html:button('place:0',label)+button('inspect:0','ⓘ'),cls:'wl-radial'});
     }
   }
@@ -739,10 +741,10 @@ function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el
     const lot = m.lot;
     const [x, y] = project(lot.x + lot.w / 2, 0, lot.y + lot.d + 0.3);
     if (x < -60 || y < -20 || x > W + 60 || y > H + 20) continue;
-    const name = lot.key.startsWith('community:') ? ({cottage:'Cottage',terrace:'Terrace',apartment:'Apartments'}[lot.key.split(':')[1]] ?? 'Neighbourhood') : lot.key === 'crew' ? 'Bunkhouse' : lot.key === 'office' ? 'Farm office' : lot.key === 'market' ? 'Village trader' : lot.type === 'house' ? 'Farmhouse' : lot.type === 'shed' ? 'Office' : BUILDINGS[lot.type].name;
+    const name = lot.key.startsWith('civic:') ? (lot.key==='civic:hall'?'Town hall':SERVICE_DEFS[lot.key.split(':')[1] as ServiceType].name) : lot.key.startsWith('community:') ? ({cottage:'Cottage',terrace:'Terrace',apartment:'Apartments'}[lot.key.split(':')[1]] ?? 'Neighbourhood') : lot.key === 'crew' ? 'Bunkhouse' : lot.key === 'office' ? 'Farm office' : lot.key === 'market' ? 'Village trader' : lot.type === 'house' ? 'Farmhouse' : lot.type === 'shed' ? 'Office' : BUILDINGS[lot.type].name;
     const lvl = Math.max(1, ...lot.buildings.map((b) => b.level));
-    const warn = lot.buildings.some((b) => b.active && /Not enough|full|Disease/.test(b.reason));
-    want.push({ key: `l${lot.key}`, x, y, html: `${warn ? '⚠ ' : ''}${name}${lot.buildings.length > 1 ? ` ×${lot.buildings.length}` : ''}${lvl > 1 ? ` · L${lvl}` : ''}`, cls: 'wl-name' });
+    const warn = !!(lot.service?.active && !lot.service.funded) || lot.buildings.some((b) => b.active && /Not enough|full|Disease/.test(b.reason));
+    want.push({ key: `l${lot.key}`, x, y, html: `${warn ? '⚠ ' : lot.service && !lot.service.active ? '○ ' : ''}${name}${lot.service && lot.service.count>1?` ×${lot.service.count}`:''}${lot.buildings.length > 1 ? ` ×${lot.buildings.length}` : ''}${lvl > 1 ? ` · L${lvl}` : ''}`, cls: 'wl-name' });
   }
   if (L.buy) {
     const [x, y] = project(L.buy.x + 1, 0.9, L.buy.y + 1);
@@ -777,6 +779,9 @@ function plotText(s: GameState, p: Plot) {
   return lines;
 }
 function lotText(s: GameState, lot: Lot) {
+  if(lot.key==='civic:hall')return ['Town hall','Schools, healthcare and the public treasury'];
+  if(lot.service){const b=lot.service,d=SERVICE_DEFS[b.type];return [d.name,`${b.staffed}/${d.jobs*b.count} staff`,!b.active?'Paused':b.funded?'Working':'Needs funding or staff'];}
+  if(lot.key.startsWith('community:'))return ['Families',`${population(s)} residents`];
   if (lot.type === 'house') return ['Farmhouse', s.workers.length ? `${s.workers.length} people on the payroll` : 'Home'];
   if (lot.type === 'shed') return ['Regional office'];
   const d = BUILDINGS[lot.type];

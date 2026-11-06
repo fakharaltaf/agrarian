@@ -1,8 +1,11 @@
+import { canStartTown, serviceAvailable, serviceDailyCost } from '../simulation/stages/town';
+import { districtPopulation, SERVICE_DEFS, servicePrice, townOf } from '../simulation/town-state';
+import { DISTRICT_IDS } from '../simulation/types';
 // A competent player, used by balancing tests to drive the real engine through every era.
 import { CONFIG, CROPS, REGION_IDS, type BuildingType, type CropId, type GoodId, type RegionId } from '../simulation/config';
 import { avg30, dispatch, homePlotPrice, isManual, isReady, parcelPrice, totalHa } from '../simulation/engine';
 import { seasonOf, stored } from '../simulation/core';
-import { communityOf, population, homeCapacity } from '../simulation/community-state';
+import { communityOf, population, homeCapacity, availableResidents } from '../simulation/community-state';
 import { canStartSettlement, larderReserve } from '../simulation/stages/settlement';
 import type { GameState } from '../simulation/types';
 
@@ -12,15 +15,17 @@ const count = (s: GameState, r: RegionId, t: string) => s.machines.filter((m) =>
 const haIn = (s: GameState, r: RegionId) => s.fields.reduce((a, f) => a + (f.region === r ? f.ha : 0), 0);
 const hasB = (s: GameState, r: RegionId, t: BuildingType) => s.buildings.some((b) => b.region === r && b.type === t);
 
-export function botAct(s: GameState, strategy: Strategy = 'balanced') {
+export function botAct(s: GameState, strategy: Strategy = 'balanced', civicPriority = false) {
   if (strategy === 'idle') return;
   if (s.bankrupt) {
     dispatch(s, { type: 'restructure' });
     return;
   }
   const P = s.automation.policies;
+  const civic = civicPriority && communityOf(s).active;
+  const civicReady = !civic || (townOf(s).active && townOf(s).education >= .8 && townOf(s).water >= .8 && townOf(s).cash >= townOf(s).lastCost * 14);
   if (!s.legacyProgression && canStartSettlement(s)) dispatch(s, { type: 'startSettlement', charter: 'free' });
-  if (communityOf(s).active && homeCapacity(s) - population(s) < 8 && s.cash > 15000 * s.macro.cpi) dispatch(s, { type: 'buildHomes', tier: population(s) < 40 ? 'cottage' : 'terrace', count: 1 });
+  if ((!civicPriority || (!townOf(s).active && population(s)<100) || townOf(s).active && (civicReady || availableResidents(s)<4)) && communityOf(s).active && homeCapacity(s) - population(s) < 8 && s.cash > 15000 * s.macro.cpi) dispatch(s, { type: 'buildHomes', tier: population(s) < 40 ? 'cottage' : 'terrace', count: 1 });
   if (s.eraReady) {
     if (!s.legacyProgression && s.stageId === 'homestead' && !s.charters.trader) dispatch(s, { type: 'chooseCharter', charter: 'fair' });
     dispatch(s, { type: 'advanceEra' });
@@ -57,10 +62,10 @@ export function botAct(s: GameState, strategy: Strategy = 'balanced') {
     Object.assign(P, { autoRotate: true, autoFertilize: true, autoRepair: 0.45, sellDiscipline: 0, cashReserve: 0 });
     const parcel = strategy === 'volume' ? 25 : s.cash > 300000 ? 25 : 5;
     const cap = strategy === 'volume' ? 3000 : 1200;
-    if (s.cash > parcelPrice(s, 'heartland', parcel) * 1.5 + 15000 && totalHa(s) < cap) dispatch(s, { type: 'buyParcel', region: 'heartland', ha: parcel });
+    if (civicReady && s.cash > parcelPrice(s, 'heartland', parcel) * 1.5 + 15000 && totalHa(s) < cap) dispatch(s, { type: 'buyParcel', region: 'heartland', ha: parcel });
     for (const l of s.loans) if (s.cash > 100000) dispatch(s, { type: 'repayLoan', loanId: l.id, amount: Math.min(l.balance, s.cash - 80000) });
   }
-  if (s.era >= 4) {
+  if (s.era >= 4 && civicReady) {
     if (!hasB(s, 'heartland', 'lab') && s.cash > 60000) dispatch(s, { type: 'build', region: 'heartland', building: 'lab' });
     if (!s.research.active) for (const t of ['farmSoftware', 'improvedSeeds', 'soilTesting', 'mech2', 'solar', 'processEfficiency', 'routeOptimization', 'dripIrrigation', 'predictiveMaintenance', 'coldChain', 'advancedLab'])
       if (dispatch(s, { type: 'research', tech: t }).ok) break;
@@ -70,7 +75,7 @@ export function botAct(s: GameState, strategy: Strategy = 'balanced') {
     }
     if (s.tick % 24 === 12) for (const g of ['flour', 'feed', 'bread', 'meat', 'milk'] as GoodId[]) if (s.regions.heartland.inventory[g] > 10) dispatch(s, { type: 'sell', region: 'heartland', good: g, qty: Math.min(s.regions.heartland.inventory[g], s.markets.heartland[g]!.d0) });
   }
-  if (s.era >= 6) {
+  if (s.era >= 6 && civicReady) {
     for (const r of ['river', 'tropics'] as RegionId[]) if (!s.regions[r].unlocked && s.cash > 250000) dispatch(s, { type: 'unlockRegion', region: r });
     for (const r of ['river', 'tropics'] as RegionId[]) if (s.regions[r].unlocked && s.cash > parcelPrice(s, r, 25) * 2 + 50000 && haIn(s, r) < 600) dispatch(s, { type: 'buyParcel', region: r, ha: 25 });
   }
@@ -108,4 +113,32 @@ function sell(s: GameState) {
       dispatch(s, { type: 'sell', region: r, good: c, qty: Math.min(q, m.d0 * CONFIG.marketDepth * 0.2) });
     }
   }
+}
+
+/** Civic player: extends the farm policy with public funding and placed services. */
+export function townBotAct(s: GameState) {
+  botAct(s, 'balanced', true);
+  if(s.bankrupt)return;
+  if(communityOf(s).active && availableResidents(s)>0 && s.cash>2000) {
+    const commuter=s.workers.find(w=>w.region==='heartland'&&!w.resident);
+    if(commuter)dispatch(s,{type:'settleWorker',workerId:commuter.id});
+  }
+  if(canStartTown(s)&&s.cash>60000*s.macro.cpi)dispatch(s,{type:'startTown',charter:'public'});
+  const t=townOf(s);if(!t.active||s.tick%6!==0)return;
+  if(t.lastCost>t.lastTax*1.1&&t.taxRate<.25)dispatch(s,{type:'setTownTax',rate:.25});
+  const pop=districtPopulation(s);
+  for(const id of DISTRICT_IDS) {
+    if(!pop[id])continue;
+    for(const type of ['school','well','clinic','road'] as const) {
+      if(!serviceAvailable(s,type))continue;
+      const capacity=t.services.filter(b=>b.district===id&&b.type===type&&b.active).reduce((n,b)=>n+b.count*SERVICE_DEFS[type].capacity,0);
+      const needed=type==='school'?pop[id]/2:type==='road'?1:pop[id];
+      if(capacity>=needed)continue;
+      const cost=servicePrice(s,type),reserve=serviceDailyCost(s,type)*14;
+      if(t.cash<cost+reserve&&s.cash>cost+reserve+20000)dispatch(s,{type:'fundTown',amount:Math.ceil(cost+reserve-t.cash),direction:'toTown'});
+      if(t.cash>=cost+reserve)dispatch(s,{type:'buildService',service:type,district:id});
+    }
+  }
+  if(t.cash<t.lastCost*14&&s.cash>100000)dispatch(s,{type:'fundTown',amount:50000,direction:'toTown'});
+  if(t.petition)dispatch(s,{type:'answerPetition',accept:false});
 }

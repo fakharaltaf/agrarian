@@ -1,3 +1,4 @@
+import { payHouseholds, townOf, townIndustryFactor } from './town-state';
 import { larderReserve } from './stages/settlement';
 // Factories, energy and building upkeep. One production model for every industry:
 // batches = min(capacity, scarcest input, output room, power) — Leontief, like a real line.
@@ -29,7 +30,10 @@ export function buildingsTick(s: GameState) {
         continue;
       }
       const staff = def.staffPerHour * s.macro.cpi * (execOn(s, buildingDivision(b.type)) ? 0.92 : 1) * (1 + 0.3 * ((b.level || 1) - 1));
-      if (staff) post(s, 'staff', -staff, `${def.name} staff`, r, buildingDivision(b.type));
+      if (staff) {
+        post(s, 'staff', -staff, `${def.name} staff`, r, buildingDivision(b.type));
+        if (r === 'heartland' && townOf(s).active) payHouseholds(s, staff * townOf(s).factoryShare);
+      }
       if (def.coldKwh) reg.powerUse += def.coldKwh * (has(s, 'coldChain') ? 1.3 : 1);
       if (def.solarKw) gen += def.solarKw * solarOutput(s, r);
       if (def.recipe) cows -= produce(s, b, staff, cows);
@@ -51,7 +55,7 @@ function produce(s: GameState, b: Building, staff: number, cows = 0) {
   const rec = def.recipe!;
   const reg = s.regions[b.region];
   const inv = reg.inventory;
-  const cap = rec.batchesPerHour * levelMult(b.level);
+  const cap = rec.batchesPerHour * levelMult(b.level) * townIndustryFactor(s, b.region);
   let batches = cap;
   let reason = '';
   if ((b.type === 'ranch' || b.type === 'dairy') && severity(s, 'livestockDisease', b.region) > 0) {

@@ -10,6 +10,7 @@ import { STAGES, STAGE_IDS, stageIdForEra, tickActiveStage } from '../simulation
 import { HOMESTEAD_MILL_PRICE, homesteadState, traderHaggleChance } from '../simulation/stages/homestead';
 import { HOMESTEAD_SALES_GOAL } from '../simulation/progression';
 import { botAct } from './bot';
+import { createTownState, servicePrice, townOf } from '../simulation/town-state';
 import { communityOf, createSettlementState, population } from '../simulation/community-state';
 import { canStartSettlement } from '../simulation/stages/settlement';
 import type { GameState } from '../simulation/types';
@@ -33,7 +34,7 @@ it('stage registry uses stable string ids and preserves the eight legacy-era ide
     expect(STAGES[id].id).toBe(id);
     expect(typeof STAGES[id].tick).toBe('function');
     expect(typeof STAGES[id].handleAction).toBe('function');
-    expect(STAGES[id].createState()).toEqual(id === 'homestead' ? { day: -1, mood: 50, offers: [] } : id === 'market-town' ? { lastMarketDay: -1 } : id === 'settlement' ? createSettlementState() : {});
+    expect(STAGES[id].createState()).toEqual(id === 'homestead' ? { day: -1, mood: 50, offers: [] } : id === 'market-town' ? { lastMarketDay: -1 } : id === 'settlement' ? createSettlementState() : id === 'town' ? createTownState() : {});
   }
 });
 it('legacy saves migrate to their matching stage without advancing or changing their era', () => {
@@ -197,8 +198,8 @@ for (const name of names) (root ? it : it.skip)(`real-save baseline: ${name}, 30
   const volatility = Object.fromEntries(Object.entries(prices).map(([g, values]) => { const mean = values.reduce((a,b)=>a+b,0)/values.length; return [g, {min: Math.min(...values),max:Math.max(...values),cv: Math.sqrt(values.reduce((a,b)=>a+(b-mean)**2,0)/values.length)/mean}]; }));
   // Separate timing pass: no validation, chart calculations or file IO in the measured loop.
   const timed = parseSave(readFileSync(`${root}/agrarian-${name}.json`, 'utf8')).game;
-  const start = performance.now(); for (let i = 0; i < 720; i++) step(timed);
-  const ticksPerSecond = 720000 / (performance.now()-start);
+  const timingStartTick=timed.tick,start = performance.now(); for (let i = 0; i < 720; i++) step(timed);
+  const ticksPerSecond = (timed.tick-timingStartTick)*1000 / (performance.now()-start);
   const report = {name,simulatedTicks:s.tick-tick,bankrupt:!!s.bankrupt,sales,operatingProfitExcludingFinesAndTax:op,cashDelta:s.cash-cash,flipsPerDay:flips/30,ticksPerSecond,elapsed,volatility};
   reports.push(report); console.log(JSON.stringify(report));
   // @ts-expect-error Node environment only
@@ -234,5 +235,27 @@ for (const name of names) (root ? it : it.skip)(`real-save baseline: ${name}, 30
     finiteTree(s);expect(JSON.parse(JSON.stringify(s))).toEqual(s);
     expect(s.cash-cash).toBeCloseTo(cashFlows(s)-flows,1);
     console.log('Active Settlement real save',JSON.stringify({name,people:population(s),ticksPerSecond:rate}));
+  }
+},120000);
+
+(root ? it : it.skip)('veteran Town migration preserves company assets and reconciles both accounts for 30 days',()=>{
+  for(const name of ['year55-day118','year125-day22']) {
+    const s=parseSave(readFileSync(`${root}/agrarian-${name}.json`,'utf8')).game;
+    const era=s.era;
+    expect(dispatch(s,{type:'startSettlement',charter:'free'}).ok).toBe(true);
+    expect(dispatch(s,{type:'buildHomes',tier:'cottage',count:25}).ok).toBe(true);
+    for(let i=0;i<960&&population(s)<100;i++)step(s);
+    expect(dispatch(s,{type:'startTown',charter:'public'}).ok).toBe(true);
+    const amount=Math.ceil(['school','well','clinic','road'].reduce((n,type)=>n+servicePrice(s,type as 'school'|'well'|'clinic'|'road'),0)*2);
+    expect(dispatch(s,{type:'fundTown',amount,direction:'toTown'}).ok).toBe(true);
+    for(const service of ['school','well','clinic','road'] as const)expect(dispatch(s,{type:'buildService',service,district:'farmgate'}).ok).toBe(true);
+    const cash=s.cash,flows=cashFlows(s),tick=s.tick;
+    for(let i=0;i<720;i++)step(s);
+    expect(s.tick-tick).toBe(720);expect(s.era).toBe(era);expect(s.stageId).toBe('town');
+    expect(population(s)).toBeGreaterThanOrEqual(99);expect(townOf(s).education).toBe(1);expect(townOf(s).water).toBe(1);
+    expect(s.cash-cash).toBeCloseTo(cashFlows(s)-flows,1);
+    expect(townOf(s).cash).toBeCloseTo(Object.values(townOf(s).lifetime).reduce((n,v)=>n+(v??0),0),1);
+    finiteTree(s);expect(JSON.parse(JSON.stringify(s))).toEqual(s);
+    console.log('Active Town real save',JSON.stringify({name,people:population(s),treasury:townOf(s).cash,health:townOf(s).health}));
   }
 },120000);

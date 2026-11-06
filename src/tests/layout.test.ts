@@ -1,3 +1,4 @@
+import { townOf } from '../simulation/town-state';
 import { expect, it } from 'vitest';
 import { createGame, dispatch } from '../simulation/engine';
 import { post } from '../simulation/core';
@@ -17,4 +18,18 @@ it('new industry and housing do not move existing farmland or landmarks', () => 
   const cottage = after.lots.find(l => l.key === 'community:cottage:999-0');
   c.homes.push({ id: 1000, tier: 'terrace', count: 100, cost: 1.3e6 });
   expect(layoutRegion(s, 'heartland').lots.find(l => l.key === cottage!.key)).toEqual(cottage);
+});
+it('public works keep neighbourhoods stable and aggregate thousands of service units',()=>{
+  const s=createGame(1004),c=communityOf(s);c.active=true;
+  c.homes=[{id:900,tier:'cottage',count:8,cost:24000}];
+  const t=townOf(s);t.active=true;
+  const before=layoutRegion(s,'heartland');
+  t.services.push({id:901,type:'school',district:'farmgate',count:1000,cost:30e6,active:true,staffed:0,funded:false});
+  const school=layoutRegion(s,'heartland').lots.find(l=>l.key==='civic:school:901');
+  t.services.push({id:902,type:'road',district:'farmgate',count:1,cost:12000,active:true,staffed:1,funded:true});
+  const after=layoutRegion(s,'heartland');
+  expect(after.plots).toEqual(before.plots);
+  for(const lot of before.lots)expect(after.lots.find(l=>l.key===lot.key)).toEqual(lot);
+  expect(after.lots.find(l=>l.key===school!.key)).toEqual(school);
+  expect(after.lots.filter(l=>l.key.startsWith('civic:school'))).toHaveLength(1);
 });

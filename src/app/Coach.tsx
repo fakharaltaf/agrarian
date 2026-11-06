@@ -1,3 +1,4 @@
+import { townOf } from '../simulation/town-state';
 // First-timer guide: contextual coach marks that point at the real control when it becomes
 // relevant, and finish themselves when the player does the thing. One tip at a time.
 import { fertility, homePlotPrice, isReady } from '../simulation/engine';
@@ -23,6 +24,8 @@ const anyField = (s: GameState, f: (x: GameState['fields'][number]) => boolean) 
 const chapter = (s: GameState, legacyEra: number, stage: Parameters<typeof stageAtLeast>[1]) => s.legacyProgression ? s.era >= legacyEra : stageAtLeast(s, stage);
 
 export const TIPS: CoachTip[] = [
+  {id:'town-budget',page:'town',target:'town-fund',title:'A separate public purse',body:'Fund the first school with a repayable company advance. Household taxes collect only from wages actually paid.',when:s=>townOf(s).active,done:s=>townOf(s).companyAdvance>0},
+  {id:'town-services',page:'town',target:'town-services',title:'Build where families live',body:'Choose a neighbourhood, then place its school and well. Each needs local adults and tomorrow’s upkeep from the treasury.',when:s=>townOf(s).active&&townOf(s).companyAdvance>0,done:s=>townOf(s).services.length>1},
   { id: 'plant', page: 'farm', target: 'plant-btn', title: 'Plant your first crop', body: 'This is your one hectare. You own ten wheat seeds — exactly enough. Press Plant (or P).',
     when: () => true, done: (s) => anyField(s, (f) => !!f.crop) || s.stats.harvests > 0 },
   { id: 'time', page: 'farm', target: 'clock', title: 'Time runs by itself', body: 'Each real second is one in-game hour. Wheat needs 12 hours to ripen; the field turns gold when it is ready.',
@@ -113,7 +116,7 @@ export function Coach() {
       {visible && <div className="coach-ring" style={{ left: rect.left - 4, top: rect.top - 4, width: rect.width + 8, height: rect.height + 8 }} />}
       <aside className={`coach docked${expanded ? ' expanded' : ' compact'}`} role="status" aria-label={`Farm journal: ${tip.title}`}>
         <button className="journal-peek" onClick={()=>setExpanded(!expanded)} aria-expanded={expanded}>📖 {tip.title} {expanded?'▾':'▸'}</button>
-        {expanded && <><span className="step">📖 Farm journal · {idx < 0 ? 'Lesson from your farm' : `${idx + 1} of ${TIPS.length}`}</span>
+        {expanded && <><span className="step">📖 Farm journal · {idx < 0 ? 'Lesson from your farm' : 'Learning by doing'}</span>
 
         <p>{tip.body}</p>
         <div className="row between">

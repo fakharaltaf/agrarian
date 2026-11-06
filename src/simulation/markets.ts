@@ -1,3 +1,4 @@
+import { townOf } from './town-state';
 import type { Division } from './types';
 // Regional commodity markets. Price is a function of market-held inventory:
 //   price = ref × (target / inventory)^γ × e^sentiment
@@ -286,7 +287,7 @@ export function haulCost(s: GameState, r: RegionId, qty: number) {
   const opt = has(s, 'routeOptimization') ? 0.8 : 1;
   const hired = (CONFIG.haulPerUnit / REGIONS[r].infra) * fuelPrice(s, r) * opt;
   const cost = viaTruck * 0.015 * fuelPrice(s, r) + viaHired * hired + viaSpot * hired * 3;
-  return { cost, viaTruck, viaHired: viaHired + viaSpot, viaSpot, possible: qty };
+  return { cost: cost * (r === 'heartland' && townOf(s).active ? 1 - 0.15 * townOf(s).roads : 1), viaTruck, viaHired: viaHired + viaSpot, viaSpot, possible: qty };
 }
 
 export function retailPremium(s: GameState, r: RegionId, g: GoodId) {

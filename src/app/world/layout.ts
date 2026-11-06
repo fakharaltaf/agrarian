@@ -1,10 +1,12 @@
 // Where everything sits in a region's isometric world. Deterministic: same state, same picture.
 import { BUILDING_TYPES, CONFIG, type BuildingType, type RegionId } from '../../simulation/config';
-import type { Building, Field, GameState } from '../../simulation/types';
+import type { Building, CivicService, Field, GameState } from '../../simulation/types';
 import { stageAtLeast } from '../../simulation/stages';
+import { townOf } from '../../simulation/town-state';
+import { DISTRICT_IDS } from '../../simulation/types';
 import { communityOf } from '../../simulation/community-state';
 
-export interface Lot { key: string; type: BuildingType | 'house' | 'shed'; buildings: Building[]; x: number; y: number; w: number; d: number }
+export interface Lot { key: string; type: BuildingType | 'house' | 'shed'; buildings: Building[]; service?: CivicService; x: number; y: number; w: number; d: number }
 export interface Plot { field: Field; x: number; y: number; s: number }
 export interface Layout { lots: Lot[]; plots: Plot[]; roadY: number; buy: { x: number; y: number; s: number } | null; maxX: number; maxY: number }
 
@@ -45,6 +47,14 @@ export function layoutRegion(s: GameState, r: RegionId): Layout {
     for (const home of communityOf(s).homes) for (let i = 0; i < Math.min(home.count, 8); i++) {
       const street = home.tier === 'cottage' ? 0 : home.tier === 'terrace' ? 1 : 2;
       lots.push({ key: `community:${home.tier}:${home.id}-${i}`, type: 'house', buildings: [], x: -7 - street * 8, y: i === 0 ? 1 : 5 + i * 4, w: 3, d: 3 });
+    }
+  }
+  if(r==='heartland' && townOf(s).active) {
+    lots.push({key:'civic:hall',type:'house',buildings:[],x:-31,y:1,w:4,d:3});
+    const order=['school','well','clinic','road','hospital','waterworks','park'];
+    for(const service of townOf(s).services) {
+      const road=service.type==='road';
+      lots.push({key:`civic:${service.type}:${service.id}`,type:'house',buildings:[],service,x:-7-DISTRICT_IDS.indexOf(service.district)*8+(road?3.2:0),y:road?1:-6-order.indexOf(service.type)*5,w:road?1:3,d:road?36:3});
     }
   }
   const roadY = 6;

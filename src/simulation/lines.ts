@@ -1,3 +1,4 @@
+import { townIndustryFactor } from './town-state';
 // Production-line economics for the UI: one source of truth for what a group of same-type
 // facilities in a region earns per day, what pausing it really saves, the prices it needs
 // to break even, and whether upgrading would pay. Everything is valued at today's prices.
@@ -67,8 +68,8 @@ function econOf(s: GameState, t: BuildingType, r: RegionId, units: Unit[]): Line
   return { earn, inputs, staff, power, profit, alt, worth: profit - alt, qty };
 }
 
-const units = (list: Building[], full = false): Unit[] =>
-  list.filter((b) => b.active || full).map((b) => ({ level: b.level || 1, bph: full ? BUILDINGS[b.type].recipe!.batchesPerHour * levelMult(b.level) : b.stats.out }));
+const units = (s: GameState, list: Building[], full = false): Unit[] =>
+  list.filter((b) => b.active || full).map((b) => ({ level: b.level || 1, bph: full ? BUILDINGS[b.type].recipe!.batchesPerHour * levelMult(b.level) * townIndustryFactor(s, b.region) : b.stats.out }));
 
 /** A dairy can only run as many batches as there are cows to milk. */
 function capByCows(s: GameState, t: BuildingType, r: RegionId, us: Unit[]): Unit[] {
@@ -80,7 +81,7 @@ function capByCows(s: GameState, t: BuildingType, r: RegionId, us: Unit[]): Unit
 /** The line at its current pace (smoothed batches), or, if `full`, flat out with every unit running. */
 export function lineEcon(s: GameState, list: Building[], full = false): LineEcon {
   const t = list[0].type, r = list[0].region;
-  return econOf(s, t, r, full ? capByCows(s, t, r, units(list, true)) : units(list));
+  return econOf(s, t, r, full ? capByCows(s, t, r, units(s, list, true)) : units(s, list));
 }
 
 export interface Target { good: GoodId; side: 'sell' | 'buy'; now: number; need: number; change: number }

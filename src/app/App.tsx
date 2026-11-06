@@ -33,6 +33,7 @@ const PAGE_COMPONENTS: Record<string, React.ComponentType> = {
   world: lazy(() => import('./pages/World')),
   corporation: lazy(() => import('./pages/Corporation')),
   policy: lazy(() => import('./pages/Policy')),
+  town: lazy(() => import('./pages/Town')),
   community: lazy(() => import('./pages/Community')),
 };
 
@@ -78,6 +79,7 @@ export function App() {
           <Hud />
           {Page && (
             <section className="page-drawer" role="dialog" aria-label={PAGES.find((p) => p.id === current)?.label}>
+              {(current === 'community' || current === 'town') && <SheetGrip />}
               <button className="icon-btn page-close" onClick={() => go('farm')} aria-label="Back to the farm (Esc)" title="Back to the farm (Esc)">✕</button>
               <Suspense fallback={<div className="empty">Loading…</div>}>
                 <Page key={current} />
@@ -528,4 +530,14 @@ function useShortcuts(h: { help: () => void; log: () => void }) {
     addEventListener('keyup', onSpaceUp, true);
     return () => (removeEventListener('keydown', onKey, true), removeEventListener('keyup', onSpaceUp, true));
   }, []);
+}
+
+function SheetGrip() {
+  const start=useRef<number|null>(null),dragged=useRef(false);
+  const reset=(button:HTMLButtonElement)=>{const panel=button.closest<HTMLElement>('.page-drawer');if(panel)panel.style.transform='';};
+  return <button className="sheet-grip" aria-label="Close panel" onClick={()=>{if(!dragged.current)go('farm');}}
+    onPointerDown={e=>{start.current=e.clientY;dragged.current=false;e.currentTarget.setPointerCapture(e.pointerId);}}
+    onPointerMove={e=>{if(start.current===null)return;const y=Math.max(0,e.clientY-start.current);const panel=e.currentTarget.closest<HTMLElement>('.page-drawer');if(panel)panel.style.transform=`translateY(${Math.min(160,y)}px)`;}}
+    onPointerUp={e=>{dragged.current=start.current!==null&&e.clientY-start.current>50;start.current=null;reset(e.currentTarget);if(dragged.current)go('farm');}}
+    onPointerCancel={e=>{start.current=null;reset(e.currentTarget);}}><span /></button>;
 }

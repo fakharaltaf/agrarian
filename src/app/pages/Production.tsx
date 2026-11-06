@@ -1,3 +1,4 @@
+import { townIndustryFactor } from '../../simulation/town-state';
 import type { ReactNode } from 'react';
 import { ANIMALS, BUILDINGS, COWS_PER_DAIRY_BATCH, CROPS, GOODS, REGIONS, type BuildingType, type GoodId, type RegionId, TECH } from '../../simulation/config';
 import { electricityPrice, factoryCrop, has, levelMult, priceUsd, sumBooks } from '../../simulation/core';
@@ -34,7 +35,7 @@ function fullEcon(s: GameState, t: BuildingType, r: RegionId) {
   const inB = ins(t).reduce((a, [g, q]) => a + q * priceUsd(s, r, g), 0);
   const enB = Math.max(0, kwhBatch) * elec;
   const perBatch = outB - inB - enB;
-  const bph = rec.batchesPerHour;
+  const bph = rec.batchesPerHour * townIndustryFactor(s,r);
   return { staff, outVal: outB * bph, inVal: inB * bph, energy: enB * bph, margin: perBatch * bph - staff, perBatch, breakEven: perBatch > 0 ? staff / (perBatch * bph) : Infinity, kwhBatch, bph, solarDay: 0, elec };
 }
 
@@ -175,7 +176,7 @@ function supplyOf(s: GameState, g: Group) {
   const fields = s.fields.filter((f) => g.list.some((b) => b.id === f.supplies));
   if (!fields.length) return null;
   const grow = fields.reduce((a, f) => a + (expectedYield(s, f, c) * 24) / CROPS[c].growthTicks, 0);
-  const need = g.list.reduce((a, b) => a + BUILDINGS[b.type].recipe!.inputs[c]! * BUILDINGS[b.type].recipe!.batchesPerHour * levelMult(b.level) * 24, 0);
+  const need = g.list.reduce((a, b) => a + BUILDINGS[b.type].recipe!.inputs[c]! * BUILDINGS[b.type].recipe!.batchesPerHour * levelMult(b.level) * townIndustryFactor(s,b.region) * 24, 0);
   return { c, n: fields.length, grow, need };
 }
 
@@ -186,7 +187,7 @@ function spareOf(s: GameState, g: Group, groups: Group[]): { good: GoodId; spare
   const sup = supplyOf(s, g);
   if (sup && sup.c === main) return { good: main, spare: sup.grow - sup.need };
   const here = groups.filter((x) => x.region === g.region && BUILDINGS[x.type].recipe);
-  const day = (x: Group, q: number) => x.list.reduce((a, b) => a + q * BUILDINGS[b.type].recipe!.batchesPerHour * levelMult(b.level) * 24, 0);
+  const day = (x: Group, q: number) => x.list.reduce((a, b) => a + q * BUILDINGS[b.type].recipe!.batchesPerHour * levelMult(b.level) * townIndustryFactor(s,b.region) * 24, 0);
   const made = here.reduce((a, x) => a + day(x, (BUILDINGS[x.type].recipe!.outputs[main] ?? 0) * (has(s, 'processEfficiency') ? 1.1 : 1)), 0);
   if (made <= 0) return null;
   const used = here.reduce((a, x) => a + day(x, BUILDINGS[x.type].recipe!.inputs[main] ?? 0), 0);
@@ -196,11 +197,11 @@ function spareOf(s: GameState, g: Group, groups: Group[]): { good: GoodId; spare
   return { good: main, spare: made - used - herds };
 }
 
-const extraNeed = (g: Group, levels: number) => {
+const extraNeed = (s: GameState, g: Group, levels: number) => {
   if (g.type === 'dairy') return 0; // its cows move in from the cowshed and eat the same feed there
   const rec = BUILDINGS[g.type].recipe!;
   const q = Object.values(rec.inputs)[0] ?? 0;
-  return g.list.filter((b) => b.active && (b.level || 1) < 3).reduce((a, b) => a + q * rec.batchesPerHour * 24 * (levelMult(Math.min(3, (b.level || 1) + levels)) - levelMult(b.level)), 0);
+  return g.list.filter((b) => b.active && (b.level || 1) < 3).reduce((a, b) => a + q * rec.batchesPerHour * townIndustryFactor(s,g.region) * 24 * (levelMult(Math.min(3, (b.level || 1) + levels)) - levelMult(b.level)), 0);
 };
 
 /** Is one more of these worth building? The gain is what one running unit is worth today. */
@@ -210,13 +211,13 @@ function addMore(s: GameState, g: Group, groups: Group[], worth: number): { ok: 
   if (gain <= 0) return { ok: false, why: 'Not while it loses money', gain };
   if (g.reason && g.reason !== 'Paused' && g.util < 0.85) return { ok: false, why: `Not while it's ${g.reason.toLowerCase().replace('not enough', 'short of')}`, gain };
   if (g.type === 'dairy') {
-    const per = rec.batchesPerHour * COWS_PER_DAIRY_BATCH;
+    const per = rec.batchesPerHour * townIndustryFactor(s,g.region) * COWS_PER_DAIRY_BATCH;
     const cows = s.herds.filter((h) => h.region === g.region && h.animal === 'cows').reduce((a, h) => a + h.count, 0);
     if (cows - g.list.reduce((a, b) => a + per * levelMult(b.level), 0) < per) return { ok: false, why: `Needs ${num(per)} more cows than you have spare`, gain };
   }
   if (g.type === 'dairy') return { ok: true, why: 'You have the cows for it, and they eat the same feed either way', gain };
   const sp = spareOf(s, g, groups);
-  const one = (Object.values(rec.inputs)[0] ?? 0) * rec.batchesPerHour * 24;
+  const one = (Object.values(rec.inputs)[0] ?? 0) * rec.batchesPerHour * townIndustryFactor(s,g.region) * 24;
   if (!sp) return { ok: false, why: `Nothing of yours makes its ${lower(ins(g.type))} — you'd be buying it`, gain };
   if (sp.spare >= one) return { ok: true, why: `You make enough ${GOODS[sp.good].name.toLowerCase()} for it`, gain };
   return { ok: false, why: factoryCrop(g.list[0]) === sp.good ? `Dedicate more ${GOODS[sp.good].name.toLowerCase()} fields first` : `You'd need ${num(one - Math.max(0, sp.spare))} more ${GOODS[sp.good].name.toLowerCase()} a day`, gain };
@@ -260,17 +261,17 @@ function LineCard({ s, g, groups }: { s: GameState; g: Group; groups: Group[] })
   const e = rec ? lineEcon(s, g.list, paused) : null; // paused lines show what they would make flat out
   const worth = e ? e.worth : g.margin * 24;
   const inv = s.regions[g.region].inventory;
-  const shortOf = rec && g.reason.startsWith('Not enough') && g.reason !== 'Not enough cows' ? ins(g.type).find(([x, q]) => inv[x] < q * rec.batchesPerHour)?.[0] ?? null : null;
+  const shortOf = rec && g.reason.startsWith('Not enough') && g.reason !== 'Not enough cows' ? ins(g.type).find(([x, q]) => inv[x] < q * rec.batchesPerHour * townIndustryFactor(s,g.region))?.[0] ?? null : null;
   const dot: Dot = paused ? 'off' : worth < 0 || (g.reason && g.reason !== '' && g.util < 0.85) ? 'bad' : 'ok';
   const label = paused ? 'Paused' : !rec ? 'Running' : g.reason === 'Output storage full' ? 'Storage full' : g.reason === 'Not enough cows' ? 'Short of cows' : shortOf ? `Short of ${GOODS[shortOf].name.toLowerCase()}` : worth < 0 ? 'Losing money' : 'Running well';
   const sup = supplyOf(s, g);
-  const perDay = (q: number) => g.list.reduce((a, b) => a + q * (rec?.batchesPerHour ?? 0) * levelMult(b.level) * 24, 0);
+  const perDay = (q: number) => g.list.reduce((a, b) => a + q * (rec?.batchesPerHour ?? 0) * levelMult(b.level) * townIndustryFactor(s,b.region) * 24, 0);
   const live = !paused && g.util > 0.05;
   const targets = e && !paused ? breakEven(s, e, g.region).slice(0, 2) : [];
   const up = e && !paused ? upgradeOutlook(s, g.list) : null;
   const more = e && !paused && worth > 0 ? addMore(s, g, groups, worth) : null;
   const sp = rec && !paused ? spareOf(s, g, groups) : null;
-  const upShort = up && !up.blocked && sp && extraNeed(g, 1) > Math.max(0, sp.spare) ? `Needs ${num(extraNeed(g, 1) - Math.max(0, sp.spare))} more ${GOODS[sp.good].name.toLowerCase()} a day than you make` : undefined;
+  const upShort = up && !up.blocked && sp && extraNeed(s, g, 1) > Math.max(0, sp.spare) ? `Needs ${num(extraNeed(s, g, 1) - Math.max(0, sp.spare))} more ${GOODS[sp.good].name.toLowerCase()} a day than you make` : undefined;
   const buildCost = buildingPrice(s, g.type, g.region);
   const toggle = (on: boolean) => g.list.filter((b) => b.active !== on).forEach((b) => act({ type: 'toggleBuilding', buildingId: b.id }));
   const upgradeAll = () => g.list.filter((b) => b.active && (b.level || 1) < 3).forEach((b) => act({ type: 'upgradeBuilding', buildingId: b.id }));

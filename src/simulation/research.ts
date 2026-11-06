@@ -1,3 +1,4 @@
+import { townResearchFactor } from './town-state';
 import { TECH, TECHS } from './config';
 import { log, post } from './core';
 import type { GameState } from './types';
@@ -8,7 +9,7 @@ export const labLevel = (s: GameState) => {
 };
 
 /** The strongest active lab leads; levels improve speed, not project eligibility. */
-export const researchSpeed = (s: GameState) => s.buildings.reduce((best, b) =>
+export const researchSpeed = (s: GameState) => townResearchFactor(s) * s.buildings.reduce((best, b) =>
   b.active && (b.type === 'lab' || b.type === 'lab2')
     ? Math.max(best, (b.type === 'lab2' ? 2 : 1) * (1 + 0.5 * (Math.max(1, Math.min(3, b.level || 1)) - 1))) : best, 0);
 

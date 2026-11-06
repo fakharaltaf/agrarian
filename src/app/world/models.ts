@@ -368,3 +368,31 @@ export function buildCommunityHome(tier: string, w: number, d: number): Model {
   }
   return { group, smoke: [], windows };
 }
+
+/** Small civic landmarks use the farm palette and shared geometry caches. */
+export function buildCivic(type: string, w: number, d: number): Model {
+  const group = new THREE.Group(), windows: THREE.Mesh[] = [];
+  group.add(box(w-.1,.08,d-.1,PAL.stone,w/2,0,d/2));
+  if(type==='road') {
+    group.add(box(w-.1,.05,d-.1,PAL.roofGrey,w/2,.09,d/2));
+    for(let i=0;i<Math.min(18,Math.ceil(d/2));i++)group.add(box(.06,.02,.4,PAL.white,w/2,.15,.4+i*2));
+    group.add(box(.08,1.8,.08,PAL.wood,.2,.1,.5),sphere(.16,0xffd889,.2,2,.5,{emissive:0x806020}));
+  } else if(type==='well'||type==='waterworks') {
+    group.add(cyl(type==='well'?.55:1,1,PAL.creamDark,w/2,.1,d/2));
+    group.add(cyl(type==='well'?.42:.85,.04,0x65a8bb,w/2,1.1,d/2));
+    group.add(box(.12,1,.12,PAL.wood,w/2-.6,1,d/2),box(.12,1,.12,PAL.wood,w/2+.6,1,d/2));
+    group.add(gable(1.6,1.3,.5,PAL.roofBlue,w/2,2,d/2));
+  } else if(type==='park') {
+    const a=tree(.7,mat(PAL.roofGreen));a.position.set(w/2,0,d/2);group.add(a);
+    group.add(box(1,.12,.35,PAL.wood,w/2,.35,d-.5));
+  } else {
+    shed(group,w-.4,d-.6,1.6,PAL.cream,type==='school'?PAL.roofGreen:PAL.roofBlue,.2,.2,{door:'house',windows:3});
+    if(type==='clinic'||type==='hospital')group.add(box(.65,.13,.1,PAL.barnRed,w/2,1.55,d-.35),box(.13,.65,.1,PAL.barnRed,w/2,1.3,d-.35));
+    if(type==='school') {
+      group.add(box(.8,.45,.12,PAL.wood,w/2,1.2,d-.35));
+      group.add(box(.28,.34,.02,PAL.white,w/2-.15,1.25,d-.27),box(.28,.34,.02,PAL.creamDark,w/2+.15,1.25,d-.27));
+    }
+    if(type==='hall') {group.add(box(.08,1.6,.08,PAL.wood,w-.4,2,.5),box(.5,.3,.06,PAL.roofGreen,w-.15,3,.5));}
+  }
+  return {group,windows,smoke:[]};
+}

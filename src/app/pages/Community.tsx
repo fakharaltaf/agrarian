@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { act, go, useGame } from '../../stores/game';
 import { communityOf, HOME_DEFS, homePrice, homeCapacity, households, population, availableResidents } from '../../simulation/community-state';
+import { canStartTown } from '../../simulation/stages/town';
+import { townOf } from '../../simulation/town-state';
 import { foodDays } from '../../simulation/stages/settlement';
 import type { HomeTier } from '../../simulation/types';
 import { Card, PageHead, Bar, Seg, Info, Modal } from '../ui';
@@ -24,9 +26,10 @@ export default function CommunityPage() {
   const nextPrice = homePrice(s, nextTier);
   return <div className="stack l community-page">
     <PageHead title="Your settlement" sub={c.charter === 'company' ? 'Company town' : 'Free settlement'} />
+    {(canStartTown(s)||townOf(s).active) && <button className="btn gold community-next" onClick={()=>go('town')}>📚 {townOf(s).active?'Town hall · services & budget':'Children need a school · preview Town'}</button>}
     {homeCapacity(s) - population(s) < 4 && <button className="btn primary community-next" disabled={nextPrice > s.cash} onClick={() => act({ type: 'buildHomes', tier: nextTier, count: 1 })}><span>🏠 Build 1 {nextHome.name.toLowerCase()} · +{nextHome.families * 4} places</span><b>{money(nextPrice)}</b></button>}
     {population(s) > 0 && <div className="community-strip"><span><b>🏘️ {population(s) >= 100000 ? `${num(population(s) / 1000)}k` : num(population(s))}</b><small>people</small></span><span><b>☺ {pct0(c.happiness)}</b><small>happiness</small></span><span><b>🍞 {foodDays(s) >= 99 ? '99+' : num(foodDays(s), 1)}</b><small>food days</small></span></div>}
-    {c.homes.length > 0 && <Card title="Room to belong" coach="community-build" info="Each family has four people and two working adults. Existing employees remain commuters; new Heartland hires come from residents.">
+    {c.homes.length > 0 && <Card title="Room to belong" coach="community-build" info="Each arriving family brings four people and two working adults. Existing employees remain commuters; new Heartland hires come from residents.">
       {population(s) > 0 && <div className="community-home-summary">{image ? <img src={image} alt="A cottage in your community" /> : <span>🏠</span>}<div><strong>{num(population(s))} / {num(homeCapacity(s))} places</strong><span>{num(availableResidents(s))} adults ready for work</span></div></div>}
       {c.homes.length > 0 && <Seg label="Homes to build" value={count} onChange={setCount} options={[1, 5, 10].map(v => ({ v, label: `×${v}` }))} />}
       <div className="community-homes">{(Object.keys(HOME_DEFS) as HomeTier[]).filter(t => t === 'cottage' || (t === 'terrace' ? population(s) >= 40 : population(s) >= 200)).map(tier => {

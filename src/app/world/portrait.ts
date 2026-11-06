@@ -2,17 +2,19 @@
 import * as THREE from 'three';
 import type { Lot } from './layout';
 import { FOOTPRINT } from './layout';
-import { buildLot } from './models';
+import type { ServiceType } from '../../simulation/types';
+import { buildCivic, buildLot } from './models';
 import { artRevision } from './art';
 let cachedRevision=-1;
 
 const SIZE = 192;
-const cache = new Map<Lot['type'], string>();
+type PortraitType = Lot['type'] | `civic:${ServiceType | 'hall'}`;
+const cache = new Map<PortraitType, string>();
 let renderer: THREE.WebGLRenderer | null = null;
 let idle = 0;
 
 /** A PNG data URL of the building, or '' when WebGL isn't available (callers show a fallback). */
-export function portrait(type: Lot['type']): string {
+export function portrait(type: PortraitType): string {
   if(cachedRevision!==artRevision()){cache.clear();cachedRevision=artRevision();}
   const hit = cache.get(type);
   if (hit !== undefined) return hit;
@@ -27,8 +29,9 @@ export function portrait(type: Lot['type']): string {
     const sun = new THREE.DirectionalLight(0xfff1d6, 2.2);
     sun.position.set(-4, 10, 6);
     scene.add(new THREE.HemisphereLight(0xfff4e0, 0xb59a70, 0.9), sun);
-    const [w, d] = FOOTPRINT[type];
-    const model = buildLot(type, w, d).group;
+    const civic=type.startsWith('civic:');
+    const [w, d] = civic ? [3,3] : FOOTPRINT[type as Lot['type']];
+    const model = (civic ? buildCivic(type.slice(6),w,d) : buildLot(type as Lot['type'], w, d)).group;
     scene.add(model);
     // frame the model from the farm's own isometric angle
     const box = new THREE.Box3().setFromObject(model);

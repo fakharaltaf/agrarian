@@ -1,3 +1,4 @@
+import { townIndustryFactor } from './town-state';
 import { larderReserve } from './stages/settlement';
 // Levels 3–5 of automation: managers run field cycles, rules react to conditions,
 // policies steer everything toward strategic objectives. Automation spends real money
@@ -142,10 +143,10 @@ export function millValue(s: GameState, r: RegionId, c: CropId) {
     const rec = BUILDINGS[b.type].recipe;
     const per = rec?.inputs[c];
     if (!b.active || !rec || !per) continue;
-    const perHour = per * rec.batchesPerHour * levelMult(b.level);
+    const perHour = per * rec.batchesPerHour * levelMult(b.level) * townIndustryFactor(s,b.region);
     if (s.regions[r].inventory[c] > perHour * 48) continue; // two days of stock already waiting
     const out = Object.entries(rec.outputs).reduce((a, [g, q]) => a + (s.markets[r][g as GoodId]?.price ?? 0) * q!, 0);
-    best = Math.max(best, (out - BUILDINGS[b.type].staffPerHour * s.macro.cpi / rec.batchesPerHour) / per);
+    best = Math.max(best, (out - BUILDINGS[b.type].staffPerHour * s.macro.cpi / (rec.batchesPerHour * townIndustryFactor(s,b.region))) / per);
   }
   return best;
 }

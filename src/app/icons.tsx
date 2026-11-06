@@ -1,5 +1,6 @@
 // Minimal line icon set (24×24, stroke = currentColor).
 const P: Record<string, string> = {
+  town: 'M3 9l9-6 9 6M5 10v10m5-10v10m4-10v10m5-10v10M3 21h18M2 9h20',
   community: 'M3 10l5-5 5 5M4 9v11h8V9M14 11l4-4 4 4M15 10v10h6V10M7 20v-5h2v5M18 20v-4',
   logo: 'M12 22V8M12 8c0-3 2-5 5-6 0 3-2 5-5 6Zm0 4c0-3-2-5-5-6 0 3 2 5 5 6Zm0 4c0-3 2-5 5-6 0 3-2 5-5 6Z',
   overview: 'M4 13h6V4H4v9Zm0 7h6v-4H4v4Zm10 0h6v-9h-6v9Zm0-16v4h6V4h-6Z',

@@ -1,11 +1,13 @@
 import type { StageModule } from './types';
 import type { GameState } from '../types';
+import { townOf } from '../town-state';
+import { population } from '../community-state';
 import { communityOf } from '../community-state';
 import { noStageAction } from './shared';
 import { log } from '../core';
 import { fertility } from '../agriculture';
 
-export const PLAYABLE_CHAPTERS = ['homestead', 'market-town', 'farm-business', 'industry', 'settlement'] as const;
+export const PLAYABLE_CHAPTERS = ['homestead', 'market-town', 'farm-business', 'industry', 'settlement', 'town'] as const;
 export function atFrontier(s: GameState) { return s.legacyProgression && !communityOf(s).active ? s.era >= 8 : s.stageId === PLAYABLE_CHAPTERS[PLAYABLE_CHAPTERS.length - 1]; }
 export function frontierGoals(s: GameState) {
   const rank = (track: string) => s.milestones.filter(id => id.startsWith(`frontier:${track}:`)).length;
@@ -18,6 +20,7 @@ export function frontierGoals(s: GameState) {
   return [
     { id: `frontier:sales:${salesRank}`, icon: '📦', name: 'Trade horizon', rank: salesRank, value: sales, target: target(1e6, salesRank), progress: sales / target(1e6, salesRank), detail: 'Lifetime sales. Each mark doubles the next goal.' },
     { id: `frontier:soil:${soilRank}`, icon: '🌱', name: 'Stewardship', rank: soilRank, value: ha, target: target(100, soilRank), progress: Math.min(ha / target(100, soilRank), soil / 0.8), detail: `Keep average fertility at 80% or more. Current: ${Math.round(soil * 100)}%. Each mark doubles the land target.` },
+    ...(townOf(s).active ? [{ id: `frontier:care:${rank('care')}`, icon: '♥', name: 'A place to thrive', rank: rank('care'), value: population(s), target: target(100,rank('care')), progress: Math.min(population(s)/target(100,rank('care')),communityOf(s).happiness/.95,townOf(s).health/.9,townOf(s).education/.9), detail: 'Grow while keeping happiness at 95%, health and education at 90%. Each mark doubles the population goal.' }] : []),
   ];
 }
 export function frontierTick(s: GameState) {

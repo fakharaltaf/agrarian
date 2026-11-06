@@ -64,7 +64,8 @@ export function tickActiveStage(s: GameState) {
 }
 
 export function handleActiveStageAction(s: GameState, action: Action) {
-  if (action.type === 'startSettlement' || action.type === 'buildHomes' || action.type === 'setLarder') {
+  if (town.actionTypes.includes(action.type)) return town.handleAction(s, action, (s.stageState.town ??= town.createState()));
+  if (action.type === 'startSettlement' || action.type === 'buildHomes' || action.type === 'setLarder' || action.type === 'settleWorker') {
     const stage = STAGES.settlement;
     const state = (s.stageState.settlement ??= stage.createState());
     return stage.handleAction(s, action, state);

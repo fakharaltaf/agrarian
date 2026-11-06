@@ -288,7 +288,7 @@ export interface TownValues { prosperityFairness: number; orderFreedom: number; 
 export type SettlementCharter = 'company' | 'free';
 export type HomeTier = 'cottage' | 'terrace' | 'apartment';
 export interface CommunityHome { id: number; tier: HomeTier; count: number; cost: number }
-export interface HouseholdCohort { id: number; name: string; households: number }
+export interface HouseholdCohort { id: number; name: string; households: number; adults: number; children: number }
 export interface SettlementState {
   active: boolean;
   charter: SettlementCharter | null;
@@ -305,8 +305,26 @@ export interface SettlementState {
   hardshipDays: number;
 }
 
+export type SchoolCharter = 'public' | 'trade';
+export const DISTRICT_IDS = ['farmgate', 'orchard', 'heights'] as const;
+export type DistrictId = (typeof DISTRICT_IDS)[number];
+export type ServiceType = 'school' | 'well' | 'clinic' | 'road' | 'hospital' | 'waterworks' | 'park';
+export interface CivicService { id: number; type: ServiceType; district: DistrictId; count: number; active: boolean; cost: number; staffed: number; funded: boolean }
+export interface DistrictCoverage { people: number; school: number; water: number; medical: number; road: number }
+export interface CouncilPetition { id: number; kind: 'park' | 'bread'; opened: number }
+export interface TownState {
+  active: boolean; enteredAt: number; charter: SchoolCharter | null; retrainingUntil: number;
+  cash: number; companyAdvance: number; ledger: LedgerEntry[]; lifetime: Partial<Record<LedgerKind, number>>; books: DayBook[];
+  taxRate: number; taxableIncome: number; lastTax: number; lastCost: number; lastDay: number;
+  services: CivicService[]; coverage: Record<DistrictId, DistrictCoverage>;
+  publicJobs: number; industrialJobs: number; factoryShare: number;
+  health: number; education: number; water: number; roads: number;
+  petition: CouncilPetition | null; nextPetition: number; goodwillUntil: number; breadUntil: number;
+  crime: number; thefts: number; illnessDeaths: number; mortalityCarry: number;
+}
+
 export interface GameState {
-  version: 7;
+  version: 8;
   seed: number;
   rng: number;
   tick: number;
@@ -379,6 +397,14 @@ export type Action =
   | { type: 'startSettlement'; charter: SettlementCharter }
   | { type: 'buildHomes'; tier: HomeTier; count: number }
   | { type: 'setLarder'; enabled: boolean }
+  | { type: 'settleWorker'; workerId: number }
+  | { type: 'startTown'; charter: SchoolCharter }
+  | { type: 'fundTown'; amount: number; direction: 'toTown' | 'repay' }
+  | { type: 'setTownTax'; rate: number }
+  | { type: 'buildService'; service: ServiceType; district: DistrictId; count?: number }
+  | { type: 'toggleService'; serviceId: number }
+  | { type: 'changeSchools'; charter: SchoolCharter }
+  | { type: 'answerPetition'; accept: boolean }
   | { type: 'buy'; region: RegionId; good: GoodId; qty: number }
   | { type: 'buyPlot' }
   | { type: 'buyParcel'; region: RegionId; ha: number }

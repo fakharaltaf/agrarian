@@ -1,3 +1,4 @@
+import { townOf } from '../../simulation/town-state';
 // Everything that floats over the world: objective, selection panel, market, land, region switcher.
 import { useEffect, useRef, useState } from 'react';
 import { ANIMALS, ANIMAL_IDS, BUILDINGS, CONFIG, ERAS, GOODS, REGIONS, type CropId, type RegionId } from '../../simulation/config';
@@ -23,7 +24,7 @@ function EraBanner({ s }: { s: GameState }) {
   const next = oldChapter ? ERAS[s.era] : null;
   const title = oldChapter ? `Era ${s.era + 1}: ${next?.name ?? 'Frontier'}` : STAGES[nextId ?? s.stageId].title;
   const theme = next?.theme ?? (nextId === 'market-town' ? 'Surplus outgrows barter. The village opens its first market day.' : nextId === 'farm-business' ? 'Bring in a crew, plan the fields and manage the new costs.' : nextId === 'industry' ? 'Machines and processing turn a farm business into an industry.' : 'A new chapter is ready. Your farm keeps running behind you.');
-  const unlocks = oldChapter ? ERA_UNLOCK_TEXT[s.era + 1] ?? [] : nextId === 'market-town' ? ['Open commodity market and daily market day', 'Keep the village trader as a side channel'] : nextId === 'farm-business' ? ['Farm hands, managers and crop plans', 'Soil care, livestock, orchards and seasons'] : nextId === 'industry' ? ['Tractors, processing and energy', 'Research and larger parcels'] : ['New systems arrive here as the story expands.'];
+  const unlocks = oldChapter ? ERA_UNLOCK_TEXT[s.era + 1] ?? [] : nextId === 'market-town' ? ['Open commodity market and daily market day', 'Keep the village trader as a side channel'] : nextId === 'farm-business' ? ['Farm hands, managers and crop plans', 'Soil care, livestock, orchards and seasons'] : nextId === 'industry' ? ['Tractors, processing and energy', 'Research and larger parcels'] : nextId==='settlement'?['Housing, families and local jobs','Feed your community from the farm']:nextId==='town'?['Schools, clean water and healthcare','A separate public treasury and council']:['New systems arrive here as the story expands.'];
   const chooseTrader = (charter: 'fair' | 'shrewd') => {
     if (!act({ type: 'chooseCharter', charter })) return;
     if (act({ type: 'advanceEra' })) setOpen(false);
@@ -38,7 +39,7 @@ function EraBanner({ s }: { s: GameState }) {
       {open && (
         <Modal title={title} onClose={() => setOpen(false)} actions={nextId === 'market-town' && !oldChapter
           ? <button className="btn ghost" onClick={() => setOpen(false)}>Not yet</button>
-          : <><button className="btn ghost" onClick={() => setOpen(false)}>Not yet</button><button className="btn primary" onClick={() => { if(nextId === 'settlement') go('community'); else act({ type: 'advanceEra' }); setOpen(false); }}>Begin chapter</button></>}>
+          : <><button className="btn ghost" onClick={() => setOpen(false)}>Not yet</button><button className="btn primary" onClick={() => { if(nextId === 'settlement') go('community'); else if(nextId==='town') go('town'); else act({ type: 'advanceEra' }); setOpen(false); }}>Begin chapter</button></>}>
           <p className="muted">{theme}</p>
           <ul>{unlocks.map((t) => <li key={t}>{t}</li>)}</ul>
           {nextId === 'market-town' && !oldChapter ? <>
@@ -149,7 +150,7 @@ export function Hud() {
   const dragged = useRef(false);
   const page = usePageState();
   const live = useRef({ s, sel, crop });
-  live.current = { s, sel, crop };
+  live.current = { s, sel: lot ? [] : sel, crop };
   const firstHomesShown = useRef(false);
   const communityPlaces = homeCapacity(s);
   useEffect(() => {
@@ -157,6 +158,13 @@ export function Hud() {
     const first = layoutRegion(s, 'heartland').lots.find(x => x.key.startsWith('community:'));
     if (first) { firstHomesShown.current = true; setRegion('heartland'); setSel([]); setLot(first); }
   }, [communityPlaces]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const firstServicesShown=useRef(false),serviceGroups=townOf(s).services.length;
+  useEffect(()=>{
+    if(firstServicesShown.current||!serviceGroups||!townOf(s).active)return;
+    const first=layoutRegion(s,'heartland').lots.find(x=>x.key.startsWith('civic:')&&x.key!=='civic:hall');
+    if(first){firstServicesShown.current=true;setRegion('heartland');setSel([]);setLot(first);}
+  },[serviceGroups]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // keep the selection valid; in the homestead always have the field selected so its controls are visible
   useEffect(() => {
@@ -191,7 +199,7 @@ export function Hud() {
     else if (s.era >= 3) (setLot(null), setSel([]));
   };
 
-  const selected = s.fields.filter((f) => sel.includes(f.id));
+  const selected = lot ? [] : s.fields.filter((f) => sel.includes(f.id));
   const one = selected.length === 1 ? selected[0] : null;
   const readyPlots = s.fields.filter((f) => f.region === region && isManual(f) && isReady(s, f));
   const plotPrice = homePlotPrice(s);
@@ -201,11 +209,11 @@ export function Hud() {
   return (
     <div className="hud">
       <DiscoveryCard s={s} />
-      <Scene3D region={region} selected={sel} onPick={onPick} plantLabel={plantLabel(s, crop, one)}
+      <Scene3D region={region} selected={lot ? [] : sel} onPick={onPick} plantLabel={plantLabel(s, crop, one)}
         selectedLot={lot?.key} onAction={(kind, id) => {
           if(kind==='plant'||kind==='harvest') act(kind==='harvest'?{type:'harvest',fieldId:id}:{type:'plant',fieldId:id,crop});
           else if(kind==='place' && lot){
-            const target=lot.key.startsWith('community:')?'community':lot.key==='crew'?'workers':lot.key==='office'?'automation':lot.key==='market'?'markets':lot.type==='house'||lot.type==='shed'?'finance':LOT_PAGE[BUILDINGS[lot.type].category];
+            const target=lot.key.startsWith('civic:')?'town':lot.key.startsWith('community:')?'community':lot.key==='crew'?'workers':lot.key==='office'?'automation':lot.key==='market'?'markets':lot.type==='house'||lot.type==='shed'?'finance':LOT_PAGE[BUILDINGS[lot.type].category];
             if(target && PAGES.find(p=>p.id===target)?.unlocked(s))go(target);else {setPanel(true);setJournal(false);}
           } else {setPanel(true);setJournal(false); if(kind==='plan') requestAnimationFrame(()=>document.querySelector('[data-coach=plan-picker]')?.scrollIntoView({block:'center'}));}
         }} />
@@ -282,6 +290,7 @@ function HerdInfo({ s, lot }: { s: GameState; lot: Lot }) {
 }
 
 function LotPanel({ s, lot, region, onClose }: { s: GameState; lot: Lot; region: RegionId; onClose: () => void }) {
+  if (lot.key.startsWith('civic:')) return <Card title="Town services"><button className="btn primary" onClick={() => go('town')}>Open Town hall</button></Card>;
   if (lot.key.startsWith('community:')) return <Card title="Your neighbourhood"><div className="community-strip"><span>🏘️ {population(s)} / {homeCapacity(s)}</span><span>☺ {pct0(communityOf(s).happiness)}</span></div><button className="btn primary" onClick={() => go('community')}>Homes & families</button></Card>;
   if(lot.key==='market') return s.legacyProgression || stageAtLeast(s, 'market-town') ? <SellCard s={s} r={region}/> : <HomesteadTraderCard s={s}/>;
   if (lot.type === 'house' || lot.type === 'shed') {

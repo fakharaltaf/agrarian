@@ -25,7 +25,7 @@ export default function ResearchPage() {
         <Kpi label="Laboratory" value={lvl === 2 ? 'Advanced' : lvl === 1 ? 'Research station' : 'None'} tone={lvl ? undefined : 'warn'} info="A paused or demolished lab stalls the running project." />
         <Kpi label="Technologies" value={`${s.research.done.length} / ${TECHS.length}`} sub={s.research.licensed.length ? `+ ${s.research.licensed.length} licensed` : undefined} />
         <Kpi label="Spent on research" value={money(spent)} />
-        <Kpi label="Research speed" value={lvl ? `${researchSpeed(s)}×` : '—'} info="Strongest active lab leads. Station levels: 1× / 1.5× / 2×. Advanced levels: 2× / 3× / 4×. Extra labs do not stack." />
+        <Kpi label="Research speed" value={lvl ? `${Number(researchSpeed(s).toFixed(2))}×` : '—'} info="Strongest active lab leads. Station levels: 1× / 1.5× / 2×. Advanced levels: 2× / 3× / 4×. Extra labs do not stack. Funded local schools add their coverage bonus." />
       </div>
       <div className="grid2">
         <LabCard s={s} lvl={lvl} />
@@ -129,7 +129,7 @@ function TechCard({ s, t }: { s: GameState; t: TechDef }) {
           <div className="row between wrap">
             <span className="mono small">{money(cost)} · {num(days, days % 1 ? 1 : 0)} days</span>
             {!active && (
-              <Info text={why ?? 'Ready to start. The cost is paid up front.'} breakdown={[['Cost', money(cost)], ['Base days', String(t.days)], ['Lab speed', `${researchSpeed(s)}×`]]} />
+              <Info text={why ?? 'Ready to start. The cost is paid up front.'} breakdown={[['Cost', money(cost)], ['Base days', String(t.days)], ['Lab speed', `${Number(researchSpeed(s).toFixed(2))}×`]]} />
             )}
           </div>
         )}

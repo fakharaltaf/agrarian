@@ -2,6 +2,7 @@
 import {
   BUILDINGS, CONFIG, CROPS, DAYS_PER_YEAR, GOODS, OPEX_KINDS, REGIONS, REVENUE_KINDS, SEASONS, TICKS_PER_DAY, type BuildingType, type CropId, type GoodId, type LedgerKind, type RegionId,
 } from './config';
+import { townOf } from './town-state';
 import { housingAssets } from './community-state';
 import type { Building, Division, EventKind, GameEvent, GameState, LogLevel, Market } from './types';
 
@@ -33,21 +34,22 @@ export const pick = <T>(s: GameState, xs: readonly T[]): T => xs[Math.floor(rand
 const NON_CASH: LedgerKind[] = ['depreciation'];
 const TAXABLE = new Set<LedgerKind>([...REVENUE_KINDS, ...OPEX_KINDS, 'interest', 'futures', 'insurancePayout', 'prize', 'depreciation']);
 
-export function post(s: GameState, kind: LedgerKind, amount: number, memo: string, region: RegionId = 'heartland', division: Division = divisionOf(kind)) {
+export function post(s: GameState, kind: LedgerKind, amount: number, memo: string, region: RegionId = 'heartland', division: Division = divisionOf(kind), account: 'company' | 'town' = 'company') {
   amount = round2(amount);
   if (amount === 0) return;
-  if (!NON_CASH.includes(kind)) s.cash = round2(s.cash + amount);
-  s.lifetime[kind] = round2((s.lifetime[kind] ?? 0) + amount);
-  const b = todayBook(s);
+  const wallet = account === 'town' ? townOf(s) : s;
+  if (!NON_CASH.includes(kind)) wallet.cash = round2(wallet.cash + amount);
+  wallet.lifetime[kind] = round2((wallet.lifetime[kind] ?? 0) + amount);
+  const b = account === 'town' ? accountBook(s, wallet) : todayBook(s);
   b.kinds[kind] = round2((b.kinds[kind] ?? 0) + amount);
   b.regions[region] = round2((b.regions[region] ?? 0) + amount);
   b.divisions[division] = round2((b.divisions[division] ?? 0) + amount);
-  if (TAXABLE.has(kind)) b.op[region] = round2((b.op[region] ?? 0) + amount);
+  if (TAXABLE.has(kind) || (account === 'town' && (kind === 'residentTax' || kind === 'civic'))) b.op[region] = round2((b.op[region] ?? 0) + amount);
   // Merge repeated charges (wages, fuel, power...) into one line per kind/region/memo/day so the ledger stays readable.
   const d = Math.floor(s.tick / 24);
   let merged = false;
-  for (let i = s.ledger.length - 1; i >= 0; i--) {
-    const e = s.ledger[i];
+  for (let i = wallet.ledger.length - 1; i >= 0; i--) {
+    const e = wallet.ledger[i];
     if (Math.floor(e.tick / 24) !== d) break;
     if (e.kind === kind && e.region === region && e.division === division && e.memo === memo) {
       e.amount = round2(e.amount + amount);
@@ -55,8 +57,8 @@ export function post(s: GameState, kind: LedgerKind, amount: number, memo: strin
       break;
     }
   }
-  if (!merged) s.ledger.push({ tick: s.tick, kind, amount, region, division, memo });
-  if (s.ledger.length > CONFIG.ledgerLength) s.ledger.splice(0, s.ledger.length - CONFIG.ledgerLength);
+  if (!merged) wallet.ledger.push({ tick: s.tick, kind, amount, region, division, memo });
+  if (wallet.ledger.length > CONFIG.ledgerLength) wallet.ledger.splice(0, wallet.ledger.length - CONFIG.ledgerLength);
 }
 
 function divisionOf(kind: LedgerKind): Division {
@@ -70,13 +72,14 @@ export const buildingDivision = (t: BuildingType): Division =>
   t === 'ranch' || t === 'dairy' ? 'livestock' : BUILDINGS[t].category === 'energy' ? 'energy' : BUILDINGS[t].category === 'research' ? 'corporate' : BUILDINGS[t].category === 'storage' ? 'logistics' : t === 'distribution' ? 'logistics' : 'processing';
 export const goodDivision = (g: GoodId): Division => (g === 'meat' || g === 'milk' ? 'livestock' : GOODS[g].kind === 'processed' ? 'processing' : 'crops');
 
-export function todayBook(s: GameState) {
+export function todayBook(s: GameState) { return accountBook(s, s); }
+function accountBook(s: GameState, wallet: Pick<GameState, 'books' | 'cash'>) {
   const d = day(s);
-  let b = s.books[s.books.length - 1];
+  let b = wallet.books[wallet.books.length - 1];
   if (!b || b.day !== d) {
-    b = { day: d, kinds: {}, regions: {}, divisions: {}, op: {}, cash: s.cash, debt: 0, equity: 0, produced: 0 };
-    s.books.push(b);
-    if (s.books.length > CONFIG.booksDays) s.books.shift();
+    b = { day: d, kinds: {}, regions: {}, divisions: {}, op: {}, cash: wallet.cash, debt: 0, equity: 0, produced: 0 };
+    wallet.books.push(b);
+    if (wallet.books.length > CONFIG.booksDays) wallet.books.shift();
   }
   return b;
 }
@@ -166,7 +169,7 @@ export const debt = (s: GameState) => s.loans.reduce((a, l) => a + l.balance, 0)
 
 export function totalAssets(s: GameState) {
   const fa = fixedAssets(s);
-  return Math.max(0, s.cash) + s.marginAccount + inventoryValue(s) + fa.land + fa.machines + fa.buildings;
+  return Math.max(0, s.cash) + s.marginAccount + inventoryValue(s) + fa.land + fa.machines + fa.buildings + townOf(s).companyAdvance;
 }
 export const equity = (s: GameState) => totalAssets(s) - debt(s);
 

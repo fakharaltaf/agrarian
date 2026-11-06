@@ -78,7 +78,7 @@ function FrontierCard({ s }: { s: GameState }) {
         <Bar value={Math.min(1, goal.progress)} label={goal.detail} />
         <span className="small muted">{goal.progress >= 1 ? 'Complete · marks recorded at midnight' : goal.name === 'Stewardship' ? '80% average fertility required' : 'Each mark opens a larger horizon'}</span>
       </div>)}
-      <div className="frontier-coming"><span>🏘️</span><div><b>Next chapter coming</b><p>{s.legacyProgression && !communityOf(s).active ? 'Community chapters will be offered in your existing save.' : 'Town · schools, healthcare and public services'}</p></div></div>
+      <div className="frontier-coming"><span>🏘️</span><div><b>Next chapter coming</b><p>{s.legacyProgression && !communityOf(s).active ? 'Community chapters will be offered in your existing save.' : 'City · districts, utilities and keeping your streets safe'}</p></div></div>
     </div>
   </Card>;
 }

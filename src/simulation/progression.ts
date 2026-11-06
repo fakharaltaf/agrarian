@@ -8,6 +8,8 @@ import { refreshHomestead } from './stages/homestead';
 import { PLAYABLE_CHAPTERS, frontierTick, atFrontier } from './stages/frontier';
 import { communityOf, population, homeCapacity } from './community-state';
 import { settlementTick, canStartSettlement } from './stages/settlement';
+import { canStartTown, townDaily } from './stages/town';
+import { townOf } from './town-state';
 import type { GameState } from './types';
 
 export const totalHa = (s: GameState) => s.fields.reduce((a, f) => a + f.ha, 0);
@@ -31,6 +33,7 @@ function newStageReady(s: GameState) {
   if (s.stageId === 'market-town') return s.fields.length >= 12 || lifetimeSales(s) >= CHAPTER_SALES['market-town'];
   if (s.stageId === 'farm-business') return s.workers.filter((w) => w.role === 'hand').length >= 2 && lifetimeSales(s) >= CHAPTER_SALES['farm-business'];
   if (s.stageId === 'industry') return canStartSettlement(s);
+  if (s.stageId === 'settlement') return canStartTown(s);
   // Later chapters are offered only when their mechanics are implemented.
   return false;
 }
@@ -47,6 +50,7 @@ export function advanceEra(s: GameState): string | null {
   if (!s.legacyProgression || communityOf(s).active) {
     const next = NEXT_STAGE[previous];
     if (!next) return 'You have reached the newest chapter.';
+    if (next === 'town') return 'Choose Public or Trade schools at the Town hall.';
     if (next === 'settlement') return 'Choose the Company town or Free settlement charter on the Community page.';
     s.stageId = next;
     s.stageState[next] ??= STAGES[next].createState();
@@ -66,9 +70,12 @@ export function advanceEra(s: GameState): string | null {
 
 export interface Discovery { id: string; title: string; text: string; page?: string; when: (s: GameState) => boolean }
 export const DISCOVERIES: Discovery[] = [
+  { id: 'townSchool', title: 'A school for your children', text: '80 residents are ready to become a town. Preview Public or Trade schools at the Town hall. Your existing business keeps running.', page: 'town', when: canStartTown },
+  { id: 'townClinic', title: 'Clean water and healthcare', text: 'A growing town needs a clinic and safe water. Services only cover their own neighbourhood and need paid staff from your population.', page: 'town', when: s => townOf(s).active && townOf(s).services.length > 0 },
+  { id: 'townCrime', title: 'Wealth attracts trouble', text: 'Thefts are rising. Jobs, education and roads reduce crime; City will offer police and justice choices when you choose the next chapter.', page: 'town', when: s => townOf(s).active && townOf(s).crime >= .1 },
   { id: 'familyHomes', title: 'A place for families', text: 'Your workers ask whether their families can join them. Preview Company town or Free settlement, and begin whenever you choose. Your existing business keeps running.', page: 'community', when: canStartSettlement },
   { id: 'communityFood', title: 'The first family has arrived', text: 'Families eat from your own food stores. The larder policy protects three days of food and buys an affordable shortfall. Cold weather also needs heating fuel.', page: 'community', when: s => communityOf(s).active && population(s) > 0 },
-  { id: 'communityChildren', title: 'Children need somewhere to learn', text: 'Your settlement is growing into a town. Schools and healthcare are the next chapter; you can keep building and running this community in the meantime.', page: 'community', when: s => communityOf(s).active && population(s) >= 80 },
+  { id: 'communityChildren', title: 'Children need somewhere to learn', text: 'Your settlement is growing into a town. Schools and healthcare are the next chapter; you can keep building and running this community in the meantime.', page: 'community', when: () => false },
   { id: 'marketDay', title: 'Your first market day', text: 'The village market is open. Prices now respond to local supply and demand; once a week, a real demand surge brings a brief selling opportunity. The village trader remains available for barter and small trades.', page: 'markets', when: (s) => !s.legacyProgression && s.stageId === 'market-town' },
   { id: 'forecast', title: 'The weather forecast', text: 'You can now see the next four days of weather. Watch for frost nights in autumn and winter — and for dry spells when your crops need water.', when: (s) => stageAtLeast(s, 'farm-business') },
   { id: 'chickens', title: 'Chickens', text: 'A neighbour is selling hens. Build a chicken coop, buy a flock and they lay a tray of eggs each a day — as long as they are fed. Corn or wheat in your barn works as feed, or turn on automatic feed buying.', page: 'livestock', when: (s) => stageAtLeast(s, 'farm-business') && lifetimeSales(s) >= 16000 },
@@ -130,6 +137,7 @@ export function discover(s: GameState, id: string) {
 
 export function progressionTick(s: GameState) {
   settlementTick(s);
+  townDaily(s);
   frontierTick(s);
   // Keep legacy saves synchronized; new saves advance only when the player accepts a chapter.
   if (s.legacyProgression && !communityOf(s).active) s.stageId = stageIdForEra(s.era);
@@ -173,6 +181,8 @@ const CROP_UNLOCK: Record<CropId, string> = {
 // ---------------------------------------------------------------- objectives (onboarding)
 
 export function objective(s: GameState): { title: string; hint: string; page?: string } {
+  if (canStartTown(s)) return { title: 'Your children need a school', hint: 'Preview Public or Trade schools at the Town hall.', page: 'town' };
+  if (townOf(s).active && s.stageId === 'town') return { title: townOf(s).services.length ? 'Care for each neighbourhood' : 'Build the first school', hint: 'Fund the public treasury, then place services near the families they serve.', page: 'town' };
   if (canStartSettlement(s)) return { title: 'Your workers want their families nearby', hint: 'Preview a settlement charter, then build the first homes when you are ready.', page: 'community' };
   if (communityOf(s).active && s.stageId === 'settlement') return populationObjective(s);
   if (!s.legacyProgression) {
@@ -265,6 +275,7 @@ export function milestonesDaily(s: GameState) {
 
 export interface PageDef { id: string; label: string; purpose: string; unlocked: (s: GameState) => boolean }
 export const PAGES: PageDef[] = [
+  { id: 'town', label: 'Town hall', purpose: 'Schools, healthcare and a separate public budget.', unlocked: s => townOf(s).active || canStartTown(s) },
   { id: 'community', label: 'Community', purpose: 'Homes, families, food and life in your settlement.', unlocked: s => communityOf(s).active || canStartSettlement(s) },
   { id: 'overview', label: 'Overview', purpose: 'Your business at a glance.', unlocked: (s) => s.era >= 2 },
   { id: 'fields', label: 'Fields', purpose: 'Plant, harvest, plan crops and look after your soil.', unlocked: () => true },

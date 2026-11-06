@@ -1,3 +1,4 @@
+import { townOf } from './town-state';
 // Financial statements, derived only from ledger books and live state.
 import { FINANCING_KINDS, INVESTING_KINDS, LEDGER_KINDS, OPEX_KINDS, REVENUE_KINDS, type LedgerKind } from './config';
 import { debt, fixedAssets, inventoryValue, sumBooks } from './core';
@@ -29,13 +30,14 @@ export function balanceSheet(s: GameState) {
   const fa = fixedAssets(s);
   const inventory = inventoryValue(s);
   const cash = Math.max(0, s.cash);
-  const assets = cash + s.marginAccount + inventory + fa.land + fa.machines + fa.buildings;
+  const townAdvance=townOf(s).companyAdvance;
+  const assets = townAdvance + cash + s.marginAccount + inventory + fa.land + fa.machines + fa.buildings;
   const loans = s.loans.reduce((a, l) => a + l.balance, 0);
   const overdraft = Math.max(0, -s.cash);
   const liabilities = loans + overdraft;
   const equity = assets - liabilities;
   const paidIn = 250 + (s.lifetime.sharesIssued ?? 0) + (s.lifetime.buyback ?? 0);
-  return { cash, margin: s.marginAccount, inventory, land: fa.land, machines: fa.machines, buildings: fa.buildings, assets, loans, overdraft, liabilities, equity, paidIn, retained: equity - paidIn };
+  return { cash, townAdvance, margin: s.marginAccount, inventory, land: fa.land, machines: fa.machines, buildings: fa.buildings, assets, loans, overdraft, liabilities, equity, paidIn, retained: equity - paidIn };
 }
 
 export function cashFlow(s: GameState, days: number) {
