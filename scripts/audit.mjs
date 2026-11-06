@@ -59,6 +59,7 @@ try {
         if(await nav.count()){
           await nav.click(); await page.locator('.page-drawer .card').first().waitFor({state:'visible'});
           await page.screenshot({animations:'disabled',path:`${out}/${width}-${theme}-${section}.png`});
+          if(section==='overview'){const frontier=page.getByRole('heading',{name:/Frontier/});if(await frontier.count()){await frontier.scrollIntoViewIfNeeded();await page.screenshot({animations:'disabled',path:`${out}/${width}-${theme}-frontier.png`});}}
           if(section==='equipment'){const idle=page.getByRole('heading',{name:'Idle fleet',exact:false});if(await idle.count()){await idle.scrollIntoViewIfNeeded();await page.screenshot({animations:'disabled',path:`${out}/${width}-${theme}-idle-fleet.png`});}}
         } else { await page.keyboard.press('Escape'); await page.getByRole('dialog',{name:'Ledger',exact:true}).waitFor({state:'hidden'}); }
       }

@@ -5,6 +5,7 @@ import { fertility } from './agriculture';
 import { topShare } from './corporate';
 import { eraUnlockAvailable, stageIdForEra, tickActiveStage, NEXT_STAGE, stageAtLeast, STAGES } from './stages';
 import { refreshHomestead } from './stages/homestead';
+import { PLAYABLE_CHAPTERS, frontierTick, atFrontier } from './stages/frontier';
 import type { GameState } from './types';
 
 export const totalHa = (s: GameState) => s.fields.reduce((a, f) => a + f.ha, 0);
@@ -34,7 +35,7 @@ function newStageReady(s: GameState) {
 
 export const canAdvance = (s: GameState) => s.legacyProgression
   ? s.era < ERAS.length && eraUnlockAvailable(s, s.era + 1)
-  : !!NEXT_STAGE[s.stageId] && newStageReady(s);
+  : PLAYABLE_CHAPTERS.some(id => id === NEXT_STAGE[s.stageId]) && newStageReady(s);
 
 /** The player decides when to step into the next era. */
 export function advanceEra(s: GameState): string | null {
@@ -122,6 +123,7 @@ export function discover(s: GameState, id: string) {
 }
 
 export function progressionTick(s: GameState) {
+  frontierTick(s);
   // Keep legacy saves synchronized; new saves advance only when the player accepts a chapter.
   if (s.legacyProgression) s.stageId = stageIdForEra(s.era);
   if (!s.legacyProgression) refreshHomestead(s); // the village trader remains a side channel in later chapters
@@ -184,6 +186,7 @@ export function objective(s: GameState): { title: string; hint: string; page?: s
       return { title: `Build the farm business · ${moneyProgress(sales, 500_000)}`, hint: 'Two hands and $500,000 in sales open Industry. Check wages against what your fields earn.', page: 'workers' };
     }
     if (s.stageId === 'industry') {
+      if (atFrontier(s)) return { title: 'Your next horizon', hint: 'Keep growing or earn stewardship marks. Settlement is the next chapter being built.', page: 'overview' };
       if (s.eraReady) return { title: 'Your workers want their families nearby', hint: 'Settlement is the next chapter. Your farm and factories keep running.', page: 'overview' };
       if (!s.buildings.some((b) => BUILDINGS[b.type].category === 'processing')) return { title: 'Build your first mill', hint: 'Processing adds value to crops, but it needs steady inputs and labour.', page: 'production' };
       return { title: `Grow into industry · ${moneyProgress(sales, 3_000_000)}`, hint: 'Build a reliable farm-to-factory chain before moving on.', page: 'production' };

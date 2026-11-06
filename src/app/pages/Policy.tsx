@@ -120,7 +120,7 @@ function Milestones({ s }: { s: GameState }) {
             );
           })}
         </div>
-        <p className="small muted">{s.milestones.length} of {MILESTONES.length} achieved.<Info text="Achieved milestones are permanent." /></p>
+        <p className="small muted">{MILESTONES.filter(m => s.milestones.includes(m.id)).length} of {MILESTONES.length} achieved.<Info text="Achieved milestones are permanent. Frontier marks have their own count on Overview." /></p>
       </div>
     </Card>
   );

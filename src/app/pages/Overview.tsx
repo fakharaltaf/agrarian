@@ -12,6 +12,7 @@ import { duration, money, num, pct0, stamp } from '../format';
 import { Bar, Card, Kpi, PageHead, usePref } from '../ui';
 import { unlockedRegions } from './shared';
 import { STAGES } from '../../simulation/stages';
+import { atFrontier, frontierGoals } from '../../simulation/stages/frontier';
 
 // Kinds that move cash but are not profit or loss (same exclusions as corporate.netIncome).
 const NON_PL: LedgerKind[] = ['loanIn', 'loanRepay', 'sharesIssued', 'dividends', 'buyback', 'land', 'machine', 'building', 'acquisition', 'irrigation', 'margin', 'assetSale'];
@@ -55,6 +56,7 @@ export default function OverviewPage() {
       {show('kpis') && <Kpis s={s} />}
       <AdvisorCard s={s} />
       <ValuesCard s={s} />
+      <FrontierCard s={s} />
       <div className="grid2">
         {show('era') && <EraCard s={s} />}
         {show('alerts') && <Alerts s={s} />}
@@ -63,6 +65,21 @@ export default function OverviewPage() {
       {(show('pl') || show('worth')) && <Charts s={s} pl={show('pl')} worth={show('worth')} />}
     </div>
   );
+}
+
+function FrontierCard({ s }: { s: GameState }) {
+  if (!atFrontier(s)) return null;
+  const marks = s.milestones.filter(id => id.startsWith('frontier:')).length;
+  return <Card title={<>🌄 Frontier <span className="muted">· {marks} marks</span></>} info="Optional goals continue indefinitely. Marks recognize achievements; they do not grant money or production bonuses.">
+    <div className="frontier-goals">
+      {frontierGoals(s).map(goal => <div className="frontier-goal" key={goal.id}>
+        <div className="row between"><b>{goal.icon} {goal.name}</b><span className="mono">{goal.name === 'Trade horizon' ? money(goal.value) : `${num(goal.value)} ha`} / {goal.name === 'Trade horizon' ? money(goal.target) : `${num(goal.target)} ha`}</span></div>
+        <Bar value={Math.min(1, goal.progress)} label={goal.detail} />
+        <span className="small muted">{goal.progress >= 1 ? 'Complete · marks recorded at midnight' : goal.name === 'Stewardship' ? '80% average fertility required' : 'Each mark opens a larger horizon'}</span>
+      </div>)}
+      <div className="frontier-coming"><span>🏘️</span><div><b>Next chapter coming</b><p>{s.legacyProgression ? 'Community chapters will be offered in your existing save.' : 'Settlement · homes for your workers’ families'}</p></div></div>
+    </div>
+  </Card>;
 }
 
 function ValuesCard({ s }: { s: GameState }) {
@@ -168,6 +185,7 @@ function eraProgress(s: GameState): { value: number; parts: [string, string][] }
 
 function EraCard({ s }: { s: GameState }) {
   if (!s.legacyProgression) {
+    if (atFrontier(s)) return <Card title={`Chapter · ${STAGES[s.stageId].title}`}><p className="muted">Keep your operation growing. The next chapter will be offered here when it arrives.</p></Card>;
     const o = objective(s);
     const sales = lifetimeSales(s);
     const ratio = (n: number, target: number) => Math.min(1, n / target);
