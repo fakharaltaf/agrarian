@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  schedule:
+    - cron: '*/30 * * * *' # picks up new commits on the roadmap branch for /preview/
 
 permissions:
   contents: read
@@ -26,6 +28,21 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+      # Work-in-progress roadmap branch at /agrarian/preview/. Its saves use a separate database so it can
+      # never overwrite a real save on the live game. Never blocks the live deploy.
+      - uses: actions/checkout@v4
+        continue-on-error: true
+        with:
+          ref: roadmap
+          path: preview-src
+      - name: Build preview
+        continue-on-error: true
+        working-directory: preview-src
+        run: |
+          grep -q "const DB = 'agrarian';" src/stores/game.ts
+          sed -i "s/const DB = 'agrarian';/const DB = 'agrarian-preview';/" src/stores/game.ts
+          npm ci
+          npx vite build --base /agrarian/preview/ --outDir ../dist/preview
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
