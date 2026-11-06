@@ -49,7 +49,7 @@ export default function EquipmentPage() {
           {TYPES.filter((t) => available(s, t)).map((t) => <MachineCard key={t} s={s} t={t} r={r} />)}
         </div>
         {TYPES.filter((t) => !available(s, t)).map((t) => (
-          <p key={t} className="muted small" style={{ marginTop: 8 }}>{MACHINES[t].name}: unlocks {s.era < MACHINES[t].minEra ? `in Era ${MACHINES[t].minEra}` : `with ${TECH[MACHINES[t].research!].name} research`}.</p>
+          <p key={t} className="muted small" style={{ marginTop: 8 }}>{MACHINES[t].name}: unlocks {s.era < MACHINES[t].minEra ? `in Era ${MACHINES[t].minEra}` : MACHINES[t].research && !has(s, MACHINES[t].research!) ? `with ${TECH[MACHINES[t].research!].name} research` : `when you can grow ${MACHINES[t].crops!.map((c) => GOODS[c].name.toLowerCase()).join(' or ')}`}.</p>
         ))}
       </Card>
 

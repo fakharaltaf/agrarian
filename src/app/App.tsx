@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
+import { Component, lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ERAS } from '../simulation/config';
 import { equity } from '../simulation/core';
 import { ACHIEVEMENTS, PAGES } from '../simulation/engine';
@@ -78,9 +78,11 @@ export function App() {
           {Page && (
             <section className="page-drawer" role="dialog" aria-label={PAGES.find((p) => p.id === current)?.label}>
               <button className="icon-btn page-close" onClick={() => go('farm')} aria-label="Back to the farm (Esc)" title="Back to the farm (Esc)">✕</button>
-              <Suspense fallback={<div className="empty">Loading…</div>}>
-                <Page key={current} />
-              </Suspense>
+              <PageGuard key={current}>
+                <Suspense fallback={<div className="empty">Loading…</div>}>
+                  <Page />
+                </Suspense>
+              </PageGuard>
             </section>
           )}
         </div>
@@ -557,4 +559,21 @@ function useShortcuts(h: { help: () => void; log: () => void }) {
     addEventListener('keyup', onSpaceUp, true);
     return () => (removeEventListener('keydown', onKey, true), removeEventListener('keyup', onSpaceUp, true));
   }, []);
+}
+
+/** A crash inside one page shows a notice in the drawer instead of blanking the whole game. */
+class PageGuard extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state = { error: null as Error | null };
+  static getDerivedStateFromError(error: Error) { return { error }; }
+  componentDidCatch(error: Error) { console.error('Page crashed:', error); }
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div className="empty">
+        <p>This page hit a problem. Your farm is safe and still running.</p>
+        <p className="mono">{this.state.error.message}</p>
+        <button className="btn" onClick={() => this.setState({ error: null })}>Try again</button>
+      </div>
+    );
+  }
 }

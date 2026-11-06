@@ -215,6 +215,7 @@ function addMore(s: GameState, g: Group, groups: Group[], worth: number): { ok: 
     if (cows - g.list.reduce((a, b) => a + per * levelMult(b.level), 0) < per) return { ok: false, why: `Needs ${num(per)} more cows than you have spare`, gain };
   }
   if (g.type === 'dairy') return { ok: true, why: 'You have the cows for it, and they eat the same feed either way', gain };
+  if (!ins(g.type).length) return { ok: true, why: 'It needs nothing but power', gain };
   const sp = spareOf(s, g, groups);
   const one = (Object.values(rec.inputs)[0] ?? 0) * rec.batchesPerHour * 24;
   if (!sp) return { ok: false, why: `Nothing of yours makes its ${lower(ins(g.type))} — you'd be buying it`, gain };
@@ -228,11 +229,13 @@ function Coin() {
   return <svg className="coin" viewBox="0 0 16 16" aria-hidden><circle cx="8" cy="8" r="7" /><circle cx="8" cy="8" r="4.6" className="coin-in" /></svg>;
 }
 
-function Token({ g, top, sub, bad }: { g: GoodId; top: string; sub?: string; bad?: boolean }) {
+const POWER = '#F2C94C';
+
+function Token({ g, name, color, top, sub, bad }: { g?: GoodId; name?: string; color?: string; top: string; sub?: string; bad?: boolean }) {
   return (
     <div className={`ln-token${bad ? ' bad' : ''}`}>
-      <span className="ln-ball" style={{ background: GOODS[g].color }} />
-      <span className="ln-token-name">{GOODS[g].name}</span>
+      <span className="ln-ball" style={{ background: g ? GOODS[g].color : color }} />
+      <span className="ln-token-name">{g ? GOODS[g].name : name}</span>
       <b className="mono">{top}</b>
       {sub && <span className="ln-token-sub">{sub}</span>}
     </div>
@@ -304,17 +307,19 @@ function LineCard({ s, g, groups }: { s: GameState; g: Group; groups: Group[] })
                 const sub = shortOf === x ? `only ${num(inv[x])} left` : sup && sup.c === x ? `🌾 ${sup.n} field${sup.n === 1 ? '' : 's'}` : fromMill ? 'from your mill' : g.type === 'dairy' && x === 'feed' ? 'for your cows' : `${num(inv[x])} in store`;
                 return <Token key={x} g={x} top={`${num(perDay(q))}/day`} sub={sub} bad={shortOf === x} />;
               })}
+              {!ins(g.type).length && <Token name="Electricity" color={POWER} top={`${num(perDay(Math.abs(rec.kwh)))} kWh/day`} />}
             </div>
-            <Belt live={live} color={GOODS[ins(g.type)[0][0]].color} />
+            <Belt live={live} color={ins(g.type).length ? GOODS[ins(g.type)[0][0]].color : POWER} />
             <div className={`ln-puck ${dot}`} style={{ ['--p' as string]: `${Math.round(Math.min(1, g.util) * 100)}` }}>
               <div className="ln-ring"><span className="mono">{pct0(g.util)}</span></div>
               <b>{label}</b>
             </div>
-            <Belt live={live} color={GOODS[outs(g.type)[0][0]].color} />
+            <Belt live={live} color={outs(g.type).length ? GOODS[outs(g.type)[0][0]].color : POWER} />
             <div className="ln-side out">
               {outs(g.type).filter(([x]) => x !== 'manure').map(([x, q]) => (
                 <Token key={x} g={x} top={`${num(perDay(q * (has(s, 'processEfficiency') ? 1.1 : 1)))}/day`} sub={`${price(dayPrice(s, g.region, x))} each`} />
               ))}
+              {!outs(g.type).length && <Token name="Electricity" color={POWER} top={`${num(perDay(Math.abs(rec.kwh)))} kWh/day`} />}
             </div>
           </div>
         )}
@@ -372,7 +377,7 @@ function LineCard({ s, g, groups }: { s: GameState; g: Group; groups: Group[] })
               onConfirm={() => act({ type: 'build', region: g.region, building: g.type }, `${d.name} built.`)} />}
           </Option>}
 
-          {!paused && worth < 0 && <Option icon="⏸" title={`Pause it · saves ${money(pauseSaves)} a day`} sub={g.type === 'dairy' ? 'Its cows go back to the cowshed and keep giving milk.' : `The ${lower(ins(g.type))} gets sold instead.`}>
+          {!paused && worth < 0 && <Option icon="⏸" title={`Pause it · saves ${money(pauseSaves)} a day`} sub={g.type === 'dairy' ? 'Its cows go back to the cowshed and keep giving milk.' : ins(g.type).length ? `The ${lower(ins(g.type))} gets sold instead.` : 'No staff or power bill while it rests.'}>
             <button className="btn sm warn" onClick={() => toggle(false)}>Pause</button></Option>}
         </div>
 
