@@ -18,7 +18,9 @@ import { antitrustCheck, chooseEvent, eventsDaily, expireChoices } from './event
 import { buyback, execTick, issueShares, marketShare, payDividend } from './corporate';
 import { advanceEra, discover, milestonesDaily, progressionTick } from './progression';
 import { featureEra, handleActiveStageAction, stageAtLeast, stageIdForEra, STAGES } from './stages';
+import { prepareLarder } from './stages/settlement';
 import { refreshHomestead } from './stages/homestead';
+import { availableResidents, communityOf } from './community-state';
 import { shipGoods, shipmentsTick } from './logistics';
 import type { Action, ActionResult, GameState, RegionState } from './types';
 
@@ -38,14 +40,14 @@ export function createGame(seed = (Date.now() % 2147483646) + 1): GameState {
     haulToday: 0, truckToday: 0, portToday: 0, insured: false, insuredFrom: 0, forecast: [], frostTonight: false, quality: {}, homePlotsBought: 1, parcelsBought: 0, waterToday: 0, powerGen: 0, powerUse: 0, backlog: 0,
   }])) as Record<RegionId, RegionState>;
   const s: GameState = {
-    version: 6, seed, rng: seed, tick: 0, cash: CONFIG.startingCash, marginAccount: 0,
+    version: 7, seed, rng: seed, tick: 0, cash: CONFIG.startingCash, marginAccount: 0,
     fields: [], workers: [], machines: [], buildings: [], regions, markets: createMarkets(),
     seeds: Object.fromEntries(Object.keys(CROPS).map((c) => [c, c === 'wheat' ? 10 : 0])) as Record<CropId, number>,
     macro: { cpi: 1, inflation: 0.025, baseRate: 0.045, energy: 1, income: 1, climate: 0, crunch: 0, emissions: 0 },
     bench: {}, loans: [], futures: [], contracts: [], shipments: [], research: { done: [], active: null, licensed: [] },
     automation: { rules: [], policies: { ...DEFAULT_POLICIES } }, competitors: [], events: [],
     corp: { incorporated: false, shares: CONFIG.sharesOutstanding, playerShares: CONFIG.sharesOutstanding, execs: [], reputation: 50, dividends: 0, runoff: 0 },
-    ledger: [], lifetime: {}, books: [], overdraftDays: 0, bankrupt: null, era: 1, stageId: stageIdForEra(1), stageState: { homestead: STAGES.homestead.createState() }, legacyProgression: false,
+    ledger: [], lifetime: {}, books: [], overdraftDays: 0, bankrupt: null, era: 1, stageId: stageIdForEra(1), stageState: { homestead: STAGES.homestead.createState(), settlement: STAGES.settlement.createState() }, legacyProgression: false,
     charters: { trader: null }, values: { prosperityFairness: 50, orderFreedom: 50, peaceStrength: 50, traditionProgress: 50 },
     stats: { harvests: 0, sales: 0, plantings: 0, produced: {}, spoiled: 0, peopleFed: 0, forcedSales: 0, overflowLost: 0, maxEquity: 0, crisisSurvived: false },
     unlockedCrops: ['wheat'], milestones: [], seenTips: [], discovered: [], achievements: [], rewarded: [], daily: null, eraReady: false, herds: [], advisor: false, warned: {}, log: [], nextId: 1,
@@ -93,10 +95,12 @@ export function step(s: GameState) {
   if (s.tick % TICKS_PER_DAY === 0) daily(s);
   fieldsTick(s);
   laborTick(s);
+  prepareLarder(s);
   buildingsTick(s);
   execTick(s);
   marketsTick(s);
   shipmentsTick(s);
+  prepareLarder(s);
   rulesTick(s);
   policiesTick(s);
   progressionTick(s);
@@ -297,7 +301,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       return ok();
     }
     case 'buyParcel': {
-      if (!featureEra(s, 3)) return fail('Larger parcels become available with mechanisation.');
+      if (!(s.legacyProgression ? s.era >= 3 : stageAtLeast(s, 'farm-business'))) return fail('Larger parcels arrive with your farm workforce.');
       if (!s.regions[a.region].unlocked) return fail('Expand into this region first.');
       if (!CONFIG.parcelSizes.includes(a.ha)) return fail('Invalid parcel size.');
       const price = parcelPrice(s, a.region, a.ha);
@@ -321,18 +325,22 @@ export function dispatch(s: GameState, a: Action): ActionResult {
     case 'hire': {
       if (!featureEra(s, 2)) return fail('Workers arrive when you start the Farm Business chapter.');
       if (!s.regions[a.region].unlocked) return fail('Expand into this region first.');
+      if (a.region === 'heartland' && communityOf(s).active && availableResidents(s) < 1) return fail('No resident adults are available. Make room for more families first.');
       if (a.role === 'manager' && !(s.legacyProgression ? s.era >= 3 : stageAtLeast(s, 'farm-business'))) return fail('Managers arrive with the Farm Business chapter.');
       const c = hireCost(s, a.region);
       if (c > s.cash) return fail(`Recruiting costs $${c}.`);
       post(s, 'training', -c, 'Recruitment', a.region);
       const w = hire(s, a.region, a.role, a.wageFactor);
+      w.resident = a.region === 'heartland' && communityOf(s).active;
       log(s, 'info', `Hired ${w.name} as a ${a.role === 'hand' ? 'farm hand' : 'farm manager'} in ${REGIONS[a.region].name}.`, 'workers');
       return ok();
     }
     case 'fire': {
       const w = s.workers.find((x) => x.id === a.workerId);
       if (!w) return fail('No such worker.');
-      post(s, w.role === 'manager' ? 'salaries' : 'wages', -wageOf(s, w) * 12, `Severance: ${w.name}`, w.region);
+      const severance = round2(wageOf(s, w) * 12);
+      post(s, w.role === 'manager' ? 'salaries' : 'wages', -severance, `Severance: ${w.name}`, w.region);
+      if (w.resident) communityOf(s).householdCash += severance;
       s.workers.splice(s.workers.indexOf(w), 1);
       for (const m of s.machines) if (m.driver === w.id) m.driver = null;
       for (const o of s.workers) if (o.region === w.region) o.morale = clamp(o.morale - 0.05, 0, 1);
@@ -695,6 +703,8 @@ export function dispatch(s: GameState, a: Action): ActionResult {
     }
     case 'sellToMill': case 'barter': case 'haggle': case 'chooseCharter':
       return fail('The village trader is not available in this chapter.');
+    case 'startSettlement': case 'buildHomes': case 'setLarder':
+      return fail('Community actions are not available here.');
   }
 }
 

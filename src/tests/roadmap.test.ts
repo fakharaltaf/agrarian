@@ -10,6 +10,8 @@ import { STAGES, STAGE_IDS, stageIdForEra, tickActiveStage } from '../simulation
 import { HOMESTEAD_MILL_PRICE, homesteadState, traderHaggleChance } from '../simulation/stages/homestead';
 import { HOMESTEAD_SALES_GOAL } from '../simulation/progression';
 import { botAct } from './bot';
+import { communityOf, createSettlementState, population } from '../simulation/community-state';
+import { canStartSettlement } from '../simulation/stages/settlement';
 import type { GameState } from '../simulation/types';
 
 function finiteTree(value: unknown, path = 'state') {
@@ -31,7 +33,7 @@ it('stage registry uses stable string ids and preserves the eight legacy-era ide
     expect(STAGES[id].id).toBe(id);
     expect(typeof STAGES[id].tick).toBe('function');
     expect(typeof STAGES[id].handleAction).toBe('function');
-    expect(STAGES[id].createState()).toEqual(id === 'homestead' ? { day: -1, mood: 50, offers: [] } : id === 'market-town' ? { lastMarketDay: -1 } : {});
+    expect(STAGES[id].createState()).toEqual(id === 'homestead' ? { day: -1, mood: 50, offers: [] } : id === 'market-town' ? { lastMarketDay: -1 } : id === 'settlement' ? createSettlementState() : {});
   }
 });
 it('legacy saves migrate to their matching stage without advancing or changing their era', () => {
@@ -215,4 +217,22 @@ for (const name of names) (root ? it : it.skip)(`real-save baseline: ${name}, 30
   expect(s.cash-cash).toBeCloseTo(cashFlows(s)-flows,1);
   expect(JSON.parse(JSON.stringify(s))).toEqual(s);
   console.log('Year10 recovery actions',restructures);
+},120000);
+
+(root ? it : it.skip)('veteran Settlement entry preserves capabilities and runs the community for 30 days', () => {
+  for(const name of ['year55-day118','year125-day22']) {
+    const s=parseSave(readFileSync(`${root}/agrarian-${name}.json`,'utf8')).game;
+    const era=s.era,cash=s.cash,flows=cashFlows(s),workers=structuredClone(s.workers),tick=s.tick;
+    expect(canStartSettlement(s)).toBe(true);
+    expect(dispatch(s,{type:'startSettlement',charter:'free'}).ok).toBe(true);
+    expect(s.cash).toBe(cash);expect(s.workers).toEqual(workers);expect(s.era).toBe(era);
+    expect(dispatch(s,{type:'buildHomes',tier:'cottage',count:10}).ok).toBe(true);
+    const start=performance.now();for(let i=0;i<720;i++)step(s);
+    const rate=720000/(performance.now()-start);
+    expect(s.tick-tick).toBe(720);expect(s.stageId).toBe('settlement');expect(s.era).toBe(era);
+    expect(population(s)).toBeGreaterThan(0);expect(communityOf(s).fed).toBeGreaterThan(0.95);
+    finiteTree(s);expect(JSON.parse(JSON.stringify(s))).toEqual(s);
+    expect(s.cash-cash).toBeCloseTo(cashFlows(s)-flows,1);
+    console.log('Active Settlement real save',JSON.stringify({name,people:population(s),ticksPerSecond:rate}));
+  }
 },120000);

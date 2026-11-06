@@ -344,3 +344,27 @@ export function tree(scale: number, crown: THREE.Material) {
 }
 
 export { cached, mesh };
+
+/** Civic housing keeps the farm's materials while making density visible. */
+export function buildCommunityHome(tier: string, w: number, d: number): Model {
+  if (tier === 'cottage') return buildLot('house', w, d);
+  const group = new THREE.Group(), windows: THREE.Mesh[] = [];
+  if (tier === 'terrace') {
+    for (let i = 0; i < 3; i++) {
+      const home = buildLot('house', w, d);
+      home.group.scale.setScalar(0.32);
+      home.group.position.set(i * w / 3, 0, d / 3);
+      group.add(home.group); windows.push(...home.windows);
+    }
+  } else {
+    group.add(box(w - 0.1, 0.06, d - 0.1, PAL.stone, w / 2, 0, d / 2));
+    group.add(box(2.4, 3.1, 1.8, PAL.cream, w / 2, 1.58, d / 2));
+    group.add(box(2.6, 0.16, 2, PAL.roofGrey, w / 2, 3.2, d / 2));
+    group.add(box(0.4, 0.65, 0.08, PAL.door, w / 2, 0.35, d / 2 + 0.93));
+    for (let floor = 0; floor < 3; floor++) for (let col = 0; col < 4; col++) {
+      const win = box(0.3, 0.4, 0.06, PAL.window, w / 2 - 0.85 + col * 0.55, 0.75 + floor * 0.95, d / 2 + 0.93);
+      group.add(win); windows.push(win);
+    }
+  }
+  return { group, smoke: [], windows };
+}

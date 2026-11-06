@@ -2,6 +2,7 @@
 import { BUILDING_TYPES, CONFIG, type BuildingType, type RegionId } from '../../simulation/config';
 import type { Building, Field, GameState } from '../../simulation/types';
 import { stageAtLeast } from '../../simulation/stages';
+import { communityOf } from '../../simulation/community-state';
 
 export interface Lot { key: string; type: BuildingType | 'house' | 'shed'; buildings: Building[]; x: number; y: number; w: number; d: number }
 export interface Plot { field: Field; x: number; y: number; s: number }
@@ -22,9 +23,12 @@ export const plotSide = (ha: number) => Math.max(2, Math.min(16, Math.round(2 * 
 export function layoutRegion(s: GameState, r: RegionId): Layout {
   const lots: Lot[] = [];
   const add = (type: Lot['type'], bs: Building[], key: string = type) => {
-    const i = lots.length;
     const [w, d] = FOOTPRINT[type];
-    lots.push({ key, type, buildings: bs, x: (i % LOTS_PER_ROW) * LOT_W + 1, y: Math.floor(i / LOTS_PER_ROW) * LOT_D + 1, w, d });
+    const landmark = key === 'market' ? 1 : key === 'crew' ? 2 : key === 'office' ? 3 : 0;
+    const industrial = BUILDING_TYPES.indexOf(type as BuildingType);
+    const x = bs.length ? (industrial % LOTS_PER_ROW) * LOT_W + 1 : landmark * LOT_W + 1;
+    const y = bs.length ? -LOT_D * (1 + Math.floor(industrial / LOTS_PER_ROW)) : 1;
+    lots.push({ key, type, buildings: bs, x, y, w, d });
   };
   add(r === 'heartland' ? 'house' : 'shed', []);
   if (s.stats.harvests > 0) add('shed', [], 'market');
@@ -35,8 +39,15 @@ export function layoutRegion(s: GameState, r: RegionId): Layout {
     const bs = here.filter((b) => b.type === t);
     if (bs.length) add(t, bs);
   }
-  const yardRows = Math.ceil(lots.length / LOTS_PER_ROW);
-  const roadY = yardRows * LOT_D + 1;
+  if (r === 'heartland' && communityOf(s).active) {
+    // Separate fixed streets prevent new houses from moving fields or factories.
+    // Eight visible blocks per density tier represent larger neighbourhood cohorts.
+    for (const home of communityOf(s).homes) for (let i = 0; i < Math.min(home.count, 8); i++) {
+      const street = home.tier === 'cottage' ? 0 : home.tier === 'terrace' ? 1 : 2;
+      lots.push({ key: `community:${home.tier}:${home.id}-${i}`, type: 'house', buildings: [], x: -7 - street * 8, y: i === 0 ? 1 : 5 + i * 4, w: 3, d: 3 });
+    }
+  }
+  const roadY = 6;
 
   const plots: Plot[] = [];
   let x = 0, y = roadY + 2, rowH = 0;
@@ -54,7 +65,7 @@ export function layoutRegion(s: GameState, r: RegionId): Layout {
   }
   let buy: Layout['buy'] = null;
   if (r === 'heartland' && s.stats.sales > 0 && s.regions.heartland.homePlotsBought < CONFIG.homePlots) buy = { ...place(2), s: 2 };
-  const maxX = Math.max(LOTS_PER_ROW * LOT_W, ...plots.map((p) => p.x + p.s), buy ? buy.x + 2 : 0);
-  const maxY = Math.max(y + rowH, roadY + 4);
+  const maxX = Math.max(LOTS_PER_ROW * LOT_W, ...lots.map(l => l.x + l.w), ...plots.map((p) => p.x + p.s), buy ? buy.x + 2 : 0);
+  const maxY = Math.max(y + rowH, roadY + 4, ...lots.map(l => l.y + l.d));
   return { lots, plots, roadY, buy, maxX, maxY };
 }

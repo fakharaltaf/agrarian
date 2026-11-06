@@ -1,3 +1,4 @@
+import { larderReserve } from './stages/settlement';
 // Factories, energy and building upkeep. One production model for every industry:
 // batches = min(capacity, scarcest input, output room, power) — Leontief, like a real line.
 import { BUILDINGS, COWS_PER_DAIRY_BATCH, GOODS, REGIONS, REGION_IDS, WORK_START, type GoodId, type RegionId } from './config';
@@ -62,7 +63,7 @@ function produce(s: GameState, b: Building, staff: number, cows = 0) {
     reason = 'Not enough cows';
   }
   for (const [g, q] of Object.entries(rec.inputs) as [GoodId, number][]) {
-    const can = Math.max(0, inv[g] - reservedStock(s, b.region, g, b)) / q; // other factories' reserved stock is off limits
+    const can = Math.max(0, inv[g] - reservedStock(s, b.region, g, b) - (b.region === 'heartland' ? larderReserve(s, g) : 0)) / q; // other factories' reserved stock is off limits
     if (can < batches) {
       batches = can;
       reason = `Not enough ${GOODS[g].name.toLowerCase()}`;

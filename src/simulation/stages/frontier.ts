@@ -1,11 +1,12 @@
 import type { StageModule } from './types';
 import type { GameState } from '../types';
+import { communityOf } from '../community-state';
 import { noStageAction } from './shared';
 import { log } from '../core';
 import { fertility } from '../agriculture';
 
-export const PLAYABLE_CHAPTERS = ['homestead', 'market-town', 'farm-business', 'industry'] as const;
-export function atFrontier(s: GameState) { return s.legacyProgression ? s.era >= 8 : s.stageId === PLAYABLE_CHAPTERS[PLAYABLE_CHAPTERS.length - 1]; }
+export const PLAYABLE_CHAPTERS = ['homestead', 'market-town', 'farm-business', 'industry', 'settlement'] as const;
+export function atFrontier(s: GameState) { return s.legacyProgression && !communityOf(s).active ? s.era >= 8 : s.stageId === PLAYABLE_CHAPTERS[PLAYABLE_CHAPTERS.length - 1]; }
 export function frontierGoals(s: GameState) {
   const rank = (track: string) => s.milestones.filter(id => id.startsWith(`frontier:${track}:`)).length;
   const salesRank = rank('sales'), soilRank = rank('soil');

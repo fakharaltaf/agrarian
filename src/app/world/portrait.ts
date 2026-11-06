@@ -1,18 +1,18 @@
 // Small isometric portraits of a building, rendered once from the same low-poly model the farm uses.
 import * as THREE from 'three';
-import type { BuildingType } from '../../simulation/config';
+import type { Lot } from './layout';
 import { FOOTPRINT } from './layout';
 import { buildLot } from './models';
 import { artRevision } from './art';
 let cachedRevision=-1;
 
 const SIZE = 192;
-const cache = new Map<BuildingType, string>();
+const cache = new Map<Lot['type'], string>();
 let renderer: THREE.WebGLRenderer | null = null;
 let idle = 0;
 
 /** A PNG data URL of the building, or '' when WebGL isn't available (callers show a fallback). */
-export function portrait(type: BuildingType): string {
+export function portrait(type: Lot['type']): string {
   if(cachedRevision!==artRevision()){cache.clear();cachedRevision=artRevision();}
   const hit = cache.get(type);
   if (hit !== undefined) return hit;

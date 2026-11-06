@@ -33,6 +33,7 @@ const PAGE_COMPONENTS: Record<string, React.ComponentType> = {
   world: lazy(() => import('./pages/World')),
   corporation: lazy(() => import('./pages/Corporation')),
   policy: lazy(() => import('./pages/Policy')),
+  community: lazy(() => import('./pages/Community')),
 };
 
 export function App() {

@@ -52,6 +52,7 @@ export interface Worker {
   name: string;
   region: RegionId;
   role: 'hand' | 'manager';
+  resident: boolean; // existing staff remain commuters when a community chapter begins
   wageFactor: number; // multiple of the regional market wage
   skill: number; // 0.5..1.6
   morale: number; // 0..1
@@ -284,9 +285,28 @@ export interface HomesteadState { day: number; mood: number; offers: BarterOffer
 export interface MarketTownState { lastMarketDay: number }
 export type TraderCharter = 'fair' | 'shrewd';
 export interface TownValues { prosperityFairness: number; orderFreedom: number; peaceStrength: number; traditionProgress: number }
+export type SettlementCharter = 'company' | 'free';
+export type HomeTier = 'cottage' | 'terrace' | 'apartment';
+export interface CommunityHome { id: number; tier: HomeTier; count: number; cost: number }
+export interface HouseholdCohort { id: number; name: string; households: number }
+export interface SettlementState {
+  active: boolean;
+  charter: SettlementCharter | null;
+  homes: CommunityHome[];
+  cohorts: HouseholdCohort[];
+  householdCash: number;
+  happiness: number;
+  fed: number;
+  warm: number;
+  autoLarder: boolean;
+  larderHold: Partial<Record<GoodId, number>>;
+  lastDay: number;
+  enteredAt: number;
+  hardshipDays: number;
+}
 
 export interface GameState {
-  version: 6;
+  version: 7;
   seed: number;
   rng: number;
   tick: number;
@@ -356,6 +376,9 @@ export type Action =
   | { type: 'barter'; offerId: string }
   | { type: 'haggle'; offerId: string }
   | { type: 'chooseCharter'; charter: TraderCharter }
+  | { type: 'startSettlement'; charter: SettlementCharter }
+  | { type: 'buildHomes'; tier: HomeTier; count: number }
+  | { type: 'setLarder'; enabled: boolean }
   | { type: 'buy'; region: RegionId; good: GoodId; qty: number }
   | { type: 'buyPlot' }
   | { type: 'buyParcel'; region: RegionId; ha: number }

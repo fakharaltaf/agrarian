@@ -1,0 +1,20 @@
+import { expect, it } from 'vitest';
+import { createGame, dispatch } from '../simulation/engine';
+import { post } from '../simulation/core';
+import { communityOf } from '../simulation/community-state';
+import { layoutRegion } from '../app/world/layout';
+it('new industry and housing do not move existing farmland or landmarks', () => {
+  const s = createGame(1003), before = layoutRegion(s, 'heartland');
+  s.legacyProgression = true; s.era = 4;
+  post(s, 'prize', 1e6, 'Layout fixture capital');
+  expect(dispatch(s, { type: 'build', region: 'heartland', building: 'flourMill' }).ok).toBe(true);
+  const c = communityOf(s); c.active = true;
+  c.homes.push({ id: 999, tier: 'cottage', count: 1000, cost: 5e6 });
+  const after = layoutRegion(s, 'heartland');
+  expect(after.plots.map(({x,y,s}) => ({x,y,s}))).toEqual(before.plots.map(({x,y,s}) => ({x,y,s})));
+  expect(after.lots.find(l => l.key === 'house')).toMatchObject(before.lots.find(l => l.key === 'house')!);
+  expect(after.lots.filter(l => l.key.startsWith('community:'))).toHaveLength(8);
+  const cottage = after.lots.find(l => l.key === 'community:cottage:999-0');
+  c.homes.push({ id: 1000, tier: 'terrace', count: 100, cost: 1.3e6 });
+  expect(layoutRegion(s, 'heartland').lots.find(l => l.key === cottage!.key)).toEqual(cottage);
+});

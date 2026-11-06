@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { BUILDINGS, CROP_IDS, ERAS, GOODS, REGIONS, REVENUE_KINDS, type CropId, type LedgerKind } from '../../simulation/config';
+import { CHAPTER_SALES, BUILDINGS, CROP_IDS, ERAS, GOODS, REGIONS, REVENUE_KINDS, type CropId, type LedgerKind } from '../../simulation/config';
 import { debt, equity, inventoryValue, stored, sumBooks } from '../../simulation/core';
 import { companyValue, globalShare } from '../../simulation/corporate';
 import { lifetimeSales, objective, totalHa } from '../../simulation/engine';
@@ -12,6 +12,7 @@ import { duration, money, num, pct0, stamp } from '../format';
 import { Bar, Card, Kpi, PageHead, usePref } from '../ui';
 import { unlockedRegions } from './shared';
 import { STAGES } from '../../simulation/stages';
+import { communityOf } from '../../simulation/community-state';
 import { atFrontier, frontierGoals } from '../../simulation/stages/frontier';
 
 // Kinds that move cash but are not profit or loss (same exclusions as corporate.netIncome).
@@ -40,7 +41,7 @@ export default function OverviewPage() {
 
   return (
     <div className="stack l">
-      <PageHead title="Overview" sub={s.legacyProgression ? `Era ${s.era} · ${ERAS[s.era - 1].name}. ${ERAS[s.era - 1].theme}` : `Chapter · ${STAGES[s.stageId].title}`}
+      <PageHead title="Overview" sub={s.legacyProgression && !communityOf(s).active ? `Era ${s.era} · ${ERAS[s.era - 1].name}. ${ERAS[s.era - 1].theme}` : `Chapter · ${STAGES[s.stageId].title}`}
         actions={custom && <button className={`btn ${editing ? 'primary' : 'ghost'} sm`} aria-pressed={editing} onClick={() => setEditing(!editing)}>{editing ? 'Done' : 'Customise'}</button>} />
       {custom && editing && (
         <Card title="Dashboard widgets" info="Choose what this page shows. Your choice is remembered in this browser.">
@@ -77,21 +78,21 @@ function FrontierCard({ s }: { s: GameState }) {
         <Bar value={Math.min(1, goal.progress)} label={goal.detail} />
         <span className="small muted">{goal.progress >= 1 ? 'Complete · marks recorded at midnight' : goal.name === 'Stewardship' ? '80% average fertility required' : 'Each mark opens a larger horizon'}</span>
       </div>)}
-      <div className="frontier-coming"><span>🏘️</span><div><b>Next chapter coming</b><p>{s.legacyProgression ? 'Community chapters will be offered in your existing save.' : 'Settlement · homes for your workers’ families'}</p></div></div>
+      <div className="frontier-coming"><span>🏘️</span><div><b>Next chapter coming</b><p>{s.legacyProgression && !communityOf(s).active ? 'Community chapters will be offered in your existing save.' : 'Town · schools, healthcare and public services'}</p></div></div>
     </div>
   </Card>;
 }
 
 function ValuesCard({ s }: { s: GameState }) {
-  if (s.legacyProgression || s.stageId === 'homestead') return null;
+  if ((s.legacyProgression && !communityOf(s).active) || s.stageId === 'homestead') return null;
   const axes = [
     ['🌾', 'Prosperity', 'Fairness', s.values.prosperityFairness],
     ['⚖️', 'Order', 'Freedom', s.values.orderFreedom],
     ['🕊️', 'Peace', 'Strength', s.values.peaceStrength],
     ['🛠️', 'Tradition', 'Progress', s.values.traditionProgress],
   ] as const;
-  const charter = s.charters.trader === 'fair' ? '🤝 Fair trader' : s.charters.trader === 'shrewd' ? '🪙 Shrewd trader' : 'Trader charter pending';
-  return <Card title="Character of your town" info="Choices nudge these values. The first trader charter moves Prosperity ↔ Fairness; later decisions will shape the other axes.">
+  const charter = communityOf(s).active ? (communityOf(s).charter === 'company' ? '🏘️ Company town' : '🌳 Free settlement') : s.charters.trader === 'fair' ? '🤝 Fair trader' : s.charters.trader === 'shrewd' ? '🪙 Shrewd trader' : 'Trader charter pending';
+  return <Card title="Character of your town" info="Lasting choices shape these values. Trading choices affect prosperity and fairness; civic choices also shape freedom, strength and progress.">
     <div className="town-values">
       <div className="town-charter">{charter}</div>
       {axes.map(([icon, left, right, value]) => <div className="town-axis" key={left}>
@@ -184,17 +185,17 @@ function eraProgress(s: GameState): { value: number; parts: [string, string][] }
 }
 
 function EraCard({ s }: { s: GameState }) {
-  if (!s.legacyProgression) {
+  if (!s.legacyProgression || communityOf(s).active) {
     if (atFrontier(s)) return <Card title={`Chapter · ${STAGES[s.stageId].title}`}><p className="muted">Keep your operation growing. The next chapter will be offered here when it arrives.</p></Card>;
     const o = objective(s);
     const sales = lifetimeSales(s);
     const ratio = (n: number, target: number) => Math.min(1, n / target);
     let progress = 0;
     let requirement = 'The newest playable chapter is ready when you are.';
-    if (s.stageId === 'homestead') { progress = Math.min(ratio(s.fields.length, 4), ratio(sales, 90_000)); requirement = '4 fields + $90,000 in sales'; }
-    else if (s.stageId === 'market-town') { progress = Math.max(ratio(s.fields.length, 12), ratio(sales, 165_000)); requirement = '12 fields or $165,000 in sales'; }
-    else if (s.stageId === 'farm-business') { progress = Math.min(ratio(s.workers.filter(w => w.role === 'hand').length, 2), ratio(sales, 500_000)); requirement = '2 farm hands + $500,000 in sales'; }
-    else if (s.stageId === 'industry') { progress = Math.min(ratio(sales, 3_000_000), s.buildings.some(b => BUILDINGS[b.type].category === 'processing') ? 1 : 0); requirement = 'A working processor + $3,000,000 in sales'; }
+    if (s.stageId === 'homestead') { progress = Math.min(ratio(s.fields.length, 4), ratio(sales, CHAPTER_SALES.homestead)); requirement = '4 fields + $90,000 in sales'; }
+    else if (s.stageId === 'market-town') { progress = Math.max(ratio(s.fields.length, 12), ratio(sales, CHAPTER_SALES['market-town'])); requirement = '12 fields or $165,000 in sales'; }
+    else if (s.stageId === 'farm-business') { progress = Math.min(ratio(s.workers.filter(w => w.role === 'hand').length, 2), ratio(sales, CHAPTER_SALES['farm-business'])); requirement = `2 farm hands + ${money(CHAPTER_SALES['farm-business'])} in sales`; }
+    else if (s.stageId === 'industry') { progress = Math.min(ratio(sales, CHAPTER_SALES.industry), s.buildings.some(b => BUILDINGS[b.type].category === 'processing') ? 1 : 0); requirement = `Machines or processing + ${money(CHAPTER_SALES.industry)} in sales`; }
     return <Card title={<>Chapter · {STAGES[s.stageId].title}</>} info="Chapters open when your business reaches clear milestones. You choose when to advance.">
       <div className="stack s">
         <div className="row between small"><b>{o.title}</b><span className="mono">{pct0(progress)}</span></div>

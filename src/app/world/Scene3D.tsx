@@ -1,3 +1,4 @@
+import { communityOf, population, residentWorkers } from '../../simulation/community-state';
 // The 3D farm. A live, lit, low-poly picture of the simulation: everything shown is read from game state.
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
@@ -10,7 +11,7 @@ import { stageAtLeast } from '../../simulation/stages';
 import { preloadArt, artRevision } from './art';
 import { num, pct0 } from '../format';
 import { layoutRegion, type Layout, type Lot, type Plot } from './layout';
-import { animal, buildLot, box, cached, mat, mesh, PAL, person, tree, vehicle, type Model } from './models';
+import { animal, buildCommunityHome, buildLot, box, cached, mat, mesh, PAL, person, tree, vehicle, type Model } from './models';
 
 /** Graphics quality chosen in Settings (per browser). Low turns off shadows and high-DPI rendering. */
 export const graphicsQuality = (): 'high' | 'low' => {
@@ -22,6 +23,7 @@ export type WorldPick = { kind: 'field'; id: number; multi: boolean } | { kind: 
 const SEASON_GROUND: Record<string, number> = { Spring: 0x88ba5c, Summer: 0x93b14f, Autumn: 0xb3a253, Winter: 0xe4eaec };
 const REGION_GROUND: Partial<Record<RegionId, number>> = { arid: 0xd3bd86, tropics: 0x5ea849 };
 const CROWN: Record<string, number> = { Spring: 0x5f9a45, Summer: 0x4f8a3c, Autumn: 0xd08a3a, Winter: 0xf0f3f4 };
+const reducedMotionQuery = typeof matchMedia === 'function' ? matchMedia('(prefers-reduced-motion: reduce)') : null;
 const SHIRTS = [0xc9553f, 0x3f6fc9, 0xe0b23a, 0x4c9a5a, 0x8a5ac9, 0xd07a2f];
 const ANIMAL_BUILDING: Record<AnimalId, Lot['type']> = { chickens: 'coop', pigs: 'pigsty', cows: 'cowshed', sheep: 'sheepfold' };
 const hash = (n: number) => { const x = Math.sin(n * 127.1) * 43758.5453; return x - Math.floor(x); };
@@ -39,7 +41,7 @@ interface Rig {
   lots: THREE.Group; fields: THREE.Group; units: THREE.Group; deco: THREE.Group; fx: THREE.Group; sel: THREE.Group;
   models: { lot: Lot; model: Model; hit: THREE.Mesh }[]; pick: THREE.Object3D[];
   crops: Partial<Record<Shape, THREE.InstancedMesh>>; sig: { lots: string; fields: string; crops: string; sel: string; deco: string };
-  people: Map<number, THREE.Group>; machines: Map<number, THREE.Group>; trucks: { obj: THREE.Group; t0: number }[]; herds: Map<string, THREE.Group[]>;
+  neighbours: THREE.Group[]; people: Map<number, THREE.Group>; machines: Map<number, THREE.Group>; trucks: { obj: THREE.Group; t0: number }[]; herds: Map<string, THREE.Group[]>;
   storageProps: THREE.Group; lastStockTick: number; lastCash: number; lastCoin: number;
   rain: THREE.Points; smoke: THREE.Sprite[]; pops: { key: string; text: string; x: number; z: number; t0: number; tone?: string }[]; seenHarvest: Map<number, object>; popsReady: boolean; crownMat: THREE.MeshStandardMaterial; lastHaul: number; layout: Layout | null; region: RegionId;
 }
@@ -95,7 +97,7 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
       renderer, scene, camera, target: new THREE.Vector3(6, 0, 8), yaw: Math.PI / 4, yawTo: Math.PI / 4, zoom: 1, sun, hemi, ground,
       lots: g(), fields: g(), units: g(), deco: g(), fx: g(), sel: g(), models: [], pick: [], crops: {}, sig: { lots: '', fields: '', crops: '', sel: '', deco: '' },
       storageProps: g(), lastStockTick:-1, lastCash:getGame().cash, lastCoin:0,
-      people: new Map(), machines: new Map(), trucks: [], herds: new Map(), rain, smoke: [], pops: [], seenHarvest: new Map(), popsReady: false, crownMat: mat(CROWN.Spring).clone(), lastHaul: -1, layout: null, region,
+      neighbours: [], people: new Map(), machines: new Map(), trucks: [], herds: new Map(), rain, smoke: [], pops: [], seenHarvest: new Map(), popsReady: false, crownMat: mat(CROWN.Spring).clone(), lastHaul: -1, layout: null, region,
     };
     rig.current = R;
     let raf = 0, framed = false, lastCrops = 0, viewSize = '', viewSelection = '', artVersion = artRevision();
@@ -109,14 +111,14 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
       }
       const W = c.clientWidth, H = c.clientHeight;
       if (!W || !H) return;
-      const size=`${W}:${H}`, selection=live.current.selected.join(',');
+      const size=`${W}:${H}`, selection=live.current.selected.join(',')+':'+(live.current.selectedLot??'');
       if(size!==viewSize||selection!==viewSelection){viewSize=size;viewSelection=selection;framed=false;}
       if (c.width !== Math.round(W * renderer.getPixelRatio()) || c.height !== Math.round(H * renderer.getPixelRatio())) renderer.setSize(W, H, false);
       const s = getGame();
       if (R.region !== live.current.region) { R.region = live.current.region; R.sig = { lots: '', fields: '', crops: '', sel: '', deco: '' }; framed = false; R.lastHaul = -1; }
       const L = layoutRegion(s, R.region);
       R.layout = L;
-      if (!framed) { frameCamera(R, L, live.current.selected); framed = true; }
+      if (!framed) { frameCamera(R, L, live.current.selected, live.current.selectedLot); framed = true; }
       syncLots(R, L);
       syncFields(R, L);
       if (now - lastCrops > 400) { syncCrops(R, L, s); lastCrops = now; }
@@ -124,6 +126,7 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
       syncDeco(R, L);
       syncStorage(R,L,s);
       animateUnits(R, L, s, now / 1000);
+      animateNeighbours(R, L, s, now / 1000);
       atmosphere(R, s, now / 1000);
       updateCamera(R, W, H);
       renderer.render(scene, camera);
@@ -267,7 +270,9 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
 
 // ---------------------------------------------------------------- camera
 
-function frameCamera(R: Rig,L:Layout,selected:number[]=[]){
+function frameCamera(R: Rig,L:Layout,selected:number[]=[],selectedLot?:string){
+  const place = selectedLot && L.lots.find(l => l.key === selectedLot);
+  if(place){R.target.set(place.x+place.w/2,0,place.y+place.d/2);R.zoom=selectedLot?.startsWith('community:')?0.65:1;return;}
   const field=L.plots.find(x=>selected.includes(x.field.id))??L.plots[0];
   // The farm is the play space. Keep the selected field readable on phones;
   // fitting every distant lot into the viewport made the playable plot vanish.
@@ -304,14 +309,14 @@ function clear(g: THREE.Group) {
 }
 
 function syncLots(R: Rig, L: Layout) {
-  const sig = L.lots.map((l) => `${l.type}@${l.x},${l.y}:${l.buildings.length}:${l.buildings.map((b) => b.level).join('')}`).join('|');
+  const sig = L.lots.map((l) => `${l.key}:${l.type}@${l.x},${l.y}:${l.buildings.length}:${l.buildings.map((b) => b.level).join('')}`).join('|');
   if (sig === R.sig.lots) return;
   R.sig.lots = sig;
   clear(R.lots);
   R.models = [];
   R.pick = R.pick.filter((o) => o.userData.kind !== 'lot');
   for (const lot of L.lots) {
-    const model = buildLot(lot.type, lot.w, lot.d);
+    const model = lot.key.startsWith('community:') ? buildCommunityHome(lot.key.split(':')[1], lot.w, lot.d) : buildLot(lot.type, lot.w, lot.d);
     model.group.position.set(lot.x, 0, lot.y);
     const lvl = Math.max(1, ...lot.buildings.map((b) => b.level));
     if (lvl > 1) model.group.scale.set(1, 1 + (lvl - 1) * 0.18, 1); // upgraded buildings stand taller
@@ -519,6 +524,15 @@ function syncDeco(R: Rig, L: Layout) {
 
 // ---------------------------------------------------------------- live things
 
+function animateNeighbours(R: Rig, L: Layout, s: GameState, time: number) {
+  const homes = L.lots.filter(l => l.key.startsWith('community:'));
+  const count = R.region === 'heartland' && communityOf(s).active && homes.length ? Math.min(8, Math.ceil(Math.max(0, population(s) - residentWorkers(s)) / 2)) : 0;
+  while(R.neighbours.length > count) R.units.remove(R.neighbours.pop()!);
+  while(R.neighbours.length < count) { const i = R.neighbours.length, p = person(SHIRTS[i % SHIRTS.length], false); if(i % 2) p.scale.setScalar(0.75); R.neighbours.push(p); R.units.add(p); }
+  const t = reducedMotionQuery?.matches ? 0 : time;
+  R.neighbours.forEach((p, i) => { const home = homes[i % homes.length], stride = Math.sin(t * 0.35 + i * 1.7); p.position.set(home.x + 1.5 + stride * 1.2, 0.03, home.y + home.d + 0.45); p.rotation.y = Math.cos(t * 0.35 + i * 1.7) > 0 ? Math.PI / 2 : -Math.PI / 2; });
+}
+
 function animateUnits(R: Rig, L: Layout, s: GameState, t: number) {
   const r = R.region;
   const plotOf = (id: number) => L.plots.find((p) => p.field.id === id);
@@ -708,7 +722,7 @@ function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el
   if(selectedLot){
     const lot=L.lots.find(x=>x.key===selectedLot);
     if(lot){const [px,py]=project(lot.x+lot.w/2,2.5,lot.y+lot.d/2);
-      const label=lot.key==='crew'?'👒 Crew':lot.key==='office'?'⚙ Policies':lot.key==='market'?'🪙 Trade':lot.type==='house'||lot.type==='shed'?'📖 Books':BUILDINGS[lot.type].category==='storage'?'📦 Store':'⚙ Manage';
+      const label=lot.key.startsWith('community:')?'🏠 Families':lot.key==='crew'?'👒 Crew':lot.key==='office'?'⚙ Policies':lot.key==='market'?'🪙 Trade':lot.type==='house'||lot.type==='shed'?'📖 Books':BUILDINGS[lot.type].category==='storage'?'📦 Store':'⚙ Manage';
       want.push({key:'place-act',x:Math.max(100,Math.min(W-100,px)),y:Math.max(80,Math.min(H-30,py)),html:button('place:0',label)+button('inspect:0','ⓘ'),cls:'wl-radial'});
     }
   }
@@ -725,7 +739,7 @@ function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el
     const lot = m.lot;
     const [x, y] = project(lot.x + lot.w / 2, 0, lot.y + lot.d + 0.3);
     if (x < -60 || y < -20 || x > W + 60 || y > H + 20) continue;
-    const name = lot.key === 'crew' ? 'Bunkhouse' : lot.key === 'office' ? 'Farm office' : lot.key === 'market' ? 'Village trader' : lot.type === 'house' ? 'Farmhouse' : lot.type === 'shed' ? 'Office' : BUILDINGS[lot.type].name;
+    const name = lot.key.startsWith('community:') ? ({cottage:'Cottage',terrace:'Terrace',apartment:'Apartments'}[lot.key.split(':')[1]] ?? 'Neighbourhood') : lot.key === 'crew' ? 'Bunkhouse' : lot.key === 'office' ? 'Farm office' : lot.key === 'market' ? 'Village trader' : lot.type === 'house' ? 'Farmhouse' : lot.type === 'shed' ? 'Office' : BUILDINGS[lot.type].name;
     const lvl = Math.max(1, ...lot.buildings.map((b) => b.level));
     const warn = lot.buildings.some((b) => b.active && /Not enough|full|Disease/.test(b.reason));
     want.push({ key: `l${lot.key}`, x, y, html: `${warn ? '⚠ ' : ''}${name}${lot.buildings.length > 1 ? ` ×${lot.buildings.length}` : ''}${lvl > 1 ? ` · L${lvl}` : ''}`, cls: 'wl-name' });

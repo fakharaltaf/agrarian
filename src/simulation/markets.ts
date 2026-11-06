@@ -1,3 +1,4 @@
+import type { Division } from './types';
 // Regional commodity markets. Price is a function of market-held inventory:
 //   price = ref × (target / inventory)^γ × e^sentiment
 // Inventory moves with supply (background + competitors, weather, seasons, input costs)
@@ -346,7 +347,7 @@ export function executeSell(s: GameState, r: RegionId, g: GoodId, qty: number, m
   return q;
 }
 
-export function executeBuy(s: GameState, r: RegionId, g: GoodId, qty: number, memo?: string) {
+export function executeBuy(s: GameState, r: RegionId, g: GoodId, qty: number, memo?: string, division?: Division) {
   const q = quoteBuy(s, r, g, qty);
   if (q.qty <= 0) return q;
   const m = s.markets[r][g]!;
@@ -356,7 +357,7 @@ export function executeBuy(s: GameState, r: RegionId, g: GoodId, qty: number, me
   const reg = s.regions[r];
   reg.quality[g] = ((reg.quality[g] ?? 0.65) * reg.inventory[g] + 0.65 * q.qty) / (reg.inventory[g] + q.qty); // market stock is average grade
   reg.inventory[g] += q.qty;
-  post(s, g === 'fertilizer' ? 'fertilizer' : g === 'fuel' ? 'fuel' : 'purchases', -q.gross, memo ?? `Bought ${Math.round(q.qty)} ${GOODS[g].name} @ $${q.avgPrice.toFixed(2)}`, r);
+  post(s, g === 'fertilizer' ? 'fertilizer' : g === 'fuel' ? 'fuel' : 'purchases', -q.gross, memo ?? `Bought ${Math.round(q.qty)} ${GOODS[g].name} @ $${q.avgPrice.toFixed(2)}`, r, division);
   useHaul(s, r, q.qty);
   return q;
 }

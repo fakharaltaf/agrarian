@@ -64,6 +64,11 @@ export function tickActiveStage(s: GameState) {
 }
 
 export function handleActiveStageAction(s: GameState, action: Action) {
+  if (action.type === 'startSettlement' || action.type === 'buildHomes' || action.type === 'setLarder') {
+    const stage = STAGES.settlement;
+    const state = (s.stageState.settlement ??= stage.createState());
+    return stage.handleAction(s, action, state);
+  }
   if (action.type === 'sellToMill' || action.type === 'barter' || action.type === 'haggle' || action.type === 'chooseCharter') {
     const stage = STAGES.homestead;
     const state = (s.stageState.homestead ??= stage.createState());

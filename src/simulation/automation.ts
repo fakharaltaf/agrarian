@@ -1,3 +1,4 @@
+import { larderReserve } from './stages/settlement';
 // Levels 3–5 of automation: managers run field cycles, rules react to conditions,
 // policies steer everything toward strategic objectives. Automation spends real money
 // through the same primitives as the player, and never below the cash reserve.
@@ -53,7 +54,7 @@ function runRule(s: GameState, r: Rule): string | null {
   const budget = Math.min(spendable(s), r.maxSpend || Infinity);
   switch (r.action) {
     case 'sell': {
-      const q = Math.floor((inv[r.actionGood] - reservedStock(s, r.region, r.actionGood)) * (r.amountPct / 100));
+      const q = Math.floor((inv[r.actionGood] - reservedStock(s, r.region, r.actionGood) - (r.region === 'heartland' ? larderReserve(s, r.actionGood) : 0)) * (r.amountPct / 100));
       if (q <= 0 || !s.markets[r.region][r.actionGood]) return null;
       const done = executeSell(s, r.region, r.actionGood, q);
       return done.qty ? `sold ${Math.round(done.qty)} ${GOODS[r.actionGood].name} for $${Math.round(done.net)}` : null;
@@ -228,7 +229,7 @@ function sellRound(s: GameState, r: RegionId, midday: boolean) {
     .map(g => ({ g, score: s.markets[r][g]!.price / Math.max(0.01, avg30(s, r, g)) }))
     .sort((a, b) => b.score - a.score).map(x => x.g);
   for (const g of ordered) {
-    const q = s.regions[r].inventory[g] - contractsNeed(s, r, g) - reservedStock(s, r, g) - (FEEDS.includes(g) ? feedKeep : 0);
+    const q = s.regions[r].inventory[g] - contractsNeed(s, r, g) - reservedStock(s, r, g) - (r === 'heartland' ? larderReserve(s, g) : 0) - (FEEDS.includes(g) ? feedKeep : 0);
     if (q < 1 || !s.markets[r][g] || GOODS[g].kind === 'input') continue;
     const perishable = GOODS[g].spoilProper > 0.02;
     // midday: send surplus to whichever region pays at least 10% more after freight and tariff, sold there on arrival

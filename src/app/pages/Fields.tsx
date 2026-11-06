@@ -70,7 +70,7 @@ export function FieldsPage() {
         </div>
         <div className="stack l">
           {s.stats.harvests > 0 && (s.legacyProgression || stageAtLeast(s, 'market-town') ? <SellCard s={s} r={r} /> : <HomesteadTraderCard s={s} />)}
-          {(s.legacyProgression ? s.era >= 3 : stageAtLeast(s, 'industry')) && <LandCard s={s} />}
+          {(s.legacyProgression ? s.era >= 3 : stageAtLeast(s, 'farm-business')) && <LandCard s={s} />}
           {!stageAtLeast(s, 'industry') && <RecentLog s={s} />}
         </div>
       </div>

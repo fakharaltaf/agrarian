@@ -1,18 +1,20 @@
 // Eras, unlocks, objectives and milestones. Progress comes from measurable business results.
-import { BUILDINGS, CROPS, CROP_IDS, ERAS, REGION_IDS, type CropId } from './config';
+import { CHAPTER_SALES, BUILDINGS, CROPS, CROP_IDS, ERAS, REGION_IDS, type CropId } from './config';
 import { equity, has, log, stored } from './core';
 import { fertility } from './agriculture';
 import { topShare } from './corporate';
 import { eraUnlockAvailable, stageIdForEra, tickActiveStage, NEXT_STAGE, stageAtLeast, STAGES } from './stages';
 import { refreshHomestead } from './stages/homestead';
 import { PLAYABLE_CHAPTERS, frontierTick, atFrontier } from './stages/frontier';
+import { communityOf, population, homeCapacity } from './community-state';
+import { settlementTick, canStartSettlement } from './stages/settlement';
 import type { GameState } from './types';
 
 export const totalHa = (s: GameState) => s.fields.reduce((a, f) => a + f.ha, 0);
 export const lifetimeSales = (s: GameState) => (s.lifetime.sale ?? 0) + (s.lifetime.contract ?? 0);
 /** Sales needed for the next era (for progress bars); 0 when the goal is not about sales. */
 export const ERA_SALES = [0, 12000, 60000, 500000, 3_000_000, 12_000_000, 60_000_000, 300_000_000];
-export const HOMESTEAD_SALES_GOAL = 90_000;
+export const HOMESTEAD_SALES_GOAL = CHAPTER_SALES.homestead;
 
 export const ERA_UNLOCK_TEXT: Record<number, string[]> = {
   2: ['Hire farm hands to plant and harvest for you', 'Crop plans: tell workers what each field grows', 'Storage, soil care, fertiliser and irrigation', 'Your books: every dollar in and out'],
@@ -26,14 +28,14 @@ export const ERA_UNLOCK_TEXT: Record<number, string[]> = {
 
 function newStageReady(s: GameState) {
   if (s.stageId === 'homestead') return s.fields.length >= 4 && lifetimeSales(s) >= HOMESTEAD_SALES_GOAL;
-  if (s.stageId === 'market-town') return s.fields.length >= 12 || lifetimeSales(s) >= 165_000;
-  if (s.stageId === 'farm-business') return s.workers.filter((w) => w.role === 'hand').length >= 2 && lifetimeSales(s) >= 500_000;
-  if (s.stageId === 'industry') return s.buildings.some((b) => BUILDINGS[b.type].category === 'processing') && lifetimeSales(s) >= 3_000_000;
+  if (s.stageId === 'market-town') return s.fields.length >= 12 || lifetimeSales(s) >= CHAPTER_SALES['market-town'];
+  if (s.stageId === 'farm-business') return s.workers.filter((w) => w.role === 'hand').length >= 2 && lifetimeSales(s) >= CHAPTER_SALES['farm-business'];
+  if (s.stageId === 'industry') return canStartSettlement(s);
   // Later chapters are offered only when their mechanics are implemented.
   return false;
 }
 
-export const canAdvance = (s: GameState) => s.legacyProgression
+export const canAdvance = (s: GameState) => s.legacyProgression && !communityOf(s).active
   ? s.era < ERAS.length && eraUnlockAvailable(s, s.era + 1)
   : PLAYABLE_CHAPTERS.some(id => id === NEXT_STAGE[s.stageId]) && newStageReady(s);
 
@@ -42,19 +44,20 @@ export function advanceEra(s: GameState): string | null {
   if (!canAdvance(s)) return `Not yet: ${ERAS[s.era]?.requirement ?? 'you have reached the final era'}.`;
   if (!s.legacyProgression && s.stageId === 'homestead' && !s.charters.trader) return 'Choose the Fair or Shrewd trader charter before entering Market Town.';
   const previous = s.stageId;
-  if (!s.legacyProgression) {
+  if (!s.legacyProgression || communityOf(s).active) {
     const next = NEXT_STAGE[previous];
     if (!next) return 'You have reached the newest chapter.';
+    if (next === 'settlement') return 'Choose the Company town or Free settlement charter on the Community page.';
     s.stageId = next;
     s.stageState[next] ??= STAGES[next].createState();
-    s.era = Math.min(8, s.era + 1);
+    if (!s.legacyProgression) s.era = Math.min(8, s.era + 1);
   } else {
     s.era++;
     s.stageId = stageIdForEra(s.era);
   }
   s.eraReady = false;
-  const title = s.legacyProgression ? `Era ${s.era}: ${ERAS[s.era - 1].name}` : STAGES[s.stageId].title;
-  const preview = s.legacyProgression ? (ERA_UNLOCK_TEXT[s.era] ?? []) : [`New chapter: ${title}. Your earlier operation keeps running.`];
+  const title = s.legacyProgression && !communityOf(s).active ? `Era ${s.era}: ${ERAS[s.era - 1].name}` : STAGES[s.stageId].title;
+  const preview = s.legacyProgression && !communityOf(s).active ? (ERA_UNLOCK_TEXT[s.era] ?? []) : [`New chapter: ${title}. Your earlier operation keeps running.`];
   log(s, 'opportunity', `Welcome to ${title}. ${preview.join(' · ')}`, 'overview');
   return null;
 }
@@ -63,6 +66,9 @@ export function advanceEra(s: GameState): string | null {
 
 export interface Discovery { id: string; title: string; text: string; page?: string; when: (s: GameState) => boolean }
 export const DISCOVERIES: Discovery[] = [
+  { id: 'familyHomes', title: 'A place for families', text: 'Your workers ask whether their families can join them. Preview Company town or Free settlement, and begin whenever you choose. Your existing business keeps running.', page: 'community', when: canStartSettlement },
+  { id: 'communityFood', title: 'The first family has arrived', text: 'Families eat from your own food stores. The larder policy protects three days of food and buys an affordable shortfall. Cold weather also needs heating fuel.', page: 'community', when: s => communityOf(s).active && population(s) > 0 },
+  { id: 'communityChildren', title: 'Children need somewhere to learn', text: 'Your settlement is growing into a town. Schools and healthcare are the next chapter; you can keep building and running this community in the meantime.', page: 'community', when: s => communityOf(s).active && population(s) >= 80 },
   { id: 'marketDay', title: 'Your first market day', text: 'The village market is open. Prices now respond to local supply and demand; once a week, a real demand surge brings a brief selling opportunity. The village trader remains available for barter and small trades.', page: 'markets', when: (s) => !s.legacyProgression && s.stageId === 'market-town' },
   { id: 'forecast', title: 'The weather forecast', text: 'You can now see the next four days of weather. Watch for frost nights in autumn and winter — and for dry spells when your crops need water.', when: (s) => stageAtLeast(s, 'farm-business') },
   { id: 'chickens', title: 'Chickens', text: 'A neighbour is selling hens. Build a chicken coop, buy a flock and they lay a tray of eggs each a day — as long as they are fed. Corn or wheat in your barn works as feed, or turn on automatic feed buying.', page: 'livestock', when: (s) => stageAtLeast(s, 'farm-business') && lifetimeSales(s) >= 16000 },
@@ -123,14 +129,15 @@ export function discover(s: GameState, id: string) {
 }
 
 export function progressionTick(s: GameState) {
+  settlementTick(s);
   frontierTick(s);
   // Keep legacy saves synchronized; new saves advance only when the player accepts a chapter.
-  if (s.legacyProgression) s.stageId = stageIdForEra(s.era);
+  if (s.legacyProgression && !communityOf(s).active) s.stageId = stageIdForEra(s.era);
   if (!s.legacyProgression) refreshHomestead(s); // the village trader remains a side channel in later chapters
   tickActiveStage(s);
   const ready = canAdvance(s);
   if (ready && !s.eraReady) {
-    const next = s.legacyProgression ? `Era ${s.era + 1}: ${ERAS[s.era].name}` : STAGES[NEXT_STAGE[s.stageId]!].title;
+    const next = s.legacyProgression && !communityOf(s).active ? `Era ${s.era + 1}: ${ERAS[s.era].name}` : STAGES[NEXT_STAGE[s.stageId]!].title;
     log(s, 'opportunity', `A new chapter is ready: ${next}. Preview it and move on when you choose.`, 'overview');
   }
   s.eraReady = ready;
@@ -166,6 +173,8 @@ const CROP_UNLOCK: Record<CropId, string> = {
 // ---------------------------------------------------------------- objectives (onboarding)
 
 export function objective(s: GameState): { title: string; hint: string; page?: string } {
+  if (canStartSettlement(s)) return { title: 'Your workers want their families nearby', hint: 'Preview a settlement charter, then build the first homes when you are ready.', page: 'community' };
+  if (communityOf(s).active && s.stageId === 'settlement') return populationObjective(s);
   if (!s.legacyProgression) {
     const sales = lifetimeSales(s);
     if (s.stageId === 'homestead') {
@@ -177,19 +186,19 @@ export function objective(s: GameState): { title: string; hint: string; page?: s
     }
     if (s.stageId === 'market-town') {
       if (s.eraReady) return { title: 'Your farm is ready for its next chapter', hint: 'Move into Farm Business when you want to hire your first crew.', page: 'overview' };
-      return { title: 'Reach 12 fields or $165,000 in sales', hint: `${s.fields.length}/12 fields · ${moneyProgress(sales, 165_000)}.`, page: 'fields' };
+      return { title: `Reach 12 fields or $${CHAPTER_SALES['market-town'].toLocaleString()} in sales`, hint: `${s.fields.length}/12 fields · ${moneyProgress(sales, CHAPTER_SALES['market-town'])}.`, page: 'fields' };
     }
     if (s.stageId === 'farm-business') {
       const hands = s.workers.filter((w) => w.role === 'hand').length;
       if (s.eraReady) return { title: 'Machines can take the strain', hint: 'Industry brings tractors, factories and research. Move on when ready.', page: 'overview' };
       if (hands < 2) return { title: hands ? 'Hire a second farm hand' : 'Hire your first farm hand', hint: 'Crop plans let hands plant and harvest while you focus elsewhere. Wages are a running cost.', page: 'workers' };
-      return { title: `Build the farm business · ${moneyProgress(sales, 500_000)}`, hint: 'Two hands and $500,000 in sales open Industry. Check wages against what your fields earn.', page: 'workers' };
+      return { title: `Build the farm business · ${moneyProgress(sales, CHAPTER_SALES['farm-business'])}`, hint: `Two hands and $${CHAPTER_SALES['farm-business'].toLocaleString()} in sales open Industry. Check wages against what your fields earn.`, page: 'workers' };
     }
     if (s.stageId === 'industry') {
       if (atFrontier(s)) return { title: 'Your next horizon', hint: 'Keep growing or earn stewardship marks. Settlement is the next chapter being built.', page: 'overview' };
       if (s.eraReady) return { title: 'Your workers want their families nearby', hint: 'Settlement is the next chapter. Your farm and factories keep running.', page: 'overview' };
       if (!s.buildings.some((b) => BUILDINGS[b.type].category === 'processing')) return { title: 'Build your first mill', hint: 'Processing adds value to crops, but it needs steady inputs and labour.', page: 'production' };
-      return { title: `Grow into industry · ${moneyProgress(sales, 3_000_000)}`, hint: 'Build a reliable farm-to-factory chain before moving on.', page: 'production' };
+      return { title: `Grow into industry · ${moneyProgress(sales, CHAPTER_SALES.industry)}`, hint: 'Build a reliable farm-to-factory chain before moving on.', page: 'production' };
     }
     if (s.eraReady) return { title: `Next chapter: ${STAGES[NEXT_STAGE[s.stageId]!]?.title ?? 'Frontier'}`, hint: 'You choose when to move on. Your farm keeps operating.', page: 'overview' };
   }
@@ -218,6 +227,11 @@ export function objective(s: GameState): { title: string; hint: string; page?: s
 }
 
 const moneyProgress = (now: number, target: number) => `${Math.min(Math.floor(now), target).toLocaleString()} / ${target.toLocaleString()} sales`;
+function populationObjective(s: GameState) {
+  if (!homeCapacity(s)) return { title: 'Build the first cottage', hint: 'A home makes room for a worker’s family.', page: 'community' };
+  if (communityOf(s).fed < 0.95) return { title: 'Set the table for your families', hint: 'Keep food in storage or enable the larder policy.', page: 'community' };
+  return { title: `A place to belong · ${population(s)} people`, hint: 'Homes, food, warmth and jobs build a thriving settlement.', page: 'community' };
+}
 
 // ---------------------------------------------------------------- milestones (endgame)
 
@@ -251,6 +265,7 @@ export function milestonesDaily(s: GameState) {
 
 export interface PageDef { id: string; label: string; purpose: string; unlocked: (s: GameState) => boolean }
 export const PAGES: PageDef[] = [
+  { id: 'community', label: 'Community', purpose: 'Homes, families, food and life in your settlement.', unlocked: s => communityOf(s).active || canStartSettlement(s) },
   { id: 'overview', label: 'Overview', purpose: 'Your business at a glance.', unlocked: (s) => s.era >= 2 },
   { id: 'fields', label: 'Fields', purpose: 'Plant, harvest, plan crops and look after your soil.', unlocked: () => true },
   { id: 'livestock', label: 'Livestock', purpose: 'Chickens, pigs, sheep and cows: housing, feed and health.', unlocked: (s) => s.discovered.includes('chickens') },

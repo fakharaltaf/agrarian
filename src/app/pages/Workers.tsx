@@ -1,10 +1,11 @@
+import { communityOf, availableResidents, residentPayFactor } from '../../simulation/community-state';
 import { useState } from 'react';
 import { CONFIG, CROPS, CROP_IDS, GOODS, PERKS, REGIONS, WORK_END, WORK_START, type PerkId, type RegionId } from '../../simulation/config';
 import { clamp, execOn, known, marketWage } from '../../simulation/core';
 import { hireCost, trainCost } from '../../simulation/engine';
 import { productivity, spanPenalty, wageOf } from '../../simulation/operations';
 import type { GameState, Worker } from '../../simulation/types';
-import { act, useGame } from '../../stores/game';
+import { act, go, useGame } from '../../stores/game';
 import { money, num, pct0, price } from '../format';
 import { Bar, Card, Confirm, Info, Kpi, PageHead, Seg, Select, Table, type Col } from '../ui';
 import { regionOptions, unlockedRegions } from './shared';
@@ -100,10 +101,12 @@ function HireCard({ s }: { s: GameState }) {
   const [role, setRole] = useState<'hand' | 'manager'>('hand');
   const [pay, setPay] = useState(1);
   const cost = hireCost(s, r);
-  const base = role === 'manager' ? CONFIG.managerWage * s.macro.cpi : marketWage(s, r);
+  const local = r === 'heartland' && communityOf(s).active;
+  const base = (role === 'manager' ? CONFIG.managerWage * s.macro.cpi : marketWage(s, r)) * (local ? residentPayFactor(s, 1) : 1);
+  const townProductivity = local ? 0.6 + communityOf(s).happiness * 0.4 : 1;
   const target = moraleTarget(s, r, pay);
   const span = spanPenalty(s, r);
-  const prodLo = 0.75 * (0.6 + 0.4 * target) * span, prodHi = 1.1 * (0.6 + 0.4 * target) * span;
+  const prodLo = townProductivity * 0.75 * (0.6 + 0.4 * target) * span, prodHi = townProductivity * 1.1 * (0.6 + 0.4 * target) * span;
   return (
     <Card title="Hire">
       <div className="stack">
@@ -116,6 +119,7 @@ function HireCard({ s }: { s: GameState }) {
           <Seg label="Pay level" value={pay} onChange={setPay} options={PAY_LEVELS.map((v) => ({ v, label: `${v.toFixed(1)}×` }))} />
         </div>
         <dl className="facts">
+          {local && <><dt>Adults available</dt><dd>{num(availableResidents(s))}</dd></>}
           <dt>Hourly pay</dt><dd>{price(base * pay)}/h</dd>
           <dt>Per day ({HOURS} h)</dt><dd>{money(base * pay * HOURS)}</dd>
           <dt>Expected morale <Info text="Morale drifts 20% of the way toward its target every day. Target ≈ 0.62 + (pay − 1) × 1.3 − overwork + reputation. Overwork is the share of today's hours with unfinished field work (up to −0.20)."
@@ -127,9 +131,10 @@ function HireCard({ s }: { s: GameState }) {
         </dl>
         {role === 'manager' && <p className="explain">Managers don't work fields. They extend how many hands run at full speed, and in their region they carry out your automation policies (rotation, fertilising, selling discipline).</p>}
         {target < 0.25 && <div className="callout bad">At this pay morale settles below 25% — they will quit within about a week.</div>}
-        <button className="btn primary" data-coach="hire-btn" disabled={cost > s.cash} onClick={() => act({ type: 'hire', region: r, role, wageFactor: pay }, 'Hired.')}>
+        <button className="btn primary" data-coach="hire-btn" disabled={cost > s.cash || (local && availableResidents(s) < 1)} onClick={() => act({ type: 'hire', region: r, role, wageFactor: pay }, 'Hired.')}>
           Hire {role === 'hand' ? 'farm hand' : 'manager'} <span className="btn-sub">{money(cost)}</span>
         </button>
+        {local && availableResidents(s) < 1 && <button className="btn ghost" onClick={() => go('community')}>🏘️ Make room for more families</button>}
       </div>
     </Card>
   );
@@ -162,7 +167,7 @@ function WorkerTable({ s }: { s: GameState }) {
   const tc = trainCost(s);
   const multi = unlockedRegions(s).length > 1;
   const live: Col<Worker>[] = [
-    { key: 'name', label: 'Name', sort: (w) => w.name, render: (w) => w.name },
+    { key: 'name', label: 'Name', sort: (w) => w.name, render: (w) => <span>{w.name}{communityOf(s).active && <small className="worker-origin">{w.resident ? '🏘️ Local resident' : '↗ Commuter'}</small>}</span> },
     { key: 'role', label: 'Role', sort: (w) => w.role, render: (w) => <span className={`pill ${w.role === 'manager' ? 'accent' : ''}`}>{w.role === 'manager' ? 'Manager' : 'Hand'}</span> },
     ...(multi ? [{ key: 'region', label: 'Region', sort: (w: Worker) => w.region, render: (w: Worker) => REGIONS[w.region].name }] : []),
     { key: 'skill', label: 'Skill', align: 'r', sort: (w) => w.skill, render: (w) => w.skill.toFixed(2) },
@@ -198,7 +203,7 @@ function WorkerTable({ s }: { s: GameState }) {
   return (
     <Card title={`Staff (${s.workers.length})`} info="Pay can be set from 0.7× to 1.6× of the market wage. Training costs a flat fee, adds 0.15 skill (max 1.6) and keeps the worker away for 24 hours.">
       <Table rows={s.workers} cols={live} rowKey={(w) => w.id} search={(w) => `${w.name} ${w.role} ${REGIONS[w.region].name}`}
-        initialSort={{ key: 'morale', dir: 1 }} empty="No one on the payroll yet. Hire a farm hand above — they plant and harvest any field with a crop plan." />
+        initialSort={{ key: 'name', dir: 1 }} empty="No one on the payroll yet. Hire a farm hand above — they plant and harvest any field with a crop plan." />
     </Card>
   );
 }

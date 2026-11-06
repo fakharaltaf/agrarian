@@ -2,6 +2,7 @@
 import {
   BUILDINGS, CONFIG, CROPS, DAYS_PER_YEAR, GOODS, OPEX_KINDS, REGIONS, REVENUE_KINDS, SEASONS, TICKS_PER_DAY, type BuildingType, type CropId, type GoodId, type LedgerKind, type RegionId,
 } from './config';
+import { housingAssets } from './community-state';
 import type { Building, Division, EventKind, GameEvent, GameState, LogLevel, Market } from './types';
 
 export const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -62,7 +63,7 @@ function divisionOf(kind: LedgerKind): Division {
   if (['haulage', 'shipping'].includes(kind)) return 'logistics';
   if (['electricity', 'grid'].includes(kind)) return 'energy';
   if (['futures', 'margin', 'contract'].includes(kind)) return 'trading';
-  if (['interest', 'tax', 'loanIn', 'loanRepay', 'sharesIssued', 'dividends', 'buyback', 'legal', 'acquisition', 'salaries', 'research', 'fines'].includes(kind)) return 'corporate';
+  if (['interest', 'tax', 'loanIn', 'loanRepay', 'sharesIssued', 'dividends', 'buyback', 'legal', 'acquisition', 'salaries', 'research', 'fines', 'rent'].includes(kind)) return 'corporate';
   return 'crops';
 }
 export const buildingDivision = (t: BuildingType): Division =>
@@ -157,7 +158,7 @@ export function inventoryValue(s: GameState) {
 export function fixedAssets(s: GameState) {
   const land = s.fields.reduce((a, f) => a + f.cost, 0);
   const machines = s.machines.reduce((a, m) => a + Math.max(0, m.cost - m.depreciated), 0);
-  const buildings = s.buildings.reduce((a, b) => a + Math.max(0, b.cost - b.depreciated), 0);
+  const buildings = s.buildings.reduce((a, b) => a + Math.max(0, b.cost - b.depreciated), 0) + housingAssets(s);
   return { land, machines, buildings };
 }
 

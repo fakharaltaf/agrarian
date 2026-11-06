@@ -5,12 +5,13 @@ import { clamp, execOn, fuelPrice, has, hour, log, marketWage, nextId, pick, pos
 import { applySpread, harvestField, isReady, plantField, seedShortfall, warnOnce } from './agriculture';
 import { overdraftLimit } from './finance';
 import type { Field, GameState, Machine, Worker } from './types';
+import { communityOf, residentPayFactor } from './community-state';
 
 const FIRST = ['Ana', 'Ben', 'Chen', 'Dara', 'Eli', 'Femi', 'Gus', 'Hana', 'Ivo', 'Jo', 'Kai', 'Lena', 'Mo', 'Nia', 'Omar', 'Pia', 'Quinn', 'Ravi', 'Sol', 'Tess', 'Uma', 'Vic', 'Wren', 'Yara', 'Zed'];
 const LAST = ['Alvarez', 'Brook', 'Costa', 'Dlamini', 'Evans', 'Fischer', 'Grant', 'Haddad', 'Ito', 'Jensen', 'Kowal', 'Lopez', 'Moreau', 'Nakamura', 'Okafor', 'Park', 'Reyes', 'Silva', 'Tan', 'Varga'];
 
-export const wageOf = (s: GameState, w: Worker) => (w.role === 'manager' ? CONFIG.managerWage * s.macro.cpi : marketWage(s, w.region)) * w.wageFactor;
-export const productivity = (s: GameState, w: Worker) => w.skill * (0.6 + 0.4 * w.morale) * spanPenalty(s, w.region);
+export const wageOf = (s: GameState, w: Worker) => (w.role === 'manager' ? CONFIG.managerWage * s.macro.cpi : marketWage(s, w.region)) * w.wageFactor * (w.resident ? residentPayFactor(s) : 1);
+export const productivity = (s: GameState, w: Worker) => w.skill * (0.6 + 0.4 * w.morale) * spanPenalty(s, w.region) * (w.resident ? 0.6 + communityOf(s).happiness * 0.4 : 1);
 
 /** Management overhead: each manager coordinates 20 hands; beyond that everyone slows down. */
 export function spanPenalty(s: GameState, r: RegionId) {
@@ -22,7 +23,7 @@ export function spanPenalty(s: GameState, r: RegionId) {
 
 export function hire(s: GameState, region: RegionId, role: 'hand' | 'manager', wageFactor: number): Worker {
   const w: Worker = {
-    id: nextId(s), name: `${pick(s, FIRST)} ${pick(s, LAST)}`, region, role, wageFactor: clamp(wageFactor, 0.7, 1.6),
+    id: nextId(s), name: `${pick(s, FIRST)} ${pick(s, LAST)}`, region, role, resident: false, wageFactor: clamp(wageFactor, 0.7, 1.6),
     skill: role === 'manager' ? 1 : 0.75 + random(s) * 0.35, morale: 0.7, lowDays: 0, trainingUntil: 0, hours: 0, task: 0, perk: null,
   };
   s.workers.push(w);
@@ -60,7 +61,9 @@ export function laborTick(s: GameState) {
     for (const w of s.workers) {
       if (w.region !== r || w.role !== 'hand') continue;
       w.task = 0;
-      post(s, 'wages', -wageOf(s, w), 'Farm hands', r);
+      const pay = wageOf(s, w);
+      post(s, 'wages', -pay, 'Farm hands', r);
+      if (w.resident) communityOf(s).householdCash += Math.round(pay * 100) / 100;
       if (strike || w.trainingUntil > s.tick) continue;
       w.hours++;
       w.skill = Math.max(w.skill, Math.min(1.3, w.skill + 0.0002)); // learning by doing, up to 1.3
@@ -95,7 +98,11 @@ export function laborTick(s: GameState) {
     }
     if (tasks.some((t) => !t.done)) s.regions[r].backlog++;
   }
-  for (const w of s.workers) if (w.role === 'manager' && working) post(s, 'salaries', -wageOf(s, w), 'Farm managers', w.region);
+  for (const w of s.workers) if (w.role === 'manager' && working) {
+    const pay = wageOf(s, w);
+    post(s, 'salaries', -pay, 'Farm managers', w.region);
+    if (w.resident) communityOf(s).householdCash += Math.round(pay * 100) / 100;
+  }
   if (s.advisor && working) post(s, 'advisor', -CONFIG.advisorFee * s.macro.cpi, 'Farm advisor', 'heartland');
 }
 

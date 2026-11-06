@@ -2,6 +2,8 @@
 import { CONFIG, CROPS, REGION_IDS, type BuildingType, type CropId, type GoodId, type RegionId } from '../simulation/config';
 import { avg30, dispatch, homePlotPrice, isManual, isReady, parcelPrice, totalHa } from '../simulation/engine';
 import { seasonOf, stored } from '../simulation/core';
+import { communityOf, population, homeCapacity } from '../simulation/community-state';
+import { canStartSettlement, larderReserve } from '../simulation/stages/settlement';
 import type { GameState } from '../simulation/types';
 
 export type Strategy = 'balanced' | 'volume' | 'processor' | 'idle';
@@ -17,6 +19,8 @@ export function botAct(s: GameState, strategy: Strategy = 'balanced') {
     return;
   }
   const P = s.automation.policies;
+  if (!s.legacyProgression && canStartSettlement(s)) dispatch(s, { type: 'startSettlement', charter: 'free' });
+  if (communityOf(s).active && homeCapacity(s) - population(s) < 8 && s.cash > 15000 * s.macro.cpi) dispatch(s, { type: 'buildHomes', tier: population(s) < 40 ? 'cottage' : 'terrace', count: 1 });
   if (s.eraReady) {
     if (!s.legacyProgression && s.stageId === 'homestead' && !s.charters.trader) dispatch(s, { type: 'chooseCharter', charter: 'fair' });
     dispatch(s, { type: 'advanceEra' });
@@ -44,7 +48,7 @@ export function botAct(s: GameState, strategy: Strategy = 'balanced') {
       if (st.dry > st.cap.dry * 0.7) dispatch(s, { type: 'build', region: r, building: s.cash > 40000 ? 'silo' : 'barn' });
     }
     if (s.era >= 3 && ha > 0) {
-      if (ha >= 15 && !s.workers.some((w) => w.region === r && w.role === 'manager') && s.cash > 8000) dispatch(s, { type: 'hire', region: r, role: 'manager', wageFactor: 1 });
+      if (ha >= (s.legacyProgression ? 15 : 6) && !s.workers.some((w) => w.region === r && w.role === 'manager') && s.cash > 8000) dispatch(s, { type: 'hire', region: r, role: 'manager', wageFactor: 1 });
       if (ha >= 12 && count(s, r, 'tractor') < Math.ceil(ha / 80)) dispatch(s, { type: 'buyMachine', region: r, machine: 'tractor', lease: s.cash < 30000 });
       if (ha >= 12 && count(s, r, 'harvester') < Math.ceil(ha / 70)) dispatch(s, { type: 'buyMachine', region: r, machine: 'harvester', lease: s.cash < 80000 });
     }
@@ -97,7 +101,7 @@ function sell(s: GameState) {
     const st = stored(s, r);
     const full = st.dry > st.cap.dry * 0.8 || s.cash < 5000; // short of cash or space: sell regardless of price
     for (const c of Object.keys(CROPS) as CropId[]) {
-      const q = s.regions[r].inventory[c];
+      const q = Math.max(0, s.regions[r].inventory[c] - (r === 'heartland' ? larderReserve(s, c) : 0));
       const m = s.markets[r][c]!;
       if (q < 5 || (c === 'wheat' && hasB(s, r, 'flourMill') && q < 2000)) continue;
       if (!full && m.price < avg30(s, r, c) * 0.92) continue;

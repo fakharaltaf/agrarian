@@ -3,7 +3,9 @@ import { CROPS, CROP_IDS, GOOD_IDS, REGION_IDS } from './config';
 import { createMarkets } from './markets';
 import { stageIdForEra, STAGES, STAGE_IDS } from './stages';
 import type { GameState } from './types';
-export const SAVE_VERSION = 6;
+import type { CommunityHome } from './types';
+import { createSettlementState } from './community-state';
+export const SAVE_VERSION = 7;
 export interface SaveFile { version: number; savedAt: number; paused?: boolean; game: GameState }
 
 /** Trust boundary: stored or imported JSON may be stale, hand-edited or corrupt. */
@@ -31,7 +33,7 @@ export function parseSave(text: string): SaveFile {
 /** Upgrades older saves in place. Version 1 (the prototype) predates the full economy. */
 export function migrate(g: Omit<GameState, 'version'> & { version: number }): GameState {
   if (g.version === 1) throw new Error('This save is from the early prototype and cannot be upgraded. Please start a new game.');
-  if (g.version !== 2 && g.version !== 3 && g.version !== 4 && g.version !== 5 && g.version !== SAVE_VERSION) throw new Error(`Unsupported save version ${g.version}.`);
+  if (g.version !== 2 && g.version !== 3 && g.version !== 4 && g.version !== 5 && g.version !== 6 && g.version !== SAVE_VERSION) throw new Error(`Unsupported save version ${g.version}.`);
   g.warned ??= {};
   g.bench ??= {};
   g.discovered ??= [];
@@ -54,10 +56,14 @@ export function migrate(g: Omit<GameState, 'version'> & { version: number }): Ga
   if (!g.stageState[g.stageId] || typeof g.stageState[g.stageId] !== 'object' || Array.isArray(g.stageState[g.stageId])) {
     g.stageState[g.stageId] = STAGES[g.stageId].createState();
   }
+  g.stageState.settlement ??= createSettlementState() as unknown as Record<string, unknown>;
+  for (const [key, value] of Object.entries(createSettlementState())) g.stageState.settlement[key] ??= value;
+  for (const home of g.stageState.settlement.homes as CommunityHome[]) home.count ??= 1;
   for (const [key, value] of Object.entries(STAGES[g.stageId].createState())) {
     if (g.stageState[g.stageId]![key] === undefined) g.stageState[g.stageId]![key] = value;
   }
   g.herds ??= [];
+  for (const worker of g.workers) worker.resident ??= false;
   g.automation.policies.autoFeed ??= true;
   g.automation.policies.autoExport ??= true;
   if (g.research.done.includes('droughtResistant')) g.research.licensed = g.research.licensed.filter((x) => x !== 'droughtLicense');

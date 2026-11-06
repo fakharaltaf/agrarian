@@ -1,3 +1,4 @@
+import { larderReserve } from './stages/settlement';
 // Farm animals. Herds live in their buildings, eat every day, produce in proportion to their
 // health, breed when they have space, and suffer when hungry or crowded.
 import { ANIMALS, BUILDINGS, COWS_PER_DAIRY_BATCH, GOODS, REGIONS, type AnimalId, type GoodId, type RegionId } from './config';
@@ -30,7 +31,7 @@ export function livestockDaily(s: GameState) {
     for (const g of FEEDS) {
       // stock your factories need comes first: reserved input and a day of what running mills use
       const millDay = s.buildings.reduce((a, b) => a + (b.region === h.region && b.active && BUILDINGS[b.type].recipe?.inputs[g] ? BUILDINGS[b.type].recipe!.inputs[g]! * BUILDINGS[b.type].recipe!.batchesPerHour * levelMult(b.level) * 24 : 0), 0);
-      const take = Math.max(0, Math.min(inv[g] - reservedStock(s, h.region, g) - millDay, need - got));
+      const take = Math.max(0, Math.min(inv[g] - reservedStock(s, h.region, g) - (h.region === 'heartland' ? larderReserve(s, g) : 0) - millDay, need - got));
       inv[g] -= take;
       got += take;
       if (got >= need) break;
