@@ -3,9 +3,10 @@ import { expect, it } from 'vitest';
 // @ts-expect-error Node types are deliberately absent from the browser project
 import { readFileSync, writeFileSync } from 'node:fs';
 import { parseSave } from '../simulation/persistence';
-import { createGame, dispatch, step } from '../simulation/engine';
+import { createGame, dispatch, newField, step } from '../simulation/engine';
 import { BUILDINGS, GOOD_IDS, OPEX_KINDS, REGION_IDS } from '../simulation/config';
 import { lineEcon } from '../simulation/lines';
+import { STAGES, STAGE_IDS, stageIdForEra, tickActiveStage } from '../simulation/stages';
 import type { GameState } from '../simulation/types';
 
 function finiteTree(value: unknown, path = 'state') {
@@ -14,6 +15,38 @@ function finiteTree(value: unknown, path = 'state') {
   if (value && typeof value === 'object') for (const [key, child] of Object.entries(value)) finiteTree(child, `${path}.${key}`);
 }
 const cashFlows = (s: GameState) => Object.entries(s.lifetime).reduce((n, [k, v]) => n + (k === 'depreciation' ? 0 : v ?? 0), 0);
+it('stage registry uses stable string ids and preserves the eight legacy-era identities', () => {
+  expect(Object.keys(STAGES).sort()).toEqual([...STAGE_IDS].sort());
+  expect([1,2,3,4,5,6,7,8].map(stageIdForEra)).toEqual([
+    'homestead','market-town','farm-business','industry','industry','region','city','nation',
+  ]);
+  const s = createGame(44), before = structuredClone(s);
+  tickActiveStage(s);
+  expect(s).toEqual(before);
+  for (const id of STAGE_IDS) {
+    expect(STAGES[id].id).toBe(id);
+    expect(typeof STAGES[id].tick).toBe('function');
+    expect(typeof STAGES[id].handleAction).toBe('function');
+    expect(STAGES[id].createState()).toEqual({});
+  }
+});
+it('legacy saves migrate to their matching stage without advancing or changing their era', () => {
+  const s = createGame(45); s.era = 7; delete (s as Partial<GameState>).stageId;
+  const migrated = parseSave(JSON.stringify({ version: 3, savedAt: 1, game: s })).game;
+  expect(migrated.era).toBe(7);
+  expect(migrated.stageId).toBe('city');
+  expect(migrated.stageState.city).toEqual({});
+});
+it('player era advancement synchronizes the stable stage id', () => {
+  const s = createGame(46);
+  for (let i = 0; i < 3; i++) s.fields.push(newField(s, 'heartland', 1, 0));
+  s.lifetime.sale = 12_000;
+  expect(dispatch(s, { type: 'advanceEra' }).ok).toBe(true);
+  expect(s.era).toBe(2);
+  expect(s.stageId).toBe('market-town');
+  step(s);
+  expect(s.stageState['market-town']).toEqual({});
+});
 it('pure save migration round-trips and preserves deterministic continuation', () => {
   const a = parseSave(JSON.stringify({version: 2, game: createGame(819)})).game;
   const b = parseSave(JSON.stringify({version: 2, game: a, paused: true, savedAt: 1})).game;

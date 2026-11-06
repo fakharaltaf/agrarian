@@ -273,7 +273,7 @@ export interface LedgerEntry { tick: number; kind: LedgerKind; amount: number; r
 export interface DayBook { day: number; kinds: Partial<Record<LedgerKind, number>>; regions: Partial<Record<RegionId, number>>; divisions: Partial<Record<Division, number>>; op: Partial<Record<RegionId, number>>; cash: number; debt: number; equity: number; produced: number }
 
 export interface GameState {
-  version: 3;
+  version: 4;
   seed: number;
   rng: number;
   tick: number;
@@ -303,6 +303,10 @@ export interface GameState {
   overdraftDays: number;
   bankrupt: { reason: string } | null;
   era: number;
+  /** Stable content-stage identity; the legacy era remains for save compatibility and existing rules. */
+  stageId: import('./stages/types').StageId;
+  /** Persisted stage-specific state, keyed by stable stage id. */
+  stageState: Partial<Record<import('./stages/types').StageId, Record<string, unknown>>>;
   stats: { harvests: number; sales: number; plantings: number; produced: Partial<Record<GoodId, number>>; spoiled: number; peopleFed: number; forcedSales: number; overflowLost: number; maxEquity: number; crisisSurvived: boolean };
   unlockedCrops: CropId[];
   milestones: string[];

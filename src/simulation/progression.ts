@@ -3,22 +3,11 @@ import { BUILDINGS, CROPS, CROP_IDS, ERAS, REGION_IDS, type CropId } from './con
 import { equity, has, log, stored } from './core';
 import { fertility } from './agriculture';
 import { topShare } from './corporate';
+import { eraUnlockAvailable, stageIdForEra, tickActiveStage } from './stages';
 import type { GameState } from './types';
 
 export const totalHa = (s: GameState) => s.fields.reduce((a, f) => a + f.ha, 0);
 export const lifetimeSales = (s: GameState) => (s.lifetime.sale ?? 0) + (s.lifetime.contract ?? 0);
-const factories = (s: GameState) => s.buildings.filter((b) => BUILDINGS[b.type].category === 'processing').length;
-
-const ERA_CHECKS: ((s: GameState) => boolean)[] = [
-  () => true,
-  (s) => s.fields.length >= 4 && lifetimeSales(s) >= 12000,
-  (s) => lifetimeSales(s) >= 60000 && s.workers.length >= 2,
-  (s) => s.machines.length > 0 && lifetimeSales(s) >= 500000,
-  (s) => lifetimeSales(s) >= 3_000_000 || (factories(s) >= 2 && lifetimeSales(s) >= 1_500_000),
-  (s) => lifetimeSales(s) >= 12_000_000,
-  (s) => lifetimeSales(s) >= 60_000_000 || totalHa(s) >= 3000,
-  (s) => lifetimeSales(s) >= 300_000_000,
-];
 /** Sales needed for the next era (for progress bars); 0 when the goal is not about sales. */
 export const ERA_SALES = [0, 12000, 60000, 500000, 3_000_000, 12_000_000, 60_000_000, 300_000_000];
 
@@ -32,12 +21,13 @@ export const ERA_UNLOCK_TEXT: Record<number, string[]> = {
   8: ['Climate and global market share', 'Long-term milestones'],
 };
 
-export const canAdvance = (s: GameState) => s.era < ERAS.length && ERA_CHECKS[s.era](s);
+export const canAdvance = (s: GameState) => s.era < ERAS.length && eraUnlockAvailable(s, s.era + 1);
 
 /** The player decides when to step into the next era. */
 export function advanceEra(s: GameState): string | null {
   if (!canAdvance(s)) return `Not yet: ${ERAS[s.era]?.requirement ?? 'you have reached the final era'}.`;
   s.era++;
+  s.stageId = stageIdForEra(s.era);
   s.eraReady = false;
   log(s, 'opportunity', `Welcome to Era ${s.era}: ${ERAS[s.era - 1].name}. ${ERA_UNLOCK_TEXT[s.era].join(' · ')}.`, 'overview');
   return null;
@@ -106,6 +96,9 @@ export function discover(s: GameState, id: string) {
 }
 
 export function progressionTick(s: GameState) {
+  // Keep the string-keyed content stage synchronized with legacy save progression.
+  s.stageId = stageIdForEra(s.era);
+  tickActiveStage(s);
   const ready = canAdvance(s);
   if (ready && !s.eraReady) log(s, 'opportunity', `You can now advance to Era ${s.era + 1}: ${ERAS[s.era].name}. Take your time — advance when you are ready.`, 'overview');
   s.eraReady = ready;
