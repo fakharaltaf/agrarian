@@ -64,7 +64,7 @@ export function tickActiveStage(s: GameState) {
 }
 
 export function handleActiveStageAction(s: GameState, action: Action) {
-  if (action.type === 'sellToMill' || action.type === 'barter' || action.type === 'haggle') {
+  if (action.type === 'sellToMill' || action.type === 'barter' || action.type === 'haggle' || action.type === 'chooseCharter') {
     const stage = STAGES.homestead;
     const state = (s.stageState.homestead ??= stage.createState());
     for (const [key, value] of Object.entries(stage.createState())) if (state[key] === undefined) state[key] = value;

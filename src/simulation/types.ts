@@ -282,9 +282,11 @@ export interface BarterOffer {
 }
 export interface HomesteadState { day: number; mood: number; offers: BarterOffer[] }
 export interface MarketTownState { lastMarketDay: number }
+export type TraderCharter = 'fair' | 'shrewd';
+export interface TownValues { prosperityFairness: number; orderFreedom: number; peaceStrength: number; traditionProgress: number }
 
 export interface GameState {
-  version: 5;
+  version: 6;
   seed: number;
   rng: number;
   tick: number;
@@ -320,6 +322,10 @@ export interface GameState {
   stageState: Partial<Record<import('./stages/types').StageId, Record<string, unknown>>>;
   /** Old saves retain the pre-roadmap era gates and market behavior. */
   legacyProgression: boolean;
+  /** Lasting choices shape the village's economic and civic character. */
+  charters: { trader: TraderCharter | null };
+  /** Four visible axes from 0 (left label) to 100 (right label). */
+  values: TownValues;
   stats: { harvests: number; sales: number; plantings: number; produced: Partial<Record<GoodId, number>>; spoiled: number; peopleFed: number; forcedSales: number; overflowLost: number; maxEquity: number; crisisSurvived: boolean };
   unlockedCrops: CropId[];
   milestones: string[];
@@ -349,6 +355,7 @@ export type Action =
   | { type: 'sellToMill'; qty: number }
   | { type: 'barter'; offerId: string }
   | { type: 'haggle'; offerId: string }
+  | { type: 'chooseCharter'; charter: TraderCharter }
   | { type: 'buy'; region: RegionId; good: GoodId; qty: number }
   | { type: 'buyPlot' }
   | { type: 'buyParcel'; region: RegionId; ha: number }

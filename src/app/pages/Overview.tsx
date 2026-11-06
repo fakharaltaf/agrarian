@@ -11,6 +11,7 @@ import { LineChart } from '../Chart';
 import { duration, money, num, pct0, stamp } from '../format';
 import { Bar, Card, Kpi, PageHead, usePref } from '../ui';
 import { unlockedRegions } from './shared';
+import { STAGES } from '../../simulation/stages';
 
 // Kinds that move cash but are not profit or loss (same exclusions as corporate.netIncome).
 const NON_PL: LedgerKind[] = ['loanIn', 'loanRepay', 'sharesIssued', 'dividends', 'buyback', 'land', 'machine', 'building', 'acquisition', 'irrigation', 'margin', 'assetSale'];
@@ -38,7 +39,7 @@ export default function OverviewPage() {
 
   return (
     <div className="stack l">
-      <PageHead title="Overview" sub={`Era ${s.era} · ${ERAS[s.era - 1].name}. ${ERAS[s.era - 1].theme}`}
+      <PageHead title="Overview" sub={s.legacyProgression ? `Era ${s.era} · ${ERAS[s.era - 1].name}. ${ERAS[s.era - 1].theme}` : `Chapter · ${STAGES[s.stageId].title}`}
         actions={custom && <button className={`btn ${editing ? 'primary' : 'ghost'} sm`} aria-pressed={editing} onClick={() => setEditing(!editing)}>{editing ? 'Done' : 'Customise'}</button>} />
       {custom && editing && (
         <Card title="Dashboard widgets" info="Choose what this page shows. Your choice is remembered in this browser.">
@@ -53,6 +54,7 @@ export default function OverviewPage() {
       )}
       {show('kpis') && <Kpis s={s} />}
       <AdvisorCard s={s} />
+      <ValuesCard s={s} />
       <div className="grid2">
         {show('era') && <EraCard s={s} />}
         {show('alerts') && <Alerts s={s} />}
@@ -61,6 +63,26 @@ export default function OverviewPage() {
       {(show('pl') || show('worth')) && <Charts s={s} pl={show('pl')} worth={show('worth')} />}
     </div>
   );
+}
+
+function ValuesCard({ s }: { s: GameState }) {
+  if (s.legacyProgression || s.stageId === 'homestead') return null;
+  const axes = [
+    ['🌾', 'Prosperity', 'Fairness', s.values.prosperityFairness],
+    ['⚖️', 'Order', 'Freedom', s.values.orderFreedom],
+    ['🕊️', 'Peace', 'Strength', s.values.peaceStrength],
+    ['🛠️', 'Tradition', 'Progress', s.values.traditionProgress],
+  ] as const;
+  const charter = s.charters.trader === 'fair' ? '🤝 Fair trader' : s.charters.trader === 'shrewd' ? '🪙 Shrewd trader' : 'Trader charter pending';
+  return <Card title="Character of your town" info="Choices nudge these values. The first trader charter moves Prosperity ↔ Fairness; later decisions will shape the other axes.">
+    <div className="town-values">
+      <div className="town-charter">{charter}</div>
+      {axes.map(([icon, left, right, value]) => <div className="town-axis" key={left}>
+        <div className="town-axis-labels"><span>{icon} {left}</span><span>{right}</span></div>
+        <div className="town-axis-track" aria-label={`${left} to ${right}: ${Math.round(value)}% ${right}`}><i style={{ left: `${Math.max(0, Math.min(100, value))}%` }} /></div>
+      </div>)}
+    </div>
+  </Card>;
 }
 
 // ---------------------------------------------------------------- KPIs by era
@@ -145,6 +167,25 @@ function eraProgress(s: GameState): { value: number; parts: [string, string][] }
 }
 
 function EraCard({ s }: { s: GameState }) {
+  if (!s.legacyProgression) {
+    const o = objective(s);
+    const sales = lifetimeSales(s);
+    const ratio = (n: number, target: number) => Math.min(1, n / target);
+    let progress = 0;
+    let requirement = 'The newest playable chapter is ready when you are.';
+    if (s.stageId === 'homestead') { progress = Math.min(ratio(s.fields.length, 4), ratio(sales, 90_000)); requirement = '4 fields + $90,000 in sales'; }
+    else if (s.stageId === 'market-town') { progress = Math.max(ratio(s.fields.length, 12), ratio(sales, 165_000)); requirement = '12 fields or $165,000 in sales'; }
+    else if (s.stageId === 'farm-business') { progress = Math.min(ratio(s.workers.filter(w => w.role === 'hand').length, 2), ratio(sales, 500_000)); requirement = '2 farm hands + $500,000 in sales'; }
+    else if (s.stageId === 'industry') { progress = Math.min(ratio(sales, 3_000_000), s.buildings.some(b => BUILDINGS[b.type].category === 'processing') ? 1 : 0); requirement = 'A working processor + $3,000,000 in sales'; }
+    return <Card title={<>Chapter · {STAGES[s.stageId].title}</>} info="Chapters open when your business reaches clear milestones. You choose when to advance.">
+      <div className="stack s">
+        <div className="row between small"><b>{o.title}</b><span className="mono">{pct0(progress)}</span></div>
+        <Bar value={progress} color="var(--gold)" label="Chapter progress" />
+        <div className="row between small"><span className="muted">Next chapter</span><span>{requirement}</span></div>
+        {s.eraReady && <p className="small muted">Ready to preview · advancing is your choice.</p>}
+      </div>
+    </Card>;
+  }
   const next = ERAS[s.era];
   const p = eraProgress(s);
   const o = objective(s);

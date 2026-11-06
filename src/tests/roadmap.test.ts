@@ -7,7 +7,7 @@ import { canAdvance, createGame, dispatch, newField, step } from '../simulation/
 import { BUILDINGS, GOOD_IDS, OPEX_KINDS, REGION_IDS } from '../simulation/config';
 import { lineEcon } from '../simulation/lines';
 import { STAGES, STAGE_IDS, stageIdForEra, tickActiveStage } from '../simulation/stages';
-import { HOMESTEAD_MILL_PRICE } from '../simulation/stages/homestead';
+import { HOMESTEAD_MILL_PRICE, homesteadState, traderHaggleChance } from '../simulation/stages/homestead';
 import { HOMESTEAD_SALES_GOAL } from '../simulation/progression';
 import { botAct } from './bot';
 import type { GameState } from '../simulation/types';
@@ -35,16 +35,30 @@ it('stage registry uses stable string ids and preserves the eight legacy-era ide
   }
 });
 it('legacy saves migrate to their matching stage without advancing or changing their era', () => {
-  const s = createGame(45); s.era = 7; delete (s as Partial<GameState>).stageId;
+  const s = createGame(45); s.era = 7; (s as unknown as { version: number }).version = 3; delete (s as Partial<GameState>).stageId;
   const migrated = parseSave(JSON.stringify({ version: 3, savedAt: 1, game: s })).game;
   expect(migrated.era).toBe(7);
   expect(migrated.stageId).toBe('city');
   expect(migrated.stageState.city).toEqual({});
+  expect(migrated.charters).toEqual({ trader: null });
+  expect(migrated.values).toEqual({ prosperityFairness: 50, orderFreedom: 50, peaceStrength: 50, traditionProgress: 50 });
+});
+it('version-5 roadmap saves gain neutral charter values without losing their chosen progression', () => {
+  const old = structuredClone(createGame(48)) as unknown as Record<string, unknown>;
+  old.version = 5; delete old.charters; delete old.values;
+  const migrated = parseSave(JSON.stringify({ version: 5, savedAt: 20, game: old })).game;
+  expect(migrated.legacyProgression).toBe(false);
+  expect(migrated.charters).toEqual({ trader: null });
+  expect(migrated.values).toEqual({ prosperityFairness: 50, orderFreedom: 50, peaceStrength: 50, traditionProgress: 50 });
+  expect(migrated.stageId).toBe('homestead');
 });
 it('player chapter advancement synchronizes the stable stage id', () => {
   const s = createGame(46);
   for (let i = 0; i < 3; i++) s.fields.push(newField(s, 'heartland', 1, 0));
   s.lifetime.sale = HOMESTEAD_SALES_GOAL;
+  s.eraReady = true;
+  expect(dispatch(s, { type: 'advanceEra' }).ok).toBe(false);
+  expect(dispatch(s, { type: 'chooseCharter', charter: 'fair' }).ok).toBe(true);
   expect(dispatch(s, { type: 'advanceEra' }).ok).toBe(true);
   expect(s.era).toBe(2);
   expect(s.stageId).toBe('market-town');
@@ -75,13 +89,39 @@ it('new Homestead uses a daily barter board and fixed wheat buyer before opening
   expect(dispatch(s, { type: 'sell', region: 'heartland', good: 'wheat', qty: 1 }).ok).toBe(false);
   s.fields.push(newField(s, 'heartland', 1, 0), newField(s, 'heartland', 1, 0), newField(s, 'heartland', 1, 0));
   s.lifetime.sale = HOMESTEAD_SALES_GOAL;
+  s.eraReady = true;
   expect(canAdvance(s)).toBe(true);
+  expect(dispatch(s, { type: 'chooseCharter', charter: 'fair' }).ok).toBe(true);
   expect(dispatch(s, { type: 'advanceEra' }).ok).toBe(true);
   expect(s.stageId).toBe('market-town');
   step(s);
   expect(s.stageId).toBe('market-town');
   expect(dispatch(s, { type: 'hire', region: 'heartland', role: 'hand', wageFactor: 1 }).ok).toBe(false);
   expect(dispatch(s, { type: 'sellToMill', qty: 1 }).ok).toBe(true); // trader remains a side channel
+});
+it('Fair and Shrewd trader charters have distinct, persistent and previewed tradeoffs', () => {
+  const fair = createGame(744), shrewd = createGame(744);
+  for (const s of [fair, shrewd]) {
+    for (let i = 0; i < 3; i++) s.fields.push(newField(s, 'heartland', 1, 0));
+    s.lifetime.sale = HOMESTEAD_SALES_GOAL;
+    s.eraReady = true;
+  }
+  const fairBase = homesteadState(fair).offers[0]!.give.qty;
+  expect(dispatch(fair, { type: 'chooseCharter', charter: 'fair' }).ok).toBe(true);
+  expect(dispatch(shrewd, { type: 'chooseCharter', charter: 'shrewd' }).ok).toBe(true);
+  expect(fair.charters.trader).toBe('fair');
+  expect(shrewd.charters.trader).toBe('shrewd');
+  expect(fair.values.prosperityFairness).toBe(68);
+  expect(shrewd.values.prosperityFairness).toBe(32);
+  expect(fair.corp.reputation).toBe(54);
+  expect(shrewd.corp.reputation).toBe(42);
+  expect(homesteadState(fair).mood).toBe(68);
+  expect(homesteadState(shrewd).mood).toBe(42);
+  expect(homesteadState(fair).offers[0]!.give.qty).toBe(Math.ceil(fairBase * 1.1));
+  expect(traderHaggleChance(shrewd)).toBeGreaterThan(traderHaggleChance(fair));
+  expect(dispatch(fair, { type: 'chooseCharter', charter: 'shrewd' }).ok).toBe(false);
+  expect(dispatch(fair, { type: 'advanceEra' }).ok).toBe(true);
+  expect(fair.charters.trader).toBe('fair');
 });
 it('Market Town schedules a real, weekly demand surge and does not repeat it within the day', () => {
   const market = createGame(742), quiet = createGame(742);

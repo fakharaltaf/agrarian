@@ -642,7 +642,7 @@ body { overflow: hidden; }
   .shell:has(.hud-panel:not(.closed)):has(.toasts .toast) > .coach.docked { display: none; }
 }
 
-.shell:has(.modal-bg) > .coach { display: none; }
+body:has(.modal-bg) .shell .coach { display: none !important; }
 .fgrid { grid-template-columns: repeat(auto-fill,minmax(130px,1fr)); gap: 10px; }
 .ftile { display: grid; gap: 5px; padding: 10px; font-size: 15px; min-height: 150px; position: relative; }
 .ftile-top, .ftile-crop { font-size: 15px; }
@@ -664,3 +664,14 @@ body { overflow: hidden; }
 .trader-amount{font-size:14px;font-weight:800;line-height:1.2}
 .trader-arrow{text-align:center;color:var(--sun);font-size:20px;font-weight:900}
 @media(max-width:520px){.trader-offer{grid-template-columns:minmax(62px,.7fr) 18px minmax(84px,1fr);gap:5px;padding:8px}.trader-offer .row{grid-column:1/-1;justify-content:flex-end}.trader-amount{font-size:14px}}
+
+/* Stage 2 charter: two clear, lasting play styles rather than a hidden toggle. */
+.charter-heading{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:14px 0 8px}.charter-heading>span{font-size:12px;color:var(--muted)}
+.charter-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.charter-tile{display:grid;grid-template-columns:46px 1fr;align-content:start;align-items:center;gap:3px 10px;padding:14px;border:1px solid var(--line);border-radius:18px;background:linear-gradient(145deg,var(--surface),var(--surface-2));box-shadow:inset 0 1px #ffffff32,0 3px 10px #20170c12}
+.charter-tile.fair{border-color:color-mix(in srgb,var(--leaf) 48%,var(--line))}.charter-tile.shrewd{border-color:color-mix(in srgb,var(--sun) 54%,var(--line))}
+.charter-crest{grid-row:span 3;display:grid;place-items:center;width:44px;height:44px;border-radius:14px;background:var(--accent-soft);font-size:24px}
+.charter-tile h3{margin:0;font-size:19px}.charter-tile p{grid-column:2;margin:0;color:var(--muted)}.charter-tile strong,.charter-tile>span{grid-column:2;font-size:13px}.charter-tile .btn{grid-column:1/-1;margin-top:8px;min-height:46px}
+.town-values{display:grid;gap:12px}.town-charter{justify-self:start;padding:5px 10px;border-radius:999px;background:var(--accent-soft);font-size:13px;font-weight:800}.town-axis{display:grid;gap:5px}.town-axis-labels{display:flex;justify-content:space-between;gap:8px;font-size:13px;font-weight:700}.town-axis-labels>span:last-child{color:var(--muted)}
+.town-axis-track{position:relative;height:10px;border-radius:99px;background:linear-gradient(90deg,color-mix(in srgb,var(--sun) 70%,var(--surface)),color-mix(in srgb,var(--leaf) 62%,var(--surface)));box-shadow:inset 0 1px 2px #0002}.town-axis-track i{position:absolute;top:50%;width:16px;height:16px;border:3px solid var(--surface);border-radius:50%;background:var(--forest);box-shadow:0 1px 4px #0005;transform:translate(-50%,-50%)}
+@media(max-width:520px){.charter-heading{align-items:flex-start;flex-direction:column;gap:2px}.charter-grid{grid-template-columns:1fr}.charter-tile{grid-template-columns:42px 1fr;padding:12px}.charter-tile .btn{grid-column:1/-1}}

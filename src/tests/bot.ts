@@ -17,7 +17,10 @@ export function botAct(s: GameState, strategy: Strategy = 'balanced') {
     return;
   }
   const P = s.automation.policies;
-  if (s.eraReady) dispatch(s, { type: 'advanceEra' });
+  if (s.eraReady) {
+    if (!s.legacyProgression && s.stageId === 'homestead' && !s.charters.trader) dispatch(s, { type: 'chooseCharter', charter: 'fair' });
+    dispatch(s, { type: 'advanceEra' });
+  }
   // Homestead: work small plots by hand until there are workers.
   if (!s.workers.some((w) => w.role === 'hand')) for (const f of s.fields) {
     if (!isManual(f)) continue;

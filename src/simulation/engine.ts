@@ -38,7 +38,7 @@ export function createGame(seed = (Date.now() % 2147483646) + 1): GameState {
     haulToday: 0, truckToday: 0, portToday: 0, insured: false, insuredFrom: 0, forecast: [], frostTonight: false, quality: {}, homePlotsBought: 1, parcelsBought: 0, waterToday: 0, powerGen: 0, powerUse: 0, backlog: 0,
   }])) as Record<RegionId, RegionState>;
   const s: GameState = {
-    version: 5, seed, rng: seed, tick: 0, cash: CONFIG.startingCash, marginAccount: 0,
+    version: 6, seed, rng: seed, tick: 0, cash: CONFIG.startingCash, marginAccount: 0,
     fields: [], workers: [], machines: [], buildings: [], regions, markets: createMarkets(),
     seeds: Object.fromEntries(Object.keys(CROPS).map((c) => [c, c === 'wheat' ? 10 : 0])) as Record<CropId, number>,
     macro: { cpi: 1, inflation: 0.025, baseRate: 0.045, energy: 1, income: 1, climate: 0, crunch: 0, emissions: 0 },
@@ -46,6 +46,7 @@ export function createGame(seed = (Date.now() % 2147483646) + 1): GameState {
     automation: { rules: [], policies: { ...DEFAULT_POLICIES } }, competitors: [], events: [],
     corp: { incorporated: false, shares: CONFIG.sharesOutstanding, playerShares: CONFIG.sharesOutstanding, execs: [], reputation: 50, dividends: 0, runoff: 0 },
     ledger: [], lifetime: {}, books: [], overdraftDays: 0, bankrupt: null, era: 1, stageId: stageIdForEra(1), stageState: { homestead: STAGES.homestead.createState() }, legacyProgression: false,
+    charters: { trader: null }, values: { prosperityFairness: 50, orderFreedom: 50, peaceStrength: 50, traditionProgress: 50 },
     stats: { harvests: 0, sales: 0, plantings: 0, produced: {}, spoiled: 0, peopleFed: 0, forcedSales: 0, overflowLost: 0, maxEquity: 0, crisisSurvived: false },
     unlockedCrops: ['wheat'], milestones: [], seenTips: [], discovered: [], achievements: [], rewarded: [], daily: null, eraReady: false, herds: [], advisor: false, warned: {}, log: [], nextId: 1,
   };
@@ -692,7 +693,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       else if (!s.seenTips.includes(a.tip)) s.seenTips.push(a.tip);
       return ok();
     }
-    case 'sellToMill': case 'barter': case 'haggle':
+    case 'sellToMill': case 'barter': case 'haggle': case 'chooseCharter':
       return fail('The village trader is not available in this chapter.');
   }
 }

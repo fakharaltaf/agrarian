@@ -39,6 +39,7 @@ export const canAdvance = (s: GameState) => s.legacyProgression
 /** The player decides when to step into the next era. */
 export function advanceEra(s: GameState): string | null {
   if (!canAdvance(s)) return `Not yet: ${ERAS[s.era]?.requirement ?? 'you have reached the final era'}.`;
+  if (!s.legacyProgression && s.stageId === 'homestead' && !s.charters.trader) return 'Choose the Fair or Shrewd trader charter before entering Market Town.';
   const previous = s.stageId;
   if (!s.legacyProgression) {
     const next = NEXT_STAGE[previous];

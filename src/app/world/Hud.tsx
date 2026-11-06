@@ -22,6 +22,10 @@ function EraBanner({ s }: { s: GameState }) {
   const title = s.legacyProgression ? `Era ${s.era + 1}: ${next?.name ?? 'Frontier'}` : STAGES[nextId ?? s.stageId].title;
   const theme = next?.theme ?? (nextId === 'market-town' ? 'Surplus outgrows barter. The village opens its first market day.' : nextId === 'farm-business' ? 'Bring in a crew, plan the fields and manage the new costs.' : nextId === 'industry' ? 'Machines and processing turn a farm business into an industry.' : 'A new chapter is ready. Your farm keeps running behind you.');
   const unlocks = s.legacyProgression ? ERA_UNLOCK_TEXT[s.era + 1] ?? [] : nextId === 'market-town' ? ['Open commodity market and daily market day', 'Keep the village trader as a side channel'] : nextId === 'farm-business' ? ['Farm hands, managers and crop plans', 'Soil care, livestock, orchards and seasons'] : nextId === 'industry' ? ['Tractors, processing and energy', 'Research and larger parcels'] : ['New systems arrive here as the story expands.'];
+  const chooseTrader = (charter: 'fair' | 'shrewd') => {
+    if (!act({ type: 'chooseCharter', charter })) return;
+    if (act({ type: 'advanceEra' })) setOpen(false);
+  };
   return (
     <>
       <button className="hud-era" data-coach="advance" onClick={() => setOpen(true)}>
@@ -30,13 +34,30 @@ function EraBanner({ s }: { s: GameState }) {
         <span>Preview & advance →</span>
       </button>
       {open && (
-        <Modal title={title} onClose={() => setOpen(false)} actions={<>
-          <button className="btn ghost" onClick={() => setOpen(false)}>Not yet</button>
-          <button className="btn primary" onClick={() => (act({ type: 'advanceEra' }), setOpen(false))}>Begin chapter</button>
-        </>}>
+        <Modal title={title} onClose={() => setOpen(false)} actions={nextId === 'market-town' && !s.legacyProgression
+          ? <button className="btn ghost" onClick={() => setOpen(false)}>Not yet</button>
+          : <><button className="btn ghost" onClick={() => setOpen(false)}>Not yet</button><button className="btn primary" onClick={() => (act({ type: 'advanceEra' }), setOpen(false))}>Begin chapter</button></>}>
           <p className="muted">{theme}</p>
           <ul>{unlocks.map((t) => <li key={t}>{t}</li>)}</ul>
-          <p className="small muted">Nothing changes until you choose. Your earlier operation keeps running.</p>
+          {nextId === 'market-town' && !s.legacyProgression ? <>
+            <div className="charter-heading"><b>Choose your trader charter</b><span>Permanent · no other feature is closed</span></div>
+            <div className="charter-grid">
+              <article className="charter-tile fair">
+                <div className="charter-crest">🤝</div><h3>Fair</h3>
+                <p>Villagers trust you.</p>
+                <strong>+10% barter goods · +4 reputation</strong>
+                <span>Opens with a friendly trader.</span>
+                <button className="btn primary" onClick={() => chooseTrader('fair')}>Choose Fair</button>
+              </article>
+              <article className="charter-tile shrewd">
+                <div className="charter-crest">🪙</div><h3>Shrewd</h3>
+                <p>Push harder in a bargain.</p>
+                <strong>+20 points to haggle chance</strong>
+                <span>Reputation −8 · trader starts wary.</span>
+                <button className="btn gold" onClick={() => chooseTrader('shrewd')}>Choose Shrewd</button>
+              </article>
+            </div>
+          </> : <p className="small muted">Nothing changes until you choose. Your earlier operation keeps running.</p>}
         </Modal>
       )}
     </>

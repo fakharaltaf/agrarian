@@ -26,6 +26,9 @@ export function refreshHomestead(s: GameState) {
     { id: 'potato-seed', takeGood: 'wheat', takeQty: 18 + Math.floor(random(s) * 3), give: { kind: 'seed', crop: 'potatoes', qty: variable(7) }, haggled: false, traded: false },
     { id: 'fertilizer', takeGood: 'wheat', takeQty: 8 + Math.floor(random(s) * 3), give: { kind: 'good', good: 'fertilizer', qty: variable(12) }, haggled: false, traded: false },
   ];
+  if (s.charters?.trader === 'fair') {
+    for (const offer of offers) offer.give.qty = Math.ceil(offer.give.qty * 1.1);
+  }
   // A small outlet for the crops the trader introduced, at a deliberately modest exchange rate.
   const crop = s.unlockedCrops.includes('corn') && s.unlockedCrops.includes('potatoes') ? (d % 2 ? 'corn' : 'potatoes') : s.unlockedCrops.includes('corn') ? 'corn' : s.unlockedCrops.includes('potatoes') ? 'potatoes' : null;
   if (crop) offers.push({ id: `${crop}-buyer`, takeGood: crop, takeQty: crop === 'corn' ? 15 : 15, give: { kind: 'good', good: 'wheat', qty: crop === 'corn' ? 12 : 10 }, haggled: false, traded: false });
@@ -33,11 +36,32 @@ export function refreshHomestead(s: GameState) {
 }
 
 export function homesteadState(s: GameState): HomesteadState { return stateOf(s); }
+export function traderHaggleChance(s: GameState) {
+  const trader = stateOf(s);
+  return Math.min(0.95, 0.35 + (trader.mood / 100) * 0.45 + (s.charters.trader === 'shrewd' ? 0.2 : 0));
+}
 
 function fail(error: string): ActionResult { return { ok: false, error }; }
 function ok(note?: string): ActionResult { return { ok: true, note }; }
 
 function handleHomesteadAction(s: GameState, action: Action): ActionResult | null {
+  if (action.type === 'chooseCharter') {
+    if (s.legacyProgression || s.stageId !== 'homestead' || !s.eraReady) return fail('The trader charter is offered when your first market day is ready.');
+    if (s.charters.trader) return fail('You already chose the village trader charter.');
+    s.charters.trader = action.charter;
+    const trader = stateOf(s);
+    if (action.charter === 'fair') {
+      s.values.prosperityFairness = 68;
+      trader.mood = 68;
+      for (const offer of trader.offers) offer.give.qty = Math.ceil(offer.give.qty * 1.1);
+      s.corp.reputation = Math.min(100, s.corp.reputation + 4);
+      return ok('Fair charter · the trader trusts you; barter offers give 10% more.');
+    }
+    s.values.prosperityFairness = 32;
+    trader.mood = 42;
+    s.corp.reputation = Math.max(0, s.corp.reputation - 8);
+    return ok('Shrewd charter · haggling is stronger, but reputation falls by 8.');
+  }
   if (action.type !== 'sellToMill' && action.type !== 'barter' && action.type !== 'haggle') return null;
   if (s.legacyProgression) return fail('The village trader is only available on new progression saves.');
   const trader = stateOf(s);
@@ -63,7 +87,7 @@ function handleHomesteadAction(s: GameState, action: Action): ActionResult | nul
   if (action.type === 'haggle') {
     if (offer.haggled) return fail('You have already haggled over this offer today.');
     offer.haggled = true;
-    const chance = 0.35 + (trader.mood / 100) * 0.45;
+    const chance = traderHaggleChance(s);
     if (random(s) < chance) {
       offer.give.qty += Math.max(1, Math.ceil(offer.give.qty * 0.15));
       trader.mood = Math.min(100, trader.mood + 8);
