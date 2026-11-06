@@ -1,0 +1,83 @@
+[
+  {
+    "file": "barn.glb",
+    "title": "Barn",
+    "author": "Quaternius",
+    "license": "CC0 1.0",
+    "source": "https://poly.pizza/m/vSqQNA7ez6",
+    "download": "https://static.poly.pizza/e0ecaf1c-bff4-4f30-9a53-0cf0c1c90deb.glb",
+    "sha256": "c7e19b37ecc74f24e121c822116b125f7a7eea6473943650ca05faca3ebdebc3"
+  },
+  {
+    "file": "shed.glb",
+    "title": "Small Barn",
+    "author": "Quaternius",
+    "license": "CC0 1.0",
+    "source": "https://poly.pizza/m/aTcDP7UERC",
+    "download": "https://static.poly.pizza/f8d23d79-6dfd-4667-a961-5b4dad5a32d6.glb",
+    "sha256": "6a3a2a3e8d735e240ec73bdaa365f46826e63a73745a113f02774aa012b386eb"
+  },
+  {
+    "file": "coop.glb",
+    "title": "ChickenCoop",
+    "author": "Quaternius",
+    "license": "CC0 1.0",
+    "source": "https://poly.pizza/m/DM0F8siLam",
+    "download": "https://static.poly.pizza/3f01eddc-5941-42f5-acb7-363f9db61fd8.glb",
+    "sha256": "138f37ba14648259e8fa841d3501ebc05ad7b997babadc6cd5572785de9e158a"
+  },
+  {
+    "file": "silo.glb",
+    "title": "Silo",
+    "author": "Quaternius",
+    "license": "CC0 1.0",
+    "source": "https://poly.pizza/m/5GhLrv5Ce3",
+    "download": "https://static.poly.pizza/3944662c-ccdd-440d-94bf-a1e37624a536.glb",
+    "sha256": "5894991c0371129fa12b858181b60dfb2c732494c07fa2a5b3afbba0f25d4e1d"
+  },
+  {
+    "file": "mill.glb",
+    "title": "Tower Windmill",
+    "author": "Quaternius",
+    "license": "CC0 1.0",
+    "source": "https://poly.pizza/m/52yaPyaAAG",
+    "download": "https://static.poly.pizza/4807851f-46d4-4541-ae98-24ec0a525f0c.glb",
+    "sha256": "a547212fff5b4c99b34ccea01adbc1dc8d820b83affbd006f1cf856cc14d98bd"
+  },
+  {
+    "file": "cow.glb",
+    "title": "Cow",
+    "author": "Quaternius",
+    "license": "CC0 1.0",
+    "source": "https://poly.pizza/m/5XSc2Fka3F",
+    "download": "https://static.poly.pizza/48c5f4af-07d6-4493-a261-0919967afe85.glb",
+    "sha256": "5bdb18da23e114c717a8739e7defc75b6bf3d1dd54e928c141a0286bf14aa4a8"
+  },
+  {
+    "file": "sheep.glb",
+    "title": "Sheep",
+    "author": "Quaternius",
+    "license": "CC0 1.0",
+    "source": "https://poly.pizza/m/C39AUXUUes",
+    "download": "https://static.poly.pizza/a4bd2c4e-fe71-4dbd-9881-cf3ac8a00bbf.glb",
+    "sha256": "91aedec323b54d42b802b065b2f5005daea527b0a379a9f3fe90f3258f3c2382"
+  },
+  {
+    "file": "tree.glb",
+    "title": "Tree",
+    "author": "Quaternius",
+    "license": "CC0 1.0",
+    "source": "https://poly.pizza/m/aVOxaHRPWe",
+    "download": "https://static.poly.pizza/7bf2aa94-cc44-40d9-a93c-9489eb09e008.glb",
+    "sha256": "b591827c6aad32ec9fd964d878f3925c302d2a144597f1d5e84068df99b880ba"
+  },
+  {
+    "file": "house.glb",
+    "title": "House",
+    "author": "Quaternius",
+    "license": "CC0 1.0",
+    "source": "https://poly.pizza/m/YlADpCJU8U",
+    "download": "https://static.poly.pizza/0877b108-5675-4da1-b646-2aedb9768869.glb",
+    "sha256": "81bc46fc9589e24b77d5f97803325f35a6f1e8cbbdee644b54cb3a479b5cad4c"
+  }
+]

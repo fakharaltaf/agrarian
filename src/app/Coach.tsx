@@ -5,7 +5,7 @@ import { stored } from '../simulation/core';
 import type { GameState } from '../simulation/types';
 import { act, go, useGame, useStore } from '../stores/game';
 import { useElementRect } from './ui';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { diagnose } from '../simulation/advisor';
 
 export interface CoachTip {
@@ -90,6 +90,7 @@ export const tipsOff = (s: GameState) => s.seenTips.includes('__off');
 
 export function Coach() {
   const s = useGame();
+  const [expanded, setExpanded] = useState(false);
   const page = useStore((x) => x.page);
   // tips whose goal is already reached finish themselves
   const finished = TIPS.find((t) => !s.seenTips.includes(t.id) && t.done?.(s));
@@ -98,6 +99,7 @@ export function Coach() {
   }, [finished]);
   const tip = tipsOff(s) ? undefined : TIPS.find((t) => !s.seenTips.includes(t.id) && !t.done?.(s) && t.when(s)) ?? adviceTip(s);
   const rect = useElementRect(tip ? `[data-coach="${tip.target}"]` : null);
+  useEffect(()=>setExpanded(false),[tip?.id]);
   if (!tip) return null;
   const idx = TIPS.indexOf(tip); // -1 for advisor lessons
   const dismiss = () => act({ type: 'seeTip', tip: tip.id });
@@ -107,9 +109,10 @@ export function Coach() {
   return (
     <>
       {visible && <div className="coach-ring" style={{ left: rect.left - 4, top: rect.top - 4, width: rect.width + 8, height: rect.height + 8 }} />}
-      <aside className="coach docked" role="status" aria-label={`Farm journal: ${tip.title}`}>
-        <span className="step">📖 Farm journal · {idx < 0 ? 'Lesson from your farm' : `${idx + 1} of ${TIPS.length}`}</span>
-        <h3>{tip.title}</h3>
+      <aside className={`coach docked${expanded ? ' expanded' : ' compact'}`} role="status" aria-label={`Farm journal: ${tip.title}`}>
+        <button className="journal-peek" onClick={()=>setExpanded(!expanded)} aria-expanded={expanded}>📖 {tip.title} {expanded?'▾':'▸'}</button>
+        {expanded && <><span className="step">📖 Farm journal · {idx < 0 ? 'Lesson from your farm' : `${idx + 1} of ${TIPS.length}`}</span>
+
         <p>{tip.body}</p>
         <div className="row between">
           <button className="btn ghost sm" onClick={off} title="You can turn the journal back on in Settings">Hide journal</button>
@@ -118,6 +121,7 @@ export function Coach() {
             <button className="btn primary sm" onClick={dismiss}>Got it</button>
           </div>
         </div>
+        </>}
       </aside>
     </>
   );

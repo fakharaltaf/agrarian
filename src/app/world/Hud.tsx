@@ -115,7 +115,10 @@ export function Hud() {
   const [sel, setSel] = useState<number[]>(() => (s.fields[0] ? [s.fields[0].id] : []));
   const [lot, setLot] = useState<Lot | null>(null);
   const [crop, setCrop] = useState<CropId>('wheat');
-  const [panel, setPanel] = useState(true);
+  const [panel, setPanel] = useState(false);
+  const [journal, setJournal] = useState(false);
+  const dragStart = useRef<number | null>(null);
+  const dragged = useRef(false);
   const page = usePageState();
   const live = useRef({ s, sel, crop });
   live.current = { s, sel, crop };
@@ -141,15 +144,10 @@ export function Hud() {
   }, []);
 
   const onPick = (p: WorldPick) => {
-    setPanel(true);
+    setPanel(false);
+    setJournal(false);
     if (p.kind === 'field') {
       setLot(null);
-      const f = s.fields.find((x) => x.id === p.id);
-      // play on the farm: a ripe hand-worked plot harvests on click; a selected empty one plants on a second click
-      if (!p.multi && f && isManual(f)) {
-        if (isReady(s, f)) act({ type: 'harvest', fieldId: f.id });
-        else if (!f.crop && sel.length === 1 && sel[0] === f.id) act({ type: 'plant', fieldId: f.id, crop });
-      }
       setSel((cur) => (p.multi ? (cur.includes(p.id) ? cur.filter((x) => x !== p.id) : [...cur, p.id]) : [p.id]));
     } else if (p.kind === 'lot') {
       setLot(p.lot);
@@ -169,11 +167,19 @@ export function Hud() {
     <div className="hud">
       <DiscoveryCard s={s} />
       <Scene3D region={region} selected={sel} onPick={onPick} plantLabel={plantLabel(s, crop, one)}
-        onAction={(kind, id) => act(kind === 'harvest' ? { type: 'harvest', fieldId: id } : { type: 'plant', fieldId: id, crop })} />
-      <div className="hud-left">
+        selectedLot={lot?.key} onAction={(kind, id) => {
+          if(kind==='plant'||kind==='harvest') act(kind==='harvest'?{type:'harvest',fieldId:id}:{type:'plant',fieldId:id,crop});
+          else if(kind==='place' && lot){
+            const target=lot.key==='crew'?'workers':lot.key==='office'?'automation':lot.key==='market'?'markets':lot.type==='house'||lot.type==='shed'?'finance':LOT_PAGE[BUILDINGS[lot.type].category];
+            if(target && PAGES.find(p=>p.id===target)?.unlocked(s))go(target);else {setPanel(true);setJournal(false);}
+          } else {setPanel(true);setJournal(false); if(kind==='plan') requestAnimationFrame(()=>document.querySelector('[data-coach=plan-picker]')?.scrollIntoView({block:'center'}));}
+        }} />
+      <div className={`hud-left${journal ? ' journal-open' : ''}`} hidden={page !== 'farm'}>
+        <ObjectiveCard s={s} />
+        <button className="btn hud-journal-toggle" aria-expanded={journal} onClick={() => { setJournal(!journal); setPanel(false); }}>📖 {journal ? 'Close journal' : 'Farm journal'}</button>
+        {journal && <div className="hud-journal stack">
         {s.eraReady && <EraBanner s={s} />}
         <AdvisorPill s={s} />
-        <ObjectiveCard s={s} />
         {known(s, 'forecast') && <ForecastStrip s={s} r={region} />}
         {s.stats.sales > 0 && <DailyGoals s={s} />}
         <div className="hud-actions">
@@ -183,17 +189,18 @@ export function Hud() {
           {s.era >= 2 && <button className="btn ghost sm" onClick={() => go('fields')}>All fields</button>}
         </div>
         {s.era < 3 && page === 'farm' && <div className="hud-log"><RecentLog s={s} /></div>}
+        </div>}
       </div>
       {page === 'farm' && (
         <aside className={`hud-panel${panel ? '' : ' closed'}`} aria-label="Selection">
-          <button className="hud-toggle" onClick={() => setPanel(!panel)} aria-label={panel ? 'Hide panel' : 'Show panel'}>{panel ? '›' : '‹'}</button>
+          <button className="hud-toggle" onPointerDown={e => { dragStart.current = e.clientY; dragged.current = false; e.currentTarget.setPointerCapture(e.pointerId); }} onPointerUp={e => { if (dragStart.current !== null && e.clientY - dragStart.current > 45) { dragged.current = true; setPanel(false); } dragStart.current = null; }} onClick={() => { if (dragged.current) { dragged.current = false; return; } setPanel(!panel); setJournal(false); }} aria-expanded={panel} aria-label={panel ? 'Hide panel' : 'Show panel'}>{panel ? '━  Close' : 'Inspect'}</button>
           {panel && (
             <div className="stack">
-              {liveLot ? <LotPanel s={s} lot={liveLot} onClose={() => setLot(null)} />
+              {liveLot ? <LotPanel s={s} region={region} lot={liveLot} onClose={() => setLot(null)} />
                 : selected.length > 1 ? <BatchPanel s={s} fields={selected} />
                   : one ? <FieldPanel s={s} f={one} crop={crop} setCrop={setCrop} />
                     : <Card title="Your farm"><p className="explain">Click a field or building to manage it. Drag to look around, scroll to zoom. Shift-click to select several fields.</p></Card>}
-              {s.stats.harvests > 0 && <SellCard s={s} r={region} />}
+              {s.stats.harvests > 0 && liveLot?.key !== 'market' && <SellCard s={s} r={region} />}
             </div>
           )}
         </aside>
@@ -221,7 +228,7 @@ function ObjectiveCard({ s }: { s: GameState }) {
   );
 }
 
-const LOT_PAGE: Partial<Record<string, string>> = { storage: 'storage', processing: 'production', energy: 'production', commerce: 'production', research: 'research' };
+const LOT_PAGE: Partial<Record<string, string>> = { storage: 'storage', processing: 'production', energy: 'production', commerce: 'production', research: 'research', livestock: 'livestock' };
 
 function HerdInfo({ s, lot }: { s: GameState; lot: Lot }) {
   const animal = ANIMAL_IDS.find((a) => ANIMALS[a].building === lot.type)!;
@@ -239,11 +246,12 @@ function HerdInfo({ s, lot }: { s: GameState; lot: Lot }) {
   );
 }
 
-function LotPanel({ s, lot, onClose }: { s: GameState; lot: Lot; onClose: () => void }) {
+function LotPanel({ s, lot, region, onClose }: { s: GameState; lot: Lot; region: RegionId; onClose: () => void }) {
+  if(lot.key==='market') return <SellCard s={s} r={region}/>;
   if (lot.type === 'house' || lot.type === 'shed') {
     const hands = s.workers.filter((w) => w.role === 'hand').length;
     return (
-      <Card title={lot.type === 'house' ? 'Farmhouse' : 'Regional office'} actions={<button className="icon-btn" onClick={onClose} aria-label="Close">✕</button>}>
+      <Card title={lot.key==='crew'?'Bunkhouse':lot.key==='office'?'Farm office':lot.type === 'house' ? 'Farmhouse' : 'Regional office'} actions={<button className="icon-btn" onClick={onClose} aria-label="Close">✕</button>}>
         <div className="stack s">
           <p className="explain">{lot.type === 'house' ? 'Where it all started. Your crew gathers in the yard when there is no field work.' : 'Your base of operations in this region.'}</p>
           <dl className="facts">

@@ -2,12 +2,14 @@
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { ANIMALS, BUILDINGS, CROPS, GOODS, REGIONS, SEASONS, type AnimalId, type CropId, type RegionId } from '../../simulation/config';
-import { fertility, growth, isMature, isReady } from '../../simulation/engine';
+import { timingFactor, fertility, growth, isMature, isReady } from '../../simulation/engine';
+import { stored } from '../../simulation/core';
 import type { GameState } from '../../simulation/types';
 import { getGame, getSpeed } from '../../stores/game';
+import { preloadArt, artRevision } from './art';
 import { num, pct0 } from '../format';
 import { layoutRegion, type Layout, type Lot, type Plot } from './layout';
-import { animal, buildLot, cached, mat, mesh, PAL, person, tree, vehicle, type Model } from './models';
+import { animal, buildLot, box, cached, mat, mesh, PAL, person, tree, vehicle, type Model } from './models';
 
 /** Graphics quality chosen in Settings (per browser). Low turns off shadows and high-DPI rendering. */
 export const graphicsQuality = (): 'high' | 'low' => {
@@ -37,15 +39,18 @@ interface Rig {
   models: { lot: Lot; model: Model; hit: THREE.Mesh }[]; pick: THREE.Object3D[];
   crops: Partial<Record<Shape, THREE.InstancedMesh>>; sig: { lots: string; fields: string; crops: string; sel: string; deco: string };
   people: Map<number, THREE.Group>; machines: Map<number, THREE.Group>; trucks: { obj: THREE.Group; t0: number }[]; herds: Map<string, THREE.Group[]>;
-  rain: THREE.Points; smoke: THREE.Sprite[]; pops: { key: string; text: string; x: number; z: number; t0: number }[]; seenHarvest: Map<number, object>; popsReady: boolean; crownMat: THREE.MeshStandardMaterial; lastHaul: number; layout: Layout | null; region: RegionId;
+  storageProps: THREE.Group; lastStockTick: number; lastCash: number; lastCoin: number;
+  rain: THREE.Points; smoke: THREE.Sprite[]; pops: { key: string; text: string; x: number; z: number; t0: number; tone?: string }[]; seenHarvest: Map<number, object>; popsReady: boolean; crownMat: THREE.MeshStandardMaterial; lastHaul: number; layout: Layout | null; region: RegionId;
 }
 
-export function Scene3D({ region, selected, onPick, plantLabel, onAction }: { region: RegionId; selected: number[]; onPick: (p: WorldPick) => void; plantLabel?: string; onAction?: (kind: 'harvest' | 'plant', fieldId: number) => void }) {
+export type WorldAction = 'harvest' | 'plant' | 'inspect' | 'plan' | 'place';
+
+export function Scene3D({ region, selected, onPick, plantLabel, onAction, selectedLot }: { region: RegionId; selected: number[]; onPick: (p: WorldPick) => void; plantLabel?: string; selectedLot?: string; onAction?: (kind: WorldAction, fieldId: number) => void }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const overlay = useRef<HTMLDivElement>(null);
   const rig = useRef<Rig | null>(null);
-  const live = useRef({ region, selected, onPick, plantLabel, onAction });
-  live.current = { region, selected, onPick, plantLabel, onAction };
+  const live = useRef({ region, selected, onPick, plantLabel, onAction, selectedLot });
+  live.current = { region, selected, onPick, plantLabel, onAction, selectedLot };
   const [hover, setHover] = useState<{ x: number; y: number; text: string[] } | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -59,7 +64,7 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction }: { re
       setFailed(true);
       return;
     }
-    const low = graphicsQuality() === 'low';
+    const low = graphicsQuality() === 'low' || (innerWidth < 700 && devicePixelRatio > 1.25);
     renderer.setPixelRatio(low ? 1 : Math.min(2, devicePixelRatio));
     renderer.shadowMap.enabled = !low;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -88,30 +93,40 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction }: { re
     const R: Rig = {
       renderer, scene, camera, target: new THREE.Vector3(6, 0, 8), yaw: Math.PI / 4, yawTo: Math.PI / 4, zoom: 1, sun, hemi, ground,
       lots: g(), fields: g(), units: g(), deco: g(), fx: g(), sel: g(), models: [], pick: [], crops: {}, sig: { lots: '', fields: '', crops: '', sel: '', deco: '' },
+      storageProps: g(), lastStockTick:-1, lastCash:getGame().cash, lastCoin:0,
       people: new Map(), machines: new Map(), trucks: [], herds: new Map(), rain, smoke: [], pops: [], seenHarvest: new Map(), popsReady: false, crownMat: mat(CROWN.Spring).clone(), lastHaul: -1, layout: null, region,
     };
     rig.current = R;
-    let raf = 0, framed = false, lastCrops = 0;
+    let raf = 0, framed = false, lastCrops = 0, viewSize = '', viewSelection = '', artVersion = artRevision();
+    void preloadArt();
     const frame = (now: number) => {
       raf = requestAnimationFrame(frame);
+      if(artVersion!==artRevision()){
+        artVersion=artRevision(); c.dataset.art=String(artVersion); R.sig.lots=''; R.sig.deco='';
+        for(const animals of R.herds.values())for(const a of animals)R.units.remove(a);
+        R.herds.clear();
+      }
       const W = c.clientWidth, H = c.clientHeight;
       if (!W || !H) return;
+      const size=`${W}:${H}`, selection=live.current.selected.join(',');
+      if(size!==viewSize||selection!==viewSelection){viewSize=size;viewSelection=selection;framed=false;}
       if (c.width !== Math.round(W * renderer.getPixelRatio()) || c.height !== Math.round(H * renderer.getPixelRatio())) renderer.setSize(W, H, false);
       const s = getGame();
       if (R.region !== live.current.region) { R.region = live.current.region; R.sig = { lots: '', fields: '', crops: '', sel: '', deco: '' }; framed = false; R.lastHaul = -1; }
       const L = layoutRegion(s, R.region);
       R.layout = L;
-      if (!framed) { frameCamera(R, L, W); framed = true; }
+      if (!framed) { frameCamera(R, L, live.current.selected); framed = true; }
       syncLots(R, L);
       syncFields(R, L);
       if (now - lastCrops > 400) { syncCrops(R, L, s); lastCrops = now; }
       syncSelection(R, L, live.current.selected);
       syncDeco(R, L);
+      syncStorage(R,L,s);
       animateUnits(R, L, s, now / 1000);
       atmosphere(R, s, now / 1000);
       updateCamera(R, W, H);
       renderer.render(scene, camera);
-      overlayLabels(R, L, s, W, H, overlay.current, now / 1000, live.current.selected, live.current.plantLabel);
+      overlayLabels(R, L, s, W, H, overlay.current, now / 1000, live.current.selected, live.current.plantLabel, live.current.selectedLot);
     };
     raf = requestAnimationFrame(frame);
     return () => { cancelAnimationFrame(raf); renderer.dispose(); rig.current = null; };
@@ -121,7 +136,7 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction }: { re
   useEffect(() => {
     const c = canvas.current!;
     const pts = new Map<number, { x: number; y: number }>();
-    let moved = 0, pinch = 0, lastHover = 0;
+    let moved = 0, pinch = 0, lastHover = 0, downAt = 0;
     const ray = new THREE.Raycaster();
     const pickAt = (sx: number, sy: number) => {
       const R = rig.current;
@@ -138,11 +153,11 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction }: { re
       const fwd = new THREE.Vector3(-Math.sin(R.yaw), 0, -Math.cos(R.yaw));
       R.target.addScaledVector(right, -dx * k).addScaledVector(fwd, (dy * k) / Math.sin(0.62));
     };
-    const zoomBy = (f: number) => { if (rig.current) rig.current.zoom = Math.max(0.35, Math.min(4, rig.current.zoom * f)); };
+    const zoomBy = (f: number) => { if (rig.current) rig.current.zoom = Math.max(0.15, Math.min(4, rig.current.zoom * f)); };
     const down = (e: PointerEvent) => {
       c.setPointerCapture(e.pointerId);
       pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
-      moved = 0;
+      moved = 0; downAt = performance.now();
       if (pts.size === 2) { const [a, b] = [...pts.values()]; pinch = Math.hypot(a.x - b.x, a.y - b.y); }
     };
     const move = (e: PointerEvent) => {
@@ -178,8 +193,8 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction }: { re
         const u = pickAt(e.clientX - r.left, e.clientY - r.top);
         const L = rig.current?.layout;
         const multi = e.shiftKey || e.ctrlKey || e.metaKey;
-        if (u?.kind === 'field') live.current.onPick({ kind: 'field', id: u.id, multi });
-        else if (u?.kind === 'lot' && L) { const lot = L.lots.find((q) => q.key === u.key); if (lot) live.current.onPick({ kind: 'lot', lot }); }
+        if (u?.kind === 'field') { live.current.onPick({ kind: 'field', id: u.id, multi }); if(performance.now()-downAt>500)live.current.onAction?.('inspect',u.id); }
+        else if (u?.kind === 'lot' && L) { const lot = L.lots.find((q) => q.key === u.key); if (lot) {live.current.onPick({ kind: 'lot', lot });if(performance.now()-downAt>500)live.current.onAction?.('inspect',0);} }
         else if (u?.kind === 'buy') live.current.onPick({ kind: 'buy' });
         else live.current.onPick({ kind: 'none' });
       }
@@ -201,11 +216,13 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction }: { re
       else return;
       e.preventDefault();
     };
+    const cancel=(e:PointerEvent)=>{pts.delete(e.pointerId);pinch=0;};
+    const leave=()=>setHover(null);
     c.addEventListener('pointerdown', down);
     c.addEventListener('pointermove', move);
     c.addEventListener('pointerup', up);
-    c.addEventListener('pointercancel', up);
-    c.addEventListener('pointerleave', () => setHover(null));
+    c.addEventListener('pointercancel', cancel);
+    c.addEventListener('pointerleave', leave);
     c.addEventListener('wheel', wheel, { passive: false });
     addEventListener('keydown', key);
     const ov = overlay.current!;
@@ -213,7 +230,7 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction }: { re
       const b = (e.target as HTMLElement).closest('[data-action]') as HTMLElement | null;
       if (!b) return;
       const [kind, id] = b.dataset.action!.split(':');
-      live.current.onAction?.(kind as 'harvest' | 'plant', Number(id));
+      live.current.onAction?.(kind as WorldAction, Number(id));
     };
     ov.addEventListener('click', onBubble);
     (window as unknown as Record<string, unknown>).__world = { zoom: zoomBy, rotate: (d: number) => rig.current && (rig.current.yawTo += (d * Math.PI) / 2) };
@@ -221,7 +238,9 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction }: { re
       c.removeEventListener('pointerdown', down);
       c.removeEventListener('pointermove', move);
       c.removeEventListener('pointerup', up);
-      c.removeEventListener('pointercancel', up);
+      c.removeEventListener('pointercancel', cancel);
+      c.removeEventListener('pointerleave', leave);
+      delete (window as unknown as Record<string,unknown>).__world;
       c.removeEventListener('wheel', wheel);
       removeEventListener('keydown', key);
       ov.removeEventListener('click', onBubble);
@@ -232,7 +251,7 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction }: { re
   return (
     <div className="world">
       <canvas ref={canvas} className="world-canvas" role="img" aria-label={`Your farm in ${REGIONS[region].name}. Drag to move, scroll to zoom, Q and E to rotate, click a field or building.`} />
-      <div ref={overlay} className="world-overlay" aria-hidden />
+      <div ref={overlay} className="world-overlay" />
       {failed && <div className="world-loading">Your browser could not start 3D graphics (WebGL). Try another browser or enable hardware acceleration.</div>}
       {hover && <div className="world-tip" style={{ left: hover.x + 14, top: hover.y + 14 }}>{hover.text.filter(Boolean).map((t, i) => <div key={i} className={i ? 'muted' : ''}>{t}</div>)}</div>}
       <div className="world-zoom">
@@ -247,14 +266,17 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction }: { re
 
 // ---------------------------------------------------------------- camera
 
-function frameCamera(R: Rig, L: Layout, W: number) {
-  const pts: [number, number][] = [];
-  for (const lot of L.lots.slice(0, 3)) pts.push([lot.x, lot.y], [lot.x + lot.w, lot.y + lot.d]);
-  for (const p of L.plots.slice(0, 4)) pts.push([p.x, p.y], [p.x + Math.min(p.s, 6), p.y + Math.min(p.s, 6)]);
-  const xs = pts.map((p) => p[0]), zs = pts.map((p) => p[1]);
-  R.target.set((Math.min(...xs) + Math.max(...xs)) / 2, 0, (Math.min(...zs) + Math.max(...zs)) / 2);
-  const span = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...zs) - Math.min(...zs), 8);
-  R.zoom = Math.max(0.6, Math.min(1.5, 16 / span)) * (W < 700 ? 0.8 : 1);
+function frameCamera(R: Rig,L:Layout,selected:number[]=[]){
+  const field=L.plots.find(x=>selected.includes(x.field.id))??L.plots[0];
+  // The farm is the play space. Keep the selected field readable on phones;
+  // fitting every distant lot into the viewport made the playable plot vanish.
+  if(field){
+    R.target.set(field.x+field.s/2,0,field.y+field.s/2);
+    R.zoom=Math.max(.15,Math.min(1.5,8/field.s));
+    return;
+  }
+  const lot=L.lots.find(x=>x.type==='house')??L.lots[0];
+  if(lot){R.target.set(lot.x+lot.w/2,0,lot.y+lot.d/2);R.zoom=1;}
 }
 
 function updateCamera(R: Rig, W: number, H: number) {
@@ -300,6 +322,9 @@ function syncLots(R: Rig, L: Layout) {
     R.pick.push(hit);
     R.models.push({ lot, model, hit });
   }
+  const home=L.lots[0];
+  R.lots.add(box(2.6,.09,.32,PAL.wood,home.x+home.w+1.4,.2,home.y+1));
+  R.lots.add(box(2.6,.25,.06,PAL.wood,home.x+home.w+1.4,.35,home.y+.85));
   // smoke sprites for every chimney
   for (const sp of R.smoke) R.fx.remove(sp);
   R.smoke = [];
@@ -399,10 +424,12 @@ function syncCrops(R: Rig, L: Layout, s: GameState) {
     const mature = perennial && isMature(s, f);
     const n = shape === 'tree' ? Math.max(2, Math.round(p.s * 0.75)) : Math.max(3, Math.min(14, Math.round(p.s * 1.7)));
     const step = (p.s - 0.4) / n;
+    const wilt = ready ? 1-timingFactor(s,f) : 0;
     const scaleBase = perennial ? (mature ? 1 : 0.35 + 0.65 * g) : 0.25 + 0.75 * g;
     let col = lerpC(0x9fd46b, shape === 'grain' ? 0x7fae45 : 0x4f8f3a, perennial ? (mature ? 1 : g) : g);
     if (ready) col = new THREE.Color(RIPE[c] ?? GOODS[c].color);
     if (f.pest > 0.35) col.lerp(new THREE.Color(0x8a7a3a), Math.min(0.7, f.pest));
+    if(wilt>0)col.lerp(new THREE.Color(0x766044),wilt);
     if (f.frost > 0) col.lerp(new THREE.Color(0xa7b3b6), f.frost);
     for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
       const jx = (hash(f.id * 97 + i * 13 + j) - 0.5) * step * 0.35, jz = (hash(f.id * 31 + i * 7 + j * 3) - 0.5) * step * 0.35;
@@ -414,10 +441,10 @@ function syncCrops(R: Rig, L: Layout, s: GameState) {
         items.push({ shape: 'trunk', m: new THREE.Matrix4().compose(new THREE.Vector3(x, 0.1, z), q, new THREE.Vector3(ts, ts, ts)), c: new THREE.Color(PAL.woodDark) });
         const crownCol = ready ? lerpC(0x4f8a3c, RIPE[c]!, 0.55) : lerpC(0x9fd46b, 0x4f8a3c, mature ? 1 : g);
         items.push({ shape: 'crown', m: new THREE.Matrix4().compose(new THREE.Vector3(x, 0.1 + 0.62 * ts, z), q, new THREE.Vector3(ts * (c === 'grapes' ? 1.4 : 1), ts * (c === 'grapes' ? 0.7 : 1), ts)), c: crownCol });
-      } else items.push({ shape, m: new THREE.Matrix4().compose(new THREE.Vector3(x, 0.1, z), q, new THREE.Vector3(k, k, k)), c: col });
+      } else items.push({ shape, m: new THREE.Matrix4().compose(new THREE.Vector3(x, 0.1, z), q, new THREE.Vector3(k, k*(1-wilt*.6), k)), c: col });
     }
   }
-  const sig = `${items.length}:${L.plots.map((p) => `${p.field.crop}${Math.round(growth(s, p.field) * 12)}${isReady(s, p.field) ? 'r' : ''}${p.field.pest > 0.35 ? 'p' : ''}${Math.round(p.field.frost * 4)}`).join('')}`;
+  const sig = `${items.length}:${L.plots.map((p) => `${p.field.crop}${Math.round(growth(s, p.field) * 12)}${isReady(s, p.field) ? 'r' : ''}${p.field.pest > 0.35 ? 'p' : ''}${Math.round(p.field.frost * 4)}${Math.round(timingFactor(s,p.field)*8)}`).join('')}`;
   if (sig === R.sig.crops) return;
   R.sig.crops = sig;
   const geos: Record<Shape, () => THREE.BufferGeometry> = {
@@ -476,7 +503,7 @@ function syncDeco(R: Rig, L: Layout) {
     L.plots.some((p) => x > p.x - 0.8 && x < p.x + p.s + 0.8 && z > p.y - 0.8 && z < p.y + p.s + 0.8) ||
     (L.buy !== null && x > L.buy.x - 0.8 && x < L.buy.x + 2.8 && z > L.buy.y - 0.8 && z < L.buy.y + 2.8);
   let placed = 0;
-  for (let i = 0; i < 1600 && placed < 260; i++) {
+  for (let i = 0; i < 1600 && placed < (graphicsQuality() === 'low' ? 40 : 80); i++) {
     const x = -14 + hash(i * 3.1) * (L.maxX + 30), z = -12 + hash(i * 7.7 + 1) * (L.maxY + 26);
     if (busy(x, z)) continue;
     // keep the inner farm airy: fewer trees inside the yard band
@@ -507,6 +534,7 @@ function animateUnits(R: Rig, L: Layout, s: GameState, t: number) {
     const p = w.task ? plotOf(w.task) : undefined;
     let x: number, z: number;
     if (p) {
+      o.scale.y = 1;
       const lane = (w.id * 7) % Math.max(1, p.s - 1);
       x = p.x + 0.35 + ((t * 0.18 + hash(w.id) * p.s) % (p.s - 0.7));
       z = p.y + 0.4 + lane;
@@ -515,8 +543,9 @@ function animateUnits(R: Rig, L: Layout, s: GameState, t: number) {
     } else {
       x = house.x + house.w + 0.4 + (i % 6) * 0.35 + Math.sin(t * 0.5 + i) * 0.05;
       z = house.y + 1 + Math.floor(i / 6) * 0.35;
-      o.position.y = 0;
-      o.rotation.y = Math.sin(t * 0.3 + i);
+      o.position.y = .15;
+      o.scale.y = .75;
+      o.rotation.y = 0;
     }
     o.position.x = x; o.position.z = z;
   });
@@ -641,7 +670,7 @@ function atmosphere(R: Rig, s: GameState, t: number) {
 
 // ---------------------------------------------------------------- HTML overlay (crisp labels and markers)
 
-function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el: HTMLDivElement | null, t: number, selected: number[], plantLabel?: string) {
+function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el: HTMLDivElement | null, t: number, selected: number[], plantLabel?: string, selectedLot?: string) {
   if (!el) return;
   const want: { key: string; x: number; y: number; html: string; cls: string; action?: string }[] = [];
   const v = new THREE.Vector3();
@@ -653,23 +682,38 @@ function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el
     R.seenHarvest.set(p.field.id, h);
     if (R.popsReady && R.pops.length < 30) R.pops.push({ key: `p${p.field.id}-${t}`, text: `+${num(h.units)} ${GOODS[h.crop].name.toLowerCase()}`, x: p.x + p.s / 2, z: p.y + p.s / 2, t0: t });
   }
+  if(t-R.lastCoin>1){
+    const delta=s.cash-R.lastCash;
+    if(Math.abs(delta)>=1){const at=L.lots.find(l=>l.key==='market')??L.lots[0];R.pops.push({key:`coin-${t}`,text:`${delta>0?'+':'−'}$${num(Math.abs(delta))}`,x:at.x,z:at.y,t0:t,tone:delta>0?'coin-in':'coin-out'});}
+    R.lastCash=s.cash;R.lastCoin=t;
+  }
   R.popsReady = true; // harvests that existed when the farm loaded don't pop
   R.pops = R.pops.filter((p) => t - p.t0 < 1.8);
   for (const p of R.pops) {
     const [x, y] = project(p.x, 1.2 + (t - p.t0) * 0.9, p.z);
-    want.push({ key: p.key, x, y, html: p.text, cls: 'wl-pop' });
+    want.push({ key: p.key, x, y, html: p.text, cls: `wl-pop ${p.tone ?? ''}` });
   }
-  // action bubble over the one selected hand-worked plot
+  const button = (action: string, label: string) => `<button data-action="${action}" type="button"${label==='ⓘ'?' aria-label="Inspect selected item"':''}>${label}</button>`;
   if (selected.length === 1) {
-    const p = L.plots.find((q) => q.field.id === selected[0]);
-    if (p && p.field.ha <= 1) {
-      const ready = isReady(s, p.field);
-      const [x, y] = project(p.x + p.s / 2, ready ? 1.6 : 0.9, p.y + p.s / 2);
-      if (ready) want.push({ key: 'act', x, y, html: '🌾 Harvest', cls: 'wl-act gold', action: `harvest:${p.field.id}` });
-      else if (!p.field.crop && plantLabel) want.push({ key: 'act', x, y, html: `🌱 ${plantLabel}`, cls: 'wl-act', action: `plant:${p.field.id}` });
+    const p = L.plots.find(q=>q.field.id===selected[0]);
+    if(p){
+      const ready=isReady(s,p.field), id=p.field.id;
+      const [px,py]=project(p.x+p.s/2,1.5,p.y+p.s/2);
+      const primary=p.field.ha<=1 ? ready?button(`harvest:${id}`,'🌾 Harvest'):!p.field.crop&&plantLabel?button(`plant:${id}`,'🌱 Plant'):'' : '';
+      const plan=s.era>=2?button(`plan:${id}`,'🌱 Plan'):'';
+      want.push({key:'act',x:Math.max(115,Math.min(W-115,px)),y:Math.max(80,Math.min(H-30,py)),html:primary+plan+button(`inspect:${id}`,'ⓘ'),cls:'wl-radial'});
     }
   }
-  const zoomed = R.zoom > 0.75;
+  if(selectedLot){
+    const lot=L.lots.find(x=>x.key===selectedLot);
+    if(lot){const [px,py]=project(lot.x+lot.w/2,2.5,lot.y+lot.d/2);
+      const label=lot.key==='crew'?'👒 Crew':lot.key==='office'?'⚙ Policies':lot.key==='market'?'🪙 Trade':lot.type==='house'||lot.type==='shed'?'📖 Books':BUILDINGS[lot.type].category==='storage'?'📦 Store':'⚙ Manage';
+      want.push({key:'place-act',x:Math.max(100,Math.min(W-100,px)),y:Math.max(80,Math.min(H-30,py)),html:button('place:0',label)+button('inspect:0','ⓘ'),cls:'wl-radial'});
+    }
+  }
+  const st=stored(s,R.region), store=L.lots.find(l=>l.type!=='house'&&l.type!=='shed'&&BUILDINGS[l.type].category==='storage');
+  if(store&&st.dry>=st.cap.dry*.99){const [x,y]=project(store.x+store.w/2,2,store.y);want.push({key:'full',x,y,html:'📦 FULL',cls:'wl-ready'});}
+  const zoomed = R.zoom > 0.45;
   for (const p of L.plots) {
     if (!isReady(s, p.field) || (selected.length === 1 && selected[0] === p.field.id && p.field.ha <= 1)) continue;
     const [x, y] = project(p.x + p.s / 2, 1.1 + Math.sin(t * 3) * 0.06, p.y + p.s / 2);
@@ -680,7 +724,7 @@ function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el
     const lot = m.lot;
     const [x, y] = project(lot.x + lot.w / 2, 0, lot.y + lot.d + 0.3);
     if (x < -60 || y < -20 || x > W + 60 || y > H + 20) continue;
-    const name = lot.type === 'house' ? 'Farmhouse' : lot.type === 'shed' ? 'Office' : BUILDINGS[lot.type].name;
+    const name = lot.key === 'crew' ? 'Bunkhouse' : lot.key === 'office' ? 'Farm office' : lot.key === 'market' ? 'Village trader' : lot.type === 'house' ? 'Farmhouse' : lot.type === 'shed' ? 'Office' : BUILDINGS[lot.type].name;
     const lvl = Math.max(1, ...lot.buildings.map((b) => b.level));
     const warn = lot.buildings.some((b) => b.active && /Not enough|full|Disease/.test(b.reason));
     want.push({ key: `l${lot.key}`, x, y, html: `${warn ? '⚠ ' : ''}${name}${lot.buildings.length > 1 ? ` ×${lot.buildings.length}` : ''}${lvl > 1 ? ` · L${lvl}` : ''}`, cls: 'wl-name' });
@@ -780,4 +824,15 @@ function puffTexture() {
   x.fillRect(0, 0, 64, 64);
   puff = new THREE.CanvasTexture(c);
   return puff;
+}
+
+function syncStorage(R: Rig,L: Layout,s: GameState){
+  if(R.lastStockTick===s.tick)return;R.lastStockTick=s.tick;
+  const st=stored(s,R.region), n=Math.min(12,Math.ceil(st.dry/Math.max(1,st.cap.dry)*12));
+  const at=L.lots.find(l=>l.type!=='house'&&l.type!=='shed'&&BUILDINGS[l.type].category==='storage')??L.lots.find(l=>l.key==='market');
+  if(!at)return;
+  const signature=`${at.key}:${at.x}:${at.y}:${n}`;
+  if(R.storageProps.userData.signature===signature)return;
+  R.storageProps.userData.signature=signature;R.storageProps.clear();
+  for(let i=0;i<n;i++)R.storageProps.add(box(.32,.27,.32,PAL.wood,at.x+(i%4)*.36,.05+Math.floor(i/4)*.27,at.y+at.d+.4));
 }

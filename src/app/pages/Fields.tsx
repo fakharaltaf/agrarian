@@ -1,17 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 import { BUILDINGS, CONFIG, CROPS, GOODS, GOOD_IDS, MACHINES, REGIONS, WORK_END, WORK_START, type CropId, type GoodId, type RegionId } from '../../simulation/config';
-import { factoryCrop, has, known, reservedStock, priceUsd, seasonOf, seedCost, stored } from '../../simulation/core';
+import { factoryCrop, has, known, reservedStock, priceUsd, seedCost, stored } from '../../simulation/core';
 import {
   canGrow, expectedYield, fertility, grade, greenhousePrice, growth, homePlotPrice, irrigationPrice, isManual, isMature, isReady, parcelPrice, qualityMult, quoteSell, seedShortfall, soilFactor, tempFactor, timingFactor, waterFactor, techFactor,
 } from '../../simulation/engine';
 import type { Field, GameState } from '../../simulation/types';
 import { act, useGame } from '../../stores/game';
-import { Sparkline } from '../Chart';
+import { dayPrice } from '../../simulation/lines';
 import { duration, money, num, pct, pct0, price, stamp } from '../format';
 import { Bar, Card, Confirm, Info, Seg, Select, Swatch, Tip, usePref } from '../ui';
 import { unlockedRegions } from './shared';
 
-const W = 132, H = 92, GAP = 14, COLS = 4, PLANTS = 9;
 
 export function FieldsPage() {
   const s = useGame();
@@ -49,7 +48,7 @@ export function FieldsPage() {
 
   return (
     <div className="stack l" style={{ marginTop: 16 }}>
-      <div className="grid2" style={{ gridTemplateColumns: 'minmax(0, 1.4fr) minmax(0, 1fr)' }}>
+      <div className="grid2 fields-layout">
         <div className="stack l">
           <Card
             title={<>Farm <span className="muted">{num(fields.reduce((a, f) => a + f.ha, 0))} ha{regions.length > 1 ? ` · ${REGIONS[r].name}` : ''}</span></>}
@@ -85,55 +84,9 @@ function plotState(s: GameState, f: Field) {
 }
 
 function FarmView({ s, fields, sel, onSelect, canBuy }: { s: GameState; fields: Field[]; sel: number[]; onSelect: (id: number, multi: boolean) => void; canBuy: boolean }) {
-  const cells = fields.length + (canBuy ? 1 : 0);
-  const rows = Math.max(1, Math.ceil(cells / COLS));
-  const width = COLS * W + (COLS - 1) * GAP;
-  const height = rows * H + (rows - 1) * GAP;
-  const pos = (i: number) => ({ x: (i % COLS) * (W + GAP), y: Math.floor(i / COLS) * (H + GAP) });
-  const plotCost = homePlotPrice(s);
-  return (
-    <svg className="farm" viewBox={`-4 -4 ${width + 8} ${height + 8}`} role="group" aria-label="Your fields" style={{ maxHeight: rows > 6 ? 640 : undefined, overflow: 'auto' }}>
-      {fields.map((f, i) => {
-        const { x, y } = pos(i);
-        const st = plotState(s, f);
-        const crop = f.crop ? CROPS[f.crop] : null;
-        const color = f.crop ? GOODS[f.crop].color : '';
-        const label = crop ? (st.ready ? `${GOODS[f.crop!].name} · ready` : `${GOODS[f.crop!].name} · ${Math.floor(st.g * 100)}%`) : f.plan ? `Plan: ${GOODS[f.plan].name}` : 'Fallow';
-        const activate = (multi: boolean) => onSelect(f.id, multi);
-        return (
-          <g key={f.id} transform={`translate(${x} ${y})`} data-coach={i === 0 ? 'field-1' : undefined}
-            className={`plot${sel.includes(f.id) ? ' selected' : ''}${st.ready ? ' ready' : ''}${st.depleted ? ' depleted' : ''}${st.diseased ? ' diseased' : ''}`}
-            role="button" tabIndex={0} aria-label={`Field ${f.id}, ${f.ha} hectares: ${label}`} aria-pressed={sel.includes(f.id)}
-            onClick={(e) => activate(e.shiftKey || e.ctrlKey || e.metaKey)}
-            onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), activate(e.shiftKey))}>
-            <rect className="soil" width={W} height={H} rx={10} />
-            {Array.from({ length: 4 }, (_, k) => <line key={k} className="furrow" x1={12} x2={W - 12} y1={18 + k * 15} y2={18 + k * 15} />)}
-            {crop && Array.from({ length: 4 * PLANTS }, (_, k) => {
-              const row = Math.floor(k / PLANTS), c = k % PLANTS;
-              return <circle key={k} className="plant" cx={16 + c * ((W - 32) / (PLANTS - 1))} cy={18 + row * 15} r={1 + st.g * 3.6} fill={st.ready ? color : 'var(--sprout)'} opacity={0.45 + st.g * 0.55} />;
-            })}
-            {f.irrigated && <path className="water" d={`M${W - 16} 8 q4 6 0 9 q-4 -3 0 -9z`} />}
-            <text className="plot-id" x={10} y={H - 8}>F{f.id}{f.ha > 1 ? ` · ${num(f.ha)} ha` : ''}</text>
-            <text className="plot-label" x={W - 10} y={H - 8} textAnchor="end">{label}</text>
-            {crop && !st.ready && <rect className="plot-progress" x={0} y={H - 3} height={3} width={W * st.g} rx={1.5} />}
-          </g>
-        );
-      })}
-      {canBuy && (() => {
-        const { x, y } = pos(fields.length);
-        const afford = s.cash >= plotCost;
-        const buy = () => act({ type: 'buyPlot' });
-        return (
-          <g transform={`translate(${x} ${y})`} className={`plot buy${afford ? ' afford' : ''}`} role="button" tabIndex={0} data-coach="buy-plot"
-            aria-label={`Buy another hectare for ${money(plotCost)}`} onClick={buy} onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), buy())}>
-            <rect width={W} height={H} rx={10} />
-            <text x={W / 2} y={H / 2 - 4} textAnchor="middle" style={{ fontSize: 15 }}>+ 1 ha</text>
-            <text x={W / 2} y={H / 2 + 16} textAnchor="middle" style={{ fontSize: 12 }}>{money(plotCost)}</text>
-          </g>
-        );
-      })()}
-    </svg>
-  );
+  return <div className="stack"><FieldGrid s={s} fields={fields} sel={sel} onSelect={onSelect}/>
+    {canBuy && <button className="btn" data-coach="buy-plot" disabled={s.cash<homePlotPrice(s)} onClick={()=>act({type:'buyPlot'})}>＋ 1 ha · {money(homePlotPrice(s))}</button>}
+  </div>;
 }
 
 /** Compact tiles for large operations: readable and fast with hundreds of fields. */
@@ -155,7 +108,9 @@ function FieldGrid({ s, fields, sel, onSelect }: { s: GameState; fields: Field[]
               title={`Field ${f.id} · ${num(f.ha)} ha · ${f.crop ? GOODS[f.crop].name : f.plan ? `plan ${GOODS[f.plan].name}` : 'fallow'} · fertility ${pct0(fertility(f))}${f.pest > 0.3 ? ' · pests' : ''}`}
               onClick={(e) => onSelect(f.id, e.shiftKey || e.ctrlKey || e.metaKey)}>
               <span className="ftile-top"><b>F{f.id}</b><span>{num(f.ha)} ha</span></span>
+              <span className="field-symbol" aria-hidden>{GOOD_ICON[f.crop ?? f.plan ?? 'wheat'] ?? '🌱'}</span>
               <span className="ftile-crop" style={{ background: color, color: f.crop ? '#2a2110' : 'var(--muted)' }}>{f.crop ? GOODS[f.crop].name : f.plan ? GOODS[f.plan].name : '—'}</span>
+              <span className="field-state">{st.ready ? '✓ Ready' : f.crop ? pct0(st.g) : f.plan ? 'Planned' : 'Fallow'}</span>
               <span className="ftile-bar"><i style={{ width: `${(f.crop ? st.g : 0) * 100}%` }} /></span>
               {(f.irrigated || st.diseased) && <span className="ftile-flags">{f.irrigated ? '💧' : ''}{st.diseased ? '🐛' : ''}</span>}
             </button>
@@ -228,7 +183,7 @@ export function FieldPanel({ s, f, crop, setCrop }: { s: GameState; f: Field; cr
         )}
         {s.era >= 2 && <PlanPicker s={s} fields={[f]} />}
         <SupplyPicker s={s} fields={[f]} />
-        {s.era >= 2 && <SoilPanel s={s} f={f} />}
+        {s.era >= 2 && <details className="field-details"><summary>🌱 Soil & water · {pct0(fertility(f))}</summary><SoilPanel s={s} f={f} /></details>}
         {f.lastHarvest && (
           <Tip text="Why this harvest came out as it did — every factor is from the simulation."
             breakdown={[['Base', num(f.lastHarvest.base)], ['Soil', f.lastHarvest.soil.toFixed(2)], ['Water', f.lastHarvest.water.toFixed(2)], ['Season/temp', f.lastHarvest.weather.toFixed(2)], ['Pests', f.lastHarvest.pest.toFixed(2)], ['Technology', f.lastHarvest.tech.toFixed(2)], ['Region fit', f.lastHarvest.suitability.toFixed(2)], ['Timing', f.lastHarvest.timing.toFixed(2)]]}>
@@ -245,30 +200,19 @@ export function FieldPanel({ s, f, crop, setCrop }: { s: GameState; f: Field; cr
   );
 }
 
+const GOOD_ICON: Partial<Record<GoodId,string>> = {wheat:'🌾',corn:'🌽',potatoes:'🥔',soybeans:'🫘',rice:'🍚',sugarcane:'🎋',cotton:'☁',coffee:'☕',apples:'🍎',grapes:'🍇',bread:'🍞',flour:'🌾',milk:'🥛',eggs:'🥚',wool:'🧶',wine:'🍷',meat:'🥩',cheese:'🧀',butter:'🧈',feed:'🌿'};
 function CropCard({ s, f, id, on, pick }: { s: GameState; f: Field; id: CropId; on: boolean; pick: () => void }) {
-  const c = CROPS[id];
-  const units = expectedYield(s, f, id);
-  const p = priceUsd(s, f.region, id);
-  const seed = f.ha * CONFIG.seedsPerHa * seedCost(s, id);
-  const perHour = (units * p - seed) / c.growthTicks;
-  const ok = canGrow(f, id);
-  return (
-    <button role="radio" aria-checked={on} className={`crop ${on ? 'on' : ''}`} onClick={pick} disabled={!ok} title={ok ? undefined : 'Cannot grow in this region'}>
-      <span className="crop-name"><Swatch color={GOODS[id].color} />{GOODS[id].name}</span>
-      <dl>
-        <dt>Grows</dt><dd>{c.growthTicks}h</dd>
-        <dt>Seed</dt><dd>{money(seed)}</dd>
-        <dt>Yield now</dt><dd>~{num(units)}</dd>
-        <dt>Price</dt><dd>{price(p)}</dd>
-        {s.unlockedCrops.length > 1 && <><dt title="Expected profit per in-game hour at today's price and conditions, before price impact and labour">Profit/h</dt><dd className={perHour < 0 ? 'down' : ''}>{money(perHour)}</dd></>}
-      </dl>
-      <span className="small muted" style={{ display: 'block', marginTop: 4 }}>
-        {c.perennial ? `Orchard: fruit after ${c.perennial.matureDays} days, then every ${c.growthTicks}h for years` : `Best in ${c.bestSeasons.join(', ').toLowerCase()}`}
-      </span>
-      {!c.frostHardy && !f.greenhouse && (seasonOf(s) === 'Winter' || seasonOf(s) === 'Autumn') && <span className="small warn">❄ Frost-tender</span>}
-      {s.seeds[id] > 0 && <span className="small up">{num(s.seeds[id])} seeds in stock</span>}
+  const c=CROPS[id], units=expectedYield(s,f,id), seed=f.ha*CONFIG.seedsPerHa*seedCost(s,id), ok=canGrow(f,id);
+  return <article className={`crop-choice${on?' selected':''}`}>
+    <button role="radio" aria-checked={on} className="crop-pick" onClick={pick} disabled={!ok}>
+      <span className="good-symbol" aria-hidden="true">{GOOD_ICON[id]??'🌱'}</span>
+      <strong>{GOODS[id].name} {on?'✓':''}</strong>
+      <span className="crop-numbers mono"><span title="Growth time">⏱ {c.growthTicks}h</span><span title="Seed cost">🌱 {money(seed)}</span><span title="Estimated yield">📦 ~{num(units)}</span></span>
     </button>
-  );
+    <Info text={`${c.perennial?`First fruit after ${c.perennial.matureDays} days. `:''}Best in ${c.bestSeasons.join(', ')}. ${!c.frostHardy?'Frost-sensitive. ':''}Yield depends on soil, water, pests and weather.`} breakdown={[
+      ['Seed in store',num(s.seeds[id])],['24h market average',price(dayPrice(s,f.region,id))],['Estimated crop value',money(units*dayPrice(s,f.region,id))],['Suitability',ok?'Suitable':'Cannot grow here']
+    ]}/>
+  </article>;
 }
 
 /** Fruit is picked by hand (or fruit machines): how long one harvest takes with today's crew, against how often it ripens. */
@@ -426,34 +370,23 @@ function SellRow({ s, r, g }: { s: GameState; r: RegionId; g: GoodId }) {
   const inv = s.regions[r].inventory[g];
   const [frac, setFrac] = useState(1);
   const held = reservedStock(s, r, g); // kept for factories by their dedicated fields
-  const qty = Math.floor((inv - held) * frac);
+  const qty = Math.floor(Math.max(0, inv - held) * frac);
   const q = quoteSell(s, r, g, qty);
-  const dayAgo = m.history[Math.max(0, m.history.length - 1 - 24 / CONFIG.priceHistoryEvery)] ?? m.price;
-  const change = m.price / dayAgo - 1;
-  return (
-    <div className="stack s" style={{ borderTop: '1px solid var(--line)', paddingTop: 10 }}>
-      <div className="row between wrap">
-        <span className="crop-name"><Swatch color={GOODS[g].color} />{GOODS[g].name}</span>
-        <div className="row">
-          <Sparkline data={m.history} color={GOODS[g].color} w={90} h={26} />
-          <span className="mono">{price(m.price)}</span>
-          <span className={`mono small ${change >= 0 ? 'up' : 'down'}`} title="Change over the last in-game day" style={{ minWidth: 52, textAlign: 'right' }}>{pct(change)}</span>
-        </div>
-      </div>
-      <div className="row between wrap">
-        <span className="muted small">In store <b className="mono" style={{ color: 'var(--text)' }}>{num(inv)}</b>{held >= 1 && <> · <span title="Reserved for your factories by their dedicated fields">🏭 {num(held)} reserved</span></>}{known(s, 'quality') && inv >= 1 && <> · <GradePill q={s.regions[r].quality[g] ?? 0.65} /></>}</span>
-        <div className="row">
-          <Seg label="Amount to sell" value={frac} onChange={setFrac} options={[{ v: 0.25, label: '25%' }, { v: 0.5, label: '50%' }, { v: 1, label: 'All' }]} />
-          <button className="btn primary sm" disabled={!q.qty} onClick={() => act({ type: 'sell', region: r, good: g, qty: q.qty })}>{q.qty ? `Sell ${num(q.qty)} → ${money(q.net)}` : 'Nothing to sell'}</button>
-        </div>
-      </div>
-      {q.qty > 0 && (
-        <p className="small muted" style={{ textAlign: 'right' }}>
-          Avg {price(q.avgPrice)}/unit · price impact <span className="down">{pct(q.priceAfter / m.price - 1)}</span>{q.haul > 0.5 ? ` · haulage ${money(q.haul)}` : ''}{q.limitedBy ? ` · ${q.limitedBy}` : ''}
-        </p>
-      )}
+  return <div className="stock-choice">
+    <div className="row between">
+      <span className="crop-name"><span className="good-symbol" aria-hidden="true">{GOOD_ICON[g]??'📦'}</span>{GOODS[g].name}</span>
+      <strong className="mono" title="Units in store">📦 {num(inv)}</strong>
     </div>
-  );
+    {held>=1 && <span className="muted">🏭 {num(held)} reserved</span>}
+    <div className="row between wrap">
+      <Seg label="Amount to sell" value={frac} onChange={setFrac} options={[{v:.25,label:'¼'},{v:.5,label:'½'},{v:1,label:'All'}]}/>
+      <Info text="Sale value includes market impact and haulage. Reserved factory stock is protected." breakdown={[
+        ['Market average (24h)',price(dayPrice(s,r,g))],['Execution price',price(q.avgPrice)],['Haulage',money(q.haul)],['Price after sale',price(q.priceAfter)],['Market impact',pct(m.price?q.priceAfter/m.price-1:0)]
+      ]}/>
+    </div>
+    <button className="btn primary" disabled={!q.qty} onClick={()=>act({type:'sell',region:r,good:g,qty:q.qty})}>{q.qty?`Sell ${num(q.qty)} → ${money(q.net)}`:'No unreserved stock'}</button>
+    {known(s,'quality')&&inv>=1&&<span className="muted">Quality <GradePill q={s.regions[r].quality[g]??.65}/></span>}
+  </div>;
 }
 
 // ---------------------------------------------------------------- land

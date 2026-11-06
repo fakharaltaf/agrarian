@@ -3,7 +3,7 @@ import { expect, it } from 'vitest';
 // @ts-expect-error Node types are deliberately absent from the browser project
 import { readFileSync, writeFileSync } from 'node:fs';
 import { parseSave } from '../simulation/persistence';
-import { createGame, step } from '../simulation/engine';
+import { createGame, dispatch, step } from '../simulation/engine';
 import { BUILDINGS, GOOD_IDS, OPEX_KINDS, REGION_IDS } from '../simulation/config';
 import { lineEcon } from '../simulation/lines';
 import type { GameState } from '../simulation/types';
@@ -56,3 +56,17 @@ for (const name of names) (root ? it : it.skip)(`real-save baseline: ${name}, 30
   // @ts-expect-error Node environment only
   if (process.env.AGRARIAN_REPORT) writeFileSync(process.env.AGRARIAN_REPORT, JSON.stringify(reports,null,2));
 }, 120000);
+
+(root ? it : it.skip)('Year10 recovery uses the actual restructuring action and completes 30 days',()=>{
+  const s=parseSave(readFileSync(`${root}/agrarian-year10-day4-repaired.json`,'utf8')).game;
+  const cash=s.cash, flows=cashFlows(s), tick=s.tick;
+  let restructures=0;
+  for(let i=0;i<720;i++){
+    if(s.bankrupt){expect(dispatch(s,{type:'restructure'}).ok).toBe(true);restructures++;}
+    step(s);
+  }
+  expect(s.tick-tick).toBe(720);finiteTree(s);
+  expect(s.cash-cash).toBeCloseTo(cashFlows(s)-flows,1);
+  expect(JSON.parse(JSON.stringify(s))).toEqual(s);
+  console.log('Year10 recovery actions',restructures);
+},120000);

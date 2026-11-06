@@ -20,12 +20,15 @@ export const plotSide = (ha: number) => Math.max(2, Math.min(16, Math.round(2 * 
 
 export function layoutRegion(s: GameState, r: RegionId): Layout {
   const lots: Lot[] = [];
-  const add = (type: Lot['type'], bs: Building[]) => {
+  const add = (type: Lot['type'], bs: Building[], key: string = type) => {
     const i = lots.length;
     const [w, d] = FOOTPRINT[type];
-    lots.push({ key: `${type}`, type, buildings: bs, x: (i % LOTS_PER_ROW) * LOT_W + 1, y: Math.floor(i / LOTS_PER_ROW) * LOT_D + 1, w, d });
+    lots.push({ key, type, buildings: bs, x: (i % LOTS_PER_ROW) * LOT_W + 1, y: Math.floor(i / LOTS_PER_ROW) * LOT_D + 1, w, d });
   };
   add(r === 'heartland' ? 'house' : 'shed', []);
+  if (s.stats.harvests > 0) add('shed', [], 'market');
+  if (s.era >= 2) add('house', [], 'crew');
+  if (s.era >= 3) add('house', [], 'office');
   const here = s.buildings.filter((b) => b.region === r);
   for (const t of BUILDING_TYPES) {
     const bs = here.filter((b) => b.type === t);

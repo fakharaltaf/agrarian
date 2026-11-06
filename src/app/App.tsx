@@ -1,5 +1,4 @@
 import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
-import { ERAS } from '../simulation/config';
 import { equity, sumBooks } from '../simulation/core';
 import { ACHIEVEMENTS, PAGES } from '../simulation/engine';
 import {
@@ -8,7 +7,7 @@ import {
 import { Coach, resetTips, tipsOff, tipsOn } from './Coach';
 import { clock, money, stamp } from './format';
 import { Icon } from './icons';
-import { LogoMark, Wordmark } from './Logo';
+import { LogoMark } from './Logo';
 import { Bar, Modal, usePref } from './ui';
 import { FieldsPage } from './pages/Fields';
 import { Hud } from './world/Hud';
@@ -44,6 +43,7 @@ export function App() {
   const [drawer, setDrawer] = useState(false);
   const [settings, setSettings] = useState(false);
   const [help, setHelp] = useState(false);
+  const [ledger, setLedger] = useState(false);
   const [title, setTitle] = useState(true);
   const unlocked = PAGES.filter((p) => p.unlocked(s));
   const current = unlocked.some((p) => p.id === page) ? page : 'farm';
@@ -70,9 +70,9 @@ export function App() {
 
   return (
     <div className={`shell${bare ? ' bare' : ''}`}>
-      {!bare && <Sidebar current={current} />}
+
       <div className="main">
-        <TopBar onLog={() => setDrawer(true)} onSettings={() => setSettings(true)} onHelp={() => setHelp(true)} warnings={warnings} bare={bare} />
+        <TopBar onLedger={() => setLedger(true)} onLog={() => setDrawer(true)} onSettings={() => setSettings(true)} onHelp={() => setHelp(true)} warnings={warnings} bare={bare} />
         <div className="stage">
           <Hud />
           {Page && (
@@ -85,12 +85,10 @@ export function App() {
           )}
         </div>
       </div>
-      {!bare && (
-        <nav className="mobile-nav" aria-label="Pages">
-          <button className={current === 'farm' ? 'on' : ''} onClick={() => go('farm')}>Farm</button>
-          {unlocked.map((p) => <button key={p.id} className={p.id === current ? 'on' : ''} onClick={() => go(p.id)}>{p.label}</button>)}
-        </nav>
-      )}
+      {ledger && <Modal title="Ledger" onClose={() => setLedger(false)}><div className="ledger-grid" data-coach="nav">
+        <button className="btn" onClick={() => {go('farm');setLedger(false);}}>🌾 Farm</button>
+        {unlocked.map(p=><button className="btn" key={p.id} data-coach={`nav-${p.id}`} onClick={()=>{go(p.id);setLedger(false);}}><Icon name={p.id}/>{p.label}</button>)}
+      </div></Modal>}
       {drawer && <LogDrawer onClose={() => setDrawer(false)} />}
       {settings && <Settings onClose={() => setSettings(false)} theme={theme} setTheme={setTheme} />}
       {help && <Help onClose={() => setHelp(false)} />}
@@ -133,33 +131,6 @@ function TitleScreen({ onPlay, onHelp }: { onPlay: () => void; onHelp: () => voi
 }
 
 // ---------------------------------------------------------------- sidebar & top bar
-
-function Sidebar({ current }: { current: string }) {
-  const s = useGame();
-  const era = ERAS[s.era - 1];
-  const next = ERAS[s.era];
-  const decisions = s.events.filter((e) => e.choice && !e.choice.chosen && s.tick >= e.start).length;
-  return (
-    <aside className="side" aria-label="Navigation">
-      <div className="brand" title="Agrarian"><LogoMark size={40} title="Agrarian" /></div>
-      <nav className="nav" data-coach="nav">
-        <button className={current === 'farm' ? 'on' : ''} onClick={() => go('farm')} aria-current={current === 'farm' ? 'page' : undefined} title="Your farm">
-          <Icon name="fields" className="ico" />Farm
-        </button>
-        {PAGES.filter((p) => p.unlocked(s) && p.id !== 'fields').map((p) => (
-          <button key={p.id} className={p.id === current ? 'on' : ''} onClick={() => go(p.id)} data-coach={`nav-${p.id}`} aria-current={p.id === current ? 'page' : undefined} title={p.purpose}>
-            <Icon name={p.id} className="ico" />
-            {p.label}
-            {p.id === 'world' && decisions > 0 ? <span className="count">{decisions}</span> : !s.seenTips.includes(`page:${p.id}`) && <span className="new" aria-label="new" />}
-          </button>
-        ))}
-      </nav>
-      <div className="side-foot" title={`${era.name}: ${era.theme}${next ? ` · Next: ${next.name} — ${next.requirement}` : ''}`}>
-        <div className="era-chip"><span>Era</span><b>{s.era}</b></div>
-      </div>
-    </aside>
-  );
-}
 
 function Trophies() {
   const s = useGame();
@@ -247,38 +218,30 @@ function Confetti() {
   );
 }
 
-function TopBar({ onLog, onSettings, onHelp, warnings, bare }: { onLog: () => void; onSettings: () => void; onHelp: () => void; warnings: number; bare: boolean }) {
+function TopBar({ onLog, onSettings, onHelp, onLedger, warnings, bare }: { onLog: () => void; onSettings: () => void; onHelp: () => void; onLedger: () => void; warnings: number; bare: boolean }) {
   const s = useGame();
-  const speed = useStore((x) => x.speed);
+  const speed = useStore(x => x.speed);
+  const [time, setTime] = useState(false);
+  const [menu, setMenu] = useState(false);
   const c = clock(s.tick);
-  return (
-    <header className="topbar">
-      {bare && <Wordmark size={19} />}
-      <div className="clock" data-coach="clock" aria-label="Game date">
-        <span className="mono">{c.hour}</span>
-        <span>{c.season} {c.day}</span>
-        <span className="muted">Year {c.year}</span>
-      </div>
-      {s.stats.sales > 0 && (
-        <div className="seg" role="radiogroup" aria-label="Simulation speed" data-coach="speed">
-          {SPEEDS.map((sp, i) => (
-            <button key={sp} role="radio" aria-checked={speed === sp} className={speed === sp ? 'on' : ''} onClick={() => setSpeed(sp)} title={`Key ${i + 1}${sp === 0 ? ' or Space' : ''}`}>{sp === 0 ? '❚❚' : `${sp}×`}</button>
-          ))}
-        </div>
-      )}
-      <div className="top-stats">
-        {s.era >= 2 && <div className="top-stat" title="Assets minus debt, with stock at market value"><span>Net worth</span><strong className="mono">{money(equity(s))}</strong></div>}
-        <CashCounter />
-        <button className="icon-btn" onClick={onLog} aria-label="Notifications" title="Notifications (N)">
-          <Icon name="bell" />
-          {warnings > 0 && <span className="dot">{warnings}</span>}
-        </button>
-        <Trophies />
-        <button className="icon-btn" onClick={onHelp} aria-label="Help" title="Help (?)"><Icon name="help" /></button>
-        <button className="icon-btn" onClick={onSettings} aria-label="Game menu" title="Save, load and settings"><Icon name="settings" /></button>
-      </div>
-    </header>
-  );
+  return <header className="topbar game-strip">
+    <LogoMark size={28}/><CashCounter />
+    <button className="icon-btn" aria-label={speed ? 'Pause simulation' : 'Resume simulation'} onClick={()=>setSpeed(speed?0:1)}>{speed?'❚❚':'▶'}</button>
+    <button className="btn time-toggle" data-coach="speed" aria-label="Time controls" aria-expanded={time} onClick={()=>{setTime(!time);setMenu(false);}}>{speed || 0}× ▾</button>
+    {!bare && <button className="icon-btn" aria-label="Ledger" onClick={onLedger}>📚</button>}
+    <button className="icon-btn" aria-label="Farm menu" aria-expanded={menu} onClick={()=>{setMenu(!menu);setTime(false);}}>☰{warnings>0&&<span className="dot">{warnings}</span>}</button>
+    {time && <div className="strip-popover">
+      <div data-coach="clock">{c.season} {c.day} · Year {c.year} · {c.hour}</div>
+      <div className="seg" role="radiogroup" aria-label="Simulation speed">{SPEEDS.filter(sp=>s.stats.sales>0||sp<=1).map(sp=><button key={sp} role="radio" aria-checked={speed===sp} className={speed===sp?'on':''} onClick={()=>{setSpeed(sp);setTime(false);}}>{sp===0?'❚❚':`${sp}×`}</button>)}</div>
+    </div>}
+    {menu && <div className="strip-popover menu-popover">
+      {s.era>=2 && <span>Net worth {money(equity(s))}</span>}
+      {s.log.length>0 && <button className="btn" onClick={()=>{setMenu(false);onLog();}}>Notifications {warnings>0?`(${warnings})`:''}</button>}
+      {s.achievements.length>0 && <Trophies/>}
+      <button className="btn" onClick={()=>{setMenu(false);onHelp();}}>Help</button>
+      <button className="btn" onClick={()=>{setMenu(false);onSettings();}}>Save & settings</button>
+    </div>}
+  </header>;
 }
 
 // ---------------------------------------------------------------- notifications

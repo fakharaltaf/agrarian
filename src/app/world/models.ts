@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import type { AnimalId, MachineType } from '../../simulation/config';
 import type { Lot } from './layout';
+import { artModel, type ArtId } from './art';
 
 export const PAL = {
   barnRed: 0xb24a3c, barnRedDark: 0x8e3a30, cream: 0xf1e6cc, creamDark: 0xd9cbab, white: 0xf4f2ec, roofRed: 0x9e3b2e, roofBrown: 0x6b4a36,
@@ -225,7 +226,7 @@ export function buildLot(type: Lot['type'], w: number, d: number): Model {
       g.add(cyl(0.5, 0.9, PAL.white, w - 0.6, 0, 0.7, 12));
       break;
     case 'coop':
-      shed(g, 1.4, 1.0, 0.8, PAL.barnRed, PAL.roofBrown, 0.2, 0.2, { door: 'house', windows: 1 });
+      {const coop=artModel('coop',1.4,1);if(coop){coop.position.add(new THREE.Vector3(.2,0,.2));g.add(coop);}else shed(g, 1.4, 1.0, 0.8, PAL.barnRed, PAL.roofBrown, 0.2, 0.2, { door: 'house', windows: 1 });}
       fenceRect(g, w - 0.3, d - 1.4, 0.15, 1.25, 0.25);
       pen = { x0: 0.3, z0: 1.4, x1: w - 0.3, z1: d - 0.25 };
       break;
@@ -251,6 +252,9 @@ export function buildLot(type: Lot['type'], w: number, d: number): Model {
       for (let i = 0; i < 3; i++) { const b = cyl(0.17, 0.4, PAL.woodDark, 0.6 + i * 0.45, 0, 2.4, 10); b.rotation.z = Math.PI / 2; b.position.y = 0.18; g.add(b); }
       break;
   }
+  const ids: Partial<Record<Lot['type'], ArtId>>={house:'house',shed:'shed',barn:'barn',silo:'silo',flourMill:'mill'};
+  const art=ids[type] && artModel(ids[type]!, w, d);
+  if(art){g.clear();g.add(art);smoke.length=0;sails=undefined;}
   const windows: THREE.Mesh[] = [];
   g.traverse((o) => { if ((o as THREE.Mesh).isMesh && o.userData.window) windows.push(o as THREE.Mesh); });
   return { group: g, smoke, sails, pen, windows };
@@ -303,6 +307,8 @@ export function vehicle(type: MachineType | 'truck') {
 }
 
 export function animal(a: AnimalId) {
+  const imported=a==='cows'?artModel('cow',.5,.25,true):a==='sheep'?artModel('sheep',.34,.22,true):null;
+  if(imported)return imported;
   const g = new THREE.Group();
   if (a === 'chickens') {
     g.add(sphere(0.07, PAL.white, 0, 0.08, 0));
@@ -326,6 +332,8 @@ export function animal(a: AnimalId) {
 
 /** A small decorative tree (season changes its crown). */
 export function tree(scale: number, crown: THREE.Material) {
+  const imported=artModel('tree',.9,.9,true);
+  if(imported){imported.scale.multiplyScalar(scale);return imported;}
   const g = new THREE.Group();
   g.add(mesh(cached('trunk', () => new THREE.CylinderGeometry(0.06, 0.09, 0.5, 6)), mat(PAL.woodDark), 0, 0.25, 0));
   const c = mesh(cached('crown', () => new THREE.IcosahedronGeometry(0.42, 0)), crown, 0, 0.75, 0);
