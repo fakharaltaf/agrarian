@@ -7,7 +7,8 @@ import { DISCOVERIES, ERA_UNLOCK_TEXT, dailyGoals, dailyPrize, forecast, herdOf,
 import type { GameState } from '../../simulation/types';
 import { act, go, useGame, usePageState } from '../../stores/game';
 import { money, num, pct0 } from '../format';
-import { BatchPanel, FieldPanel, RecentLog, SellCard } from '../pages/Fields';
+import { BatchPanel, FieldPanel, HomesteadTraderCard, RecentLog, SellCard } from '../pages/Fields';
+import { NEXT_STAGE, STAGES, stageAtLeast } from '../../simulation/stages';
 import { unlockedRegions } from '../pages/shared';
 import { Bar, Card, Confirm, Modal, Select, usePref } from '../ui';
 import { AdvisorPill } from '../Advisor';
@@ -16,22 +17,26 @@ import type { Lot } from './layout';
 
 function EraBanner({ s }: { s: GameState }) {
   const [open, setOpen] = useState(false);
-  const next = ERAS[s.era];
+  const nextId = s.legacyProgression ? null : NEXT_STAGE[s.stageId];
+  const next = s.legacyProgression ? ERAS[s.era] : null;
+  const title = s.legacyProgression ? `Era ${s.era + 1}: ${next?.name ?? 'Frontier'}` : STAGES[nextId ?? s.stageId].title;
+  const theme = next?.theme ?? (nextId === 'market-town' ? 'Surplus outgrows barter. The village opens its first market day.' : nextId === 'farm-business' ? 'Bring in a crew, plan the fields and manage the new costs.' : nextId === 'industry' ? 'Machines and processing turn a farm business into an industry.' : 'A new chapter is ready. Your farm keeps running behind you.');
+  const unlocks = s.legacyProgression ? ERA_UNLOCK_TEXT[s.era + 1] ?? [] : nextId === 'market-town' ? ['Open commodity market and daily market day', 'Keep the village trader as a side channel'] : nextId === 'farm-business' ? ['Farm hands, managers and crop plans', 'Soil care, livestock, orchards and seasons'] : nextId === 'industry' ? ['Tractors, processing and energy', 'Research and larger parcels'] : ['New systems arrive here as the story expands.'];
   return (
     <>
       <button className="hud-era" data-coach="advance" onClick={() => setOpen(true)}>
         <span className="objective-tag">Ready</span>
-        <b>Era {s.era + 1}: {next.name}</b>
+        <b>{title}</b>
         <span>Preview & advance →</span>
       </button>
       {open && (
-        <Modal title={`Era ${s.era + 1}: ${next.name}`} onClose={() => setOpen(false)} actions={<>
+        <Modal title={title} onClose={() => setOpen(false)} actions={<>
           <button className="btn ghost" onClick={() => setOpen(false)}>Not yet</button>
-          <button className="btn primary" onClick={() => (act({ type: 'advanceEra' }), setOpen(false))}>Advance to Era {s.era + 1}</button>
+          <button className="btn primary" onClick={() => (act({ type: 'advanceEra' }), setOpen(false))}>Begin chapter</button>
         </>}>
-          <p className="muted">{next.theme}</p>
-          <ul>{ERA_UNLOCK_TEXT[s.era + 1].map((t) => <li key={t}>{t}</li>)}</ul>
-          <p className="small muted">Nothing changes until you advance — take your time to get the farm in order first. New tools will be explained as you meet them.</p>
+          <p className="muted">{theme}</p>
+          <ul>{unlocks.map((t) => <li key={t}>{t}</li>)}</ul>
+          <p className="small muted">Nothing changes until you choose. Your earlier operation keeps running.</p>
         </Modal>
       )}
     </>
@@ -186,9 +191,9 @@ export function Hud() {
           {regions.length > 1 && <Select label="Region shown" value={region} onChange={(r) => (setRegion(r), setSel([]), setLot(null))} options={regions.map((r) => ({ v: r, label: REGIONS[r].name }))} />}
           {readyPlots.length > 1 && <button className="btn gold sm" onClick={() => readyPlots.forEach((f) => act({ type: 'harvest', fieldId: f.id }))} title="Shortcut: H">Harvest {readyPlots.length} ready</button>}
           {canBuyPlot && <button className="btn ghost sm" data-coach="buy-plot" disabled={s.cash < plotPrice} onClick={() => act({ type: 'buyPlot' })} title="Shortcut: B">Buy 1 ha · {money(plotPrice)}</button>}
-          {s.era >= 2 && <button className="btn ghost sm" onClick={() => go('fields')}>All fields</button>}
+          {stageAtLeast(s, 'farm-business') && <button className="btn ghost sm" onClick={() => go('fields')}>All fields</button>}
         </div>
-        {s.era < 3 && page === 'farm' && <div className="hud-log"><RecentLog s={s} /></div>}
+        {(s.legacyProgression ? s.era < 3 : !stageAtLeast(s, 'industry')) && page === 'farm' && <div className="hud-log"><RecentLog s={s} /></div>}
         </div>}
       </div>
       {page === 'farm' && (
@@ -200,7 +205,7 @@ export function Hud() {
                 : selected.length > 1 ? <BatchPanel s={s} fields={selected} />
                   : one ? <FieldPanel s={s} f={one} crop={crop} setCrop={setCrop} />
                     : <Card title="Your farm"><p className="explain">Click a field or building to manage it. Drag to look around, scroll to zoom. Shift-click to select several fields.</p></Card>}
-              {s.stats.harvests > 0 && liveLot?.key !== 'market' && <SellCard s={s} r={region} />}
+              {s.stats.harvests > 0 && liveLot?.key !== 'market' && (s.legacyProgression || stageAtLeast(s, 'market-town') ? <SellCard s={s} r={region} /> : <HomesteadTraderCard s={s} />)}
             </div>
           )}
         </aside>
@@ -247,7 +252,7 @@ function HerdInfo({ s, lot }: { s: GameState; lot: Lot }) {
 }
 
 function LotPanel({ s, lot, region, onClose }: { s: GameState; lot: Lot; region: RegionId; onClose: () => void }) {
-  if(lot.key==='market') return <SellCard s={s} r={region}/>;
+  if(lot.key==='market') return s.legacyProgression || stageAtLeast(s, 'market-town') ? <SellCard s={s} r={region}/> : <HomesteadTraderCard s={s}/>;
   if (lot.type === 'house' || lot.type === 'shed') {
     const hands = s.workers.filter((w) => w.role === 'hand').length;
     return (
@@ -259,7 +264,7 @@ function LotPanel({ s, lot, region, onClose }: { s: GameState; lot: Lot; region:
             <dt>Managers</dt><dd>{s.workers.length - hands}</dd>
             <dt>Machines</dt><dd>{s.machines.length}</dd>
           </dl>
-          {s.era >= 2 && <button className="btn ghost sm" onClick={() => go('workers')}>Manage workers</button>}
+          {stageAtLeast(s, 'farm-business') && <button className="btn ghost sm" onClick={() => go('workers')}>Manage workers</button>}
         </div>
       </Card>
     );

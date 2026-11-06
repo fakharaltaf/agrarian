@@ -6,6 +6,7 @@ import { timingFactor, fertility, growth, isMature, isReady } from '../../simula
 import { stored } from '../../simulation/core';
 import type { GameState } from '../../simulation/types';
 import { getGame, getSpeed } from '../../stores/game';
+import { stageAtLeast } from '../../simulation/stages';
 import { preloadArt, artRevision } from './art';
 import { num, pct0 } from '../format';
 import { layoutRegion, type Layout, type Lot, type Plot } from './layout';
@@ -700,7 +701,7 @@ function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el
       const ready=isReady(s,p.field), id=p.field.id;
       const [px,py]=project(p.x+p.s/2,1.5,p.y+p.s/2);
       const primary=p.field.ha<=1 ? ready?button(`harvest:${id}`,'🌾 Harvest'):!p.field.crop&&plantLabel?button(`plant:${id}`,'🌱 Plant'):'' : '';
-      const plan=s.era>=2?button(`plan:${id}`,'🌱 Plan'):'';
+      const plan=stageAtLeast(s,'farm-business')?button(`plan:${id}`,'🌱 Plan'):'';
       want.push({key:'act',x:Math.max(115,Math.min(W-115,px)),y:Math.max(80,Math.min(H-30,py)),html:primary+plan+button(`inspect:${id}`,'ⓘ'),cls:'wl-radial'});
     }
   }

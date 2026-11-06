@@ -50,7 +50,7 @@ it('storage relief sells only the excess and respects an hourly depth cap',()=>{
 });
 
 it('paid lab levels speed research without granting advanced eligibility or stacking',()=>{
-  const s=createGame(8);s.era=8;s.discovered.push('upgrades');post(s,'sharesIssued',10000000,'Test capital');
+  const s=createGame(8);s.legacyProgression=true;s.era=8;s.discovered.push('upgrades');post(s,'sharesIssued',10000000,'Test capital');
   expect(dispatch(s,{type:'build',building:'lab',region:'heartland'}).ok).toBe(true);
   const lab=s.buildings.find(b=>b.type==='lab')!;
   expect(researchSpeed(s)).toBe(1);
@@ -79,7 +79,7 @@ it('hourly export loads share one daily shipment without free freight or earlier
 });
 
 it('bulk idle sale protects assigned machines and revalidates the whole selection',()=>{
-  const s=createGame(11);s.era=8;post(s,'sharesIssued',1000000,'Test capital');
+  const s=createGame(11);s.legacyProgression=true;s.era=8;post(s,'sharesIssued',1000000,'Test capital');
   for(let i=0;i<3;i++) expect(dispatch(s,{type:'buyMachine',region:'heartland',machine:'tractor',lease:false}).ok).toBe(true);
   const [a,b,c]=s.machines;a.driver=123;
   const before=JSON.stringify(s);
@@ -92,7 +92,7 @@ it('bulk idle sale protects assigned machines and revalidates the whole selectio
 });
 
 it('antitrust auto-settlement retains the fine and leaves a readable notice',()=>{
-  const s=createGame(22);s.era=7;post(s,'sale',1000000,'Test sales');
+  const s=createGame(22);s.legacyProgression=true;s.era=7;post(s,'sale',1000000,'Test sales');
   for(let i=0;i<100&&!s.events.some(e=>e.kind==='antitrust');i++) antitrustCheck(s,()=>0.5);
   const probes=s.events.filter(e=>e.kind==='antitrust');expect(probes.length).toBeGreaterThan(0);
   const cash=s.cash, rep=s.corp.reputation;

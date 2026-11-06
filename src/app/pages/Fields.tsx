@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { BUILDINGS, CONFIG, CROPS, GOODS, GOOD_IDS, MACHINES, REGIONS, WORK_END, WORK_START, type CropId, type GoodId, type RegionId } from '../../simulation/config';
-import { factoryCrop, has, known, reservedStock, priceUsd, seedCost, stored } from '../../simulation/core';
+import { factoryCrop, freeSpace, has, known, reservedStock, priceUsd, seedCost, stored } from '../../simulation/core';
 import {
   canGrow, expectedYield, fertility, grade, greenhousePrice, growth, homePlotPrice, irrigationPrice, isManual, isMature, isReady, parcelPrice, qualityMult, quoteSell, seedShortfall, soilFactor, tempFactor, timingFactor, waterFactor, techFactor,
 } from '../../simulation/engine';
@@ -10,6 +10,8 @@ import { dayPrice } from '../../simulation/lines';
 import { duration, money, num, pct, pct0, price, stamp } from '../format';
 import { Bar, Card, Confirm, Info, Seg, Select, Swatch, Tip, usePref } from '../ui';
 import { unlockedRegions } from './shared';
+import { stageAtLeast } from '../../simulation/stages';
+import { HOMESTEAD_MILL_PRICE, homesteadState } from '../../simulation/stages/homestead';
 
 
 export function FieldsPage() {
@@ -56,20 +58,20 @@ export function FieldsPage() {
               {regions.length > 1 && <Select label="Region" value={r} onChange={setRegion} options={regions.map((x) => ({ v: x, label: REGIONS[x].name }))} />}
               {readyPlots.length > 1 && <button className="btn ghost sm" onClick={() => readyPlots.forEach((f) => act({ type: 'harvest', fieldId: f.id }))} title="Shortcut: H">Harvest {readyPlots.length} ready</button>}
               {emptyPlots.length > 1 && <button className="btn ghost sm" onClick={() => emptyPlots.forEach((f) => act({ type: 'plant', fieldId: f.id, crop }))}>Plant {emptyPlots.length} empty with {GOODS[crop].name.toLowerCase()}</button>}
-              {fields.length > 1 && s.era >= 2 && <button className="btn ghost sm" onClick={() => setSel(sel.length === fields.length ? [fields[0].id] : fields.map((f) => f.id))}>{sel.length === fields.length ? 'Clear selection' : 'Select all'}</button>}
+              {fields.length > 1 && stageAtLeast(s, 'farm-business') && <button className="btn ghost sm" onClick={() => setSel(sel.length === fields.length ? [fields[0].id] : fields.map((f) => f.id))}>{sel.length === fields.length ? 'Clear selection' : 'Select all'}</button>}
             </>}
           >
             {fields.length > 24
               ? <FieldGrid s={s} fields={fields} sel={sel} onSelect={toggle} />
               : <FarmView s={s} fields={fields} sel={sel} onSelect={toggle} canBuy={r === 'heartland' && s.stats.sales > 0 && s.regions.heartland.homePlotsBought < CONFIG.homePlots} />}
-            {s.era >= 2 && <p className="muted small" style={{ marginTop: 8 }}>Shift- or Ctrl-click to select several fields for batch actions.</p>}
+            {stageAtLeast(s, 'farm-business') && <p className="muted small" style={{ marginTop: 8 }}>Shift- or Ctrl-click to select several fields for batch actions.</p>}
           </Card>
           {selected.length > 1 ? <BatchPanel s={s} fields={selected} /> : one && <FieldPanel s={s} f={one} crop={crop} setCrop={setCrop} />}
         </div>
         <div className="stack l">
-          {s.stats.harvests > 0 && <SellCard s={s} r={r} />}
-          {s.era >= 3 && <LandCard s={s} />}
-          {s.era < 3 && <RecentLog s={s} />}
+          {s.stats.harvests > 0 && (s.legacyProgression || stageAtLeast(s, 'market-town') ? <SellCard s={s} r={r} /> : <HomesteadTraderCard s={s} />)}
+          {(s.legacyProgression ? s.era >= 3 : stageAtLeast(s, 'industry')) && <LandCard s={s} />}
+          {!stageAtLeast(s, 'industry') && <RecentLog s={s} />}
         </div>
       </div>
     </div>
@@ -181,16 +183,16 @@ export function FieldPanel({ s, f, crop, setCrop }: { s: GameState; f: Field; cr
             {!manual && <p className="muted small">At {num(f.ha)} ha this field is too big to work by hand. Give it a crop plan; workers {s.machines.length ? 'and machines ' : ''}plant and harvest it.</p>}
           </>
         )}
-        {s.era >= 2 && <PlanPicker s={s} fields={[f]} />}
+        {stageAtLeast(s, 'farm-business') && <PlanPicker s={s} fields={[f]} />}
         <SupplyPicker s={s} fields={[f]} />
-        {s.era >= 2 && <details className="field-details"><summary>🌱 Soil & water · {pct0(fertility(f))}</summary><SoilPanel s={s} f={f} /></details>}
+        {stageAtLeast(s, 'farm-business') && <details className="field-details"><summary>🌱 Soil & water · {pct0(fertility(f))}</summary><SoilPanel s={s} f={f} /></details>}
         {f.lastHarvest && (
           <Tip text="Why this harvest came out as it did — every factor is from the simulation."
             breakdown={[['Base', num(f.lastHarvest.base)], ['Soil', f.lastHarvest.soil.toFixed(2)], ['Water', f.lastHarvest.water.toFixed(2)], ['Season/temp', f.lastHarvest.weather.toFixed(2)], ['Pests', f.lastHarvest.pest.toFixed(2)], ['Technology', f.lastHarvest.tech.toFixed(2)], ['Region fit', f.lastHarvest.suitability.toFixed(2)], ['Timing', f.lastHarvest.timing.toFixed(2)]]}>
             <p className="explain">Last harvest: <b style={{ color: 'var(--text)' }}>{num(f.lastHarvest.units)} {GOODS[f.lastHarvest.crop].name.toLowerCase()}</b> ({pct0(f.lastHarvest.units / Math.max(1, f.lastHarvest.base))} of potential){known(s, 'quality') && f.lastHarvest.quality !== undefined && <> · grade <GradePill q={f.lastHarvest.quality} /></>} — hover for why.</p>
           </Tip>
         )}
-        {s.era >= 3 && s.fields.length > 1 && (
+        {stageAtLeast(s, 'industry') && s.fields.length > 1 && (
           <div className="row end">
             <Confirm label="Sell field" title={`Sell field ${f.id}?`} body={<>You will receive about <b>{money(f.cost * 0.85)}</b> (85% of what you paid). Any crop on it is lost.</>} onConfirm={() => act({ type: 'sellField', fieldId: f.id })} className="btn danger sm" confirmLabel="Sell" />
           </div>
@@ -263,7 +265,7 @@ function PlanPicker({ s, fields }: { s: GameState; fields: Field[] }) {
   return (
     <div className="row between wrap" data-coach="plan-picker">
       <span className="small muted">Crop plan <Info text="Workers plant fields that have a plan, and keep replanting the same crop after each harvest. With a manager and the auto-rotate policy, the manager chooses for you — unless you lock the plan." /></span>
-      {s.era >= 3 && <button className={`btn ${locked ? 'primary' : 'ghost'} sm`} aria-pressed={locked} title={locked ? 'Locked: managers and rules keep this plan. Click to unlock.' : 'Lock this plan so managers and rules never change it'}
+      {(s.legacyProgression ? s.era >= 3 : stageAtLeast(s, 'industry')) && <button className={`btn ${locked ? 'primary' : 'ghost'} sm`} aria-pressed={locked} title={locked ? 'Locked: managers and rules keep this plan. Click to unlock.' : 'Lock this plan so managers and rules never change it'}
         onClick={() => act({ type: 'lockPlan', fieldIds: fields.map((f) => f.id), locked: !locked })}>{locked ? '🔒 Locked' : '🔓 Lock'}</button>}
       <select className="input" aria-label="Crop plan" value={value} onChange={(e) => act({ type: 'setPlan', fieldIds: fields.map((f) => f.id), crop: (e.target.value || null) as CropId | null })}>
         {value === 'mixed' && <option value="mixed" disabled>Mixed</option>}
@@ -350,7 +352,7 @@ export function SellCard({ s, r }: { s: GameState; r: RegionId }) {
   const rows = GOOD_IDS.filter((g) => GOODS[g].kind !== 'input' && s.markets[r][g] && (s.regions[r].inventory[g] >= 1 || s.unlockedCrops.includes(g as CropId)));
   const st = stored(s, r);
   return (
-    <Card title="Barn & market" coach="sell-card" className="reveal"
+    <Card title="Barn & market" coach="trader" className="reveal"
       info="Prices move with supply and demand. Selling a lot at once depresses the price for a while; haulage to market is charged per unit.">
       <div className="stack">
         <div className="stack s" style={{ gap: 3 }}>
@@ -363,6 +365,37 @@ export function SellCard({ s, r }: { s: GameState; r: RegionId }) {
       </div>
     </Card>
   );
+}
+
+/** The Homestead trades through one village stall; prices and the full exchange arrive later. */
+export function HomesteadTraderCard({ s }: { s: GameState }) {
+  const [fraction, setFraction] = useState(1);
+  const state = homesteadState(s);
+  const wheat = Math.floor(s.regions.heartland.inventory.wheat);
+  const qty = Math.floor(wheat * fraction);
+  return <Card title={<>🧺 Village trader <span className="muted">{state.mood >= 65 ? '· friendly' : state.mood <= 35 ? '· wary' : '· neutral'}</span></>} coach="trader">
+    <div className="stack s">
+      <div className="row between"><b>Mill buyer</b><span className="mono">${HOMESTEAD_MILL_PRICE.toFixed(2)} / wheat</span></div>
+      <div className="row wrap">
+        <Seg label="Wheat to sell" value={fraction} onChange={setFraction} options={[{ v: .25, label: '¼' }, { v: .5, label: '½' }, { v: 1, label: 'All' }]} />
+        <span className="mono">📦 {num(wheat)} wheat · +{money(qty * HOMESTEAD_MILL_PRICE)}</span>
+      </div>
+      <button className="btn primary" disabled={!qty} onClick={() => act({ type: 'sellToMill', qty })}>Sell {num(qty)} wheat</button>
+      <div className="trader-offers" aria-label="Today's barter offers">
+        {state.offers.map((offer) => {
+          const output = offer.give.kind === 'seed' ? `${num(offer.give.qty)} ${GOODS[offer.give.crop].name.toLowerCase()} seeds` : `${num(offer.give.qty)} ${GOODS[offer.give.good].name.toLowerCase()}`;
+          return <article className={`trader-offer${offer.traded ? ' traded' : ''}`} key={offer.id}>
+            <span className="trader-amount">{num(offer.takeQty)} {GOOD_ICON[offer.takeGood] ?? '📦'} {GOODS[offer.takeGood].name.toLowerCase()}</span><span className="trader-arrow">↔</span><span className="trader-amount">{output}</span>
+            {offer.traded ? <span className="pill">Done</span> : <div className="row wrap">
+              {!offer.haggled && <button className="btn ghost sm" onClick={() => act({ type: 'haggle', offerId: offer.id })}>Haggle</button>}
+              <button className="btn gold sm" disabled={wheat < offer.takeQty || (offer.give.kind === 'good' && freeSpace(s, 'heartland', offer.give.good) < offer.give.qty)} onClick={() => act({ type: 'barter', offerId: offer.id })}>Trade</button>
+            </div>}
+          </article>;
+        })}
+      </div>
+      <span className="faint small">Offers refresh each morning · one haggle per offer</span>
+    </div>
+  </Card>;
 }
 
 function SellRow({ s, r, g }: { s: GameState; r: RegionId; g: GoodId }) {

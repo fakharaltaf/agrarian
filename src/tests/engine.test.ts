@@ -21,6 +21,7 @@ const fresh = (seed = 1) => createGame(seed);
 /** Funds a test through the ledger (as share capital) so reconciliation still holds. */
 const give = (s: GameState, cash: number) => post(s, 'sharesIssued', cash - s.cash, 'Test capital');
 const toEra = (s: GameState, era: number) => {
+  s.legacyProgression = true;
   s.era = era;
   for (const c of Object.keys(CROPS) as (keyof typeof CROPS)[]) if (CROPS[c].minEra <= era && !s.unlockedCrops.includes(c)) s.unlockedCrops.push(c);
 };
@@ -62,6 +63,7 @@ describe('homestead loop', () => {
 
   it('selling deducts inventory, pays the quote and depresses the price', () => {
     const s = fresh();
+    s.legacyProgression = true;
     s.regions.heartland.inventory.wheat = 500;
     const p0 = s.markets.heartland.wheat!.price;
     const q = quoteSell(s, 'heartland', 'wheat', 500);
@@ -406,6 +408,7 @@ describe('exploit guards', () => {
 describe('new mechanics', () => {
   it('eras only advance when the player chooses', () => {
     const s = fresh();
+    s.legacyProgression = true;
     for (let i = 0; i < 3; i++) dispatch(s, { type: 'buyPlot' });
     post(s, 'sale', 13000, 'test');
     give(s, s.cash + 2000);

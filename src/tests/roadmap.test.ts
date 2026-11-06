@@ -3,10 +3,13 @@ import { expect, it } from 'vitest';
 // @ts-expect-error Node types are deliberately absent from the browser project
 import { readFileSync, writeFileSync } from 'node:fs';
 import { parseSave } from '../simulation/persistence';
-import { createGame, dispatch, newField, step } from '../simulation/engine';
+import { canAdvance, createGame, dispatch, newField, step } from '../simulation/engine';
 import { BUILDINGS, GOOD_IDS, OPEX_KINDS, REGION_IDS } from '../simulation/config';
 import { lineEcon } from '../simulation/lines';
 import { STAGES, STAGE_IDS, stageIdForEra, tickActiveStage } from '../simulation/stages';
+import { HOMESTEAD_MILL_PRICE } from '../simulation/stages/homestead';
+import { HOMESTEAD_SALES_GOAL } from '../simulation/progression';
+import { botAct } from './bot';
 import type { GameState } from '../simulation/types';
 
 function finiteTree(value: unknown, path = 'state') {
@@ -22,12 +25,13 @@ it('stage registry uses stable string ids and preserves the eight legacy-era ide
   ]);
   const s = createGame(44), before = structuredClone(s);
   tickActiveStage(s);
-  expect(s).toEqual(before);
+  expect((s.stageState.homestead as { offers: unknown[] }).offers.length).toBe(3);
+  expect(s.cash).toBe(before.cash);
   for (const id of STAGE_IDS) {
     expect(STAGES[id].id).toBe(id);
     expect(typeof STAGES[id].tick).toBe('function');
     expect(typeof STAGES[id].handleAction).toBe('function');
-    expect(STAGES[id].createState()).toEqual({});
+    expect(STAGES[id].createState()).toEqual(id === 'homestead' ? { day: -1, mood: 50, offers: [] } : id === 'market-town' ? { lastMarketDay: -1 } : {});
   }
 });
 it('legacy saves migrate to their matching stage without advancing or changing their era', () => {
@@ -37,15 +41,84 @@ it('legacy saves migrate to their matching stage without advancing or changing t
   expect(migrated.stageId).toBe('city');
   expect(migrated.stageState.city).toEqual({});
 });
-it('player era advancement synchronizes the stable stage id', () => {
+it('player chapter advancement synchronizes the stable stage id', () => {
   const s = createGame(46);
   for (let i = 0; i < 3; i++) s.fields.push(newField(s, 'heartland', 1, 0));
-  s.lifetime.sale = 12_000;
+  s.lifetime.sale = HOMESTEAD_SALES_GOAL;
   expect(dispatch(s, { type: 'advanceEra' }).ok).toBe(true);
   expect(s.era).toBe(2);
   expect(s.stageId).toBe('market-town');
   step(s);
-  expect(s.stageState['market-town']).toEqual({});
+  expect(s.stageState['market-town']).toEqual({ lastMarketDay: 0 });
+  expect(s.events.some((event) => event.kind === 'demandSurge' && event.good)).toBe(true);
+});
+it('new Homestead uses a daily barter board and fixed wheat buyer before opening the market', () => {
+  const s = createGame(740);
+  expect(s.stageId).toBe('homestead');
+  expect(s.legacyProgression).toBe(false);
+  expect((s.stageState.homestead as { offers: unknown[] }).offers).toHaveLength(3);
+  s.regions.heartland.inventory.wheat = 40;
+  const openSale = dispatch(s, { type: 'sell', region: 'heartland', good: 'wheat', qty: 1 });
+  expect(openSale.ok).toBe(false);
+  const offer = (s.stageState.homestead as { offers: { id: string; takeQty: number }[] }).offers[0];
+  expect(dispatch(s, { type: 'haggle', offerId: offer.id }).ok).toBe(true);
+  expect(dispatch(s, { type: 'haggle', offerId: offer.id }).ok).toBe(false);
+  expect(dispatch(s, { type: 'barter', offerId: offer.id }).ok).toBe(true);
+  expect(s.seeds.corn).toBeGreaterThan(0);
+  const marketBefore = s.markets.heartland.wheat!.inv;
+  const cashBefore = s.cash;
+  expect(dispatch(s, { type: 'sellToMill', qty: 10 }).ok).toBe(true);
+  expect(s.cash - cashBefore).toBeCloseTo(10 * HOMESTEAD_MILL_PRICE, 6);
+  expect(s.regions.heartland.inventory.wheat).toBe(40 - offer.takeQty - 10);
+  expect(s.markets.heartland.wheat!.inv).toBe(marketBefore + 10);
+  expect(dispatch(s, { type: 'sellToMill', qty: 100 }).ok).toBe(false);
+  expect(dispatch(s, { type: 'sell', region: 'heartland', good: 'wheat', qty: 1 }).ok).toBe(false);
+  s.fields.push(newField(s, 'heartland', 1, 0), newField(s, 'heartland', 1, 0), newField(s, 'heartland', 1, 0));
+  s.lifetime.sale = HOMESTEAD_SALES_GOAL;
+  expect(canAdvance(s)).toBe(true);
+  expect(dispatch(s, { type: 'advanceEra' }).ok).toBe(true);
+  expect(s.stageId).toBe('market-town');
+  step(s);
+  expect(s.stageId).toBe('market-town');
+  expect(dispatch(s, { type: 'hire', region: 'heartland', role: 'hand', wageFactor: 1 }).ok).toBe(false);
+  expect(dispatch(s, { type: 'sellToMill', qty: 1 }).ok).toBe(true); // trader remains a side channel
+});
+it('Market Town schedules a real, weekly demand surge and does not repeat it within the day', () => {
+  const market = createGame(742), quiet = createGame(742);
+  market.stageId = quiet.stageId = 'market-town';
+  market.stageState['market-town'] = { lastMarketDay: -1 };
+  quiet.stageState['market-town'] = { lastMarketDay: 0 };
+  step(market); step(quiet); // stage schedules demand after this hour's market tick
+  expect(market.events.some((e) => e.kind === 'demandSurge' && e.region === 'heartland')).toBe(true);
+  step(market); step(quiet);
+  expect(market.markets.heartland.wheat!.demandToday).toBeGreaterThan(quiet.markets.heartland.wheat!.demandToday);
+  const before = market.events.length;
+  for (let i = 0; i < 18; i++) step(market);
+  expect(market.events.length).toBe(before);
+});
+it('a competent new-game bot reaches Market Town without cash grants', () => {
+  const s = createGame(741);
+  for (let i = 0; i < 2200 && s.stageId === 'homestead'; i++) { botAct(s); step(s); }
+  expect(s.stageId).toBe('market-town');
+  expect(s.tick - 6).toBeGreaterThanOrEqual(1200);
+  expect(s.tick - 6).toBeLessThanOrEqual(1800);
+  expect(s.lifetime.sale).toBeGreaterThanOrEqual(HOMESTEAD_SALES_GOAL);
+  expect(s.fields.length).toBeGreaterThanOrEqual(4);
+  expect(s.ledger.some((entry) => entry.memo.startsWith('Village mill bought'))).toBe(true);
+});
+it('a competent player can grow from Market Town into Farm Business', () => {
+  const s = createGame(743);
+  let enteredMarket = -1;
+  const start = s.tick;
+  for (let i = 0; i < 10_000 && s.stageId !== 'farm-business'; i++) {
+    botAct(s); step(s);
+    if (enteredMarket < 0 && s.stageId === 'market-town') enteredMarket = s.tick;
+  }
+  expect(s.stageId).toBe('farm-business');
+  expect(s.lifetime.sale).toBeGreaterThanOrEqual(165_000);
+  const homesteadTicks = enteredMarket - start, marketTownTicks = s.tick - enteredMarket;
+  expect(marketTownTicks).toBeGreaterThanOrEqual(homesteadTicks * 1.5);
+  expect(marketTownTicks).toBeLessThanOrEqual(homesteadTicks * 2);
 });
 it('pure save migration round-trips and preserves deterministic continuation', () => {
   const a = parseSave(JSON.stringify({version: 2, game: createGame(819)})).game;

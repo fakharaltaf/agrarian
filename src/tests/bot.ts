@@ -84,6 +84,11 @@ function bestCrop(s: GameState, r: RegionId): CropId {
 
 /** Sells in slices no bigger than a fifth of market depth, and only near or above the monthly average. */
 function sell(s: GameState) {
+  if (!s.legacyProgression && s.stageId === 'homestead') {
+    const q = Math.floor(s.regions.heartland.inventory.wheat);
+    if (q >= 1) dispatch(s, { type: 'sellToMill', qty: q });
+    return;
+  }
   for (const r of REGION_IDS) {
     if (!s.regions[r].unlocked) continue;
     const st = stored(s, r);

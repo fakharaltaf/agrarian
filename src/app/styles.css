@@ -637,6 +637,9 @@ body { overflow: hidden; }
 .shell:has(.page-drawer) > .coach { display: none; }
 @media(max-width:900px){
   .shell:has(.hud-panel:not(.closed)) > .coach.docked { bottom: calc(50dvh + 14px); left: 12px; width: calc(100vw - 24px); }
+  /* Keep action feedback above the open farm sheet instead of over its controls. */
+  .shell:has(.hud-panel:not(.closed)) .toasts { bottom: calc(50dvh + 14px + env(safe-area-inset-bottom)); }
+  .shell:has(.hud-panel:not(.closed)):has(.toasts .toast) > .coach.docked { display: none; }
 }
 
 .shell:has(.modal-bg) > .coach { display: none; }
@@ -653,3 +656,11 @@ body { overflow: hidden; }
 .ftile { grid-template-rows: 22px 40px 26px 22px 3px; min-height: 165px; }
 .ftile-crop { min-height: 26px; line-height: 20px; }
 .shell:has(.page-drawer) .wl-radial { display: none; }
+/* Homestead barter board: a warm stall with fixed, readable offer slots. */
+.trader-offers{display:grid;gap:8px;margin-top:4px}
+.trader-offer{display:grid;grid-template-columns:minmax(70px,.8fr) 24px minmax(90px,1fr) auto;align-items:center;gap:8px;min-height:56px;padding:8px 10px;border:1px solid color-mix(in srgb,var(--sun) 34%,var(--line));border-radius:14px;background:linear-gradient(135deg,color-mix(in srgb,var(--sun) 13%,var(--surface)),var(--surface-2));box-shadow:inset 0 1px #ffffff36,0 2px 5px #20170c0a}
+.trader-offer.traded{opacity:.62;filter:saturate(.65)}
+.trader-offer .btn{min-height:44px}
+.trader-amount{font-size:14px;font-weight:800;line-height:1.2}
+.trader-arrow{text-align:center;color:var(--sun);font-size:20px;font-weight:900}
+@media(max-width:520px){.trader-offer{grid-template-columns:minmax(62px,.7fr) 18px minmax(84px,1fr);gap:5px;padding:8px}.trader-offer .row{grid-column:1/-1;justify-content:flex-end}.trader-amount{font-size:14px}}

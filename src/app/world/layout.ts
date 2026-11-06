@@ -1,6 +1,7 @@
 // Where everything sits in a region's isometric world. Deterministic: same state, same picture.
 import { BUILDING_TYPES, CONFIG, type BuildingType, type RegionId } from '../../simulation/config';
 import type { Building, Field, GameState } from '../../simulation/types';
+import { stageAtLeast } from '../../simulation/stages';
 
 export interface Lot { key: string; type: BuildingType | 'house' | 'shed'; buildings: Building[]; x: number; y: number; w: number; d: number }
 export interface Plot { field: Field; x: number; y: number; s: number }
@@ -27,8 +28,8 @@ export function layoutRegion(s: GameState, r: RegionId): Layout {
   };
   add(r === 'heartland' ? 'house' : 'shed', []);
   if (s.stats.harvests > 0) add('shed', [], 'market');
-  if (s.era >= 2) add('house', [], 'crew');
-  if (s.era >= 3) add('house', [], 'office');
+  if (stageAtLeast(s, 'farm-business')) add('house', [], 'crew');
+  if (s.legacyProgression ? s.era >= 3 : stageAtLeast(s, 'industry')) add('house', [], 'office');
   const here = s.buildings.filter((b) => b.region === r);
   for (const t of BUILDING_TYPES) {
     const bs = here.filter((b) => b.type === t);

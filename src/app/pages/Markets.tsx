@@ -11,6 +11,8 @@ import { LineChart, Sparkline, type Series } from '../Chart';
 import { duration, money, num, pct, pct0, price, stamp } from '../format';
 import { Bar, Card, Confirm, Info, NumberInput, PageHead, Seg, Select, Table, type Col } from '../ui';
 import { GoodName, unlockedRegions } from './shared';
+import { stageAtLeast } from '../../simulation/stages';
+import { HomesteadTraderCard } from './Fields';
 
 const DAY_POINTS = TICKS_PER_DAY / CONFIG.priceHistoryEvery; // history samples per day
 
@@ -27,6 +29,7 @@ function seedCostPerUnit(s: GameState, r: RegionId, c: CropId) {
 
 export default function MarketsPage() {
   const s = useGame();
+  if (!s.legacyProgression && !stageAtLeast(s, 'market-town')) return <div className="stack l"><PageHead title="Village trader" sub="A small daily board keeps your first harvest moving." /><HomesteadTraderCard s={s} /></div>;
   const regions = unlockedRegions(s);
   const [region, setRegion] = useState<RegionId>('heartland');
   const r = regions.includes(region) ? region : 'heartland';
@@ -45,6 +48,8 @@ export default function MarketsPage() {
     <div className="stack l">
       <PageHead title="Markets" sub="Every price here is set by stock and demand in that region's market. Your own sales move it."
         actions={regions.length > 1 && <Select label="Market region" value={r} onChange={setRegion} options={regions.map((x) => ({ v: x, label: REGIONS[x].name }))} />} />
+
+      {!s.legacyProgression && <HomesteadTraderCard s={s} />}
 
       <div className="grid2" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 420px), 1fr))' }}>
         <Board s={s} r={r} goods={goods} sel={g} onSel={setSel} scope={scope} setScope={setScope} />

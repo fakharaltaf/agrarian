@@ -3,7 +3,7 @@ import { CROPS, CROP_IDS, GOOD_IDS, REGION_IDS } from './config';
 import { createMarkets } from './markets';
 import { stageIdForEra, STAGES, STAGE_IDS } from './stages';
 import type { GameState } from './types';
-export const SAVE_VERSION = 4;
+export const SAVE_VERSION = 5;
 export interface SaveFile { version: number; savedAt: number; paused?: boolean; game: GameState }
 
 /** Trust boundary: stored or imported JSON may be stale, hand-edited or corrupt. */
@@ -31,7 +31,7 @@ export function parseSave(text: string): SaveFile {
 /** Upgrades older saves in place. Version 1 (the prototype) predates the full economy. */
 export function migrate(g: Omit<GameState, 'version'> & { version: number }): GameState {
   if (g.version === 1) throw new Error('This save is from the early prototype and cannot be upgraded. Please start a new game.');
-  if (g.version !== 2 && g.version !== 3 && g.version !== SAVE_VERSION) throw new Error(`Unsupported save version ${g.version}.`);
+  if (g.version !== 2 && g.version !== 3 && g.version !== 4 && g.version !== SAVE_VERSION) throw new Error(`Unsupported save version ${g.version}.`);
   g.warned ??= {};
   g.bench ??= {};
   g.discovered ??= [];
@@ -41,10 +41,14 @@ export function migrate(g: Omit<GameState, 'version'> & { version: number }): Ga
   g.daily ??= null;
   g.stats.plantings ??= 0;
   g.eraReady ??= false;
+  g.legacyProgression ??= true;
   if (!STAGE_IDS.includes(g.stageId)) g.stageId = stageIdForEra(g.era);
   if (!g.stageState || typeof g.stageState !== 'object' || Array.isArray(g.stageState)) g.stageState = {};
   if (!g.stageState[g.stageId] || typeof g.stageState[g.stageId] !== 'object' || Array.isArray(g.stageState[g.stageId])) {
     g.stageState[g.stageId] = STAGES[g.stageId].createState();
+  }
+  for (const [key, value] of Object.entries(STAGES[g.stageId].createState())) {
+    if (g.stageState[g.stageId]![key] === undefined) g.stageState[g.stageId]![key] = value;
   }
   g.herds ??= [];
   g.automation.policies.autoFeed ??= true;

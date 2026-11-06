@@ -14,6 +14,13 @@ function add(s: GameState, e: Omit<GameEvent, 'id' | 'announced'> & { lead?: num
   return ev;
 }
 
+/** Weekly Stage 2 demand pulse, routed through the same demand model as other market shocks. */
+export function startMarketDay(s: GameState, good: CropId) {
+  const name = GOODS[good].name.toLowerCase();
+  return add(s, { kind: 'demandSurge', region: 'heartland', good, start: s.tick, end: s.tick + TICKS_PER_DAY / 2, severity: 0.5,
+    title: `Market day · ${GOODS[good].name}`, text: `Local buyers are seeking ${name} until evening. Their extra demand moves the real market price; it is an opportunity, not a guaranteed premium.` });
+}
+
 const exposed = (s: GameState, r: RegionId) => s.regions[r].unlocked;
 
 export function eventsDaily(s: GameState) {

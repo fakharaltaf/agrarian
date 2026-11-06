@@ -17,7 +17,8 @@ import { acquire, acquisitionPrice, askingPrice, competitorsDaily, createCompeti
 import { antitrustCheck, chooseEvent, eventsDaily, expireChoices } from './events';
 import { buyback, execTick, issueShares, marketShare, payDividend } from './corporate';
 import { advanceEra, discover, milestonesDaily, progressionTick } from './progression';
-import { handleActiveStageAction, stageIdForEra, STAGES } from './stages';
+import { featureEra, handleActiveStageAction, stageAtLeast, stageIdForEra, STAGES } from './stages';
+import { refreshHomestead } from './stages/homestead';
 import { shipGoods, shipmentsTick } from './logistics';
 import type { Action, ActionResult, GameState, RegionState } from './types';
 
@@ -37,14 +38,14 @@ export function createGame(seed = (Date.now() % 2147483646) + 1): GameState {
     haulToday: 0, truckToday: 0, portToday: 0, insured: false, insuredFrom: 0, forecast: [], frostTonight: false, quality: {}, homePlotsBought: 1, parcelsBought: 0, waterToday: 0, powerGen: 0, powerUse: 0, backlog: 0,
   }])) as Record<RegionId, RegionState>;
   const s: GameState = {
-    version: 4, seed, rng: seed, tick: 0, cash: CONFIG.startingCash, marginAccount: 0,
+    version: 5, seed, rng: seed, tick: 0, cash: CONFIG.startingCash, marginAccount: 0,
     fields: [], workers: [], machines: [], buildings: [], regions, markets: createMarkets(),
     seeds: Object.fromEntries(Object.keys(CROPS).map((c) => [c, c === 'wheat' ? 10 : 0])) as Record<CropId, number>,
     macro: { cpi: 1, inflation: 0.025, baseRate: 0.045, energy: 1, income: 1, climate: 0, crunch: 0, emissions: 0 },
     bench: {}, loans: [], futures: [], contracts: [], shipments: [], research: { done: [], active: null, licensed: [] },
     automation: { rules: [], policies: { ...DEFAULT_POLICIES } }, competitors: [], events: [],
     corp: { incorporated: false, shares: CONFIG.sharesOutstanding, playerShares: CONFIG.sharesOutstanding, execs: [], reputation: 50, dividends: 0, runoff: 0 },
-    ledger: [], lifetime: {}, books: [], overdraftDays: 0, bankrupt: null, era: 1, stageId: stageIdForEra(1), stageState: { homestead: STAGES.homestead.createState() },
+    ledger: [], lifetime: {}, books: [], overdraftDays: 0, bankrupt: null, era: 1, stageId: stageIdForEra(1), stageState: { homestead: STAGES.homestead.createState() }, legacyProgression: false,
     stats: { harvests: 0, sales: 0, plantings: 0, produced: {}, spoiled: 0, peopleFed: 0, forcedSales: 0, overflowLost: 0, maxEquity: 0, crisisSurvived: false },
     unlockedCrops: ['wheat'], milestones: [], seenTips: [], discovered: [], achievements: [], rewarded: [], daily: null, eraReady: false, herds: [], advisor: false, warned: {}, log: [], nextId: 1,
   };
@@ -76,6 +77,7 @@ export function createGame(seed = (Date.now() % 2147483646) + 1): GameState {
     m.daily = [round2(m.price)];
   }
   s.tick = 6; // the first morning: the farm opens at sunrise
+  refreshHomestead(s);
   for (const r of REGION_IDS) while (s.regions[r].forecast.length < 4) s.regions[r].forecast.push(drawWeather(s));
   todayBook(s);
   log(s, 'info', 'You have $250, one hectare, ten wheat seeds and a hoe. Plant your first crop.', 'fields');
@@ -185,7 +187,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       return ok(`Barn full! ${Math.round(sold)} ${GOODS[g].name.toLowerCase()} had to be sold straight off the field for $${(s.cash - cash0).toFixed(2)}. Sell some stock or build more storage to keep your harvest.`);
     }
     case 'setPlan': {
-      if (s.era < 2) return fail('Crop plans arrive with your first workers.');
+      if (!featureEra(s, 2)) return fail('Crop plans arrive with your first workers.');
       if (a.fieldIds.some((id) => field(s, id)?.supplies)) return fail('A field supplying a factory grows that factory\'s crop. Stop supplying it first.');
       if (a.crop && !s.unlockedCrops.includes(a.crop)) return fail('That crop is not available.');
       let n = 0;
@@ -196,6 +198,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       return n ? ok() : fail('That crop cannot grow on the selected fields.');
     }
     case 'lockPlan': {
+      if (!featureEra(s, 2)) return fail('Crop plans arrive with your first farm hands.');
       for (const id of a.fieldIds) { const f = field(s, id); if (f && !f.supplies) f.planLocked = a.locked; }
       return ok();
     }
@@ -231,7 +234,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       return n ? ok() : fail(b ? `Those fields can't grow ${GOODS[c!].name.toLowerCase()} for this factory (same region only).` : 'No dedicated fields selected.');
     }
     case 'fertilize': {
-      if (s.era < 2) return fail('Fertiliser is not available yet.');
+      if (!featureEra(s, 2)) return fail('Fertiliser is not available yet.');
       const errs: string[] = [];
       for (const id of a.fieldIds) {
         const f = field(s, id);
@@ -242,7 +245,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       return errs.length === a.fieldIds.length ? fail(errs[0] ?? 'Nothing fertilised.') : ok(errs.length ? `${errs.length} field(s) skipped: ${errs[0]}` : undefined);
     }
     case 'irrigate': {
-      if (s.era < 2) return fail('Irrigation is not available yet.');
+      if (!featureEra(s, 2)) return fail('Irrigation is not available yet.');
       const fs = a.fieldIds.map((id) => field(s, id)).filter((f) => f && !f.irrigated) as NonNullable<ReturnType<typeof field>>[];
       const ha = fs.reduce((x, f) => x + f.ha, 0);
       if (!ha) return fail('Those fields are already irrigated.');
@@ -255,6 +258,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       return ok();
     }
     case 'sell': {
+      if (!s.legacyProgression && s.stageId === 'homestead') return fail('Meet the village trader first; the open market arrives with your first market day.');
       const qty = Math.floor(a.qty);
       if (qty <= 0) return fail('Nothing to sell.');
       if (!s.regions[a.region].unlocked) return fail('You have no operations in that region.');
@@ -267,9 +271,9 @@ export function dispatch(s: GameState, a: Action): ActionResult {
     case 'buy': {
       const qty = Math.floor(a.qty);
       if (qty <= 0) return fail('Enter a quantity.');
-      if (s.era < 2 && a.good !== 'fertilizer') return fail('Not available yet.');
+      if (!(s.legacyProgression ? s.era >= 2 : stageAtLeast(s, 'market-town')) && a.good !== 'fertilizer') return fail('The market opens after your first market day.');
       if (!s.regions[a.region].unlocked) return fail('You have no operations in that region.');
-      if (GOODS[a.good].kind !== 'input' && a.good !== 'feed' && s.era < 5) return fail('The commodity exchange opens in Era 5.');
+      if (GOODS[a.good].kind !== 'input' && a.good !== 'feed' && !(s.legacyProgression ? s.era >= 5 : stageAtLeast(s, 'industry'))) return fail('The commodity exchange opens in the Industry chapter.');
       const space = Math.floor(spaceFor(s, a.region, a.good));
       if (space <= 0) return fail('No storage space for that.');
       const want = Math.min(qty, space);
@@ -292,7 +296,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       return ok();
     }
     case 'buyParcel': {
-      if (s.era < 3) return fail('Parcels become available in the Mechanization era.');
+      if (!featureEra(s, 3)) return fail('Larger parcels become available with mechanisation.');
       if (!s.regions[a.region].unlocked) return fail('Expand into this region first.');
       if (!CONFIG.parcelSizes.includes(a.ha)) return fail('Invalid parcel size.');
       const price = parcelPrice(s, a.region, a.ha);
@@ -314,9 +318,9 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       return ok(`Sold for $${value.toLocaleString()}.`);
     }
     case 'hire': {
-      if (s.era < 2) return fail('Workers arrive in Era 2.');
+      if (!featureEra(s, 2)) return fail('Workers arrive when you start the Farm Business chapter.');
       if (!s.regions[a.region].unlocked) return fail('Expand into this region first.');
-      if (a.role === 'manager' && s.era < 3) return fail('Managers become available in Era 3.');
+      if (a.role === 'manager' && !(s.legacyProgression ? s.era >= 3 : stageAtLeast(s, 'farm-business'))) return fail('Managers arrive with the Farm Business chapter.');
       const c = hireCost(s, a.region);
       if (c > s.cash) return fail(`Recruiting costs $${c}.`);
       post(s, 'training', -c, 'Recruitment', a.region);
@@ -334,7 +338,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       return ok();
     }
     case 'setAdvisor': {
-      if (a.on && s.era < 2) return fail('A farm advisor is available from Era 2.');
+      if (a.on && !featureEra(s, 2)) return fail('A farm advisor is available from the Farm Business chapter.');
       s.advisor = a.on;
       log(s, 'info', a.on ? 'Hired a farm advisor. They will read your books and point out what costs you money.' : 'Let the farm advisor go.', 'workers');
       return ok();
@@ -360,7 +364,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
     case 'buyMachine': {
       const d = MACHINES[a.machine];
       if (!d) return fail('Unknown machine.');
-      if (s.era < d.minEra) return fail('Not available yet.');
+      if (!featureEra(s, d.minEra)) return fail('Not available yet.');
       if (d.research && !has(s, d.research)) return fail(`Requires research: ${TECH[d.research].name}.`);
       if (d.crops && !d.crops.some((c) => s.unlockedCrops.includes(c))) return fail(`Grow ${d.crops.map((c) => GOODS[c].name.toLowerCase()).join(' or ')} first.`);
       if (!s.regions[a.region].unlocked) return fail('Expand into this region first.');
@@ -395,12 +399,12 @@ export function dispatch(s: GameState, a: Action): ActionResult {
     case 'build': {
       const d = BUILDINGS[a.building];
       if (!d) return fail('Unknown building.');
-      if (s.era < d.minEra) return fail('Not available yet.');
+      if (!featureEra(s, d.minEra)) return fail('Not available yet.');
       if (d.research && !has(s, d.research)) return fail(`Requires research: ${TECH[d.research].name}.`);
       if (!s.regions[a.region].unlocked) return fail('Expand into this region first.');
       const gate = BUILDING_GATE[a.building];
       if (gate && !known(s, gate)) return fail('Not available yet.');
-      if (a.building === 'cowshed' && s.era < 3) return fail('Cowsheds arrive with mechanisation (Era 3).');
+      if (a.building === 'cowshed' && !(s.legacyProgression ? s.era >= 3 : stageAtLeast(s, 'farm-business'))) return fail('Cowsheds arrive with the Farm Business chapter.');
       const n = a.count ?? 1;
       if (!Number.isInteger(n) || n < 1 || n > 50) return fail('Build between 1 and 50 at a time.');
       const price = buildingPrice(s, a.building, a.region);
@@ -434,12 +438,12 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       return ok();
     }
     case 'ship': {
-      if (s.era < 6) return fail('Shipping opens with regional expansion.');
+      if (!featureEra(s, 6)) return fail('Shipping opens with regional expansion.');
       const e = shipGoods(s, a.good, Math.floor(a.qty), a.from, a.to, s.cash, !!a.sell);
       return e ? fail(e) : ok();
     }
     case 'takeLoan': {
-      if (s.era < 3) return fail('Banks lend from the Mechanization era.');
+      if (!featureEra(s, 3)) return fail('Banks lend from the Industry chapter.');
       if (![30, 120, 360].includes(a.termDays)) return fail('Invalid term.');
       if (a.amount <= 0) return fail('Enter an amount.');
       if (a.amount > creditLimit(s)) return fail(`Your credit limit is $${Math.floor(creditLimit(s)).toLocaleString()}.`);
@@ -457,7 +461,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       return ok();
     }
     case 'openFutures': {
-      if (s.era < 5) return fail('Futures open in Era 5.');
+      if (!featureEra(s, 5)) return fail('Futures open in the Industry chapter.');
       if (!Number.isInteger(a.contracts) || a.contracts === 0) return fail('Enter a whole number of contracts.');
       if (![30, 60, 120].includes(a.days)) return fail('Invalid expiry.');
       const e = openFutures(s, a.good, a.contracts, a.days);
@@ -489,7 +493,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       return ok(`Delivered ${Math.round(q)}.`);
     }
     case 'setInsurance': {
-      if (s.era < 5) return fail('Insurance arrives in Era 5.');
+      if (!featureEra(s, 5)) return fail('Insurance arrives in the Industry chapter.');
       const reg = s.regions[a.region];
       if (a.on && !reg.insured) reg.insuredFrom = s.tick + 10 * TICKS_PER_DAY;
       reg.insured = a.on;
@@ -502,7 +506,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       return ok();
     }
     case 'unlockRegion': {
-      if (s.era < 6) return fail('Regional expansion opens in Era 6.');
+      if (!featureEra(s, 6)) return fail('Regional expansion opens in the Region chapter.');
       if (s.regions[a.region].unlocked) return fail('Already operating there.');
       const c = regionEntryCost(s);
       if (c > s.cash) return fail(`Setting up costs $${c.toLocaleString()} (permits, office, local bank).`);
@@ -541,7 +545,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       return ok();
     }
     case 'incorporate': {
-      if (s.era < 7) return fail('Incorporation opens in Era 7.');
+      if (!featureEra(s, 7)) return fail('Incorporation opens in the City chapter.');
       if (s.corp.incorporated) return fail('Already incorporated.');
       const c = CONFIG.incorporateCost * s.macro.cpi;
       if (c > s.cash) return fail(`Legal costs are $${Math.round(c).toLocaleString()}.`);
@@ -582,7 +586,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
     case 'diligence': {
       const c = s.competitors.find((x) => x.id === a.competitorId);
       if (!c || c.status === 'acquired') return fail('Not available.');
-      if (s.era < 7) return fail('Acquisitions open in Era 7.');
+      if (!featureEra(s, 7)) return fail('Acquisitions open in the City chapter.');
       if (c.diligence !== 'none') return fail('Due diligence already done.');
       const cost = diligenceCost(s, c);
       if (cost > s.cash) return fail(`Due diligence costs $${Math.round(cost).toLocaleString()}.`);
@@ -622,7 +626,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       return e ? fail(e) : ok();
     }
     case 'buyAnimals': {
-      if (!known(s, a.animal === 'chickens' ? 'chickens' : 'livestock') || (a.animal === 'cows' && s.era < 3)) return fail('Not available yet.');
+      if (!known(s, a.animal === 'chickens' ? 'chickens' : 'livestock') || (a.animal === 'cows' && !(s.legacyProgression ? s.era >= 3 : stageAtLeast(s, 'farm-business')))) return fail('Not available yet.');
       if (!Number.isInteger(a.count) || a.count <= 0) return fail('Enter a number of animals.');
       const e = buyAnimals(s, a.region, a.animal, a.count);
       return e ? fail(e) : ok();
@@ -688,6 +692,8 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       else if (!s.seenTips.includes(a.tip)) s.seenTips.push(a.tip);
       return ok();
     }
+    case 'sellToMill': case 'barter': case 'haggle':
+      return fail('The village trader is not available in this chapter.');
   }
 }
 
