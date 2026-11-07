@@ -2,7 +2,7 @@ import { townIndustryFactor } from './town-state';
 import { larderReserve } from './stages/settlement';
 // Farm animals. Herds live in their buildings, eat every day, produce in proportion to their
 // health, breed when they have space, and suffer when hungry or crowded.
-import { ANIMALS, BUILDINGS, COWS_PER_DAIRY_BATCH, GOODS, REGIONS, type AnimalId, type GoodId, type RegionId } from './config';
+import { ANIMALS, BUILDINGS, COWS_PER_DAIRY_BATCH, GOODS, MANURE, REGIONS, type AnimalId, type GoodId, type RegionId } from './config';
 import { addGoods } from './agriculture';
 import { buildingsIn, clamp, levelMult, post, reservedStock, severity } from './core';
 import { avg30, executeBuy, executeSell, quoteBuy } from './markets';
@@ -11,7 +11,7 @@ import { warnOnce } from './agriculture';
 import type { GameState, Herd } from './types';
 
 export const FEEDS: GoodId[] = ['feed', 'corn', 'soymeal', 'wheat']; // eaten in this order, 1:1
-export const MANURE: Record<AnimalId, number> = { chickens: 0.02, pigs: 0.6, cows: 1.5, sheep: 0.2 };
+export { MANURE } from './config';
 
 export const herdOf = (s: GameState, r: RegionId, a: AnimalId) => s.herds.find((h) => h.region === r && h.animal === a);
 export const housing = (s: GameState, r: RegionId, a: AnimalId) =>

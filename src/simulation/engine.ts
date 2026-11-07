@@ -1,3 +1,4 @@
+import { emptyProductionReport } from './production-report';
 import { payHouseholds } from './town-state';
 import { idleMachine, machineSaleValue } from './operations';
 // Orchestrates every system. Pure: no React, no DOM. Functions mutate the GameState passed in.
@@ -41,7 +42,7 @@ export function createGame(seed = (Date.now() % 2147483646) + 1): GameState {
     haulToday: 0, truckToday: 0, portToday: 0, insured: false, insuredFrom: 0, forecast: [], frostTonight: false, quality: {}, homePlotsBought: 1, parcelsBought: 0, waterToday: 0, powerGen: 0, powerUse: 0, backlog: 0,
   }])) as Record<RegionId, RegionState>;
   const s: GameState = {
-    version: 8, seed, rng: seed, tick: 0, cash: CONFIG.startingCash, marginAccount: 0,
+    version: 9, seed, rng: seed, tick: 0, cash: CONFIG.startingCash, marginAccount: 0,
     fields: [], workers: [], machines: [], buildings: [], regions, markets: createMarkets(),
     seeds: Object.fromEntries(Object.keys(CROPS).map((c) => [c, c === 'wheat' ? 10 : 0])) as Record<CropId, number>,
     macro: { cpi: 1, inflation: 0.025, baseRate: 0.045, energy: 1, income: 1, climate: 0, crunch: 0, emissions: 0 },
@@ -421,7 +422,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       if (price * n > s.cash) return fail(`Costs $${(price * n).toLocaleString()}.`);
       for (let i = 0; i < n; i++) {
         post(s, 'building', -price, d.name, a.region);
-        s.buildings.push({ id: nextId(s), type: a.building, region: a.region, active: true, level: 1, cost: price, depreciated: 0, util: 0, reserved: 0, reason: '', stats: { out: 0, inCost: 0, outValue: 0, opCost: 0 } });
+        s.buildings.push({ id: nextId(s), type: a.building, region: a.region, active: true, level: 1, cost: price, depreciated: 0, util: 0, reserved: 0, reason: '', productionReport: emptyProductionReport(), stats: { out: 0, inCost: 0, outValue: 0, opCost: 0 } });
       }
       log(s, 'info', `Built ${n > 1 ? `${n} ${d.name.toLowerCase()}s` : `a ${d.name.toLowerCase()}`} in ${REGIONS[a.region].name}.`, BUILDINGS[a.building].category === 'storage' ? 'storage' : 'production');
       return ok();

@@ -1,3 +1,4 @@
+import { emptyProductionReport } from './production-report';
 // Pure save validation and migration, shared by the browser and regression tools.
 import { CROPS, CROP_IDS, GOOD_IDS, REGION_IDS } from './config';
 import { createMarkets } from './markets';
@@ -6,7 +7,7 @@ import type { GameState } from './types';
 import type { CivicService, CommunityHome, HouseholdCohort } from './types';
 import { createTownState } from './town-state';
 import { createSettlementState } from './community-state';
-export const SAVE_VERSION = 8;
+export const SAVE_VERSION = 9;
 export interface SaveFile { version: number; savedAt: number; paused?: boolean; game: GameState }
 
 /** Trust boundary: stored or imported JSON may be stale, hand-edited or corrupt. */
@@ -28,13 +29,28 @@ export function parseSave(text: string): SaveFile {
     for (const gd of GOOD_IDS) if (!finite(g.regions[r].inventory[gd]) || g.regions[r].inventory[gd] < -1e-6) throw new Error('Save file inventory is corrupt.');
   }
   for (const c of CROP_IDS) if (!finite(g.seeds[c]) || g.seeds[c] < 0) throw new Error('Save file seed stock is corrupt.');
+  const numericMap = (v: unknown) => !!v && typeof v === 'object' && !Array.isArray(v) && Object.values(v).every(finite);
+  const validDay = (v: unknown) => {
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return false;
+    const row = v as Record<string, unknown>;
+    return ['day','hours','batches','capacity','earn','inputs','staff','power','alternative'].every(k => finite(row[k]))
+      && Number.isInteger(row.day) && Number.isInteger(row.hours) && Number(row.hours) >= 0 && Number(row.hours) <= 24
+      && numericMap(row.qty) && numericMap(row.values) && numericMap(row.reasons);
+  };
+  for (const b of g.buildings) {
+    const report = b.productionReport;
+    if (!finite(report.lastBatches) || !finite(report.lastTick) || !Array.isArray(report.days)
+      || report.days.length > 7 || !report.days.every(validDay) || (report.open !== null && !validDay(report.open))) {
+      throw new Error('Save file production history is corrupt.');
+    }
+  }
   return { version: SAVE_VERSION, savedAt: finite(f.savedAt) ? f.savedAt! : Date.now(), paused: f.paused === true, game: g };
 }
 
 /** Upgrades older saves in place. Version 1 (the prototype) predates the full economy. */
 export function migrate(g: Omit<GameState, 'version'> & { version: number }): GameState {
   if (g.version === 1) throw new Error('This save is from the early prototype and cannot be upgraded. Please start a new game.');
-  if (g.version !== 2 && g.version !== 3 && g.version !== 4 && g.version !== 5 && g.version !== 6 && g.version !== 7 && g.version !== SAVE_VERSION) throw new Error(`Unsupported save version ${g.version}.`);
+  if (g.version !== 2 && g.version !== 3 && g.version !== 4 && g.version !== 5 && g.version !== 6 && g.version !== 7 && g.version !== 8 && g.version !== SAVE_VERSION) throw new Error(`Unsupported save version ${g.version}.`);
   g.warned ??= {};
   g.bench ??= {};
   g.discovered ??= [];
@@ -81,7 +97,10 @@ export function migrate(g: Omit<GameState, 'version'> & { version: number }): Ga
   }
   for (const w of g.workers) w.perk ??= null;
   for (const m of g.machines) m.tier ??= 1;
-  for (const b of g.buildings) (b.level ??= 1), (b.reserved ??= 0);
+  for (const b of g.buildings) {
+    b.level ??= 1; b.reserved ??= 0;b.productionReport ??= emptyProductionReport();
+    b.productionReport.open ??= null;b.productionReport.days ??= [];b.productionReport.lastBatches ??= 0;b.productionReport.lastTick ??= -1;
+  }
   for (const r of REGION_IDS) (g.regions[r].forecast ??= []), (g.regions[r].quality ??= {}), (g.regions[r].frostTonight ??= false);
   // goods and crops added after the save was made start empty, with fresh markets
   const fresh = createMarkets();

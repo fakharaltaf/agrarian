@@ -127,6 +127,7 @@ export const ANIMALS: Record<AnimalId, AnimalDef> = {
   cows: { id: 'cows', name: 'Dairy cows', one: 'cow', price: 1200, feedPerDay: 5, product: 'milk', perDay: 8, meat: 6, breedPerDay: 0.01, building: 'cowshed', perBuilding: 20 },
   sheep: { id: 'sheep', name: 'Sheep', one: 'sheep', price: 220, feedPerDay: 0.8, product: 'wool', perDay: 0.6, meat: 1.2, breedPerDay: 0.03, building: 'sheepfold', perBuilding: 50 },
 };
+export const MANURE: Record<AnimalId, number> = { chickens: 0.02, pigs: 0.6, cows: 1.5, sheep: 0.2 };
 export const ANIMAL_IDS = Object.keys(ANIMALS) as AnimalId[];
 
 // ---------------------------------------------------------------- discoveries (gradual introductions)

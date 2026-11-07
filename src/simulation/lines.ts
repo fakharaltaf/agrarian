@@ -1,11 +1,11 @@
+import { cowshedAlternative } from './production-report';
 import { townIndustryFactor } from './town-state';
 // Production-line economics for the UI: one source of truth for what a group of same-type
 // facilities in a region earns per day, what pausing it really saves, the prices it needs
 // to break even, and whether upgrading would pay. Everything is valued at today's prices.
-import { ANIMALS, BUILDINGS, CONFIG, COWS_PER_DAIRY_BATCH, type BuildingType, type GoodId, type RegionId } from './config';
+import { BUILDINGS, CONFIG, COWS_PER_DAIRY_BATCH, type BuildingType, type GoodId, type RegionId } from './config';
 import { buildingDivision, electricityPrice, execOn, has, levelMult, priceUsd } from './core';
 import { upgradeCost } from './engine';
-import { MANURE } from './livestock';
 import type { Building, GameState } from './types';
 
 /** One facility as the economics see it: its level and how many batches an hour it runs. */
@@ -23,7 +23,7 @@ export interface LineEcon {
   qty: Partial<Record<GoodId, number>>;
 }
 
-/** Average price over the last 24 hours: the cards value lines on it so one sale's dip doesn't flip them red. */
+/** Last24-hour prices for expansion forecasts; completed-day card reports are separate. */
 export function dayPrice(s: GameState, r: RegionId, g: GoodId) {
   const h = s.markets[r][g]?.history.slice(-24 / CONFIG.priceHistoryEvery);
   return h?.length ? h.reduce((a, x) => a + x, 0) / h.length : priceUsd(s, r, g);
@@ -57,13 +57,10 @@ function econOf(s: GameState, t: BuildingType, r: RegionId, units: Unit[]): Line
   let alt = 0;
   if (t === 'dairy') {
     // paused, these cows live in the cowshed: they eat the same feed and give milk at the cowshed rate
-    const c = ANIMALS.cows;
     const cows = Math.min(cowsheds(s, r).count, (batches / 24) * COWS_PER_DAIRY_BATCH);
-    const k = cowsheds(s, r).yieldK;
-    alt = cows * (c.perDay * k * p('milk') + MANURE.cows * p('manure') - c.feedPerDay * p('feed'));
-    add('milk', -cows * c.perDay * k);
-    add('manure', -cows * MANURE.cows);
-    add('feed', cows * c.feedPerDay);
+    const alternative=cowshedAlternative(s,r,cows,p);
+    alt=alternative.value;
+    for(const[g,q]of Object.entries(alternative.qty))add(g as GoodId,-q!);
   }
   return { earn, inputs, staff, power, profit, alt, worth: profit - alt, qty };
 }

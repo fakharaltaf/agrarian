@@ -1,3 +1,4 @@
+import { recordRetailPremium } from './production-report';
 import { townOf } from './town-state';
 import type { Division } from './types';
 // Regional commodity markets. Price is a function of market-held inventory:
@@ -342,6 +343,7 @@ export function executeSell(s: GameState, r: RegionId, g: GoodId, qty: number, m
   m.playerSold += q.qty;
   m.price = priceFromInv(s, g, m);
   post(s, kind, q.gross, memo ?? `Sold ${Math.round(q.qty)} ${GOODS[g].name} @ $${q.avgPrice.toFixed(2)}`, r, g === 'meat' || g === 'milk' ? 'livestock' : GOODS[g].kind === 'processed' ? 'processing' : 'crops');
+  if(retailPremium(s,r,g)>1)recordRetailPremium(s,r,q.gross*(1-1/retailPremium(s,r,g)));
   useHaul(s, r, q.qty);
   s.stats.sales++;
   s.stats.peopleFed += (q.qty * GOODS[g].kcal) / (2000 * 365);

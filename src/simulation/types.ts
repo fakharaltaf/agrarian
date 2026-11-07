@@ -80,6 +80,14 @@ export interface Machine {
   driver: number | null; // hand assigned to run it; they work by hand when it has nothing to do
 }
 
+export interface ProductionDay {
+  day: number; hours: number; batches: number; capacity: number;
+  earn: number; inputs: number; staff: number; power: number; alternative: number;
+  qty: Partial<Record<GoodId, number>>; values: Partial<Record<GoodId, number>>;
+  reasons: Record<string, number>;
+}
+export interface ProductionReport { open: ProductionDay | null; days: ProductionDay[]; lastBatches: number; lastTick: number }
+
 export interface Building {
   id: number;
   type: BuildingType;
@@ -91,6 +99,7 @@ export interface Building {
   util: number; // smoothed capacity utilisation
   reserved: number; // input units held in storage for this factory by its supplying fields
   reason: string; // current bottleneck, '' when running at capacity
+  productionReport: ProductionReport;
   stats: { out: number; inCost: number; outValue: number; opCost: number }; // smoothed per-hour economics
 }
 
@@ -324,7 +333,7 @@ export interface TownState {
 }
 
 export interface GameState {
-  version: 8;
+  version: 9;
   seed: number;
   rng: number;
   tick: number;

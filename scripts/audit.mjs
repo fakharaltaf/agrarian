@@ -6,7 +6,7 @@ import { readFile, mkdir, writeFile } from 'node:fs/promises';
 const [savePath, out = 'docs/evidence/audit'] = process.argv.slice(2);
 const save = savePath === 'new' ? null : JSON.parse(await readFile(savePath, 'utf8'));
 await mkdir(out, {recursive:true});
-const server = spawn(process.execPath, ['node_modules/vite/bin/vite.js','preview','--host','127.0.0.1','--port','4317','--strictPort'], {stdio:'pipe'});
+const server = spawn(process.execPath, ['node_modules/vite/bin/vite.js','preview','--host','127.0.0.1','--port','4317','--strictPort'], {stdio:'pipe',cwd:process.env.AUDIT_ROOT||process.cwd()});
 async function resolveAuditDialogs(page, prefix) {
   for(let n=0;n<20;n++) {
     const probe=page.getByRole('dialog').filter({has:page.getByRole('heading',{name:/^Antitrust probe:/})});
@@ -21,6 +21,7 @@ async function resolveAuditDialogs(page, prefix) {
     await dialog.getByRole('button',{name:'Got it',exact:true}).click();
   }
 }
+class ExpectedRenderError extends Error {}
 let browser;
 try {
   for(let i=0;i<100;i++){ try { if((await fetch('http://127.0.0.1:4317/agrarian/')).ok)break; }catch{} await new Promise(r=>setTimeout(r,100)); }
@@ -37,8 +38,9 @@ try {
         sessionStorage.setItem('audit-seeded','1');
       }
     },{save,theme});
-    const page=await context.newPage(); const errors=[];
+    const page=await context.newPage(); const errors=[],consoleErrors=[];
     page.on('pageerror',e=>errors.push(e.message));
+    page.on('console',m=>{if(m.type()==='error')consoleErrors.push(m.text());});
     await page.goto('http://127.0.0.1:4317/agrarian/');
     await page.getByRole('button',{name:save?'Continue your farm':'Start farming',exact:true}).click();
     await page.waitForFunction(()=>document.querySelector('.world-canvas')?.dataset.art==='9',undefined,{timeout:20000});
@@ -76,7 +78,16 @@ try {
         await page.getByRole('button',{name:'Ledger',exact:true}).click();
         const nav=page.locator(`[data-coach="nav-${section}"]`);
         if(await nav.count()){
-          await nav.click(); await page.locator('.page-drawer .page-head, .page-drawer .card, .modal .charter-grid').first().waitFor({state:'visible'});
+          await nav.click();
+          if(process.env.AUDIT_EXPECT_RENDER_ERROR){
+            await page.waitForTimeout(1200);
+            const observed=[...errors,...consoleErrors];
+            await page.screenshot({animations:'disabled',path:`${out}/${width}-${theme}-expected-render-error.png`});
+            await writeFile(`${out}/render-error-results.json`,JSON.stringify({width,theme,root:process.env.AUDIT_ROOT,observed},null,2));
+            if(!observed.some(e=>/Cannot read properties of undefined \(reading ['"]0['"]\)/.test(e)))throw new Error('Expected missing-port error was not observed.');
+            throw new ExpectedRenderError('Verified baseline missing-port crash.');
+          }
+          await page.locator('.page-drawer .page-head, .page-drawer .card, .modal .charter-grid').first().waitFor({state:'visible'});
           await page.screenshot({animations:'disabled',path:`${out}/${width}-${theme}-${section}.png`});
           if(section==='community' && process.env.AUDIT_COMMUNITY) {
             const found=page.getByRole('button',{name:'Found free settlement',exact:true});
@@ -98,6 +109,28 @@ try {
             if(!await hire.isDisabled())throw new Error('Hiring must stop when both resident adults have jobs.');
             await page.waitForTimeout(3200);
             await page.screenshot({animations:'disabled',path:`${out}/${width}-${theme}-local-hiring.png`});
+          }
+          if(section==='production'&&process.env.AUDIT_PRODUCTION) {
+            const first=page.locator('.ln').first();await first.scrollIntoViewIfNeeded();
+            await page.screenshot({animations:'disabled',path:`${out}/${width}-${theme}-production-run.png`});
+            const overflow=await page.locator('.ln').evaluateAll(nodes=>nodes.flatMap(node=>{const box=node.getBoundingClientRect();return [...node.querySelectorAll('.ln-coins,.ln-token,.ln-money,.ln-command,.ln-report-note')].filter(child=>{const r=child.getBoundingClientRect();return r.width>0&&(r.left<box.left-2||r.right>box.right+2);}).map(child=>`${node.dataset.line}: ${child.className}`);}));
+            if(overflow.length)throw new Error(`Production content escapes its card: ${overflow.join(', ')}`);
+            const days=await page.locator('.ln').evaluateAll(nodes=>nodes.map(n=>Number(n.dataset.reportDays)));
+            if(days.some(n=>n<3))throw new Error('Production QA needs actual completed-day history.');
+            const before=await page.locator('.ln').evaluateAll(nodes=>nodes.map(n=>({key:n.dataset.line,height:n.getBoundingClientRect().height,top:n.getBoundingClientRect().top})));
+            await page.getByRole('button',{name:'Time controls',exact:true}).click();await page.getByRole('radio',{name:'50×',exact:true}).click();await page.waitForTimeout(1800);await page.keyboard.press('Space');
+            const after=await page.locator('.ln').evaluateAll(nodes=>nodes.map(n=>({key:n.dataset.line,height:n.getBoundingClientRect().height,top:n.getBoundingClientRect().top})));
+            if(before.length!==after.length||before.some((b,i)=>b.key!==after[i].key||Math.abs(b.height-after[i].height)>2||Math.abs(b.top-after[i].top)>2))throw new Error('Production cards moved while data changed.');
+            await resolveAuditDialogs(page,`${out}/${width}-${theme}-production-live`);
+            await first.getByRole('button',{name:'Margins',exact:true}).click();await page.screenshot({animations:'disabled',path:`${out}/${width}-${theme}-production-margins.png`});
+            await first.getByRole('button',{name:'Grow',exact:true}).click();await page.screenshot({animations:'disabled',path:`${out}/${width}-${theme}-production-grow.png`});
+            const clipped=await first.locator('.ln-panel:not([hidden]) .ln-opt:visible').evaluate(el=>{const r=el.getBoundingClientRect(),p=el.closest('.ln-command-body').getBoundingClientRect();return r.bottom>p.bottom+2;});
+            if(clipped)throw new Error('Growth payoff or action is clipped by its command board.');
+            await first.getByRole('button',{name:'＋ Another',exact:true}).click();await page.screenshot({animations:'disabled',path:`${out}/${width}-${theme}-production-another.png`});
+            for(const type of ['biogas','verticalFarm','distribution']){
+              const line=page.locator(`[data-line="${type}:heartland"]`);
+              if(await line.count()){await line.scrollIntoViewIfNeeded();await page.screenshot({animations:'disabled',path:`${out}/${width}-${theme}-${type}-ports.png`});}
+            }
           }
           if(section==='town') {
             const choose=page.getByRole('button',{name:'Choose Public',exact:true});
@@ -121,10 +154,11 @@ try {
         } else { await page.keyboard.press('Escape'); await page.getByRole('dialog',{name:'Ledger',exact:true}).waitFor({state:'hidden'}); }
       }
     }
-    results.push({width,theme,testedSpeeds,captureMode:save?'paused after live interval':'live',errors,assets:await page.locator('.world-canvas').getAttribute('data-art'),overflow:await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)});
+    results.push({width,theme,testedSpeeds,captureMode:save?'paused after live interval':'live',errors,consoleErrors,assets:await page.locator('.world-canvas').getAttribute('data-art'),overflow:await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)});
     console.log(JSON.stringify({width,theme,status:'captured'}));
     await context.close();
     console.log(JSON.stringify({width,theme,status:'closed'}));
   }
   await writeFile(`${out}/results.json`,JSON.stringify(results,null,2));
-}finally{await browser?.close();server.kill();}
+  if(results.some(r=>r.errors.length||r.consoleErrors.length||r.overflow))throw new Error('Browser review found an error or horizontal overflow; inspect results.json.');
+}catch(error){if(error instanceof ExpectedRenderError)console.log(error.message);else throw error;}finally{await browser?.close();server.kill();}
