@@ -1,5 +1,6 @@
 import { townIndustryFactor } from './town-state';
 import { larderReserve } from './stages/settlement';
+import { caravanReserve } from './region-state';
 // Levels 3–5 of automation: managers run field cycles, rules react to conditions,
 // policies steer everything toward strategic objectives. Automation spends real money
 // through the same primitives as the player, and never below the cash reserve.
@@ -50,7 +51,7 @@ const fmt = (v: number) => (Math.abs(v) >= 100 ? Math.round(v).toLocaleString() 
 export const metricLabel = (r: Pick<Rule, 'metric' | 'good' | 'region'>) =>
   ({ price: `${GOODS[r.good].name} price`, inventory: `${GOODS[r.good].name} stock`, cash: 'Cash', storageUtil: 'Dry storage %', minFertility: 'Lowest fertility %', minCondition: 'Lowest machine condition %', facilityMargin: 'Factory margin $/h' })[r.metric];
 
-const disposableStock=(s:GameState,r:RegionId,g:GoodId)=>Math.max(0,s.regions[r].inventory[g]-reservedStock(s,r,g)-(r==='heartland'?larderReserve(s,g):0));
+const disposableStock=(s:GameState,r:RegionId,g:GoodId)=>Math.max(0,s.regions[r].inventory[g]-reservedStock(s,r,g)-(r==='heartland'?larderReserve(s,g)+caravanReserve(s,g):0));
 
 function runRule(s: GameState, r: Rule): string | null {
   const budget = Math.min(spendable(s), r.maxSpend || Infinity);
@@ -234,7 +235,7 @@ function sellRound(s: GameState, r: RegionId, midday: boolean) {
     .map(g => ({ g, score: s.markets[r][g]!.price / Math.max(0.01, avg30(s, r, g)) }))
     .sort((a, b) => b.score - a.score).map(x => x.g);
   for (const g of ordered) {
-    const q = s.regions[r].inventory[g] - contractsNeed(s, r, g) - reservedStock(s, r, g) - (r === 'heartland' ? larderReserve(s, g) : 0) - (FEEDS.includes(g) ? feedKeep : 0);
+    const q = s.regions[r].inventory[g] - contractsNeed(s, r, g) - reservedStock(s, r, g) - (r === 'heartland' ? larderReserve(s, g) + caravanReserve(s, g) : 0) - (FEEDS.includes(g) ? feedKeep : 0);
     if (q < 1 || !s.markets[r][g] || GOODS[g].kind === 'input') continue;
     const perishable = GOODS[g].spoilProper > 0.02;
     // midday: send surplus to whichever region pays at least 10% more after freight and tariff, sold there on arrival

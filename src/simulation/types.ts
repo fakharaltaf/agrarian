@@ -195,6 +195,7 @@ export interface Shipment {
   arrives: number;
   cost: number;
   sell?: boolean; // sold into the destination market on arrival, a little each hour, instead of stored
+  caravan?: boolean; // Region chapter: sold to a neighbour you hold no land in; can be raided in transit
 }
 
 export type RuleMetric = 'price' | 'inventory' | 'cash' | 'storageUtil' | 'minFertility' | 'minCondition' | 'facilityMargin';
@@ -319,7 +320,7 @@ export interface SettlementState {
 export type SchoolCharter = 'public' | 'trade';
 export const DISTRICT_IDS = ['farmgate', 'orchard', 'heights'] as const;
 export type DistrictId = (typeof DISTRICT_IDS)[number];
-export type ServiceType = 'school' | 'well' | 'clinic' | 'road' | 'hospital' | 'waterworks' | 'park' | 'sanitation' | 'lighting' | 'police';
+export type ServiceType = 'school' | 'well' | 'clinic' | 'road' | 'hospital' | 'waterworks' | 'park' | 'sanitation' | 'lighting' | 'police' | 'watchtower';
 export interface CivicService { id: number; type: ServiceType; district: DistrictId; count: number; active: boolean; cost: number; staffed: number; funded: boolean }
 export interface DistrictCoverage { people: number; school: number; water: number; medical: number; road: number }
 export interface CouncilPetition { id: number; kind: 'park' | 'bread'; opened: number }
@@ -416,6 +417,13 @@ export type Action =
   | { type: 'trainPolice' }
   | { type: 'setJustice'; policy: import('./city-state').JusticePolicy }
   | { type: 'resolveCityCase'; answer: import('./city-state').JusticePolicy }
+  | { type: 'startRegion'; border: import('./region-state').BorderCharter }
+  | { type: 'setBorder'; border: import('./region-state').BorderCharter }
+  | { type: 'setRoute'; to: import('./region-state').NeighbourId; good: GoodId | null; qty: number }
+  | { type: 'giftNeighbour'; to: import('./region-state').NeighbourId; kind: 'goods' | 'cash' }
+  | { type: 'signTreaty'; to: import('./region-state').NeighbourId }
+  | { type: 'resolveRaid'; answer: 'pursue' | 'absorb' }
+  | { type: 'answerDemand'; answer: 'pay' | 'refuse' }
   | { type: 'startTown'; charter: SchoolCharter }
   | { type: 'fundTown'; amount: number; direction: 'toTown' | 'repay' }
   | { type: 'setTownTax'; rate: number }

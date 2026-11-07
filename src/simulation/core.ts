@@ -44,7 +44,7 @@ export function post(s: GameState, kind: LedgerKind, amount: number, memo: strin
   b.kinds[kind] = round2((b.kinds[kind] ?? 0) + amount);
   b.regions[region] = round2((b.regions[region] ?? 0) + amount);
   b.divisions[division] = round2((b.divisions[division] ?? 0) + amount);
-  if (TAXABLE.has(kind) || (account === 'town' && (kind === 'residentTax' || kind === 'civic'))) b.op[region] = round2((b.op[region] ?? 0) + amount);
+  if (TAXABLE.has(kind) || (account === 'town' && (kind === 'residentTax' || kind === 'civic' || kind === 'tolls'))) b.op[region] = round2((b.op[region] ?? 0) + amount);
   // Merge repeated charges (wages, fuel, power...) into one line per kind/region/memo/day so the ledger stays readable.
   const d = Math.floor(s.tick / 24);
   let merged = false;

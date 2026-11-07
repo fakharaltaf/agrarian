@@ -724,7 +724,7 @@ function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el
   if(selectedLot){
     const lot=L.lots.find(x=>x.key===selectedLot);
     if(lot){const [px,py]=project(lot.x+lot.w/2,2.5,lot.y+lot.d/2);
-      const label=lot.service&&['sanitation','lighting','police'].includes(lot.service.type)?'🛡 City':lot.key.startsWith('civic:')?'🏛 Town':lot.key.startsWith('community:')?'🏠 Families':lot.key==='crew'?'👒 Crew':lot.key==='office'?'⚙ Policies':lot.key==='market'?'🪙 Trade':lot.type==='house'||lot.type==='shed'?'📖 Books':BUILDINGS[lot.type].category==='storage'?'📦 Store':'⚙ Manage';
+      const label=lot.service?.type==='watchtower'?'🗼 Region':lot.service&&['sanitation','lighting','police'].includes(lot.service.type)?'🛡 City':lot.key.startsWith('civic:')?'🏛 Town':lot.key.startsWith('community:')?'🏠 Families':lot.key==='crew'?'👒 Crew':lot.key==='office'?'⚙ Policies':lot.key==='market'?'🪙 Trade':lot.type==='house'||lot.type==='shed'?'📖 Books':BUILDINGS[lot.type].category==='storage'?'📦 Store':'⚙ Manage';
       want.push({key:'place-act',x:Math.max(100,Math.min(W-100,px)),y:Math.max(80,Math.min(H-30,py)),html:button('place:0',label)+button('inspect:0','ⓘ'),cls:'wl-radial'});
     }
   }

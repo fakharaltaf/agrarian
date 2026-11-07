@@ -377,6 +377,11 @@ export function buildCivic(type: string, w: number, d: number): Model {
     for(const x of [.5,w-.5]){const bulb=sphere(.18,0xffd889,x+.5,2.4,d/2,{emissive:0x806020});windows.push(bulb);group.add(box(.1,2.5,.1,PAL.roofGrey,x,0,d/2),box(.7,.1,.1,PAL.roofGrey,x+.25,2.5,d/2),bulb);}
   } else if(type==='sanitation'){
     group.add(cyl(.85,.65,PAL.stone,w/2,.1,d/2),cyl(.75,.04,0x65a8bb,w/2,.78,d/2),box(1.8,.08,.15,PAL.roofGrey,w/2,.9,d/2));
+  } else if(type==='watchtower'){
+    for(const [x,z] of [[.6,.6],[w-.6,.6],[.6,d-.6],[w-.6,d-.6]])group.add(box(.14,3,.14,PAL.wood,x,.1,z));
+    group.add(box(w-.6,.12,d-.6,PAL.wood,w/2,3,d/2),box(w-.6,.4,.08,PAL.wood,w/2,3.1,.55),box(w-.6,.4,.08,PAL.wood,w/2,3.1,d-.55));
+    group.add(gable(w-.4,d-.4,.7,PAL.barnRed,w/2,3.5,d/2));
+    const fire=sphere(.14,0xffb055,w/2,3.35,d/2,{emissive:0x804010});windows.push(fire);group.add(fire);
   } else if(type==='road') {
     group.add(box(w-.1,.05,d-.1,PAL.roofGrey,w/2,.09,d/2));
     for(let i=0;i<Math.min(18,Math.ceil(d/2));i++)group.add(box(.06,.02,.4,PAL.white,w/2,.15,.4+i*2));

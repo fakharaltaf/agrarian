@@ -10,6 +10,8 @@ import { communityOf, population, homeCapacity } from './community-state';
 import { settlementTick, canStartSettlement } from './stages/settlement';
 import { canStartTown, townDaily } from './stages/town';
 import { canStartCity, cityDaily } from './stages/city';
+import { canStartRegion, regionDaily } from './stages/region';
+import { regionActive, regionOf, NEIGHBOURS } from './region-state';
 import { cityActive, cityOf } from './city-state';
 import { townOf } from './town-state';
 import type { GameState } from './types';
@@ -37,6 +39,7 @@ function newStageReady(s: GameState) {
   if (s.stageId === 'industry') return canStartSettlement(s);
   if (s.stageId === 'settlement') return canStartTown(s);
   if (s.stageId === 'town') return canStartCity(s);
+  if (s.stageId === 'city') return canStartRegion(s);
   // Later chapters are offered only when their mechanics are implemented.
   return false;
 }
@@ -54,6 +57,7 @@ export function advanceEra(s: GameState): string | null {
     const next = NEXT_STAGE[previous];
     if (!next) return 'You have reached the newest chapter.';
     if(next==='city')return 'Choose a City watch charter at the City watch.';
+    if(next==='region')return 'Choose a border policy on the Region map.';
     if (next === 'town') return 'Choose Public or Trade schools at the Town hall.';
     if (next === 'settlement') return 'Choose the Company town or Free settlement charter on the Community page.';
     s.stageId = next;
@@ -76,6 +80,9 @@ export interface Discovery { id: string; title: string; text: string; page?: str
 export const DISCOVERIES: Discovery[] = [
   {id:'cityReady',title:'A city worth protecting',text:'400 residents are ready for district utilities and a safety charter. Preview the City watch when you choose; your farm and town keep running.',page:'city',when:canStartCity},
   {id:'cityCase',title:'A response to theft',text:'The City watch has an open case. Rehabilitation invests in prevention; punishment costs less today but reduces happiness. Neither replaces jobs and schools.',page:'city',when:s=>cityActive(s)&&!!cityOf(s).case},
+  {id:'regionReady',title:'Neighbours at the gate',text:'Caravans from four neighbouring settlements now reach your city. Open the Region map to choose open borders or walls & tolls.',page:'region',when:canStartRegion},
+  {id:'regionRaid',title:'Bandits on the road',text:'A caravan was raided. Police coverage and staffed watchtowers protect the roads; pursue to recover some of the goods.',page:'region',when:s=>regionActive(s)&&!!regionOf(s).raid},
+  {id:'regionDemand',title:'A rival makes a move',text:'A neighbour demands tribute. Paying buys their trust; refusing invites more raids for a while.',page:'region',when:s=>regionActive(s)&&!!regionOf(s).demand},
   {id:'cityCaravans',title:'Caravans seek safe passage',text:'Neighbouring traders notice your city. Keep growing here; a future regional chapter will build on your security choices.',page:'city',when:s=>cityActive(s)&&cityOf(s).threatAt>=0},
   { id: 'townSchool', title: 'A school for your children', text: '80 residents are ready to become a town. Preview Public or Trade schools at the Town hall. Your existing business keeps running.', page: 'town', when: canStartTown },
   { id: 'townClinic', title: 'Clean water and healthcare', text: 'A growing town needs a clinic and safe water. Services only cover their own neighbourhood and need paid staff from your population.', page: 'town', when: s => townOf(s).active && townOf(s).services.length > 0 },
@@ -146,6 +153,7 @@ export function progressionTick(s: GameState) {
   settlementTick(s);
   townDaily(s);
   cityDaily(s);
+  regionDaily(s);
   frontierTick(s);
   // Keep legacy saves synchronized; new saves advance only when the player accepts a chapter.
   if (s.legacyProgression && !communityOf(s).active) s.stageId = stageIdForEra(s.era);
@@ -189,6 +197,8 @@ const CROP_UNLOCK: Record<CropId, string> = {
 // ---------------------------------------------------------------- objectives (onboarding)
 
 export function objective(s: GameState): { title: string; hint: string; page?: string } {
+  if(canStartRegion(s))return {title:'Neighbours at the gate',hint:'Open the Region map and choose your border policy.',page:'region'};
+  if(regionActive(s)&&s.stageId==='region'){const v=regionOf(s);return {title:v.demand?`${NEIGHBOURS[v.demand.from].leader} demands tribute`:v.raid?'Bandits raided a caravan':Object.values(v.neighbours).some(n=>n.route)?'Earn your neighbours’ trust':'Send your first caravan',hint:v.demand||v.raid?'Decide on the Region map.':'Trade what they want; protect the roads.',page:'region'};}
   if(canStartCity(s))return {title:'A city worth protecting',hint:'Preview sanitation, lighting and your safety charter.',page:'city'};
   if(cityActive(s)&&s.stageId==='city')return {title:cityOf(s).case?'Choose a response to theft':'Care for every district',hint:'Funded jobs, education and utilities keep the city safe.',page:'city'};
   if (canStartTown(s)) return { title: 'Your children need a school', hint: 'Preview Public or Trade schools at the Town hall.', page: 'town' };
@@ -285,6 +295,7 @@ export function milestonesDaily(s: GameState) {
 
 export interface PageDef { id: string; label: string; purpose: string; unlocked: (s: GameState) => boolean }
 export const PAGES: PageDef[] = [
+  {id:'region',label:'Region',purpose:'Neighbours, caravans, diplomacy and defence.',unlocked:s=>regionActive(s)||canStartRegion(s)},
   {id:'city',label:'City watch',purpose:'District utilities, everyday safety and justice.',unlocked:s=>cityActive(s)||canStartCity(s)},
   { id: 'town', label: 'Town hall', purpose: 'Schools, healthcare and a separate public budget.', unlocked: s => townOf(s).active || canStartTown(s) },
   { id: 'community', label: 'Community', purpose: 'Homes, families, food and life in your settlement.', unlocked: s => communityOf(s).active || canStartSettlement(s) },

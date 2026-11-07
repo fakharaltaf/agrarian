@@ -1,3 +1,4 @@
+import { regionActive } from '../region-state';
 import {allocateNeighbourJobs} from '../employment';
 import { cityActive, cityOf } from '../city-state';
 import type { StageModule } from './types';
@@ -12,6 +13,7 @@ export const canStartTown = (s: GameState) => communityOf(s).active && !townOf(s
 export function serviceAvailable(s: GameState, type: ServiceType): boolean {
   const t=townOf(s);
   if(type==='sanitation'||type==='lighting'||type==='police')return cityActive(s);
+  if(type==='watchtower')return regionActive(s);
   if(type==='school'||type==='well') return true;
   if(type==='clinic'||type==='road') return t.services.some(b=>b.type==='school'||b.type==='well');
   if(type==='hospital') return population(s)>=400 && t.services.some(b=>b.type==='clinic');

@@ -34,6 +34,7 @@ const PAGE_COMPONENTS: Record<string, React.ComponentType> = {
   corporation: lazy(() => import('./pages/Corporation')),
   policy: lazy(() => import('./pages/Policy')),
   city: lazy(() => import('./pages/City')),
+  region: lazy(() => import('./pages/Region')),
   town: lazy(() => import('./pages/Town')),
   community: lazy(() => import('./pages/Community')),
 };
@@ -80,7 +81,7 @@ export function App() {
           <Hud />
           {Page && (
             <section className="page-drawer" role="dialog" aria-label={PAGES.find((p) => p.id === current)?.label}>
-              {(current === 'community' || current === 'town' || current === 'city') && <SheetGrip />}
+              {(current === 'community' || current === 'town' || current === 'city' || current === 'region') && <SheetGrip />}
               <button className="icon-btn page-close" onClick={() => go('farm')} aria-label="Back to the farm (Esc)" title="Back to the farm (Esc)">✕</button>
               <Suspense fallback={<div className="empty">Loading…</div>}>
                 <Page key={current} />

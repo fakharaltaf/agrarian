@@ -7,6 +7,7 @@ import { stageIdForEra, STAGES, STAGE_IDS } from './stages';
 import type { GameState } from './types';
 import type { CivicService, CommunityHome, HouseholdCohort } from './types';
 import { createTownState } from './town-state';
+import { createRegionState, NEIGHBOUR_IDS, type RegionState } from './region-state';
 import { createSettlementState } from './community-state';
 export const SAVE_VERSION = 12;
 export interface SaveFile { version: number; savedAt: number; paused?: boolean; game: GameState }
@@ -58,6 +59,11 @@ export function parseSave(text: string): SaveFile {
   if(!Number.isInteger(city.neighbourJobs)||city.neighbourJobs<0||city.neighbourJobs!==city.employers.reduce((n,e)=>n+e.jobs,0)||Math.abs(city.neighbourPayroll-city.employers.reduce((n,e)=>n+e.wages,0))>.01||city.employers.some(e=>!g.competitors.some(c=>c.id===e.id)))throw new Error('Save file local employment is corrupt.');
   for(const district of Object.values(city.districts))if(!district||!['farm','residential','industrial'].includes(district.zone)||![district.rezonedAt,district.sanitation,district.lighting,district.police].every(finite))throw new Error('Save file district state is corrupt.');
   if(city.case&&(!GOOD_IDS.includes(city.case.good)||!['id','opened','deadline','lost'].every(k=>finite((city.case as unknown as Record<string,unknown>)[k]))))throw new Error('Save file civic case is corrupt.');
+  const region=g.stageState.region as unknown as RegionState;
+  if(typeof region.active!=='boolean'||(region.active&&!['open','walls'].includes(region.border as string))||!['enteredAt','lastDay','bandits','raids','pursued','caravans','demandDay','defiantUntil'].every(k=>finite((region as unknown as Record<string,unknown>)[k]))
+    ||!NEIGHBOUR_IDS.every(id=>{const n=region.neighbours?.[id];return !!n&&[n.trust,n.delivered,n.giftDay].every(finite)&&n.trust>=0&&n.trust<=100&&typeof n.treaty==='boolean'&&(n.route===null||GOOD_IDS.includes(n.route.good)&&finite(n.route.qty)&&n.route.qty>=1);})
+    ||region.raid&&(!GOOD_IDS.includes(region.raid.good)||!NEIGHBOUR_IDS.includes(region.raid.to)||![region.raid.lost,region.raid.deadline].every(finite))
+    ||region.demand&&(!NEIGHBOUR_IDS.includes(region.demand.from)||![region.demand.amount,region.demand.deadline].every(finite)))throw new Error('Save file region state is corrupt.');
   return { version: SAVE_VERSION, savedAt: finite(f.savedAt) ? f.savedAt! : Date.now(), paused: f.paused === true, game: g };
 }
 
@@ -95,6 +101,8 @@ export function migrate(g: Omit<GameState, 'version'> & { version: number }): Ga
     saved[id] ??= districts[id] as unknown as Record<string,unknown>;
     for(const [key,value] of Object.entries(districts[id]))saved[id][key] ??= value;
   }
+  g.stageState.region ??= createRegionState() as unknown as Record<string,unknown>;
+  for(const [key,value] of Object.entries(createRegionState()))g.stageState.region[key] ??= value;
   g.stageState.town ??= createTownState() as unknown as Record<string, unknown>;
   for (const [key, value] of Object.entries(createTownState())) g.stageState.town[key] ??= value;
   for (const service of g.stageState.town.services as CivicService[]) { service.count ??= 1; service.staffed ??= 0; service.funded ??= false; }
