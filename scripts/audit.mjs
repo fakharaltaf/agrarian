@@ -96,6 +96,36 @@ try {
           }
           await page.locator('.page-drawer .page-head, .page-drawer .card, .modal .charter-grid').first().waitFor({state:'visible'});
           await page.screenshot({animations:'disabled',path:`${out}/${width}-${theme}-${section}.png`});
+          if(process.env.AUDIT_TOOLTIPS && (section==='production'||section==='markets')) {
+            await page.getByRole('button',{name:'Time controls',exact:true}).click();
+            await page.getByRole('radio',{name:'50×',exact:true}).click();await ensurePaused(page);
+            await resolveAuditDialogs(page,`${out}/${width}-${theme}-tooltip-live`);await ensurePaused(page);
+            const explain=page.getByRole('button',{name:'Explain',exact:true}).first();
+            await explain.scrollIntoViewIfNeeded();await explain.focus();
+            const described=await explain.getAttribute('aria-describedby');
+            if(!described||!await page.locator(`[id="${described}"]`).isVisible())throw new Error('Keyboard focus did not explain the metric.');
+            await explain.click();await page.mouse.move(5,5);
+            const pop=page.locator('[role=tooltip]:visible');
+            if(!await pop.count()||await pop.getAttribute('data-pinned')!=='true')throw new Error('Tap explanation did not remain open.');
+            const measures=await pop.evaluate(el=>{const r=el.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,font:parseFloat(getComputedStyle(el).fontSize),overflow:el.scrollWidth>el.clientWidth};});
+            const hit=await explain.boundingBox();
+            if(width===390&&(!hit||hit.width<44||hit.height<44))throw new Error('Explanation touch target is smaller than44px.');
+            if(measures.left<0||measures.right>width||measures.top<0||measures.bottom>844||measures.font<15||measures.overflow)throw new Error(`Unreadable explanation: ${JSON.stringify(measures)}`);
+            await page.screenshot({animations:'disabled',path:`${out}/${width}-${theme}-${section}-explanation.png`});
+            await page.keyboard.press('Space');
+            if(!await page.getByRole('button',{name:'Pause simulation',exact:true}).count()||!await pop.isVisible())throw new Error('Space failed to resume while preserving the explanation.');
+            await page.keyboard.press('Space');
+            if(!await page.getByRole('button',{name:'Resume simulation',exact:true}).count()||!await pop.isVisible())throw new Error('Space failed to pause while preserving the explanation.');
+            await page.keyboard.press('Escape');
+            if(await page.getByRole('tooltip').count()||!await page.locator('.page-drawer').isVisible())throw new Error('Escape must close only the explanation.');
+            await explain.click();await page.locator('.page-head h1').click();
+            if(await page.getByRole('tooltip').count())throw new Error('Outside tap failed to close explanation.');
+            if(section==='markets') {
+              const rows=()=>page.locator('table.t').first().locator('tbody tr td:first-child').allTextContents();
+              const before=await rows();await page.getByRole('button',{name:'Time controls',exact:true}).click();await page.getByRole('radio',{name:'50×',exact:true}).click();await page.waitForTimeout(1800);await resolveAuditDialogs(page,`${out}/${width}-${theme}-market-live`);await ensurePaused(page);
+              const after=await rows();if(JSON.stringify(before)!==JSON.stringify(after))throw new Error('Default market row order changed as values moved.');
+            }
+          }
           if(section==='community' && process.env.AUDIT_COMMUNITY) {
             const found=page.getByRole('button',{name:'Found free settlement',exact:true});
             if(await found.count())await found.click();

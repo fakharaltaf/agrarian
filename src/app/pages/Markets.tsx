@@ -97,7 +97,7 @@ function Board({ s, r, goods, sel, onSel, scope, setScope }: { s: GameState; r: 
     <Card title={<>Market board <span className="muted">{REGIONS[r].name}</span></>} coach="market-sell"
       info={<>Spot prices in this region. Click a row to trade it and see its chart. {ai ? 'The outlook projects the price 10 days ahead from current supply and demand (Market intelligence). It is a model, not a promise.' : ''}</>}
       actions={s.era >= 5 && <Seg label="Goods shown" value={scope} onChange={setScope} options={[{ v: 'mine', label: 'My goods' }, { v: 'all', label: 'Whole exchange' }]} />}>
-      <Table rows={goods} cols={cols} rowKey={(g) => g} onRow={(g) => onSel(g)} selected={(g) => g === sel} initialSort={{ key: 'val', dir: -1 }}
+      <Table rows={goods} cols={cols} rowKey={(g) => g} onRow={(g) => onSel(g)} selected={(g) => g === sel} initialSort={{ key: 'good', dir: 1 }}
         empty="Harvest something and it will appear here." />
     </Card>
   );

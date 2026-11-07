@@ -46,11 +46,11 @@
 
 * { box-sizing: border-box; }
 html, body { margin: 0; }
-body { background: var(--bg); color: var(--text); font: 500 14.5px/1.5 var(--font); -webkit-font-smoothing: antialiased; }
+body { background: var(--bg); color: var(--text); font: 500 15px/1.5 var(--font); -webkit-font-smoothing: antialiased; }
 h1, h2, h3 { margin: 0; letter-spacing: -0.01em; }
 h1 { font-size: 24px; font-weight: 800; }
 h2 { font-size: 16px; font-weight: 800; }
-h3 { font-size: 14px; font-weight: 700; }
+h3 { font-size: 15px; font-weight: 700; }
 p { margin: 0; }
 a { color: inherit; }
 .mono, .num { font-family: var(--font); font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -213,7 +213,7 @@ table.t td.num { text-align: right; }
 
 /* ---------- coach (first-timer guide) ---------- */
 .coach { position: fixed; z-index: 90; width: 300px; background: var(--surface); color: var(--text); border: 1px solid color-mix(in srgb, var(--wheat) 60%, var(--line)); border-radius: 14px; box-shadow: var(--shadow-lg); padding: 14px; animation: reveal 0.3s ease-out; }
-.coach h3 { font-size: 14px; display: flex; align-items: center; gap: 8px; }
+.coach h3 { font-size: 15px; display: flex; align-items: center; gap: 8px; }
 .coach p { font-size: 13px; color: var(--muted); margin: 6px 0 12px; }
 .coach .step { font-size: 11px; color: var(--faint); }
 .coach-arrow { position: absolute; width: 12px; height: 12px; background: var(--surface); border-left: 1px solid color-mix(in srgb, var(--wheat) 60%, var(--line)); border-top: 1px solid color-mix(in srgb, var(--wheat) 60%, var(--line)); }
@@ -712,3 +712,9 @@ body:has(.modal-bg) .shell .coach { display: none !important; }
 
 @media(max-width:640px){.ln-ring{width:54px;height:54px}.ln-ring span{width:42px;height:42px}.ln-panel .ln-opt-text>b{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}}
 .retail-quote{font-size:15px;gap:6px}.retail-quote>span{min-width:0;flex:1}
+
+/* Explanations are readable, pinnable and scrollable instead of fleeting hover labels. */
+.tip-anchor{vertical-align:middle}.tip-pop{z-index:10000;box-sizing:border-box;max-width:none;font-size:15px;line-height:1.45;overflow-y:auto;overscroll-behavior:contain;overflow-wrap:anywhere}.tip-pop[data-pinned="true"]{pointer-events:auto}.tip-pop .tip-break{font-size:15px;grid-template-columns:minmax(0,1fr) minmax(0,45%);gap:5px 12px}.tip-break>span:nth-child(even){font-variant-numeric:tabular-nums;white-space:normal;overflow-wrap:anywhere;text-align:right}
+@media(max-width:900px),(pointer:coarse){.ibtn{position:relative;width:44px;height:44px;min-width:44px;flex:0 0 44px;border:0;border-radius:12px;font-size:12px;background:transparent;box-shadow:none}.ibtn::before{content:"";position:absolute;width:16px;height:16px;left:13px;top:13px;border:1px solid var(--faint);border-radius:50%;pointer-events:none}.ibtn:hover::before,.ibtn:focus-visible::before{border-color:var(--accent)}.tip-anchor{min-height:44px}.ln-growth-choices .ibtn{padding:0}}
+
+.tip-pop :where(small,.small){font-size:15px}
