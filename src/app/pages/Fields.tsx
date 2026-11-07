@@ -175,7 +175,7 @@ export function FieldPanel({ s, f, crop, setCrop }: { s: GameState; f: Field; cr
             {manual && (
               <>
                 <div className="crop-grid" role="radiogroup" aria-label="Crop to plant" data-coach="crop-picker">
-                  {s.unlockedCrops.map((id) => <CropCard key={id} s={s} f={f} id={id} on={crop === id} pick={() => setCrop(id)} />)}
+                  {(() => { const ranked = [...s.unlockedCrops].sort((a, b) => cropReturn(s, f, b).perHour - cropReturn(s, f, a).perHour); return ranked.map((id, i) => <CropCard key={id} s={s} f={f} id={id} on={crop === id} best={i === 0 && cropReturn(s, f, id).perHour > 0} pick={() => setCrop(id)} />); })()}
                 </div>
                 <button className="btn primary lg" data-coach="plant-btn" disabled={cost.cost > s.cash || !canGrow(f, crop)} onClick={() => act({ type: 'plant', fieldId: f.id, crop })} title="Shortcut: P">
                   Plant {GOODS[crop].name.toLowerCase()}
@@ -206,16 +206,24 @@ export function FieldPanel({ s, f, crop, setCrop }: { s: GameState; f: Field; cr
 }
 
 const GOOD_ICON: Partial<Record<GoodId,string>> = {wheat:'🌾',corn:'🌽',potatoes:'🥔',soybeans:'🫘',rice:'🍚',sugarcane:'🎋',cotton:'☁',coffee:'☕',apples:'🍎',grapes:'🍇',bread:'🍞',flour:'🌾',milk:'🥛',eggs:'🥚',wool:'🧶',wine:'🍷',meat:'🥩',cheese:'🧀',butter:'🧈',feed:'🌿'};
-function CropCard({ s, f, id, on, pick }: { s: GameState; f: Field; id: CropId; on: boolean; pick: () => void }) {
-  const c=CROPS[id], units=expectedYield(s,f,id), seed=f.ha*CONFIG.seedsPerHa*seedCost(s,id), ok=canGrow(f,id);
-  return <article className={`crop-choice${on?' selected':''}`}>
+/** Expected profit of one planting at the 24h average price, and per hour of growing (orchards: per harvest cycle once mature). */
+function cropReturn(s: GameState, f: Field, id: CropId) {
+  const units = expectedYield(s, f, id), seed = f.ha * CONFIG.seedsPerHa * seedCost(s, id), value = units * dayPrice(s, f.region, id);
+  const profit = value - (CROPS[id].perennial ? 0 : seed);
+  return { units, seed, value, profit, perHour: canGrow(f, id) ? profit / CROPS[id].growthTicks : -Infinity };
+}
+function CropCard({ s, f, id, on, pick, best }: { s: GameState; f: Field; id: CropId; on: boolean; pick: () => void; best: boolean }) {
+  const c=CROPS[id], {units,seed,value,profit,perHour}=cropReturn(s,f,id), ok=canGrow(f,id);
+  return <article className={`crop-choice${on?' selected':''}${best?' best':''}`}>
+    {best && <span className="crop-best">★ Best pay</span>}
     <button role="radio" aria-checked={on} className="crop-pick" onClick={pick} disabled={!ok}>
       <span className="good-symbol" aria-hidden="true">{GOOD_ICON[id]??'🌱'}</span>
       <strong>{GOODS[id].name} {on?'✓':''}</strong>
+      {ok && <span className={`crop-rate mono ${perHour >= 0 ? 'good' : 'bad'}`} title="Expected profit per hour of growing">{perHour >= 0 ? '+' : '−'}{price(Math.abs(perHour))}/h</span>}
       <span className="crop-numbers mono"><span title="Growth time">⏱ {c.growthTicks}h</span><span title="Seed cost">🌱 {money(seed)}</span><span title="Estimated yield">📦 ~{num(units)}</span></span>
     </button>
     <Info text={`${c.perennial?`First fruit after ${c.perennial.matureDays} days. `:''}Best in ${c.bestSeasons.join(', ')}. ${!c.frostHardy?'Frost-sensitive. ':''}Yield depends on soil, water, pests and weather.`} breakdown={[
-      ['Seed in store',num(s.seeds[id])],['24h market average',price(dayPrice(s,f.region,id))],['Estimated crop value',money(units*dayPrice(s,f.region,id))],['Suitability',ok?'Suitable':'Cannot grow here']
+      ['Seed in store',num(s.seeds[id])],['24h market average',price(dayPrice(s,f.region,id))],['Estimated crop value',money(value)],['Seed cost',c.perennial?`${money(seed)} once`:money(seed)],['Profit per harvest',money(profit)],['Per hour of growing',ok?price(perHour):'—'],['Suitability',ok?'Suitable':'Cannot grow here']
     ]}/>
   </article>;
 }
