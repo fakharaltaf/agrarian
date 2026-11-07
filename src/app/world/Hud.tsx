@@ -199,6 +199,12 @@ export function Hud() {
     setJournal(false);
     if (p.kind === 'field') {
       setLot(null);
+      const f = s.fields.find((x) => x.id === p.id);
+      // Play on the farm: a ripe hand-worked plot harvests on click; an empty one plants on a second click (or double-click).
+      if (!p.multi && f && isManual(f)) {
+        if (isReady(s, f)) act({ type: 'harvest', fieldId: f.id });
+        else if (!f.crop && sel.length === 1 && sel[0] === f.id) act({ type: 'plant', fieldId: f.id, crop });
+      }
       setSel((cur) => (p.multi ? (cur.includes(p.id) ? cur.filter((x) => x !== p.id) : [...cur, p.id]) : [p.id]));
     } else if (p.kind === 'lot') {
       setLot(p.lot);
@@ -227,6 +233,7 @@ export function Hud() {
         }} />
       <div className={`hud-left${journal ? ' journal-open' : ''}`} hidden={page !== 'farm'}>
         <ObjectiveCard s={s} />
+        <div id="coach-slot" className="coach-slot" />
         <button className="btn hud-journal-toggle" aria-expanded={journal} onClick={() => { setJournal(!journal); setPanel(false); }}>📖 {journal ? 'Close journal' : 'Farm journal'}</button>
         {journal && <div className="hud-journal stack">
         {s.eraReady && <EraBanner s={s} />}

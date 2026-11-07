@@ -331,14 +331,22 @@ export function animal(a: AnimalId) {
 }
 
 /** A small decorative tree (season changes its crown). */
-export function tree(scale: number, crown: THREE.Material) {
-  const imported=artModel('tree',.9,.9,true);
-  if(imported){imported.scale.multiplyScalar(scale);return imported;}
+/** Stylised low-poly scenery tree in the farm's palette. `kind` 0 = leafy (seasonal crown), 1 = evergreen pine. */
+export function tree(scale: number, crown: THREE.Material, kind = 0) {
   const g = new THREE.Group();
-  g.add(mesh(cached('trunk', () => new THREE.CylinderGeometry(0.06, 0.09, 0.5, 6)), mat(PAL.woodDark), 0, 0.25, 0));
-  const c = mesh(cached('crown', () => new THREE.IcosahedronGeometry(0.42, 0)), crown, 0, 0.75, 0);
-  c.userData.crown = true;
-  g.add(c);
+  if (kind === 1) {
+    g.add(mesh(cached('pineTrunk', () => new THREE.CylinderGeometry(0.05, 0.08, 0.35, 6)), mat(PAL.woodDark), 0, 0.17, 0));
+    const pine = mat(0x3f6b45, { rough: 0.95 });
+    for (const [r, h, y] of [[0.42, 0.55, 0.55], [0.33, 0.48, 0.85], [0.22, 0.4, 1.12]] as const)
+      g.add(mesh(cached(`pine${r}`, () => new THREE.ConeGeometry(r, h, 7)), pine, 0, y, 0));
+  } else {
+    g.add(mesh(cached('trunk2', () => new THREE.CylinderGeometry(0.06, 0.1, 0.6, 6)), mat(PAL.woodDark), 0, 0.3, 0));
+    for (const [r, x, y, z] of [[0.4, 0, 0.85, 0], [0.28, 0.24, 0.72, 0.1], [0.26, -0.2, 0.75, -0.12]] as const) {
+      const c = mesh(cached(`crown${r}`, () => new THREE.IcosahedronGeometry(r, 1)), crown, x, y, z);
+      c.userData.crown = true;
+      g.add(c);
+    }
+  }
   g.scale.setScalar(scale);
   return g;
 }

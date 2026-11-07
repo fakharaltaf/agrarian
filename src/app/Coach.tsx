@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom';
 import {cityActive,cityOf} from '../simulation/city-state';
 import { townOf } from '../simulation/town-state';
 // First-timer guide: contextual coach marks that point at the real control when it becomes
@@ -101,6 +102,9 @@ export const tipsOff = (s: GameState) => s.seenTips.includes('__off');
 export function Coach() {
   const s = useGame();
   const [expanded, setExpanded] = useState(false);
+  // The tip lives in the farm HUD's top-left column (under the objective) when that column exists.
+  const [slot, setSlot] = useState<HTMLElement | null>(null);
+  useEffect(() => { const find = () => { const el = document.getElementById('coach-slot'); setSlot(cur => cur === el ? cur : el); }; find(); const id = setInterval(find, 250); return () => clearInterval(id); }, []);
   const page = useStore((x) => x.page);
   // tips whose goal is already reached finish themselves
   const finished = TIPS.find((t) => !s.seenTips.includes(t.id) && t.done?.(s));
@@ -119,7 +123,7 @@ export function Coach() {
   return (
     <>
       {visible && <div className="coach-ring" style={{ left: rect.left - 4, top: rect.top - 4, width: rect.width + 8, height: rect.height + 8 }} />}
-      <aside className={`coach docked${expanded ? ' expanded' : ' compact'}`} role="status" aria-label={`Farm journal: ${tip.title}`}>
+      {(() => { const card = <aside className={`coach ${slot ? 'slotted' : 'docked'}${expanded ? ' expanded' : ' compact'}`} role="status" aria-label={`Farm journal: ${tip.title}`}>
         <button className="journal-peek" onClick={()=>setExpanded(!expanded)} aria-expanded={expanded}>📖 {tip.title} {expanded?'▾':'▸'}</button>
         {expanded && <><span className="step">📖 Farm journal · {idx < 0 ? 'Lesson from your farm' : 'Learning by doing'}</span>
 
@@ -132,7 +136,7 @@ export function Coach() {
           </div>
         </div>
         </>}
-      </aside>
+      </aside>; return slot ? createPortal(card, slot) : card; })()}
     </>
   );
 }

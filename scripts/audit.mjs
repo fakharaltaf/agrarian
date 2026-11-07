@@ -49,7 +49,7 @@ try {
     page.on('console',m=>{if(m.type()==='error')consoleErrors.push(m.text());});
     await page.goto('http://127.0.0.1:4317/agrarian/');
     await page.getByRole('button',{name:save?'Continue your farm':'Start farming',exact:true}).click();
-    await page.waitForFunction(()=>document.querySelector('.world-canvas')?.dataset.art==='9',undefined,{timeout:20000});
+    await page.waitForFunction(()=>document.querySelector('.world-canvas')?.dataset.art==='8',undefined,{timeout:20000});
     await resolveAuditDialogs(page,`${out}/${width}-${theme}-entry`);
     if(!save){
       await page.locator('[data-action^="plant:"]').click();

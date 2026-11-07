@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
-export const ART_IDS = ['house','barn','shed','coop','silo','mill','cow','sheep','tree'] as const;
+export const ART_IDS = ['house','barn','shed','coop','silo','mill','cow','sheep'] as const;
 export type ArtId = typeof ART_IDS[number];
 const cache = new Map<ArtId, THREE.Group>();
 let loading: Promise<void> | null = null;

@@ -614,6 +614,7 @@ body { overflow: hidden; }
 .world-overlay > .wl-radial { display: flex; gap: 6px; pointer-events: auto; padding: 6px; border-radius: 28px; background: var(--surface); box-shadow: var(--shadow-lg); border: 2px solid var(--gold); }
 .wl-radial button { min-width: 44px; min-height: 44px; border: 0; border-radius: 22px; background: var(--accent-soft); color: var(--text); font: 700 15px var(--font); padding: 8px 12px; cursor: pointer; }
 .wl-radial button:active { background: var(--gold-soft); }
+.wl-radial .wl-grow { display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; font: 700 15px var(--font); color: var(--muted); font-variant-numeric: tabular-nums; }
 
 /* The world is the default screen; the ledger is an explicit destination. */
 .shell, .shell.bare { grid-template-columns: minmax(0,1fr); }
@@ -735,3 +736,16 @@ body:has(.modal-bg) .shell .coach { display: none !important; }
 .region-who{display:grid;gap:4px}.region-who span{font-size:15px;color:var(--muted)}
 .region-goods{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}.region-goods button{display:grid;gap:2px;min-height:56px;padding:6px}.region-goods small{font-size:14px;font-variant-numeric:tabular-nums}
 .region-alert{border-color:color-mix(in srgb,var(--sun) 60%,var(--line))}
+/* Journal tip sits in the farm HUD column under the objective: a small chip that opens into a card. */
+.coach-slot:empty { display: none; }
+.coach.slotted { position: static; transform: none; width: auto; max-width: 100%; padding: 0; border: 2px solid color-mix(in srgb, var(--wheat) 70%, var(--line)); border-radius: 14px; box-shadow: var(--shadow-lg); animation: reveal 0.3s ease-out; pointer-events: auto; }
+.coach.slotted.compact { justify-self: start; border-radius: 999px; }
+.coach.slotted .journal-peek { display: block; width: 100%; min-height: 44px; padding: 8px 14px; border: 0; background: none; color: var(--text); font: 800 15px var(--font); text-align: left; cursor: pointer; }
+.coach.slotted.compact .journal-peek { max-width: min(340px, calc(100vw - 32px)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.coach.slotted.expanded { padding: 0 14px 12px; max-height: 45dvh; overflow: auto; }
+.coach.slotted.expanded .journal-peek { padding: 10px 0 4px; }
+.coach.slotted p { font-size: 15px; margin: 6px 0 12px; }
+/* The ledger is the way into every page: a labelled, warm button, not an anonymous icon. */
+.ledger-btn { min-height: 44px; padding: 0 14px; border-radius: 12px; border: 2px solid color-mix(in srgb, var(--wheat) 75%, var(--line)); background: color-mix(in srgb, var(--wheat) 22%, var(--surface)); color: var(--text); font: 800 15px var(--font); white-space: nowrap; box-shadow: var(--shadow); }
+.ledger-btn:hover { background: color-mix(in srgb, var(--wheat) 35%, var(--surface)); }
+@media (max-width: 420px) { .ledger-btn { padding: 0 10px; } }

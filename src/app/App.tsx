@@ -235,7 +235,7 @@ function TopBar({ onLog, onSettings, onHelp, onLedger, warnings, bare }: { onLog
     <LogoMark size={28}/><CashCounter />
     <button className="icon-btn" aria-label={speed ? 'Pause simulation' : 'Resume simulation'} onClick={()=>setSpeed(speed?0:1)}>{speed?'❚❚':'▶'}</button>
     <button className="btn time-toggle" data-coach="speed" aria-label="Time controls" aria-expanded={time} onClick={()=>{setTime(!time);setMenu(false);}}>{speed || 0}× ▾</button>
-    {!bare && <button className="icon-btn" aria-label="Ledger" onClick={onLedger}>📚</button>}
+    {!bare && <button className="btn ledger-btn" aria-label="Ledger" data-coach="ledger" onClick={onLedger} title="All pages: fields, markets, finance and more">📚 Ledger</button>}
     <button className="icon-btn" aria-label="Farm menu" aria-expanded={menu} onClick={()=>{setMenu(!menu);setTime(false);}}>☰{warnings>0&&<span className="dot">{warnings}</span>}</button>
     {time && <div className="strip-popover">
       <div data-coach="clock">{c.season} {c.day} · Year {c.year} · {c.hour}</div>

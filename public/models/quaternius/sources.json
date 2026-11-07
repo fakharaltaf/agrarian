@@ -63,15 +63,6 @@
     "sha256": "91aedec323b54d42b802b065b2f5005daea527b0a379a9f3fe90f3258f3c2382"
   },
   {
-    "file": "tree.glb",
-    "title": "Tree",
-    "author": "Quaternius",
-    "license": "CC0 1.0",
-    "source": "https://poly.pizza/m/aVOxaHRPWe",
-    "download": "https://static.poly.pizza/7bf2aa94-cc44-40d9-a93c-9489eb09e008.glb",
-    "sha256": "b591827c6aad32ec9fd964d878f3925c302d2a144597f1d5e84068df99b880ba"
-  },
-  {
     "file": "house.glb",
     "title": "House",
     "author": "Quaternius",

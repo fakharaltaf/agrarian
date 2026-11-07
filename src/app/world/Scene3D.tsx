@@ -4,6 +4,7 @@ import { communityOf, population, residentWorkers } from '../../simulation/commu
 // The 3D farm. A live, lit, low-poly picture of the simulation: everything shown is read from game state.
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { ANIMALS, BUILDINGS, CROPS, GOODS, REGIONS, SEASONS, type AnimalId, type CropId, type RegionId } from '../../simulation/config';
 import { timingFactor, fertility, growth, isMature, isReady } from '../../simulation/engine';
 import { stored } from '../../simulation/core';
@@ -31,10 +32,16 @@ const ANIMAL_BUILDING: Record<AnimalId, Lot['type']> = { chickens: 'coop', pigs:
 const hash = (n: number) => { const x = Math.sin(n * 127.1) * 43758.5453; return x - Math.floor(x); };
 const lerpC = (a: number, b: number, k: number) => new THREE.Color(a).lerp(new THREE.Color(b), Math.max(0, Math.min(1, k)));
 
-type Shape = 'grain' | 'stalk' | 'bush' | 'trunk' | 'crown';
-const SHAPE: Record<CropId, 'grain' | 'stalk' | 'bush' | 'tree'> = {
-  wheat: 'grain', rice: 'grain', corn: 'stalk', sugarcane: 'stalk', potatoes: 'bush', soybeans: 'bush', cotton: 'bush', coffee: 'bush', apples: 'tree', grapes: 'tree',
+type Shape = 'grain' | 'paddy' | 'stalk' | 'cane' | 'mound' | 'bush' | 'shrub' | 'cone' | 'trunk' | 'crown' | 'dot';
+type CropShape = Exclude<Shape, 'trunk' | 'crown' | 'dot'> | 'tree';
+const SHAPE: Record<CropId, CropShape> = {
+  wheat: 'grain', rice: 'paddy', corn: 'stalk', sugarcane: 'cane', potatoes: 'mound', soybeans: 'bush', cotton: 'shrub', coffee: 'cone', apples: 'tree', grapes: 'tree',
 };
+/** Small fruit/boll accents: colour and from what growth they show. */
+const ACCENT: Partial<Record<CropId, { color: number; from: number; n: number }>> = {
+  cotton: { color: 0xf8f6ef, from: 0.6, n: 3 }, coffee: { color: 0xb8392f, from: 0.7, n: 4 }, apples: { color: 0xd2402f, from: 0.75, n: 5 }, grapes: { color: 0x6b3a7e, from: 0.75, n: 4 },
+};
+const merged = (...parts: THREE.BufferGeometry[]) => mergeGeometries(parts.map(g => g.index ? g.toNonIndexed() : g))!;
 const RIPE: Partial<Record<CropId, number>> = { wheat: 0xe0b23f, rice: 0xd9c46a, corn: 0xcfae4a, sugarcane: 0x8fbf55, potatoes: 0x8a9a3a, soybeans: 0xb6a24a, cotton: 0xf6f3ec, coffee: 0xb8392f, apples: 0xd2402f, grapes: 0x6b3a7e };
 
 interface Rig {
@@ -102,7 +109,7 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
       neighbours: [], people: new Map(), machines: new Map(), trucks: [], herds: new Map(), rain, smoke: [], pops: [], seenHarvest: new Map(), popsReady: false, crownMat: mat(CROWN.Spring).clone(), lastHaul: -1, layout: null, region,
     };
     rig.current = R;
-    let raf = 0, framed = false, lastCrops = 0, viewSize = '', viewSelection = '', artVersion = artRevision();
+    let raf = 0, framed = false, lastCrops = 0, viewSize = '', artVersion = artRevision();
     void preloadArt();
     const frame = (now: number) => {
       raf = requestAnimationFrame(frame);
@@ -113,8 +120,8 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
       }
       const W = c.clientWidth, H = c.clientHeight;
       if (!W || !H) return;
-      const size=`${W}:${H}`, selection=live.current.selected.join(',')+':'+(live.current.selectedLot??'');
-      if(size!==viewSize||selection!==viewSelection){viewSize=size;viewSelection=selection;framed=false;}
+      const size=`${W}:${H}`;
+      if(size!==viewSize){viewSize=size;framed=false;}
       if (c.width !== Math.round(W * renderer.getPixelRatio()) || c.height !== Math.round(H * renderer.getPixelRatio())) renderer.setSize(W, H, false);
       const s = getGame();
       if (R.region !== live.current.region) { R.region = live.current.region; R.sig = { lots: '', fields: '', crops: '', sel: '', deco: '' }; framed = false; R.lastHaul = -1; }
@@ -430,37 +437,66 @@ function syncCrops(R: Rig, L: Layout, s: GameState) {
     const ready = isReady(s, f);
     const perennial = !!CROPS[c].perennial;
     const mature = perennial && isMature(s, f);
-    const n = shape === 'tree' ? Math.max(2, Math.round(p.s * 0.75)) : Math.max(3, Math.min(14, Math.round(p.s * 1.7)));
+    const n = shape === 'tree' ? Math.max(2, Math.min(16, Math.round(p.s * 0.75))) : Math.max(3, Math.min(graphicsQuality() === 'low' ? 14 : 22, Math.round(p.s * 1.7)));
     const step = (p.s - 0.4) / n;
+    // big fields: fewer, larger plants so they still read as a crop from afar
+    const big = shape === 'tree' ? 1 : Math.min(2.2, Math.max(1, step / 0.55));
     const wilt = ready ? 1-timingFactor(s,f) : 0;
     const scaleBase = perennial ? (mature ? 1 : 0.35 + 0.65 * g) : 0.25 + 0.75 * g;
     let col = lerpC(0x9fd46b, shape === 'grain' ? 0x7fae45 : 0x4f8f3a, perennial ? (mature ? 1 : g) : g);
-    if (ready) col = new THREE.Color(RIPE[c] ?? GOODS[c].color);
+    // crops that show fruit or bolls stay green; the accents carry the ripe colour
+    if (ready) col = ACCENT[c] ? new THREE.Color(0x3f7f35) : new THREE.Color(RIPE[c] ?? GOODS[c].color);
     if (f.pest > 0.35) col.lerp(new THREE.Color(0x8a7a3a), Math.min(0.7, f.pest));
     if(wilt>0)col.lerp(new THREE.Color(0x766044),wilt);
     if (f.frost > 0) col.lerp(new THREE.Color(0xa7b3b6), f.frost);
     for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
       const jx = (hash(f.id * 97 + i * 13 + j) - 0.5) * step * 0.35, jz = (hash(f.id * 31 + i * 7 + j * 3) - 0.5) * step * 0.35;
       const x = p.x + 0.2 + step * (i + 0.5) + jx, z = p.y + 0.2 + step * (j + 0.5) + jz;
-      const k = scaleBase * (0.85 + 0.3 * hash(i * 17 + j * 5 + f.id));
+      const k = big * scaleBase * (0.85 + 0.3 * hash(i * 17 + j * 5 + f.id));
       q.setFromAxisAngle(up, hash(i + j * 9 + f.id) * Math.PI * 2);
       if (shape === 'tree') {
         const ts = (c === 'grapes' ? 0.55 : 1) * k;
         items.push({ shape: 'trunk', m: new THREE.Matrix4().compose(new THREE.Vector3(x, 0.1, z), q, new THREE.Vector3(ts, ts, ts)), c: new THREE.Color(PAL.woodDark) });
-        const crownCol = ready ? lerpC(0x4f8a3c, RIPE[c]!, 0.55) : lerpC(0x9fd46b, 0x4f8a3c, mature ? 1 : g);
+        const crownCol = ready && !ACCENT[c] ? lerpC(0x4f8a3c, RIPE[c]!, 0.55) : lerpC(0x9fd46b, 0x4f8a3c, mature ? 1 : g);
         items.push({ shape: 'crown', m: new THREE.Matrix4().compose(new THREE.Vector3(x, 0.1 + 0.62 * ts, z), q, new THREE.Vector3(ts * (c === 'grapes' ? 1.4 : 1), ts * (c === 'grapes' ? 0.7 : 1), ts)), c: crownCol });
       } else items.push({ shape, m: new THREE.Matrix4().compose(new THREE.Vector3(x, 0.1, z), q, new THREE.Vector3(k, k*(1-wilt*.6), k)), c: col });
+      const acc = ACCENT[c], shown = perennial ? (mature ? (ready ? 1 : 0.85) : 0) : g;
+      if (acc && shown >= acc.from && wilt < 0.6) {
+        const tall = shape === 'tree' ? (c === 'grapes' ? 0.55 : 1) * k : k;
+        const cy = shape === 'tree' ? 0.1 + (0.62 + 0.3) * tall : shape === 'cone' ? 0.35 * k : 0.22 * k;
+        const spread = shape === 'tree' ? 0.36 * tall : shape === 'cone' ? 0.12 * k : 0.14 * k;
+        const accCol = new THREE.Color(ready || c === 'cotton' ? acc.color : 0x6f9a3a);
+        for (let a = 0; a < acc.n; a++) {
+          const ang = hash(f.id * 3 + i * 11 + j * 5 + a) * Math.PI * 2, h = (hash(a * 7 + i + j * 3 + f.id) - 0.5) * spread;
+          const ds = shape === 'tree' ? tall : k;
+          items.push({ shape: 'dot', m: new THREE.Matrix4().compose(new THREE.Vector3(x + Math.cos(ang) * spread, cy + h, z + Math.sin(ang) * spread), q, new THREE.Vector3(ds, ds, ds)), c: accCol });
+        }
+      }
     }
   }
   const sig = `${items.length}:${L.plots.map((p) => `${p.field.crop}${Math.round(growth(s, p.field) * 12)}${isReady(s, p.field) ? 'r' : ''}${p.field.pest > 0.35 ? 'p' : ''}${Math.round(p.field.frost * 4)}${Math.round(timingFactor(s,p.field)*8)}`).join('')}`;
   if (sig === R.sig.crops) return;
   R.sig.crops = sig;
   const geos: Record<Shape, () => THREE.BufferGeometry> = {
-    grain: () => new THREE.ConeGeometry(0.07, 0.42, 5).translate(0, 0.21, 0),
-    stalk: () => new THREE.ConeGeometry(0.1, 0.8, 5).translate(0, 0.4, 0),
-    bush: () => new THREE.IcosahedronGeometry(0.14, 0).scale(1, 0.75, 1).translate(0, 0.1, 0),
+    // wheat: a tuft of three blades with seed heads
+    grain: () => merged(...[-0.35, 0.05, 0.4].map((a, n) => new THREE.ConeGeometry(0.035, 0.46 - n * 0.04, 4).translate(0, 0.23, 0).rotateZ(a * 0.35).rotateY(n * 2.1).translate(Math.sin(n * 2.1) * 0.04, 0, Math.cos(n * 2.1) * 0.04))),
+    // rice: lower, wider tuft of arching leaves
+    paddy: () => merged(...[0, 1, 2, 3].map(n => new THREE.ConeGeometry(0.03, 0.32, 4).translate(0, 0.16, 0).rotateZ(0.45).rotateY(n * Math.PI / 2))),
+    // corn: tall stem with two leaves and a cob
+    stalk: () => merged(new THREE.CylinderGeometry(0.025, 0.04, 0.85, 5).translate(0, 0.42, 0), new THREE.BoxGeometry(0.34, 0.015, 0.07).translate(0.15, 0.4, 0).rotateZ(-0.35), new THREE.BoxGeometry(0.3, 0.015, 0.07).translate(-0.13, 0.58, 0).rotateZ(0.4).rotateY(1.2), new THREE.CylinderGeometry(0.035, 0.04, 0.14, 5).translate(0.05, 0.5, 0)),
+    // sugarcane: a clump of tall jointed canes
+    cane: () => merged(...[0, 1, 2].map(n => new THREE.CylinderGeometry(0.022, 0.026, 0.95 - n * 0.1, 5).translate(Math.cos(n * 2.1) * 0.05, 0.47 - n * 0.05, Math.sin(n * 2.1) * 0.05)), new THREE.ConeGeometry(0.12, 0.2, 5).translate(0, 0.95, 0)),
+    // potatoes: low leafy mounds
+    mound: () => new THREE.IcosahedronGeometry(0.16, 0).scale(1.2, 0.45, 1.2).translate(0, 0.06, 0),
+    // soybeans: round bushy plants
+    bush: () => new THREE.IcosahedronGeometry(0.14, 1).scale(1, 0.85, 1).translate(0, 0.12, 0),
+    // cotton: taller open shrub
+    shrub: () => merged(new THREE.CylinderGeometry(0.015, 0.02, 0.2, 4).translate(0, 0.1, 0), new THREE.IcosahedronGeometry(0.13, 0).scale(1, 1.2, 1).translate(0, 0.24, 0)),
+    // coffee: conical glossy shrub
+    cone: () => new THREE.ConeGeometry(0.16, 0.5, 7).translate(0, 0.25, 0),
     trunk: () => new THREE.CylinderGeometry(0.05, 0.07, 0.6, 6).translate(0, 0.3, 0),
-    crown: () => new THREE.IcosahedronGeometry(0.34, 0).translate(0, 0.3, 0),
+    crown: () => new THREE.IcosahedronGeometry(0.34, 1).translate(0, 0.3, 0),
+    dot: () => new THREE.IcosahedronGeometry(0.07, 0),
   };
   for (const shape of Object.keys(geos) as Shape[]) {
     const list = items.filter((it) => it.shape === shape);
@@ -510,18 +546,31 @@ function syncDeco(R: Rig, L: Layout) {
     L.lots.some((l) => x > l.x - 0.8 && x < l.x + l.w + 0.8 && z > l.y - 0.8 && z < l.y + l.d + 0.8) ||
     L.plots.some((p) => x > p.x - 0.8 && x < p.x + p.s + 0.8 && z > p.y - 0.8 && z < p.y + p.s + 0.8) ||
     (L.buy !== null && x > L.buy.x - 0.8 && x < L.buy.x + 2.8 && z > L.buy.y - 0.8 && z < L.buy.y + 2.8);
+  // Trees grow in a few groves on the farm's outskirts and line the far side of the road, never among the plots.
+  const inside = (x: number, z: number) => x > -4 && x < L.maxX + 4 && z > -4 && z < L.maxY + 4;
+  const budget = graphicsQuality() === 'low' ? 36 : 72;
   let placed = 0;
-  for (let i = 0; i < 1600 && placed < (graphicsQuality() === 'low' ? 40 : 80); i++) {
-    const x = -14 + hash(i * 3.1) * (L.maxX + 30), z = -12 + hash(i * 7.7 + 1) * (L.maxY + 26);
-    if (busy(x, z)) continue;
-    // keep the inner farm airy: fewer trees inside the yard band
-    if (x > -1 && x < L.maxX + 1 && z > -1 && z < L.maxY + 1 && hash(i * 13.3) > 0.12) continue;
-    const t = tree(0.7 + hash(i * 5.3) * 0.7, R.crownMat);
+  const plant = (x: number, z: number, i: number) => {
+    if (placed >= budget || busy(x, z) || inside(x, z)) return;
+    const t = tree(0.8 + hash(i * 5.3) * 0.6, R.crownMat, hash(i * 2.9) < 0.35 ? 1 : 0);
     t.position.set(x, 0, z);
     t.rotation.y = hash(i) * 6;
     R.deco.add(t);
     placed++;
+  };
+  for (let g = 0; g < 10; g++) {
+    // grove centres around the edge of the farm
+    const side = g % 4, u = hash(g * 4.1 + 2);
+    const cx = side === 0 ? -9 : side === 1 ? L.maxX + 9 : -10 + u * (L.maxX + 20);
+    const cz = side === 2 ? -9 : side === 3 ? L.maxY + 9 : -10 + u * (L.maxY + 20);
+    const n = 5 + Math.floor(hash(g * 7.3) * 5);
+    for (let k = 0; k < n; k++) {
+      const a = hash(g * 31 + k * 3.7) * Math.PI * 2, r = 0.6 + hash(g * 17 + k * 5.1) * 3.2;
+      plant(cx + Math.cos(a) * r, cz + Math.sin(a) * r, g * 50 + k);
+    }
   }
+  // trees line the road where it leaves the farm
+  for (let k = 0; k < 16; k++) plant(L.maxX + 6 + k * 2.4 + (hash(k * 3.3) - 0.5), L.roadY + (k % 2 ? 3.2 : -2.4) + hash(k * 9.1), 900 + k);
 }
 
 // ---------------------------------------------------------------- live things
@@ -716,8 +765,9 @@ function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el
     if(p){
       const ready=isReady(s,p.field), id=p.field.id;
       const [px,py]=project(p.x+p.s/2,1.5,p.y+p.s/2);
-      const primary=p.field.ha<=1 ? ready?button(`harvest:${id}`,'🌾 Harvest'):!p.field.crop&&plantLabel?button(`plant:${id}`,'🌱 Plant'):'' : '';
-      const plan=stageAtLeast(s,'farm-business')?button(`plan:${id}`,'🌱 Plan'):'';
+      const hand=p.field.ha<=1;
+      const primary=hand ? ready?button(`harvest:${id}`,'🌾 Harvest'):!p.field.crop&&plantLabel?button(`plant:${id}`,'🌱 Plant'):p.field.crop?`<span class="wl-grow">⏳ ${Math.floor(growth(s,p.field)*100)}%</span>`:'' : '';
+      const plan=!hand&&stageAtLeast(s,'farm-business')?button(`plan:${id}`,'📋 Crop plan'):'';
       want.push({key:'act',x:Math.max(115,Math.min(W-115,px)),y:Math.max(80,Math.min(H-30,py)),html:primary+plan+button(`inspect:${id}`,'ⓘ'),cls:'wl-radial'});
     }
   }
