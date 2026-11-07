@@ -1,4 +1,6 @@
-import { canStartTown, serviceAvailable, serviceDailyCost } from '../simulation/stages/town';
+import {canStartCity} from '../simulation/stages/city';
+import {cityActive,cityOf} from '../simulation/city-state';
+import { canStartTown, serviceAvailable, serviceDailyCost, plannedServiceCost } from '../simulation/stages/town';
 import { districtPopulation, SERVICE_DEFS, servicePrice, townOf } from '../simulation/town-state';
 import { DISTRICT_IDS } from '../simulation/types';
 // A competent player, used by balancing tests to drive the real engine through every era.
@@ -23,7 +25,7 @@ export function botAct(s: GameState, strategy: Strategy = 'balanced', civicPrior
   }
   const P = s.automation.policies;
   const civic = civicPriority && communityOf(s).active;
-  const civicReady = !civic || (townOf(s).active && townOf(s).education >= .8 && townOf(s).water >= .8 && townOf(s).cash >= townOf(s).lastCost * 14);
+  const civicReady = !civic || (townOf(s).active && townOf(s).education >= .8 && townOf(s).water >= .8 && townOf(s).cash >= plannedServiceCost(s) * 14 && (!cityActive(s)||cityOf(s).sanitation>=.7));
   if (!s.legacyProgression && canStartSettlement(s)) dispatch(s, { type: 'startSettlement', charter: 'free' });
   if ((!civicPriority || (!townOf(s).active && population(s)<100) || townOf(s).active && (civicReady || availableResidents(s)<4)) && communityOf(s).active && homeCapacity(s) - population(s) < 8 && s.cash > 15000 * s.macro.cpi) dispatch(s, { type: 'buildHomes', tier: population(s) < 40 ? 'cottage' : 'terrace', count: 1 });
   if (s.eraReady) {
@@ -68,7 +70,7 @@ export function botAct(s: GameState, strategy: Strategy = 'balanced', civicPrior
   if (s.era >= 3) {
     Object.assign(P, { autoRotate: true, autoFertilize: true, autoRepair: 0.45, sellDiscipline: 0, cashReserve: 0 });
     const parcel = strategy === 'volume' ? 25 : s.cash > 300000 ? 25 : 5;
-    const cap = strategy === 'volume' ? 3000 : 1200;
+    const cap = strategy === 'volume' ? 3000 : civic ? 600 : 1200;
     if (civicReady && s.cash > parcelPrice(s, 'heartland', parcel) * 1.5 + 15000 && totalHa(s) < cap) dispatch(s, { type: 'buyParcel', region: 'heartland', ha: parcel });
     for (const l of s.loans) if (s.cash > 100000) dispatch(s, { type: 'repayLoan', loanId: l.id, amount: Math.min(l.balance, s.cash - 80000) });
   }
@@ -148,4 +150,31 @@ export function townBotAct(s: GameState) {
   }
   if(t.cash<t.lastCost*14&&s.cash>100000)dispatch(s,{type:'fundTown',amount:50000,direction:'toTown'});
   if(t.petition)dispatch(s,{type:'answerPetition',accept:false});
+}
+
+
+/** Extend ordinary farm and Town choices; no goods, citizens or cash are granted. */
+export function cityBotAct(s:GameState) {
+  townBotAct(s);
+  if(s.bankrupt)return;
+  if(canStartCity(s))dispatch(s,{type:'startCity',charter:'professional'});
+  if(!cityActive(s)||s.tick%6!==0)return;
+  const t=townOf(s),pop=districtPopulation(s),v=cityOf(s);
+  // Real equity financing bridges civic construction. Dilution and the majority
+  // control floor bound this source of capital; it is never a recurring grant.
+  if(s.corp.incorporated&&s.corp.playerShares/(s.corp.shares*1.2)>=.51&&s.cash<100000)dispatch(s,{type:'issueShares',pct:.2});
+  const target=plannedServiceCost(s)*14;
+  if(t.cash<target&&s.cash>100000*s.macro.cpi) {
+    const amount=Math.floor(Math.min(s.cash-100000*s.macro.cpi,target-t.cash)*100)/100;
+    if(amount>0)dispatch(s,{type:'fundTown',amount,direction:'toTown'});
+  }
+  for(const id of DISTRICT_IDS)if(pop[id])for(const type of ['sanitation','lighting','police'] as const) {
+    if(type==='police'&&v.crime<.1&&t.services.some(b=>b.type==='police'))continue;
+    const capacity=t.services.filter(b=>b.type===type&&b.district===id&&b.active).reduce((n,b)=>n+b.count*SERVICE_DEFS[type].capacity,0);
+    if(capacity>=pop[id])continue;
+    const cost=servicePrice(s,type),reserve=serviceDailyCost(s,type)*14;
+    if(t.cash<cost+reserve&&s.cash>cost+reserve+20000)dispatch(s,{type:'fundTown',amount:Math.ceil(cost+reserve-t.cash),direction:'toTown'});
+    if(t.cash>=cost+reserve)dispatch(s,{type:'buildService',service:type,district:id});
+  }
+  if(v.case)dispatch(s,{type:'resolveCityCase',answer:'rehabilitate'});
 }

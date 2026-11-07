@@ -1,4 +1,4 @@
-import { SERVICE_DEFS } from '../../simulation/town-state';
+import { SERVICE_DEFS,serviceJobs } from '../../simulation/town-state';
 import type { ServiceType } from '../../simulation/types';
 import { communityOf, population, residentWorkers } from '../../simulation/community-state';
 // The 3D farm. A live, lit, low-poly picture of the simulation: everything shown is read from game state.
@@ -648,7 +648,7 @@ function atmosphere(R: Rig, s: GameState, t: number) {
   R.crownMat.color.set(r === 'tropics' ? 0x3f8a3a : CROWN[season]);
   // windows glow at night
   const lit = day < 0.35;
-  for (const m of R.models) for (const w of m.model.windows) w.material = lit ? mat(PAL.windowLit, { emissive: 0xffb84d }) : mat(PAL.window);
+  for (const m of R.models) for (const w of m.model.windows) w.material = lit && (!m.lot.service || m.lot.service.active && m.lot.service.funded) ? mat(PAL.windowLit, { emissive: 0xffb84d }) : mat(PAL.window);
   // sails turn while the mill works
   for (const m of R.models) if (m.model.sails) m.model.sails.rotation.z = m.lot.buildings.some((b) => b.active && b.util > 0.05) ? t * 1.2 : m.model.sails.rotation.z;
   // chimney smoke from working buildings (the farmhouse always)
@@ -724,7 +724,7 @@ function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el
   if(selectedLot){
     const lot=L.lots.find(x=>x.key===selectedLot);
     if(lot){const [px,py]=project(lot.x+lot.w/2,2.5,lot.y+lot.d/2);
-      const label=lot.key.startsWith('civic:')?'🏛 Town':lot.key.startsWith('community:')?'🏠 Families':lot.key==='crew'?'👒 Crew':lot.key==='office'?'⚙ Policies':lot.key==='market'?'🪙 Trade':lot.type==='house'||lot.type==='shed'?'📖 Books':BUILDINGS[lot.type].category==='storage'?'📦 Store':'⚙ Manage';
+      const label=lot.service&&['sanitation','lighting','police'].includes(lot.service.type)?'🛡 City':lot.key.startsWith('civic:')?'🏛 Town':lot.key.startsWith('community:')?'🏠 Families':lot.key==='crew'?'👒 Crew':lot.key==='office'?'⚙ Policies':lot.key==='market'?'🪙 Trade':lot.type==='house'||lot.type==='shed'?'📖 Books':BUILDINGS[lot.type].category==='storage'?'📦 Store':'⚙ Manage';
       want.push({key:'place-act',x:Math.max(100,Math.min(W-100,px)),y:Math.max(80,Math.min(H-30,py)),html:button('place:0',label)+button('inspect:0','ⓘ'),cls:'wl-radial'});
     }
   }
@@ -780,7 +780,7 @@ function plotText(s: GameState, p: Plot) {
 }
 function lotText(s: GameState, lot: Lot) {
   if(lot.key==='civic:hall')return ['Town hall','Schools, healthcare and the public treasury'];
-  if(lot.service){const b=lot.service,d=SERVICE_DEFS[b.type];return [d.name,`${b.staffed}/${d.jobs*b.count} staff`,!b.active?'Paused':b.funded?'Working':'Needs funding or staff'];}
+  if(lot.service){const b=lot.service,d=SERVICE_DEFS[b.type];return [d.name,`${b.staffed}/${serviceJobs(s,b.type)*b.count} staff`,!b.active?'Paused':b.funded?'Working':'Needs funding or staff'];}
   if(lot.key.startsWith('community:'))return ['Families',`${population(s)} residents`];
   if (lot.type === 'house') return ['Farmhouse', s.workers.length ? `${s.workers.length} people on the payroll` : 'Home'];
   if (lot.type === 'shed') return ['Regional office'];

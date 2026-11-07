@@ -1,3 +1,4 @@
+import {createCityState} from '../simulation/city-state';
 import { expect, it } from 'vitest';
 // Node-only local evidence; real player files are never included in the repository.
 // @ts-expect-error Node types are deliberately absent from the browser project
@@ -34,7 +35,7 @@ it('stage registry uses stable string ids and preserves the eight legacy-era ide
     expect(STAGES[id].id).toBe(id);
     expect(typeof STAGES[id].tick).toBe('function');
     expect(typeof STAGES[id].handleAction).toBe('function');
-    expect(STAGES[id].createState()).toEqual(id === 'homestead' ? { day: -1, mood: 50, offers: [] } : id === 'market-town' ? { lastMarketDay: -1 } : id === 'settlement' ? createSettlementState() : id === 'town' ? createTownState() : {});
+    expect(STAGES[id].createState()).toEqual(id === 'homestead' ? { day: -1, mood: 50, offers: [] } : id === 'market-town' ? { lastMarketDay: -1 } : id === 'settlement' ? createSettlementState() : id === 'town' ? createTownState() : id==='city'?createCityState():{});
   }
 });
 it('legacy saves migrate to their matching stage without advancing or changing their era', () => {
@@ -42,7 +43,7 @@ it('legacy saves migrate to their matching stage without advancing or changing t
   const migrated = parseSave(JSON.stringify({ version: 3, savedAt: 1, game: s })).game;
   expect(migrated.era).toBe(7);
   expect(migrated.stageId).toBe('city');
-  expect(migrated.stageState.city).toEqual({});
+  expect(migrated.stageState.city).toEqual(createCityState());
   expect(migrated.charters).toEqual({ trader: null });
   expect(migrated.values).toEqual({ prosperityFairness: 50, orderFreedom: 50, peaceStrength: 50, traditionProgress: 50 });
 });

@@ -201,6 +201,49 @@ try {
             await sell.scrollIntoViewIfNeeded();await sell.locator('.retail-quote').waitFor({state:'visible'});
             await page.screenshot({animations:'disabled',path:`${out}/${width}-${theme}-retail-sale-split.png`});
           }
+          if(section==='city'&&process.env.AUDIT_CITY_ENTRY) {
+            await page.screenshot({animations:'disabled',path:`${out}/${width}-${theme}-city-offer.png`});
+            await page.getByRole('button',{name:'Choose Professional police',exact:true}).click();
+            await page.screenshot({animations:'disabled',path:`${out}/${width}-${theme}-city-entry-care.png`});
+            const build=page.locator('.town-service').first().getByRole('button',{name:'Build',exact:true});
+            if(await build.isDisabled()){const fund=page.locator('[data-coach=city-next]');if(!/Fund planned services/.test(await fund.innerText()))throw new Error('Entry fixture needs a supported funding action.');await fund.click();}
+            await build.scrollIntoViewIfNeeded();await build.click();
+            await page.screenshot({animations:'disabled',path:`${out}/${width}-${theme}-city-first-project.png`});
+            await page.getByRole('button',{name:'Back to the farm (Esc)',exact:true}).click();
+            await page.screenshot({animations:'disabled',path:`${out}/${width}-${theme}-city-first-world.png`});
+            continue;
+          }
+          if(section==='city'&&process.env.AUDIT_CITY) {
+            const choose=page.getByRole('button',{name:'Choose Professional police',exact:true});
+            if(await choose.count()) {await page.screenshot({animations:'disabled',path:`${out}/${width}-${theme}-city-charter.png`});await choose.click();}
+            await page.screenshot({animations:'disabled',path:`${out}/${width}-${theme}-city-care.png`});
+            const bounds=await page.locator('.city-page').evaluate(el=>{const r=el.getBoundingClientRect();return [...el.querySelectorAll('button,.town-purse,.community-strip')].filter(n=>{const b=n.getBoundingClientRect();return b.width>0&&(b.left<r.left-1||b.right>r.right+1);}).map(n=>n.textContent);});
+            if(bounds.length)throw new Error('City controls escape the sheet: '+bounds.join(', '));
+            const utility=page.locator('.town-service').first();
+            await utility.scrollIntoViewIfNeeded();await page.screenshot({animations:'disabled',path:`${out}/${width}-${theme}-city-utility.png`});
+            const funding=page.getByRole('button',{name:'Enable automatic advances',exact:true});
+            await funding.scrollIntoViewIfNeeded();await funding.click();
+            await page.getByRole('button',{name:'Automatic advances · on',exact:true}).waitFor({state:'visible'});
+            await page.screenshot({animations:'disabled',path:`${out}/${width}-${theme}-city-funding.png`});
+            await page.getByRole('button',{name:'Automatic advances · on',exact:true}).click();
+            await page.getByRole('radio',{name:'District',exact:true}).click();
+            await page.screenshot({animations:'disabled',path:`${out}/${width}-${theme}-city-district.png`});
+            const zone=page.getByRole('button',{name:'⚙ industrial',exact:true});
+            await zone.click();
+            const rezone=page.getByRole('dialog').filter({has:page.getByRole('heading',{name:/^Rezone /})});
+            await page.screenshot({animations:'disabled',path:`${out}/${width}-${theme}-city-zone-preview.png`});await rezone.getByRole('button',{name:'Confirm',exact:true}).click();
+            await page.getByRole('radio',{name:'Justice',exact:true}).click();
+            await page.screenshot({animations:'disabled',path:`${out}/${width}-${theme}-city-justice.png`});
+            const train=page.getByRole('button',{name:/^Train · /});
+            if(!await train.isDisabled()) {await train.click();await page.screenshot({animations:'disabled',path:`${out}/${width}-${theme}-city-training.png`});await page.getByRole('dialog').filter({has:page.getByRole('heading',{name:'Train your officers?',exact:true})}).getByRole('button',{name:'Confirm',exact:true}).click();}
+            await page.getByRole('button',{name:'Change charter',exact:true}).click();
+            await page.screenshot({animations:'disabled',path:`${out}/${width}-${theme}-city-reform.png`});
+            const clipped=await page.locator('.city-charters .charter-tile').evaluateAll(nodes=>nodes.some(n=>{const r=n.getBoundingClientRect();return [...n.children].some(c=>{const b=c.getBoundingClientRect();return b.left<r.left-1||b.right>r.right+1;});}));
+            if(clipped)throw new Error('City charter content clips outside its choice tile.');
+            await page.getByRole('button',{name:'Reform Community watch',exact:true}).click();
+            await page.getByRole('button',{name:'Back to the farm (Esc)',exact:true}).click();
+            await page.screenshot({animations:'disabled',path:`${out}/${width}-${theme}-city-world.png`});
+          }
           if(section==='town') {
             const choose=page.getByRole('button',{name:'Choose Public',exact:true});
             if(await choose.count()) {

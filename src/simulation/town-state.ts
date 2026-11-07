@@ -1,8 +1,12 @@
 // Bounded structural snapshots shared by the economy, stage and UI. No engine imports.
+import { cityActive, cityOf, policeJobs } from './city-state';
 import { BUILDINGS, type RegionId } from './config';
 import { communityOf, workingAdults, population, residentWorkers } from './community-state';
 import type { DistrictId, GameState, ServiceType, TownState } from './types';
 export const SERVICE_DEFS: Record<ServiceType, { name: string; icon: string; cost: number; capacity: number; jobs: number; kwh: number }> = {
+  sanitation: {name:'Sanitation works',icon:'🚿',cost:55000,capacity:500,jobs:4,kwh:12},
+  lighting: {name:'Power & lighting',icon:'⚡',cost:40000,capacity:400,jobs:2,kwh:24},
+  police: {name:'Watchhouse',icon:'🛡',cost:65000,capacity:300,jobs:6,kwh:8},
   school: { name: 'School', icon: '📚', cost: 30000, capacity: 80, jobs: 4, kwh: 8 },
   well: { name: 'Well', icon: '💧', cost: 8000, capacity: 100, jobs: 1, kwh: 0 },
   clinic: { name: 'Clinic', icon: '♥', cost: 45000, capacity: 150, jobs: 3, kwh: 16 },
@@ -46,7 +50,7 @@ export const townWorkerFactor = (s: GameState) => {
   const t=townOf(s); return t.active ? (.75 + .25*t.health) * (1 + .1*t.roads) : 1;
 };
 export const townIndustryFactor = (s: GameState, r: RegionId) => {
-  const t=townOf(s); return r==='heartland' && t.active ? 1 + t.factoryShare * (.08*t.education*(t.charter==='trade' && s.tick>=t.retrainingUntil ? 1 : .3) - .1*(1-t.health)) : 1;
+  const t=townOf(s); return r==='heartland' && t.active ? (1 + t.factoryShare * (.08*t.education*(t.charter==='trade' && s.tick>=t.retrainingUntil ? 1 : .3) - .1*(1-t.health))) * zoningFactor(s) : 1;
 };
 export function factoryJobs(s: GameState) {
   return s.buildings.reduce((n,b)=>n+(b.active && b.region==='heartland' ? Math.ceil(BUILDINGS[b.type].staffPerHour * (1+.3*(b.level-1))/12)*2 : 0),0);
@@ -54,3 +58,12 @@ export function factoryJobs(s: GameState) {
 export const servicePrice = (s: GameState, type: ServiceType) => Math.round(SERVICE_DEFS[type].cost*s.macro.cpi*100)/100;
 export const schoolChangeCost = (s: GameState) => Math.round(20000*s.macro.cpi*100)/100;
 export const townWorkforce = (s: GameState) => Math.max(0, workingAdults(s)-residentWorkers(s));
+
+export const serviceJobs=(s:GameState,type:ServiceType)=>type==='police'&&cityActive(s)?policeJobs(s):SERVICE_DEFS[type].jobs;
+
+/** Only occupied districts affect industry; empty zones never create a free bonus. */
+export function zoningFactor(s:GameState) {
+  if(!cityActive(s))return 1;
+  const count=districtPopulation(s),v=cityOf(s),total=population(s);
+  return 1+Object.entries(count).reduce((n,[id,people])=>n+(v.districts[id as DistrictId].zone==='industrial'?.05:v.districts[id as DistrictId].zone==='residential'?-.05:0)*people/Math.max(1,total),0);
+}

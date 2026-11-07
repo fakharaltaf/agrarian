@@ -215,6 +215,7 @@ export function toast(text: string, kind: Toast['kind'] = 'error') {
 }
 
 const SOUND: Partial<Record<Action['type'], Sfx>> = {
+  startCity:'celebrate',changePolice:'buy',setZone:'buy',trainPolice:'buy',resolveCityCase:'pop',
   startTown: 'celebrate', buildService: 'buy', fundTown: 'coin', answerPetition: 'pop',
   plant: 'plant', fertilize: 'plant', harvest: 'harvest', sell: 'coin', sellAnimals: 'coin', deliverContract: 'coin',
   buy: 'buy', buyPlot: 'buy', buyParcel: 'buy', buyMachine: 'buy', build: 'buy', hire: 'buy', buyAnimals: 'buy', upgradeBuilding: 'buy',

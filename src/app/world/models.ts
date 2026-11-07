@@ -373,7 +373,11 @@ export function buildCommunityHome(tier: string, w: number, d: number): Model {
 export function buildCivic(type: string, w: number, d: number): Model {
   const group = new THREE.Group(), windows: THREE.Mesh[] = [];
   group.add(box(w-.1,.08,d-.1,PAL.stone,w/2,0,d/2));
-  if(type==='road') {
+  if(type==='lighting'){
+    for(const x of [.5,w-.5]){const bulb=sphere(.18,0xffd889,x+.5,2.4,d/2,{emissive:0x806020});windows.push(bulb);group.add(box(.1,2.5,.1,PAL.roofGrey,x,0,d/2),box(.7,.1,.1,PAL.roofGrey,x+.25,2.5,d/2),bulb);}
+  } else if(type==='sanitation'){
+    group.add(cyl(.85,.65,PAL.stone,w/2,.1,d/2),cyl(.75,.04,0x65a8bb,w/2,.78,d/2),box(1.8,.08,.15,PAL.roofGrey,w/2,.9,d/2));
+  } else if(type==='road') {
     group.add(box(w-.1,.05,d-.1,PAL.roofGrey,w/2,.09,d/2));
     for(let i=0;i<Math.min(18,Math.ceil(d/2));i++)group.add(box(.06,.02,.4,PAL.white,w/2,.15,.4+i*2));
     group.add(box(.08,1.8,.08,PAL.wood,.2,.1,.5),sphere(.16,0xffd889,.2,2,.5,{emissive:0x806020}));
@@ -392,7 +396,9 @@ export function buildCivic(type: string, w: number, d: number): Model {
       group.add(box(.8,.45,.12,PAL.wood,w/2,1.2,d-.35));
       group.add(box(.28,.34,.02,PAL.white,w/2-.15,1.25,d-.27),box(.28,.34,.02,PAL.creamDark,w/2+.15,1.25,d-.27));
     }
+    if(type==='police')group.add(box(.5,.6,.08,PAL.roofBlue,w/2,1.2,d-.3),box(.12,.4,.1,PAL.cream,w/2,1.3,d-.25));
     if(type==='hall') {group.add(box(.08,1.6,.08,PAL.wood,w-.4,2,.5),box(.5,.3,.06,PAL.roofGreen,w-.15,3,.5));}
   }
+  group.traverse(o=>{if((o as THREE.Mesh).isMesh&&o.userData.window&&!windows.includes(o as THREE.Mesh))windows.push(o as THREE.Mesh);});
   return {group,windows,smoke:[]};
 }

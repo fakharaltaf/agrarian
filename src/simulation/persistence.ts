@@ -1,3 +1,4 @@
+import { createCityState, POLICE_CHARTERS }  from './city-state';
 import { emptyProductionReport } from './production-report';
 // Pure save validation and migration, shared by the browser and regression tools.
 import { CROPS, CROP_IDS, GOOD_IDS, REGION_IDS } from './config';
@@ -7,7 +8,7 @@ import type { GameState } from './types';
 import type { CivicService, CommunityHome, HouseholdCohort } from './types';
 import { createTownState } from './town-state';
 import { createSettlementState } from './community-state';
-export const SAVE_VERSION = 10;
+export const SAVE_VERSION = 11;
 export interface SaveFile { version: number; savedAt: number; paused?: boolean; game: GameState }
 
 /** Trust boundary: stored or imported JSON may be stale, hand-edited or corrupt. */
@@ -48,13 +49,20 @@ export function parseSave(text: string): SaveFile {
       throw new Error('Save file production history is corrupt.');
     }
   }
+  const city=g.stageState.city as unknown as ReturnType<typeof createCityState>;
+  if(typeof city.autoFund!=='boolean'||typeof city.active!=='boolean'||(city.active&&city.charter===null)||(city.charter!==null&&!Object.prototype.hasOwnProperty.call(POLICE_CHARTERS,city.charter))
+    ||!['rehabilitate','punish'].includes(city.justice)||!['crime','sanitation','lighting','police','prevention','training','lastDay','enteredAt','reformUntil','trainingUntil','trainingTarget','nextCaseDay','solved','rehabilitated','punished','threatAt','safeDays'].every(k=>finite((city as unknown as Record<string,unknown>)[k]))
+    ||!Array.isArray(city.crimeHistory)||city.crimeHistory.length>7||!city.crimeHistory.every(finite)
+    ||!Array.isArray(city.caseHistory)||city.caseHistory.length>12)throw new Error('Save file civic safety state is corrupt.');
+  for(const district of Object.values(city.districts))if(!district||!['farm','residential','industrial'].includes(district.zone)||![district.rezonedAt,district.sanitation,district.lighting,district.police].every(finite))throw new Error('Save file district state is corrupt.');
+  if(city.case&&(!GOOD_IDS.includes(city.case.good)||!['id','opened','deadline','lost'].every(k=>finite((city.case as unknown as Record<string,unknown>)[k]))))throw new Error('Save file civic case is corrupt.');
   return { version: SAVE_VERSION, savedAt: finite(f.savedAt) ? f.savedAt! : Date.now(), paused: f.paused === true, game: g };
 }
 
 /** Upgrades older saves in place. Version 1 (the prototype) predates the full economy. */
 export function migrate(g: Omit<GameState, 'version'> & { version: number }): GameState {
   if (g.version === 1) throw new Error('This save is from the early prototype and cannot be upgraded. Please start a new game.');
-  if (g.version !== 2 && g.version !== 3 && g.version !== 4 && g.version !== 5 && g.version !== 6 && g.version !== 7 && g.version !== 8 && g.version !== 9 && g.version !== SAVE_VERSION) throw new Error(`Unsupported save version ${g.version}.`);
+  if (g.version !== 2 && g.version !== 3 && g.version !== 4 && g.version !== 5 && g.version !== 6 && g.version !== 7 && g.version !== 8 && g.version !== 9 && g.version !== 10 && g.version !== SAVE_VERSION) throw new Error(`Unsupported save version ${g.version}.`);
   g.warned ??= {};
   g.bench ??= {};
   g.discovered ??= [];
@@ -76,6 +84,14 @@ export function migrate(g: Omit<GameState, 'version'> & { version: number }): Ga
   if (!g.stageState || typeof g.stageState !== 'object' || Array.isArray(g.stageState)) g.stageState = {};
   if (!g.stageState[g.stageId] || typeof g.stageState[g.stageId] !== 'object' || Array.isArray(g.stageState[g.stageId])) {
     g.stageState[g.stageId] = STAGES[g.stageId].createState();
+  }
+  g.stageState.city ??= createCityState() as unknown as Record<string,unknown>;
+  for(const [key,value] of Object.entries(createCityState()))g.stageState.city[key] ??= value;
+  const districts=createCityState().districts;
+  for(const id of Object.keys(districts) as (keyof typeof districts)[]){
+    const saved=g.stageState.city.districts as Record<string,Record<string,unknown>>;
+    saved[id] ??= districts[id] as unknown as Record<string,unknown>;
+    for(const [key,value] of Object.entries(districts[id]))saved[id][key] ??= value;
   }
   g.stageState.town ??= createTownState() as unknown as Record<string, unknown>;
   for (const [key, value] of Object.entries(createTownState())) g.stageState.town[key] ??= value;

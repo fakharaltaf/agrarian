@@ -43,14 +43,14 @@ export function createGame(seed = (Date.now() % 2147483646) + 1): GameState {
     retailToday: {}, haulToday: 0, truckToday: 0, portToday: 0, insured: false, insuredFrom: 0, forecast: [], frostTonight: false, quality: {}, homePlotsBought: 1, parcelsBought: 0, waterToday: 0, powerGen: 0, powerUse: 0, backlog: 0,
   }])) as Record<RegionId, RegionState>;
   const s: GameState = {
-    version: 10, seed, rng: seed, tick: 0, cash: CONFIG.startingCash, marginAccount: 0,
+    version: 11, seed, rng: seed, tick: 0, cash: CONFIG.startingCash, marginAccount: 0,
     fields: [], workers: [], machines: [], buildings: [], regions, markets: createMarkets(),
     seeds: Object.fromEntries(Object.keys(CROPS).map((c) => [c, c === 'wheat' ? 10 : 0])) as Record<CropId, number>,
     macro: { cpi: 1, inflation: 0.025, baseRate: 0.045, energy: 1, income: 1, climate: 0, crunch: 0, emissions: 0 },
     bench: {}, loans: [], futures: [], contracts: [], shipments: [], research: { done: [], active: null, licensed: [] },
     automation: { rules: [], policies: { ...DEFAULT_POLICIES } }, competitors: [], events: [],
     corp: { incorporated: false, shares: CONFIG.sharesOutstanding, playerShares: CONFIG.sharesOutstanding, execs: [], reputation: 50, dividends: 0, runoff: 0 },
-    ledger: [], lifetime: {}, books: [], overdraftDays: 0, bankrupt: null, era: 1, stageId: stageIdForEra(1), stageState: { homestead: STAGES.homestead.createState(), settlement: STAGES.settlement.createState(), town: STAGES.town.createState() }, legacyProgression: false,
+    ledger: [], lifetime: {}, books: [], overdraftDays: 0, bankrupt: null, era: 1, stageId: stageIdForEra(1), stageState: { homestead: STAGES.homestead.createState(), settlement: STAGES.settlement.createState(), town: STAGES.town.createState(), city: STAGES.city.createState() }, legacyProgression: false,
     charters: { trader: null }, values: { prosperityFairness: 50, orderFreedom: 50, peaceStrength: 50, traditionProgress: 50 },
     stats: { harvests: 0, sales: 0, plantings: 0, produced: {}, spoiled: 0, peopleFed: 0, forcedSales: 0, overflowLost: 0, maxEquity: 0, crisisSurvived: false },
     unlockedCrops: ['wheat'], milestones: [], seenTips: [], discovered: [], achievements: [], rewarded: ['fix:orchardPests'], daily: null, eraReady: false, herds: [], advisor: false, warned: {}, log: [], nextId: 1,
@@ -714,6 +714,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
     }
     case 'sellToMill': case 'barter': case 'haggle': case 'chooseCharter':
       return fail('The village trader is not available in this chapter.');
+    case 'setCityFunding': case 'startCity': case 'changePolice': case 'setZone': case 'trainPolice': case 'setJustice': case 'resolveCityCase':
     case 'startTown': case 'fundTown': case 'setTownTax': case 'buildService': case 'toggleService': case 'changeSchools': case 'answerPetition':
     case 'startSettlement': case 'buildHomes': case 'setLarder': case 'settleWorker':
       return fail('Community actions are not available here.');

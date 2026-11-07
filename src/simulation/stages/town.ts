@@ -1,14 +1,16 @@
+import { cityActive, cityOf } from '../city-state';
 import type { StageModule } from './types';
 import type { Action, ActionResult, DistrictId, GameState, SchoolCharter, ServiceType } from '../types';
 import { DISTRICT_IDS } from '../types';
 import { GOODS } from '../config';
 import { clamp, electricityPrice, log, marketWage, nextId, post, priceUsd, random, reservedStock, round2 } from '../core';
 import { communityOf, population, workingAdults, children, residentWorkers } from '../community-state';
-import { createTownState, districtPopulation, factoryJobs, localEmployment, payHouseholds, schoolChangeCost, SERVICE_DEFS, servicePrice, townOf, townWorkforce } from '../town-state';
+import { createTownState, districtPopulation, factoryJobs, localEmployment, payHouseholds, schoolChangeCost, SERVICE_DEFS, servicePrice, serviceJobs, townOf, townWorkforce } from '../town-state';
 
 export const canStartTown = (s: GameState) => communityOf(s).active && !townOf(s).active && population(s)>=80 && communityOf(s).happiness>=.65 && communityOf(s).fed>=.9;
 export function serviceAvailable(s: GameState, type: ServiceType): boolean {
   const t=townOf(s);
+  if(type==='sanitation'||type==='lighting'||type==='police')return cityActive(s);
   if(type==='school'||type==='well') return true;
   if(type==='clinic'||type==='road') return t.services.some(b=>b.type==='school'||b.type==='well');
   if(type==='hospital') return population(s)>=400 && t.services.some(b=>b.type==='clinic');
@@ -16,7 +18,7 @@ export function serviceAvailable(s: GameState, type: ServiceType): boolean {
   return false; // parks are a council petition, not an unexplained first-day system
 }
 /** Taxes/maintenance never borrow automatically: the town cannot spend company cash. */
-export function serviceDailyCost(s: GameState, type: ServiceType, jobs=SERVICE_DEFS[type].jobs) {
+export function serviceDailyCost(s: GameState, type: ServiceType, jobs=serviceJobs(s,type)) {
   const d=SERVICE_DEFS[type];
   return round2(jobs*12*marketWage(s,'heartland') + d.cost*.0005*s.macro.cpi + d.kwh*electricityPrice(s,'heartland') + (type==='park'?20*s.macro.cpi:0));
 }
@@ -26,7 +28,7 @@ export type TownDecision = {kind:'homes';staff:boolean} | {kind:'fund';amount:nu
 export function townNextStep(s:GameState,district:DistrictId):TownDecision {
   const t=townOf(s),runningCost=plannedServiceCost(s);
   if(runningCost>0&&t.cash<runningCost*7)return {kind:'fund',amount:Math.ceil((runningCost*7-t.cash)/100)*100,upkeep:true};
-  const unfilled=t.services.reduce((n,b)=>n+(b.active?Math.max(0,SERVICE_DEFS[b.type].jobs*b.count-b.staffed):0),0);
+  const unfilled=t.services.reduce((n,b)=>n+(b.active?Math.max(0,serviceJobs(s,b.type)*b.count-b.staffed):0),0);
   if(unfilled>townWorkforce(s)-t.publicJobs)return {kind:'homes',staff:true};
   const pop=districtPopulation(s)[district],students=children(s)*pop/Math.max(1,population(s));
   for(const type of ['school','well','clinic','road'] as const) {
@@ -85,7 +87,7 @@ export function townDaily(s: GameState) {
   for(const b of t.services) {
     b.staffed=0; b.funded=false;
     if(!b.active) continue;
-    const d=SERVICE_DEFS[b.type], needed=d.jobs*b.count, jobs=Math.min(adults,needed);
+    const d=SERVICE_DEFS[b.type], needed=serviceJobs(s,b.type)*b.count, jobs=Math.min(adults,needed);
     if(needed>0 && jobs===0) continue;
     const cost=round2(serviceDailyCost(s,b.type,jobs/b.count)*b.count);
     if(t.cash+1e-6<cost) continue;
@@ -110,7 +112,8 @@ export function townDaily(s: GameState) {
     school+=v.school*v.people;water+=v.water*v.people;medical+=v.medical*v.people;roads+=v.road*v.people;
   }
   t.education=people?school/people:0;t.water=people?water/people:0;t.roads=people?roads/people:0;
-  const wellbeing=clamp(c.fed*.45+t.water*.3+(people?medical/people:1)*.25,0,1);
+  const sanitation=cityActive(s)?cityOf(s).sanitation:1;
+  const wellbeing=clamp(c.fed*.45+t.water*.3+(people?medical/people:1)*.25-.1*(1-sanitation),0,1);
   t.health=clamp(t.health+(wellbeing-t.health)*.15,0,1);
   const requested=factoryJobs(s);
   t.industrialJobs=Math.min(adults,requested);t.factoryShare=requested?t.industrialJobs/requested:0;
@@ -122,8 +125,8 @@ export function townDaily(s: GameState) {
   c.happiness=clamp(c.happiness+(.02*t.education*(t.charter==='public'?1:.5)+.015*t.roads+goodwill*.1-.04*t.taxRate-.03*(1-t.health)),0,1);
   const unemployment=people?Math.max(0,1-localEmployment(s)/Math.max(1,workingAdults(s))):0;
   const target=people>=400?clamp(.05+.3*unemployment+.25*(1-c.happiness)+.15*(1-t.roads)+.1*(1-t.education)-.15*c.happiness,0,.8):0;
-  t.crime=clamp(t.crime+(target-t.crime)*.1,0,1);
-  if(people>=400 && random(s)<t.crime*.2) {
+  if(!cityActive(s))t.crime=clamp(t.crime+(target-t.crime)*.1,0,1);
+  if(!cityActive(s)&&people>=400 && random(s)<t.crime*.2) {
     const inv=s.regions.heartland.inventory;
     const goods=Object.keys(inv) as (keyof typeof inv)[];
     const good=goods.reduce((best,g)=>inv[g]*priceUsd(s,'heartland',g)>inv[best]*priceUsd(s,'heartland',best)?g:best,'wheat' as keyof typeof inv);

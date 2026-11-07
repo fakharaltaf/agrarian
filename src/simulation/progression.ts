@@ -9,6 +9,8 @@ import { PLAYABLE_CHAPTERS, frontierTick, atFrontier } from './stages/frontier';
 import { communityOf, population, homeCapacity } from './community-state';
 import { settlementTick, canStartSettlement } from './stages/settlement';
 import { canStartTown, townDaily } from './stages/town';
+import { canStartCity, cityDaily } from './stages/city';
+import { cityActive, cityOf } from './city-state';
 import { townOf } from './town-state';
 import type { GameState } from './types';
 
@@ -34,6 +36,7 @@ function newStageReady(s: GameState) {
   if (s.stageId === 'farm-business') return s.workers.filter((w) => w.role === 'hand').length >= 2 && lifetimeSales(s) >= CHAPTER_SALES['farm-business'];
   if (s.stageId === 'industry') return canStartSettlement(s);
   if (s.stageId === 'settlement') return canStartTown(s);
+  if (s.stageId === 'town') return canStartCity(s);
   // Later chapters are offered only when their mechanics are implemented.
   return false;
 }
@@ -50,6 +53,7 @@ export function advanceEra(s: GameState): string | null {
   if (!s.legacyProgression || communityOf(s).active) {
     const next = NEXT_STAGE[previous];
     if (!next) return 'You have reached the newest chapter.';
+    if(next==='city')return 'Choose a City watch charter at the City watch.';
     if (next === 'town') return 'Choose Public or Trade schools at the Town hall.';
     if (next === 'settlement') return 'Choose the Company town or Free settlement charter on the Community page.';
     s.stageId = next;
@@ -70,6 +74,9 @@ export function advanceEra(s: GameState): string | null {
 
 export interface Discovery { id: string; title: string; text: string; page?: string; when: (s: GameState) => boolean }
 export const DISCOVERIES: Discovery[] = [
+  {id:'cityReady',title:'A city worth protecting',text:'400 residents are ready for district utilities and a safety charter. Preview the City watch when you choose; your farm and town keep running.',page:'city',when:canStartCity},
+  {id:'cityCase',title:'A response to theft',text:'The City watch has an open case. Rehabilitation invests in prevention; punishment costs less today but reduces happiness. Neither replaces jobs and schools.',page:'city',when:s=>cityActive(s)&&!!cityOf(s).case},
+  {id:'cityCaravans',title:'Caravans seek safe passage',text:'Neighbouring traders notice your city. Keep growing here; a future regional chapter will build on your security choices.',page:'city',when:s=>cityActive(s)&&cityOf(s).threatAt>=0},
   { id: 'townSchool', title: 'A school for your children', text: '80 residents are ready to become a town. Preview Public or Trade schools at the Town hall. Your existing business keeps running.', page: 'town', when: canStartTown },
   { id: 'townClinic', title: 'Clean water and healthcare', text: 'A growing town needs a clinic and safe water. Services only cover their own neighbourhood and need paid staff from your population.', page: 'town', when: s => townOf(s).active && townOf(s).services.length > 0 },
   { id: 'townCrime', title: 'Wealth attracts trouble', text: 'Thefts are rising. Jobs, education and roads reduce crime; City will offer police and justice choices when you choose the next chapter.', page: 'town', when: s => townOf(s).active && townOf(s).crime >= .1 },
@@ -138,6 +145,7 @@ export function discover(s: GameState, id: string) {
 export function progressionTick(s: GameState) {
   settlementTick(s);
   townDaily(s);
+  cityDaily(s);
   frontierTick(s);
   // Keep legacy saves synchronized; new saves advance only when the player accepts a chapter.
   if (s.legacyProgression && !communityOf(s).active) s.stageId = stageIdForEra(s.era);
@@ -181,6 +189,8 @@ const CROP_UNLOCK: Record<CropId, string> = {
 // ---------------------------------------------------------------- objectives (onboarding)
 
 export function objective(s: GameState): { title: string; hint: string; page?: string } {
+  if(canStartCity(s))return {title:'A city worth protecting',hint:'Preview sanitation, lighting and your safety charter.',page:'city'};
+  if(cityActive(s)&&s.stageId==='city')return {title:cityOf(s).case?'Choose a response to theft':'Care for every district',hint:'Funded jobs, education and utilities keep the city safe.',page:'city'};
   if (canStartTown(s)) return { title: 'Your children need a school', hint: 'Preview Public or Trade schools at the Town hall.', page: 'town' };
   if (townOf(s).active && s.stageId === 'town') return { title: townOf(s).services.length ? 'Care for each neighbourhood' : 'Build the first school', hint: 'Fund the public treasury, then place services near the families they serve.', page: 'town' };
   if (canStartSettlement(s)) return { title: 'Your workers want their families nearby', hint: 'Preview a settlement charter, then build the first homes when you are ready.', page: 'community' };
@@ -275,6 +285,7 @@ export function milestonesDaily(s: GameState) {
 
 export interface PageDef { id: string; label: string; purpose: string; unlocked: (s: GameState) => boolean }
 export const PAGES: PageDef[] = [
+  {id:'city',label:'City watch',purpose:'District utilities, everyday safety and justice.',unlocked:s=>cityActive(s)||canStartCity(s)},
   { id: 'town', label: 'Town hall', purpose: 'Schools, healthcare and a separate public budget.', unlocked: s => townOf(s).active || canStartTown(s) },
   { id: 'community', label: 'Community', purpose: 'Homes, families, food and life in your settlement.', unlocked: s => communityOf(s).active || canStartSettlement(s) },
   { id: 'overview', label: 'Overview', purpose: 'Your business at a glance.', unlocked: (s) => s.era >= 2 },

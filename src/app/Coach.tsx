@@ -1,3 +1,4 @@
+import {cityActive,cityOf} from '../simulation/city-state';
 import { townOf } from '../simulation/town-state';
 // First-timer guide: contextual coach marks that point at the real control when it becomes
 // relevant, and finish themselves when the player does the thing. One tip at a time.
@@ -24,6 +25,9 @@ const anyField = (s: GameState, f: (x: GameState['fields'][number]) => boolean) 
 const chapter = (s: GameState, legacyEra: number, stage: Parameters<typeof stageAtLeast>[1]) => s.legacyProgression ? s.era >= legacyEra : stageAtLeast(s, stage);
 
 export const TIPS: CoachTip[] = [
+  {id:'city-utilities',page:'city',target:'city-next',title:'Care before enforcement',body:'Sanitation protects health; lighting makes streets safer. Both need funded local staff from the public treasury.',when:cityActive,done:s=>townOf(s).services.some(b=>b.type==='sanitation')},
+  {id:'city-safety',page:'city',target:'city-safety',title:'Prosperity prevents crime',body:'Jobs, schools and happiness lower crime too. Your police charter changes its cost, effectiveness and effect on freedom.',when:s=>cityActive(s)&&townOf(s).services.some(b=>b.type==='sanitation'),done:s=>cityOf(s).police>0||cityOf(s).crime<.05},
+  {id:'city-case',page:'city',target:'city-justice',title:'Choose a response',body:'Rehabilitation builds prevention; punishment acts immediately but reduces happiness. The selected default resolves future cases using real public money.',when:s=>cityActive(s)&&!!cityOf(s).case,done:s=>cityOf(s).solved>0},
   {id:'town-budget',page:'town',target:'town-fund',title:'A separate public purse',body:'Fund the first school with a repayable company advance. Household taxes collect only from wages actually paid.',when:s=>townOf(s).active,done:s=>townOf(s).companyAdvance>0},
   {id:'town-services',page:'town',target:'town-services',title:'Build where families live',body:'Choose a neighbourhood, then place its school and well. Each needs local adults and tomorrow’s upkeep from the treasury.',when:s=>townOf(s).active&&townOf(s).companyAdvance>0,done:s=>townOf(s).services.length>1},
   { id: 'plant', page: 'farm', target: 'plant-btn', title: 'Plant your first crop', body: 'This is your one hectare. You own ten wheat seeds — exactly enough. Press Plant (or P).',

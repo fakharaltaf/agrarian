@@ -318,7 +318,7 @@ export interface SettlementState {
 export type SchoolCharter = 'public' | 'trade';
 export const DISTRICT_IDS = ['farmgate', 'orchard', 'heights'] as const;
 export type DistrictId = (typeof DISTRICT_IDS)[number];
-export type ServiceType = 'school' | 'well' | 'clinic' | 'road' | 'hospital' | 'waterworks' | 'park';
+export type ServiceType = 'school' | 'well' | 'clinic' | 'road' | 'hospital' | 'waterworks' | 'park' | 'sanitation' | 'lighting' | 'police';
 export interface CivicService { id: number; type: ServiceType; district: DistrictId; count: number; active: boolean; cost: number; staffed: number; funded: boolean }
 export interface DistrictCoverage { people: number; school: number; water: number; medical: number; road: number }
 export interface CouncilPetition { id: number; kind: 'park' | 'bread'; opened: number }
@@ -334,7 +334,7 @@ export interface TownState {
 }
 
 export interface GameState {
-  version: 10;
+  version: 11;
   seed: number;
   rng: number;
   tick: number;
@@ -408,6 +408,13 @@ export type Action =
   | { type: 'buildHomes'; tier: HomeTier; count: number }
   | { type: 'setLarder'; enabled: boolean }
   | { type: 'settleWorker'; workerId: number }
+  | { type: 'setCityFunding'; enabled:boolean }
+  | { type: 'startCity'; charter: import('./city-state').PoliceCharter }
+  | { type: 'changePolice'; charter: import('./city-state').PoliceCharter }
+  | { type: 'setZone'; district: DistrictId; zone: import('./city-state').ZoneType }
+  | { type: 'trainPolice' }
+  | { type: 'setJustice'; policy: import('./city-state').JusticePolicy }
+  | { type: 'resolveCityCase'; answer: import('./city-state').JusticePolicy }
   | { type: 'startTown'; charter: SchoolCharter }
   | { type: 'fundTown'; amount: number; direction: 'toTown' | 'repay' }
   | { type: 'setTownTax'; rate: number }
