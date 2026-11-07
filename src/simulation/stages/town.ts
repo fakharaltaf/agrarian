@@ -1,3 +1,4 @@
+import {allocateNeighbourJobs} from '../employment';
 import { cityActive, cityOf } from '../city-state';
 import type { StageModule } from './types';
 import type { Action, ActionResult, DistrictId, GameState, SchoolCharter, ServiceType } from '../types';
@@ -117,6 +118,7 @@ export function townDaily(s: GameState) {
   t.health=clamp(t.health+(wellbeing-t.health)*.15,0,1);
   const requested=factoryJobs(s);
   t.industrialJobs=Math.min(adults,requested);t.factoryShare=requested?t.industrialJobs/requested:0;
+  allocateNeighbourJobs(s,adults-t.industrialJobs);
   // Actual local hands retain their identity and gain skills; contractor backfill is unchanged.
   const training=t.charter==='trade'?.006:.002;
   for(const w of s.workers) if(w.resident && w.region==='heartland') w.skill=Math.min(1.6,w.skill+training*t.education);

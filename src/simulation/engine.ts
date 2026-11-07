@@ -23,7 +23,8 @@ import { advanceEra, discover, milestonesDaily, progressionTick } from './progre
 import { featureEra, handleActiveStageAction, stageAtLeast, stageIdForEra, STAGES } from './stages';
 import { prepareLarder } from './stages/settlement';
 import { refreshHomestead } from './stages/homestead';
-import { availableResidents, communityOf } from './community-state';
+import {releaseNeighbourJob} from './employment';
+import { availableResidents, recruitableResidents, communityOf } from './community-state';
 import { shipGoods, shipmentsTick } from './logistics';
 import type { Action, ActionResult, GameState, RegionState } from './types';
 
@@ -43,7 +44,7 @@ export function createGame(seed = (Date.now() % 2147483646) + 1): GameState {
     retailToday: {}, haulToday: 0, truckToday: 0, portToday: 0, insured: false, insuredFrom: 0, forecast: [], frostTonight: false, quality: {}, homePlotsBought: 1, parcelsBought: 0, waterToday: 0, powerGen: 0, powerUse: 0, backlog: 0,
   }])) as Record<RegionId, RegionState>;
   const s: GameState = {
-    version: 11, seed, rng: seed, tick: 0, cash: CONFIG.startingCash, marginAccount: 0,
+    version: 12, seed, rng: seed, tick: 0, cash: CONFIG.startingCash, marginAccount: 0,
     fields: [], workers: [], machines: [], buildings: [], regions, markets: createMarkets(),
     seeds: Object.fromEntries(Object.keys(CROPS).map((c) => [c, c === 'wheat' ? 10 : 0])) as Record<CropId, number>,
     macro: { cpi: 1, inflation: 0.025, baseRate: 0.045, energy: 1, income: 1, climate: 0, crunch: 0, emissions: 0 },
@@ -328,10 +329,11 @@ export function dispatch(s: GameState, a: Action): ActionResult {
     case 'hire': {
       if (!featureEra(s, 2)) return fail('Workers arrive when you start the Farm Business chapter.');
       if (!s.regions[a.region].unlocked) return fail('Expand into this region first.');
-      if (a.region === 'heartland' && communityOf(s).active && availableResidents(s) < 1) return fail('No resident adults are available. Make room for more families first.');
+      if (a.region === 'heartland' && communityOf(s).active && recruitableResidents(s,a.wageFactor) < 1) return fail('No unemployed adults are available. Offer 1.1× pay to attract an employed neighbour, or make room for more families.');
       if (a.role === 'manager' && !(s.legacyProgression ? s.era >= 3 : stageAtLeast(s, 'farm-business'))) return fail('Managers arrive with the Farm Business chapter.');
       const c = hireCost(s, a.region);
       if (c > s.cash) return fail(`Recruiting costs $${c}.`);
+      if(a.region==='heartland'&&communityOf(s).active&&availableResidents(s)<1&&!releaseNeighbourJob(s))return fail('No employed resident can move into this job.');
       post(s, 'training', -c, 'Recruitment', a.region);
       const w = hire(s, a.region, a.role, a.wageFactor);
       w.resident = a.region === 'heartland' && communityOf(s).active;

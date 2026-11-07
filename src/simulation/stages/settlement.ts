@@ -1,10 +1,11 @@
+import {releaseNeighbourJob} from '../employment';
 import type { StageModule } from './types';
 import type { Action, ActionResult, GameState } from '../types';
 import { CHAPTER_SALES, BUILDINGS, GOODS, type GoodId } from '../config';
 import { clamp, freeSpace, log, nextId, pick, post, reservedStock, round2 } from '../core';
 import { localEmployment } from '../town-state';
 import { executeBuy, quoteBuy } from '../markets';
-import { communityOf, createSettlementState, HOME_DEFS, homePrice, homeCapacity, households, population, residentWorkers, availableResidents, workingAdults } from '../community-state';
+import { communityOf, createSettlementState, HOME_DEFS, homePrice, homeCapacity, households, population, residentWorkers, availableResidents, recruitableResidents, workingAdults } from '../community-state';
 
 export const COMMUNITY_FOOD: GoodId[] = ['bread', 'wheat', 'corn', 'rice', 'potatoes', 'apples', 'grapes', 'milk', 'eggs', 'meat', 'cheese', 'flour'];
 export function canStartSettlement(s: GameState) {
@@ -120,8 +121,9 @@ function action(s: GameState, a: Action): ActionResult | null {
   if (a.type === 'settleWorker') {
     const w=s.workers.find(w=>w.id===a.workerId&&w.region==='heartland');
     if(!w||w.resident)return fail('Choose a commuting Heartland worker.');
-    if(availableResidents(s)<1)return fail('Make room for another working adult first.');
+    if(recruitableResidents(s,w.wageFactor)<1)return fail('Make room for another working adult or offer 1.1× pay to attract an employed neighbour.');
     const cost=round2(150*s.macro.cpi);if(s.cash<cost)return fail('The company cannot afford relocation.');
+    if(availableResidents(s)<1&&!releaseNeighbourJob(s))return fail('No employed resident can move into this job.');
     post(s,'training',-cost,'Resident staff relocation','heartland','corporate');w.resident=true;return {ok:true};
   }
   if (a.type === 'setLarder') { c.autoLarder = a.enabled; prepareLarder(s); return { ok: true }; }

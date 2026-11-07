@@ -1,4 +1,5 @@
 // Structural helpers only: no engine, UI or accounting dependencies.
+import type {CityState} from './city-state';
 import type { GameState, HomeTier, SettlementState, TownState } from './types';
 export const HOME_DEFS: Record<HomeTier, { name: string; families: number; cost: number }> = {
   cottage: { name: 'Cottage', families: 1, cost: 5000 },
@@ -19,9 +20,13 @@ export const homeCapacity = (s: GameState) => communityOf(s).homes.reduce((n, h)
 export const residentWorkers = (s: GameState) => s.workers.filter(w => w.resident && w.region === 'heartland').length;
 export const civicJobs = (s: GameState) => {
   const t = s.stageState.town as unknown as TownState | undefined;
-  return t?.active ? t.publicJobs + t.industrialJobs : 0;
+  return t?.active ? t.publicJobs + t.industrialJobs + neighbourJobs(s) : 0;
 };
 export const availableResidents = (s: GameState) => Math.max(0, workingAdults(s) - residentWorkers(s) - civicJobs(s));
 export const housingAssets = (s: GameState) => ((s.stageState.settlement as unknown as SettlementState | undefined)?.homes ?? []).reduce((n, h) => n + h.cost, 0);
 export const residentPayFactor = (s: GameState, additional = 0) => Math.max(0.85, Math.min(1.25, 0.85 + (residentWorkers(s) + civicJobs(s) + additional) / Math.max(1, workingAdults(s)) * 0.4));
 export const homePrice = (s: GameState, tier: HomeTier) => Math.round(HOME_DEFS[tier].cost * s.macro.cpi * (communityOf(s).charter === 'free' ? 0.6 : 1) * 100) / 100;
+
+export const neighbourJobs=(s:GameState)=>{const c=s.stageState.city as unknown as CityState|undefined;return c?.active?c.neighbourJobs:0;};
+/** A premium offer can attract an already-employed adult; no extra person is created. */
+export const recruitableResidents=(s:GameState,wageFactor:number)=>availableResidents(s)+(wageFactor>=1.1?neighbourJobs(s):0);

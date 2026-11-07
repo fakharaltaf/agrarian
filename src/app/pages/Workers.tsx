@@ -1,5 +1,5 @@
 import { townWorkerFactor } from '../../simulation/town-state';
-import { communityOf, availableResidents, residentPayFactor } from '../../simulation/community-state';
+import { communityOf, availableResidents, recruitableResidents, neighbourJobs, residentPayFactor } from '../../simulation/community-state';
 import { useState } from 'react';
 import { CONFIG, CROPS, CROP_IDS, GOODS, PERKS, REGIONS, WORK_END, WORK_START, type PerkId, type RegionId } from '../../simulation/config';
 import { clamp, execOn, known, marketWage } from '../../simulation/core';
@@ -120,7 +120,7 @@ function HireCard({ s }: { s: GameState }) {
           <Seg label="Pay level" value={pay} onChange={setPay} options={PAY_LEVELS.map((v) => ({ v, label: `${v.toFixed(1)}×` }))} />
         </div>
         <dl className="facts">
-          {local && <><dt>Adults available</dt><dd>{num(availableResidents(s))}</dd></>}
+          {local && <><dt>Recruitable adults</dt><dd>{num(recruitableResidents(s,pay))}</dd></>}
           <dt>Hourly pay</dt><dd>{price(base * pay)}/h</dd>
           <dt>Per day ({HOURS} h)</dt><dd>{money(base * pay * HOURS)}</dd>
           <dt>Expected morale <Info text="Morale drifts 20% of the way toward its target every day. Target ≈ 0.62 + (pay − 1) × 1.3 − overwork + reputation. Overwork is the share of today's hours with unfinished field work (up to −0.20)."
@@ -132,10 +132,11 @@ function HireCard({ s }: { s: GameState }) {
         </dl>
         {role === 'manager' && <p className="explain">Managers don't work fields. They extend how many hands run at full speed, and in their region they carry out your automation policies (rotation, fertilising, selling discipline).</p>}
         {target < 0.25 && <div className="callout bad">At this pay morale settles below 25% — they will quit within about a week.</div>}
-        <button className="btn primary" data-coach="hire-btn" disabled={cost > s.cash || (local && availableResidents(s) < 1)} onClick={() => act({ type: 'hire', region: r, role, wageFactor: pay }, 'Hired.')}>
+        <button className="btn primary" data-coach="hire-btn" disabled={cost > s.cash || (local && recruitableResidents(s,pay) < 1)} onClick={() => act({ type: 'hire', region: r, role, wageFactor: pay }, 'Hired.')}>
           Hire {role === 'hand' ? 'farm hand' : 'manager'} <span className="btn-sub">{money(cost)}</span>
         </button>
-        {local && availableResidents(s) < 1 && <button className="btn ghost" onClick={() => go('community')}>🏘️ Make room for more families</button>}
+        {local&&availableResidents(s)<1&&neighbourJobs(s)>0&&<p className="small">Offer 1.1× or more to attract an employed neighbour. Pay is a recurring cost.</p>}
+        {local && recruitableResidents(s,pay) < 1 && <button className="btn ghost" onClick={() => go('community')}>🏘️ Make room for more families</button>}
       </div>
     </Card>
   );
@@ -168,7 +169,7 @@ function WorkerTable({ s }: { s: GameState }) {
   const tc = trainCost(s);
   const multi = unlockedRegions(s).length > 1;
   const live: Col<Worker>[] = [
-    { key: 'name', label: 'Name', sort: (w) => w.name, render: (w) => <span>{w.name}{communityOf(s).active && <small className="worker-origin">{w.resident ? '🏘️ Local resident' : '↗ Commuter'}{!w.resident&&w.region==='heartland'&&<button className="btn ghost worker-relocate" title="Move this employee into a local adult slot. Local wages and community wellbeing apply after relocation." disabled={availableResidents(s)<1||s.cash<150*s.macro.cpi} onClick={()=>act({type:'settleWorker',workerId:w.id})}>Move here · {money(150*s.macro.cpi)}</button>}</small>}</span> },
+    { key: 'name', label: 'Name', sort: (w) => w.name, render: (w) => <span>{w.name}{communityOf(s).active && <small className="worker-origin">{w.resident ? '🏘️ Local resident' : '↗ Commuter'}{!w.resident&&w.region==='heartland'&&<button className="btn ghost worker-relocate" title="Move this employee into a local adult slot. Local wages and community wellbeing apply after relocation." disabled={recruitableResidents(s,w.wageFactor)<1||s.cash<150*s.macro.cpi} onClick={()=>act({type:'settleWorker',workerId:w.id})}>Move here · {money(150*s.macro.cpi)}</button>}</small>}</span> },
     { key: 'role', label: 'Role', sort: (w) => w.role, render: (w) => <span className={`pill ${w.role === 'manager' ? 'accent' : ''}`}>{w.role === 'manager' ? 'Manager' : 'Hand'}</span> },
     ...(multi ? [{ key: 'region', label: 'Region', sort: (w: Worker) => w.region, render: (w: Worker) => REGIONS[w.region].name }] : []),
     { key: 'skill', label: 'Skill', align: 'r', sort: (w) => w.skill, render: (w) => w.skill.toFixed(2) },

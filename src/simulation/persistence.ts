@@ -8,7 +8,7 @@ import type { GameState } from './types';
 import type { CivicService, CommunityHome, HouseholdCohort } from './types';
 import { createTownState } from './town-state';
 import { createSettlementState } from './community-state';
-export const SAVE_VERSION = 11;
+export const SAVE_VERSION = 12;
 export interface SaveFile { version: number; savedAt: number; paused?: boolean; game: GameState }
 
 /** Trust boundary: stored or imported JSON may be stale, hand-edited or corrupt. */
@@ -49,11 +49,13 @@ export function parseSave(text: string): SaveFile {
       throw new Error('Save file production history is corrupt.');
     }
   }
+  for(const employer of g.competitors)if(!finite(employer.payrollDay)||!finite(employer.payrollToday)||employer.payrollToday<0)throw new Error('Save file employer payroll is corrupt.');
   const city=g.stageState.city as unknown as ReturnType<typeof createCityState>;
   if(typeof city.autoFund!=='boolean'||typeof city.active!=='boolean'||(city.active&&city.charter===null)||(city.charter!==null&&!Object.prototype.hasOwnProperty.call(POLICE_CHARTERS,city.charter))
-    ||!['rehabilitate','punish'].includes(city.justice)||!['crime','sanitation','lighting','police','prevention','training','lastDay','enteredAt','reformUntil','trainingUntil','trainingTarget','nextCaseDay','solved','rehabilitated','punished','threatAt','safeDays'].every(k=>finite((city as unknown as Record<string,unknown>)[k]))
+    ||!['rehabilitate','punish'].includes(city.justice)||!['crime','sanitation','lighting','police','prevention','training','lastDay','enteredAt','reformUntil','trainingUntil','trainingTarget','nextCaseDay','solved','rehabilitated','punished','threatAt','safeDays','neighbourJobs','neighbourPayroll','employmentDay'].every(k=>finite((city as unknown as Record<string,unknown>)[k]))
     ||!Array.isArray(city.crimeHistory)||city.crimeHistory.length>7||!city.crimeHistory.every(finite)
-    ||!Array.isArray(city.caseHistory)||city.caseHistory.length>12)throw new Error('Save file civic safety state is corrupt.');
+    ||!Array.isArray(city.caseHistory)||city.caseHistory.length>12||!Array.isArray(city.employers)||city.employers.length>g.competitors.length||city.employers.some(e=>![e.id,e.jobs,e.wages].every(finite)||!Number.isInteger(e.jobs)||e.jobs<0||e.wages<0))throw new Error('Save file civic safety state is corrupt.');
+  if(!Number.isInteger(city.neighbourJobs)||city.neighbourJobs<0||city.neighbourJobs!==city.employers.reduce((n,e)=>n+e.jobs,0)||Math.abs(city.neighbourPayroll-city.employers.reduce((n,e)=>n+e.wages,0))>.01||city.employers.some(e=>!g.competitors.some(c=>c.id===e.id)))throw new Error('Save file local employment is corrupt.');
   for(const district of Object.values(city.districts))if(!district||!['farm','residential','industrial'].includes(district.zone)||![district.rezonedAt,district.sanitation,district.lighting,district.police].every(finite))throw new Error('Save file district state is corrupt.');
   if(city.case&&(!GOOD_IDS.includes(city.case.good)||!['id','opened','deadline','lost'].every(k=>finite((city.case as unknown as Record<string,unknown>)[k]))))throw new Error('Save file civic case is corrupt.');
   return { version: SAVE_VERSION, savedAt: finite(f.savedAt) ? f.savedAt! : Date.now(), paused: f.paused === true, game: g };
@@ -62,7 +64,7 @@ export function parseSave(text: string): SaveFile {
 /** Upgrades older saves in place. Version 1 (the prototype) predates the full economy. */
 export function migrate(g: Omit<GameState, 'version'> & { version: number }): GameState {
   if (g.version === 1) throw new Error('This save is from the early prototype and cannot be upgraded. Please start a new game.');
-  if (g.version !== 2 && g.version !== 3 && g.version !== 4 && g.version !== 5 && g.version !== 6 && g.version !== 7 && g.version !== 8 && g.version !== 9 && g.version !== 10 && g.version !== SAVE_VERSION) throw new Error(`Unsupported save version ${g.version}.`);
+  if (g.version !== 2 && g.version !== 3 && g.version !== 4 && g.version !== 5 && g.version !== 6 && g.version !== 7 && g.version !== 8 && g.version !== 9 && g.version !== 10 && g.version !== 11 && g.version !== SAVE_VERSION) throw new Error(`Unsupported save version ${g.version}.`);
   g.warned ??= {};
   g.bench ??= {};
   g.discovered ??= [];
@@ -103,6 +105,7 @@ export function migrate(g: Omit<GameState, 'version'> & { version: number }): Ga
   for (const [key, value] of Object.entries(STAGES[g.stageId].createState())) {
     if (g.stageState[g.stageId]![key] === undefined) g.stageState[g.stageId]![key] = value;
   }
+  for(const employer of g.competitors){employer.payrollDay ??= -1;employer.payrollToday ??= 0;}
   g.herds ??= [];
   for (const worker of g.workers) worker.resident ??= false;
   g.automation.policies.autoFeed ??= true;

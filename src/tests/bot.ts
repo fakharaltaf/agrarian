@@ -50,7 +50,7 @@ export function botAct(s: GameState, strategy: Strategy = 'balanced', civicPrior
       const mech = count(s, r, 'tractor') > 0 && count(s, r, 'harvester') > 0;
       const hands = s.workers.filter((w) => w.region === r && w.role === 'hand').length;
       const want = Math.ceil(ha / (mech ? 18 : 3.5));
-      if (hands < want && s.cash > 500) dispatch(s, { type: 'hire', region: r, role: 'hand', wageFactor: 1.05 });
+      if (hands < want && s.cash > 500) dispatch(s, { type: 'hire', region: r, role: 'hand', wageFactor: cityActive(s)?1.1:1.05 });
       // A competent mechanised farm reassigns its labour budget instead of retaining
       // the entire old manual crew forever while buying and leasing machines.
       if (mech && hands > want) {

@@ -48,6 +48,7 @@ if(process.argv[2]==='--run') {
  const comparable=({state:s,categories})=>{
   const copy=structuredClone(s);delete copy.version;
   if(copy.stageState?.city&&(copy.stageState.city.active===false||Object.keys(copy.stageState.city).length===0))delete copy.stageState.city;
+  for(const c of copy.competitors){delete c.payrollDay;delete c.payrollToday;}
   for(const r of Object.values(copy.regions))if(r.retailToday&&Object.keys(r.retailToday).length===0)delete r.retailToday;
   for(const b of copy.buildings){delete b.productionReport;const d=categories[b.type];if(!d.recipe&&(d.category==='energy'||d.category==='commerce')){delete b.util;delete b.reason;}}
   return copy;

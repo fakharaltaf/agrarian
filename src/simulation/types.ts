@@ -257,6 +257,7 @@ export interface GameEvent {
 }
 
 export interface Competitor {
+  payrollDay:number; payrollToday:number;
   id: number;
   name: string;
   archetype: import('./config').Archetype;
@@ -334,7 +335,7 @@ export interface TownState {
 }
 
 export interface GameState {
-  version: 11;
+  version: 12;
   seed: number;
   rng: number;
   tick: number;

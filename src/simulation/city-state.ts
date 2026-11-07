@@ -17,6 +17,7 @@ export interface CityState {
   training: number; trainingUntil: number; trainingTarget: number;
   lastDay: number; crime: number; crimeHistory: number[]; sanitation: number; lighting: number; police: number;
   case: CityCase | null; nextCaseDay: number; prevention: number;
+  neighbourJobs:number; neighbourPayroll:number; employers:{id:number;jobs:number;wages:number}[]; employmentDay:number;
   solved: number; rehabilitated: number; punished: number; caseHistory: {day:number;kind:string;answer:string}[];
   threatAt: number; safeDays: number;
 }
@@ -25,7 +26,7 @@ export function createCityState(): CityState {
   return {active:false,autoFund:false,enteredAt:-1,charter:null,reformUntil:-1,justice:'rehabilitate',
     districts:{farmgate:district('farm'),orchard:district('residential'),heights:district('residential')},
     training:1,trainingUntil:-1,trainingTarget:1,lastDay:-1,crime:0,crimeHistory:[],sanitation:0,lighting:0,police:0,
-    case:null,nextCaseDay:-1,prevention:0,solved:0,rehabilitated:0,punished:0,caseHistory:[],threatAt:-1,safeDays:0};
+    case:null,nextCaseDay:-1,prevention:0,neighbourJobs:0,neighbourPayroll:0,employers:[],employmentDay:-1,solved:0,rehabilitated:0,punished:0,caseHistory:[],threatAt:-1,safeDays:0};
 }
 export const cityOf=(s:GameState):CityState=>(s.stageState.city??=createCityState() as unknown as Record<string,unknown>) as unknown as CityState;
 export const POLICE_CHARTERS:Record<PoliceCharter,{name:string;icon:string;staff:number;suppression:number;happiness:number}>={

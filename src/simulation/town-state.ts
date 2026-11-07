@@ -1,7 +1,7 @@
 // Bounded structural snapshots shared by the economy, stage and UI. No engine imports.
 import { cityActive, cityOf, policeJobs } from './city-state';
 import { BUILDINGS, type RegionId } from './config';
-import { communityOf, workingAdults, population, residentWorkers } from './community-state';
+import { communityOf, workingAdults, population, residentWorkers, neighbourJobs } from './community-state';
 import type { DistrictId, GameState, ServiceType, TownState } from './types';
 export const SERVICE_DEFS: Record<ServiceType, { name: string; icon: string; cost: number; capacity: number; jobs: number; kwh: number }> = {
   sanitation: {name:'Sanitation works',icon:'🚿',cost:55000,capacity:500,jobs:4,kwh:12},
@@ -42,7 +42,7 @@ export function payHouseholds(s: GameState, amount: number) {
 }
 export const localPublicJobs = (s: GameState) => townOf(s).active ? townOf(s).publicJobs : 0;
 export const localIndustryJobs = (s: GameState) => townOf(s).active ? townOf(s).industrialJobs : 0;
-export const localEmployment = (s: GameState) => residentWorkers(s) + localPublicJobs(s) + localIndustryJobs(s);
+export const localEmployment = (s: GameState) => residentWorkers(s) + localPublicJobs(s) + localIndustryJobs(s) + neighbourJobs(s);
 export const townResearchFactor = (s: GameState) => {
   const t=townOf(s); return t.active && s.tick >= t.retrainingUntil ? 1 + t.education * (t.charter === 'public' ? .15 : .05) : 1;
 };
