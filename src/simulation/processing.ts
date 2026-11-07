@@ -1,3 +1,4 @@
+import { solarCapacity } from './facility-levels';
 import { recordProductionHour } from './production-report';
 import { payHouseholds, townOf, townIndustryFactor } from './town-state';
 import { larderReserve } from './stages/settlement';
@@ -38,7 +39,7 @@ export function buildingsTick(s: GameState) {
         if (r === 'heartland' && townOf(s).active) payHouseholds(s, staff * townOf(s).factoryShare);
       }
       if (def.coldKwh) reg.powerUse += def.coldKwh * (has(s, 'coldChain') ? 1.3 : 1);
-      const solar=def.solarKw?def.solarKw*solarOutput(s,r):0;
+      const solar=def.solarKw?solarCapacity(b)*solarOutput(s,r):0;
       gen+=solar;
       if(solar>0)energySources.push({b,kwh:solar});
       if(!def.recipe&&(def.category==='energy'||def.category==='commerce')) {

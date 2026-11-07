@@ -1,3 +1,4 @@
+import { bestRetailCentre } from './facility-levels';
 import { emptyProductionReport } from './production-report';
 import { payHouseholds } from './town-state';
 import { idleMachine, machineSaleValue } from './operations';
@@ -5,11 +6,11 @@ import { idleMachine, machineSaleValue } from './operations';
 import {
   BUILDINGS, CONFIG, CROPS, GOODS, GOOD_IDS, MACHINES, PERKS, REGIONS, REGION_IDS, TECH, TICKS_PER_DAY, type CropId, type GoodId, type RegionId,
 } from './config';
-import { clamp, debt, factoryCrop, equity, freeSpace, has, known, log, marketWage, nextId, post, round2, todayBook } from './core';
+import { buildingDivision, clamp, debt, factoryCrop, equity, freeSpace, has, known, log, marketWage, nextId, post, round2, todayBook } from './core';
 import { addGoods, canGrow, clearField, fertilizeField, fieldsTick, frostNight, harvestField, isManual, isReady, newField, plantField, spoilageDaily } from './agriculture';
 import { buyAnimals, livestockDaily, sellAnimals } from './livestock';
 import { claimDaily, startDay } from './daily';
-import { createMarkets, drawWeather, executeBuy, executeSell, macroDaily, marketsDaily, marketsTick, priceFromInv } from './markets';
+import { createMarkets, drawWeather, executeBuy, executeSell, quoteBuy, macroDaily, marketsDaily, marketsTick, priceFromInv } from './markets';
 import { hire, laborTick, service, serviceCost, wageOf, workforceDaily } from './operations';
 import { buildingsDaily, buildingsTick } from './processing';
 import { closeFutures, creditLimit, deliver, financeDaily, openFutures, restructure, takeLoan, insurancePremium } from './finance';
@@ -39,10 +40,10 @@ const zeroGoods = () => Object.fromEntries(GOOD_IDS.map((g) => [g, 0])) as Recor
 export function createGame(seed = (Date.now() % 2147483646) + 1): GameState {
   const regions = Object.fromEntries(REGION_IDS.map((r): [RegionId, RegionState] => [r, {
     id: r, unlocked: r === 'heartland', inventory: zeroGoods(), fx: REGIONS[r].fx0, cpi: 1, rainToday: REGIONS[r].rain, temp: REGIONS[r].temp, rain30: REGIONS[r].rain,
-    haulToday: 0, truckToday: 0, portToday: 0, insured: false, insuredFrom: 0, forecast: [], frostTonight: false, quality: {}, homePlotsBought: 1, parcelsBought: 0, waterToday: 0, powerGen: 0, powerUse: 0, backlog: 0,
+    retailToday: {}, haulToday: 0, truckToday: 0, portToday: 0, insured: false, insuredFrom: 0, forecast: [], frostTonight: false, quality: {}, homePlotsBought: 1, parcelsBought: 0, waterToday: 0, powerGen: 0, powerUse: 0, backlog: 0,
   }])) as Record<RegionId, RegionState>;
   const s: GameState = {
-    version: 9, seed, rng: seed, tick: 0, cash: CONFIG.startingCash, marginAccount: 0,
+    version: 10, seed, rng: seed, tick: 0, cash: CONFIG.startingCash, marginAccount: 0,
     fields: [], workers: [], machines: [], buildings: [], regions, markets: createMarkets(),
     seeds: Object.fromEntries(Object.keys(CROPS).map((c) => [c, c === 'wheat' ? 10 : 0])) as Record<CropId, number>,
     macro: { cpi: 1, inflation: 0.025, baseRate: 0.045, energy: 1, income: 1, climate: 0, crunch: 0, emissions: 0 },
@@ -284,10 +285,10 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       const space = Math.floor(spaceFor(s, a.region, a.good));
       if (space <= 0) return fail('No storage space for that.');
       const want = Math.min(qty, space);
-      const pre = (s.markets[a.region][a.good]!.price * want) * 1.2;
-      if (pre > s.cash) return fail(`That costs about $${Math.round(pre).toLocaleString()}.`);
-      const q = executeBuy(s, a.region, a.good, want);
-      if (!q.qty) return fail(q.limitedBy ?? 'Could not buy.');
+      const quote=quoteBuy(s,a.region,a.good,want);
+      if (!quote.qty) return fail(quote.limitedBy ?? 'Could not buy.');
+      if (quote.net > s.cash) return fail(`This order costs $${quote.net.toFixed(2)}, including haulage.`);
+      const q = executeBuy(s, a.region, a.good, quote.qty);
       return ok(want < qty ? 'Limited by storage space.' : q.limitedBy);
     }
     case 'buyPlot': {
@@ -646,6 +647,14 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       const e = sellAnimals(s, a.region, a.animal, Math.floor(a.count));
       return e ? fail(e) : ok();
     }
+    case 'consolidateRetail': {
+      if (!s.regions[a.region]?.unlocked) return fail('This region is not available.');
+      const centres=s.buildings.filter(b=>b.region===a.region&&b.type==='distribution'&&b.active);
+      const best=bestRetailCentre(centres);
+      if (!best || centres.length<2) return fail('There are no redundant running retail centres here.');
+      for(const centre of centres)if(centre!==best)centre.active=false;
+      return ok('The strongest retail channel stays open; redundant centres are paused.');
+    }
     case 'upgradeBuilding': {
       const b = s.buildings.find((x) => x.id === a.buildingId);
       if (!b) return fail('No such building.');
@@ -653,7 +662,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       if (b.level >= 3) return fail('Already at the highest level.');
       const cost = upgradeCost(s, b);
       if (cost > s.cash) return fail(`Upgrading costs $${Math.round(cost).toLocaleString()}.`);
-      post(s, 'building', -cost, `Upgrade ${BUILDINGS[b.type].name} to level ${b.level + 1}`, b.region);
+      post(s, 'building', -cost, `Upgrade ${BUILDINGS[b.type].name} to level ${b.level + 1}`, b.region, buildingDivision(b.type));
       b.level++;
       b.cost += cost;
       return ok(`${BUILDINGS[b.type].name} is now level ${b.level}.`);

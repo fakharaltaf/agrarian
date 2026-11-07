@@ -1,3 +1,4 @@
+import { bestRetailCentre } from './facility-levels';
 // Reporting only: this module never posts money, consumes goods or draws randomness.
 import { ANIMALS, BUILDINGS, COWS_PER_DAIRY_BATCH, MANURE, type GoodId, type RegionId } from './config';
 import { has, levelMult, priceUsd } from './core';
@@ -44,8 +45,8 @@ export function recordProductionHour(s:GameState,b:Building,batches:number,earn:
 }
 /** Attribute the existing retail premium; this adds no cash and never duplicates the sale. */
 export function recordRetailPremium(s:GameState,r:RegionId,amount:number) {
-  const centres=s.buildings.filter(b=>b.region===r&&b.type==='distribution'&&b.active);
-  for(const b of centres)reportDay(b.productionReport,Math.floor(s.tick/24)).earn+=amount/centres.length;
+  const centre=bestRetailCentre(s.buildings.filter(b=>b.region===r));
+  if(centre)reportDay(centre.productionReport,Math.floor(s.tick/24)).earn+=amount;
 }
 export function productionReport(list:Building[]) {
   const completed=list.flatMap(b=>b.productionReport.days.filter(d=>d.hours===24));

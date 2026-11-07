@@ -9,12 +9,22 @@ const server=await createServer({root:resolve(root),logLevel:'silent',optimizeDe
 try {
   const {parseSave}=await server.ssrLoadModule('/src/simulation/persistence.ts'),{dispatch,step}=await server.ssrLoadModule('/src/simulation/engine.ts');
   const s=parseSave(await readFile(source,'utf8')).game,actions=[];
-  if(mode==='ports')for(const building of ['biogas','verticalFarm','solar','distribution']){
-    const action={type:'build',region:'heartland',building},result=dispatch(s,action);actions.push({tick:s.tick,action,result});
-    if(!result.ok&&(building==='biogas'||building==='verticalFarm'))throw new Error(`Required power-port fixture: ${result.error}`);
+  if(mode==='upgrades'&&!s.research.done.includes('solar')) {
+    const action={type:'research',tech:'solar'},result=dispatch(s,action);actions.push({tick:s.tick,action,result});
+    if(!result.ok)throw new Error(`Solar QA research: ${result.error}`);
+    for(let i=0;i<24*10&&!s.research.done.includes('solar');i++)step(s);
+    if(!s.research.done.includes('solar'))throw new Error('Solar project did not finish.');
+  }
+  if(mode==='ports'||mode==='upgrades')for(const building of (mode==='upgrades'?['solar','distribution']:['biogas','verticalFarm','solar','distribution'])){
+    const action={type:'build',region:'heartland',building,count:mode==='upgrades'&&building==='distribution'?2:1},result=dispatch(s,action);actions.push({tick:s.tick,action,result});
+    if(!result.ok&&(mode==='upgrades'||building==='biogas'||building==='verticalFarm'))throw new Error(`Required power-port fixture: ${result.error}`);
   }
   const tick=s.tick;for(let i=0;i<24*10;i++)step(s);
   if(s.tick-tick!==240)throw new Error('QA scenario stopped before ten days.');
+  if(mode==='upgrades'){
+    const action={type:'buy',region:'heartland',good:'flour',qty:50},result=dispatch(s,action);actions.push({tick:s.tick,action,result});
+    if(!result.ok)throw new Error(`Retail quote fixture: ${result.error}`);
+  }
   await mkdir(dirname(output),{recursive:true});await writeFile(output,JSON.stringify({version:s.version,savedAt:Date.now(),paused:true,game:s}));
   await writeFile(`${output}.actions.json`,JSON.stringify({source,root,actions,simulatedTicks:240},null,2));
   console.log(JSON.stringify({output,version:s.version,simulatedTicks:240,buildActions:actions}));

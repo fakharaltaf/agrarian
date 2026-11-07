@@ -129,6 +129,7 @@ export interface RegionState {
   rainToday: number;
   temp: number;
   rain30: number;
+  retailToday: Partial<Record<GoodId, number>>; // units already given a retail markup today
   haulToday: number; // hired haulage used today
   truckToday: number; // own-truck capacity used today
   portToday: number;
@@ -333,7 +334,7 @@ export interface TownState {
 }
 
 export interface GameState {
-  version: 9;
+  version: 10;
   seed: number;
   rng: number;
   tick: number;
@@ -461,6 +462,7 @@ export type Action =
   | { type: 'buyAnimals'; region: RegionId; animal: AnimalId; count: number }
   | { type: 'sellAnimals'; region: RegionId; animal: AnimalId; count: number }
   | { type: 'upgradeBuilding'; buildingId: number }
+  | { type: 'consolidateRetail'; region: RegionId }
   | { type: 'upgradeMachine'; machineId: number }
   | { type: 'choosePerk'; workerId: number; perk: PerkId }
   | { type: 'greenhouse'; fieldIds: number[] }

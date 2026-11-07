@@ -4,9 +4,9 @@ import { larderReserve } from './stages/settlement';
 // policies steer everything toward strategic objectives. Automation spends real money
 // through the same primitives as the player, and never below the cash reserve.
 import { ANIMALS, BUILDINGS, CONFIG, CROPS, DAYS_PER_YEAR, GOODS, GOOD_IDS, MACHINES, REGIONS, REGION_IDS, TICKS_PER_DAY, WORK_END, WORK_START, type CropId, type GoodId, type RegionId } from './config';
-import { canGrow, expectedYield, fertility, fertilizeField, soilAdequacy } from './agriculture';
-import { buildingsIn, clamp, levelMult, reservedStock, debt, execOn, has, hour, log, nextId, post, priceUsd, seasonOf, seedCost, stored, totalAssets } from './core';
-import { avg30, closedPort, executeBuy, executeSell, forecast, marketDepth, quoteBuy } from './markets';
+import { canGrow, expectedYield, fertility, fertilizeField, soilAdequacy, spreadingCost, spreadNeed, warnOnce } from './agriculture';
+import { buildingsIn, clamp, freeSpace, levelMult, reservedStock, debt, execOn, has, hour, log, nextId, post, priceUsd, seasonOf, seedCost, stored, totalAssets } from './core';
+import { affordableBuy, avg30, closedPort, executeBuy, executeSell, forecast, marketDepth } from './markets';
 import { CONTRACT_SIZE, FUTURES_GOODS, openFutures, futuresPrice, closeFutures } from './finance';
 import { autoBudget, machineRate, serviceCost, service } from './operations';
 import { FEEDS } from './livestock';
@@ -50,28 +50,30 @@ const fmt = (v: number) => (Math.abs(v) >= 100 ? Math.round(v).toLocaleString() 
 export const metricLabel = (r: Pick<Rule, 'metric' | 'good' | 'region'>) =>
   ({ price: `${GOODS[r.good].name} price`, inventory: `${GOODS[r.good].name} stock`, cash: 'Cash', storageUtil: 'Dry storage %', minFertility: 'Lowest fertility %', minCondition: 'Lowest machine condition %', facilityMargin: 'Factory margin $/h' })[r.metric];
 
+const disposableStock=(s:GameState,r:RegionId,g:GoodId)=>Math.max(0,s.regions[r].inventory[g]-reservedStock(s,r,g)-(r==='heartland'?larderReserve(s,g):0));
+
 function runRule(s: GameState, r: Rule): string | null {
-  const inv = s.regions[r.region].inventory;
   const budget = Math.min(spendable(s), r.maxSpend || Infinity);
   switch (r.action) {
     case 'sell': {
-      const q = Math.floor((inv[r.actionGood] - reservedStock(s, r.region, r.actionGood) - (r.region === 'heartland' ? larderReserve(s, r.actionGood) : 0)) * (r.amountPct / 100));
+      const q = Math.floor(disposableStock(s,r.region,r.actionGood) * (r.amountPct / 100));
       if (q <= 0 || !s.markets[r.region][r.actionGood]) return null;
       const done = executeSell(s, r.region, r.actionGood, q);
       return done.qty ? `sold ${Math.round(done.qty)} ${GOODS[r.actionGood].name} for $${Math.round(done.net)}` : null;
     }
     case 'buy': {
       if (GOODS[r.actionGood].kind !== 'input' && s.era < 5) return null; // exchange opens in Era 5
-      let q = Math.floor(r.amountPct);
-      const quote = quoteBuy(s, r.region, r.actionGood, q);
-      if (quote.net > budget) q = Math.floor(q * (budget / quote.net));
-      if (q <= 0) return null;
-      const done = executeBuy(s, r.region, r.actionGood, q);
+      const quote=affordableBuy(s,r.region,r.actionGood,Math.floor(r.amountPct),budget);
+      if (quote.qty <= 0) return null;
+      const done = executeBuy(s, r.region, r.actionGood, quote.qty);
       return done.qty ? `bought ${Math.round(done.qty)} ${GOODS[r.actionGood].name} for $${Math.round(done.net)}` : null;
     }
     case 'fertilizeLow': {
-      let n = 0;
-      for (const f of s.fields) if (f.region === r.region && !f.crop && !f.spreading && fertility(f) < 0.6 && !fertilizeField(s, f, 'fertilizer')) n++;
+      let n = 0,left=budget;
+      for (const f of s.fields) {
+        const fee=spreadingCost(s,f);
+        if(f.region===r.region&&!f.crop&&!f.spreading&&fertility(f)<.6&&fee<=left&&!fertilizeField(s,f,'fertilizer')){n++;left-=fee;}
+      }
       return n ? `fertilised ${n} field(s)` : null;
     }
     case 'repairAll': {
@@ -94,7 +96,7 @@ function runRule(s: GameState, r: Rule): string | null {
       return bs.length ? `${want ? 'resumed' : 'paused'} ${bs.length} facilit${bs.length === 1 ? 'y' : 'ies'}` : null;
     }
     case 'ship': {
-      const q = Math.floor(inv[r.actionGood] * (r.amountPct / 100));
+      const q = Math.floor(disposableStock(s,r.region,r.actionGood) * (r.amountPct / 100));
       if (q <= 0 || r.actionRegion === r.region) return null;
       const err = shipGoods(s, r.actionGood, q, r.region, r.actionRegion, budget);
       return err ? null : `shipped ${q} ${GOODS[r.actionGood].name} to ${REGIONS[r.actionRegion].name}`;
@@ -195,22 +197,24 @@ export function policiesTick(s: GameState) {
     // manure is free fertiliser: managers spread it on empty fields that would benefit instead of letting it pile up
     for (const f of s.fields) {
       if (f.region !== r || f.crop || f.spreading || f.soil.organic >= 0.7 || Math.max(f.soil.n, f.soil.p, f.soil.k) > 1.1) continue;
-      if (s.regions[r].inventory.manure >= f.ha * CONFIG.manurePerHa) fertilizeField(s, f, 'manure');
+      if (s.regions[r].inventory.manure >= spreadNeed(s,f,'manure') && spreadingCost(s,f)<=spendable(s)) fertilizeField(s, f, 'manure');
     }
     if (P.autoFertilize) {
       for (const f of s.fields) {
         if (f.region !== r || f.crop || f.spreading || fertility(f) >= P.soilTarget) continue;
         // a competent manager never overdoses: skip if any nutrient would exceed the runoff threshold
         if (Math.max(f.soil.n, f.soil.p, f.soil.k) + CONFIG.fertilizerDose > 1.2 && !has(s, 'precisionFert')) {
-          if (f.soil.organic < 0.7 && s.regions[r].inventory.manure >= f.ha * CONFIG.manurePerHa) fertilizeField(s, f, 'manure');
+          if (f.soil.organic < 0.7 && s.regions[r].inventory.manure >= spreadNeed(s,f,'manure') && spreadingCost(s,f)<=spendable(s)) fertilizeField(s, f, 'manure');
           continue;
         }
-        const need = f.ha * CONFIG.fertilizerPerHa;
+        const need = spreadNeed(s,f,'fertilizer'),fee=spreadingCost(s,f);
+        if(fee>spendable(s))continue;
         const inv = s.regions[r].inventory;
         if (inv.fertilizer < need) {
-          const q = quoteBuy(s, r, 'fertilizer', need - inv.fertilizer);
-          if (q.net > spendable(s)) continue;
-          executeBuy(s, r, 'fertilizer', need - inv.fertilizer, 'Manager bought fertiliser');
+          if(need>inv.fertilizer+freeSpace(s,r,'fertilizer'))warnOnce(s,`fert-space-${r}`,'warning',`Field ${f.id} needs ${Math.ceil(need)} fertiliser per dose. Free space or expand storage before filling it.`,'storage',168);
+          const q = affordableBuy(s, r, 'fertilizer', need - inv.fertilizer, spendable(s)-fee);
+          if (!q.qty) continue;
+          executeBuy(s, r, 'fertilizer', q.qty, 'Manager bought fertiliser');
         }
         fertilizeField(s, f, 'fertilizer');
       }

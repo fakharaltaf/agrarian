@@ -276,7 +276,7 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
   cowshed: { type: 'cowshed', name: 'Cowshed', category: 'livestock', price: 14000, staffPerHour: 2, minEra: 3, blurb: 'Houses 20 dairy cows per level. Milk needs cold storage or a quick sale.' },
   sheepfold: { type: 'sheepfold', name: 'Sheepfold', category: 'livestock', price: 5000, staffPerHour: 0, minEra: 2, blurb: 'Houses 50 sheep per level. Sheep grow wool on very little feed.' },
   winery: { type: 'winery', name: 'Winery', category: 'processing', price: 55000, staffPerHour: 45, recipe: { inputs: { grapes: 10 }, outputs: { wine: 6 }, kwh: 10, batchesPerHour: 4 }, minEra: 4, blurb: 'Grapes → wine. Premium grapes make premium wine.' },
-  distribution: { type: 'distribution', name: 'Distribution centre', category: 'commerce', price: 80000, staffPerHour: 60, minEra: 4, blurb: 'Retail channel: +12% on processed goods sold in this region.' },
+  distribution: { type: 'distribution', name: 'Distribution centre', category: 'commerce', price: 80000, staffPerHour: 60, minEra: 4, blurb: 'One retail channel per region: +12% on processed sales, rising to15% and18% when upgraded. Extra centres do not stack.' },
   lab: { type: 'lab', name: 'Research station', category: 'research', price: 30000, staffPerHour: 50, minEra: 4, blurb: 'Runs one research project at a time.' },
   lab2: { type: 'lab2', name: 'Advanced laboratory', category: 'research', price: 150000, staffPerHour: 120, research: 'advancedLab', minEra: 5, blurb: 'Required for advanced research; projects run twice as fast.' },
 };

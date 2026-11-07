@@ -49,6 +49,13 @@ export function botAct(s: GameState, strategy: Strategy = 'balanced', civicPrior
       const hands = s.workers.filter((w) => w.region === r && w.role === 'hand').length;
       const want = Math.ceil(ha / (mech ? 18 : 3.5));
       if (hands < want && s.cash > 500) dispatch(s, { type: 'hire', region: r, role: 'hand', wageFactor: 1.05 });
+      // A competent mechanised farm reassigns its labour budget instead of retaining
+      // the entire old manual crew forever while buying and leasing machines.
+      if (mech && hands > want) {
+        const crew=s.workers.filter(w=>w.region===r&&w.role==='hand');
+        const spare=crew.find(w=>!w.task)??crew[crew.length-1];
+        dispatch(s,{type:'fire',workerId:spare.id});
+      }
       const st = stored(s, r);
       if (st.dry > st.cap.dry * 0.7) dispatch(s, { type: 'build', region: r, building: s.cash > 40000 ? 'silo' : 'barn' });
     }

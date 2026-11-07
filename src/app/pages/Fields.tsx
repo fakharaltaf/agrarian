@@ -1,3 +1,6 @@
+import { spreadNeed, spreadingCost } from '../../simulation/agriculture';
+import { DEALER_SPREAD } from '../../simulation/markets';
+import { RetailQuote } from '../RetailQuote';
 import { useEffect, useRef, useState } from 'react';
 import { BUILDINGS, CONFIG, CROPS, GOODS, GOOD_IDS, MACHINES, REGIONS, WORK_END, WORK_START, type CropId, type GoodId, type RegionId } from '../../simulation/config';
 import { factoryCrop, freeSpace, has, known, reservedStock, priceUsd, seedCost, stored } from '../../simulation/core';
@@ -279,7 +282,7 @@ function PlanPicker({ s, fields }: { s: GameState; fields: Field[] }) {
 function SoilPanel({ s, f }: { s: GameState; f: Field }) {
   const fert = fertility(f);
   const tested = has(s, 'soilTesting');
-  const fertNeed = Math.ceil(f.ha * CONFIG.fertilizerPerHa * (has(s, 'precisionFert') ? 0.7 : 1));
+  const fertNeed=spreadNeed(s,f,'fertilizer'),spreadFee=spreadingCost(s,f);
   const inv = s.regions[f.region].inventory;
   return (
     <div className="stack s" data-coach="soil-panel" style={{ borderTop: '1px solid var(--line)', paddingTop: 10 }}>
@@ -300,8 +303,8 @@ function SoilPanel({ s, f }: { s: GameState; f: Field }) {
       {f.pest > 0.05 && <Meter label="Pest pressure" value={f.pest} info={f.crop && CROPS[f.crop].perennial ? 'Pests build while the trees bear fruit, faster in heat. Each harvest halves them, and they die back while the orchard rests in winter.' : `Pests build while crops grow, faster in heat and in monocultures (this field has grown the same crop ${f.streak + 1}× in a row). Resting or rotating clears them.`} tone="down" />}
       {f.spreading ? <p className="small">🧪 {f.spreading === 'manure' ? 'Manure' : 'Fertiliser'} is waiting for your crew to spread it ({pct0(f.spreadWork)} done){f.crop ? ' — after the harvest' : ''}. Tractors do it fastest; it goes on before the next sowing.</p> : (
       <div className="row wrap">
-        <button className="btn ghost sm" disabled={inv.fertilizer < fertNeed} onClick={() => act({ type: 'fertilize', fieldIds: [f.id], source: 'fertilizer' })} title={`Uses ${fertNeed} fertiliser from storage (${num(inv.fertilizer)} held). Buy it on the Markets page.`}>Spread fertiliser ({fertNeed})</button>
-        {inv.manure >= f.ha * CONFIG.manurePerHa && <button className="btn ghost sm" onClick={() => act({ type: 'fertilize', fieldIds: [f.id], source: 'manure' })}>Spread manure ({num(f.ha * CONFIG.manurePerHa)})</button>}
+        <button className="btn ghost sm" disabled={inv.fertilizer < fertNeed||spreadFee>s.cash} onClick={() => act({ type: 'fertilize', fieldIds: [f.id], source: 'fertilizer' })} title={`Uses ${fertNeed} fertiliser from storage (${num(inv.fertilizer)} held). Buy it on the Markets page.`}>Spread · {num(fertNeed)} fertiliser{spreadFee>0?` · ${money(spreadFee)}`:''}</button>
+        {inv.manure >= f.ha * CONFIG.manurePerHa && <button className="btn ghost sm" disabled={spreadFee>s.cash} onClick={() => act({ type: 'fertilize', fieldIds: [f.id], source: 'manure' })}>Spread · {num(spreadNeed(s,f,'manure'))} manure{spreadFee>0?` · ${money(spreadFee)}`:''}</button>}
         {inv.fertilizer < fertNeed && <span className="faint small">{num(inv.fertilizer)} fertiliser in storage</span>}
       </div>)}
     </div>
@@ -325,6 +328,7 @@ const Meter = ({ label, value, info, tone, color }: { label: string; value: numb
 export function BatchPanel({ s, fields }: { s: GameState; fields: Field[] }) {
   const ha = fields.reduce((a, f) => a + f.ha, 0);
   const unirrigated = fields.filter((f) => !f.irrigated);
+  const batchSpreadFee=fields.reduce((n,f)=>n+spreadingCost(s,f),0);
   const avgFert = fields.reduce((a, f) => a + fertility(f) * f.ha, 0) / ha;
   return (
     <Card title={<>{fields.length} fields selected <span className="muted">{num(ha)} ha</span></>}>
@@ -337,7 +341,7 @@ export function BatchPanel({ s, fields }: { s: GameState; fields: Field[] }) {
         <PlanPicker s={s} fields={fields} />
         <SupplyPicker s={s} fields={fields} />
         <div className="row wrap">
-          <button className="btn ghost sm" onClick={() => act({ type: 'fertilize', fieldIds: fields.map((f) => f.id), source: 'fertilizer' })}>Spread fertiliser on all</button>
+          <button className="btn ghost sm" onClick={() => act({ type: 'fertilize', fieldIds: fields.map((f) => f.id), source: 'fertilizer' })}>Spread fertiliser on all{batchSpreadFee>0?` · up to ${money(batchSpreadFee)}`:''}</button>
           {unirrigated.length > 0 && <Confirm label={`Irrigate ${unirrigated.length} · ${money(irrigationPrice(s, unirrigated.reduce((a, f) => a + f.ha, 0)))}`} title="Install irrigation?" body={`Equip ${unirrigated.length} fields with irrigation. Water is then bought whenever soil moisture falls below ${pct0(s.automation.policies.irrigateMin)}.`} onConfirm={() => act({ type: 'irrigate', fieldIds: unirrigated.map((f) => f.id) })} />}
         </div>
       </div>
@@ -353,7 +357,7 @@ export function SellCard({ s, r }: { s: GameState; r: RegionId }) {
   const st = stored(s, r);
   return (
     <Card title="Barn & market" coach="trader" className="reveal"
-      info="Prices move with supply and demand. Selling a lot at once depresses the price for a while; haulage to market is charged per unit.">
+      info={`Prices follow supply and demand. Orders include a ${(DEALER_SPREAD*100).toFixed(1)}% dealer spread on each side and per-unit haulage; large orders move the price.`}>
       <div className="stack">
         <div className="stack s" style={{ gap: 3 }}>
           <div className="row between small"><span className="muted">Dry storage</span><span className="mono">{num(st.dry)} / {num(st.cap.dry)}</span></div>
@@ -413,10 +417,11 @@ function SellRow({ s, r, g }: { s: GameState; r: RegionId; g: GoodId }) {
     {held>=1 && <span className="muted">🏭 {num(held)} reserved</span>}
     <div className="row between wrap">
       <Seg label="Amount to sell" value={frac} onChange={setFrac} options={[{v:.25,label:'¼'},{v:.5,label:'½'},{v:1,label:'All'}]}/>
-      <Info text="Sale value includes market impact and haulage. Reserved factory stock is protected." breakdown={[
+      <Info text={`Sale value includes the ${(DEALER_SPREAD*100).toFixed(1)}% dealer bid spread, market impact and haulage. Reserved factory stock is protected.`} breakdown={[
         ['Market average (24h)',price(dayPrice(s,r,g))],['Execution price',price(q.avgPrice)],['Haulage',money(q.haul)],['Price after sale',price(q.priceAfter)],['Market impact',pct(m.price?q.priceAfter/m.price-1:0)]
       ]}/>
     </div>
+    <RetailQuote s={s} region={r} good={g} qty={q.qty} retailQty={q.retailQty}/>
     <button className="btn primary" disabled={!q.qty} onClick={()=>act({type:'sell',region:r,good:g,qty:q.qty})}>{q.qty?`Sell ${num(q.qty)} → ${money(q.net)}`:'No unreserved stock'}</button>
     {known(s,'quality')&&inv>=1&&<span className="muted">Quality <GradePill q={s.regions[r].quality[g]??.65}/></span>}
   </div>;

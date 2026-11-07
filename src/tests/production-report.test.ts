@@ -35,14 +35,14 @@ it('Dairy alternative uses the same real cowshed yield and feed, so feed does no
   for(let tick=0;tick<=24;tick++){s.tick=tick;recordProductionHour(s,dairy,1,100,30,20,5);}
   const r=productionReport([dairy]);expect(r.alt).toBeCloseTo(alt.value,6);expect(r.qty.feed).toBeCloseTo(0,6);expect(productionPriceRails('dairy',r).find(x=>x.good==='feed')!.need).toBeNull();
 });
-it('Retail reporting attributes the existing premium once across all active centres',()=>{
+it('Retail reporting attributes the existing premium once to the supplying centre',()=>{
   const s=fixture();expect(dispatch(s,{type:'build',region:'heartland',building:'distribution',count:2}).ok).toBe(true);
   s.regions.heartland.inventory.flour=100;
   const centres=s.buildings.filter(b=>b.type==='distribution'),q=quoteSell(s,'heartland','flour',100),cash=s.cash;
   executeSell(s,'heartland','flour',100);
   expect(s.cash-cash).toBeCloseTo(q.net,2);
-  expect(centres.reduce((n,b)=>n+(b.productionReport.open?.earn??0),0)).toBeCloseTo(q.gross*(1-1/1.12),6);
-  expect(centres[0].productionReport.open!.earn).toBe(centres[1].productionReport.open!.earn);
+  expect(centres.reduce((n,b)=>n+(b.productionReport.open?.earn??0),0)).toBe(q.retailValue);
+  expect(centres[0].productionReport.open!.earn).toBeGreaterThan(0);expect(centres[1].productionReport.open?.earn??0).toBe(0);
 });
 it('Version8 gains empty reports; saved reporting continues exactly through JSON',()=>{
   const s=fixture(),raw=JSON.parse(JSON.stringify(s));raw.version=8;for(const b of raw.buildings)delete b.productionReport;

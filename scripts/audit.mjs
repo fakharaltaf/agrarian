@@ -21,6 +21,11 @@ async function resolveAuditDialogs(page, prefix) {
     await dialog.getByRole('button',{name:'Got it',exact:true}).click();
   }
 }
+async function ensurePaused(page) {
+  const pause=page.getByRole('button',{name:'Pause simulation',exact:true});
+  if(await pause.count())await pause.click();
+  if(!await page.getByRole('button',{name:'Resume simulation',exact:true}).count())throw new Error('The layout capture must be paused.');
+}
 class ExpectedRenderError extends Error {}
 let browser;
 try {
@@ -29,15 +34,16 @@ try {
   const results=[];
   for(const width of (process.env.AUDIT_WIDTHS?.split(',').map(Number) ?? [390,1400])) for(const theme of (process.env.AUDIT_THEMES?.split(',') ?? ['light','dark'])) {
     const context=await browser.newContext({viewport:{width,height:844},colorScheme:theme});
-    await context.addInitScript(({save,theme})=>{
+    await context.addInitScript(({save,theme,graphics})=>{
       if(!sessionStorage.getItem('audit-seeded')){
         if(save) localStorage.setItem('agrarian.auto',JSON.stringify({...save,savedAt:Date.now(),paused:true}));
         localStorage.setItem('agrarian.ui.theme',JSON.stringify(theme));
         localStorage.setItem('agrarian.ui.offline','false');
         localStorage.setItem('agrarian.ui.music','0');
+        if(graphics)localStorage.setItem('agrarian.ui.graphics',JSON.stringify(graphics));
         sessionStorage.setItem('audit-seeded','1');
       }
-    },{save,theme});
+    },{save,theme,graphics:process.env.AUDIT_GRAPHICS});
     const page=await context.newPage(); const errors=[],consoleErrors=[];
     page.on('pageerror',e=>errors.push(e.message));
     page.on('console',m=>{if(m.type()==='error')consoleErrors.push(m.text());});
@@ -61,6 +67,7 @@ try {
       await page.waitForTimeout(1500);
       if(save && await page.getByRole('button',{name:'Pause simulation',exact:true}).count())await page.keyboard.press('Space');
       await resolveAuditDialogs(page,`${out}/${width}-${theme}-${speed}x`);
+      if(save)await ensurePaused(page);
       await page.screenshot({animations:'disabled',path:`${out}/${width}-${theme}-${speed}x-farm.png`});
     }
     if(save){
@@ -118,10 +125,10 @@ try {
             const days=await page.locator('.ln').evaluateAll(nodes=>nodes.map(n=>Number(n.dataset.reportDays)));
             if(days.some(n=>n<3))throw new Error('Production QA needs actual completed-day history.');
             const before=await page.locator('.ln').evaluateAll(nodes=>nodes.map(n=>({key:n.dataset.line,height:n.getBoundingClientRect().height,top:n.getBoundingClientRect().top})));
-            await page.getByRole('button',{name:'Time controls',exact:true}).click();await page.getByRole('radio',{name:'50×',exact:true}).click();await page.waitForTimeout(1800);await page.keyboard.press('Space');
+            await page.getByRole('button',{name:'Time controls',exact:true}).click();await page.getByRole('radio',{name:'50×',exact:true}).click();await page.waitForTimeout(1800);await ensurePaused(page);
             const after=await page.locator('.ln').evaluateAll(nodes=>nodes.map(n=>({key:n.dataset.line,height:n.getBoundingClientRect().height,top:n.getBoundingClientRect().top})));
             if(before.length!==after.length||before.some((b,i)=>b.key!==after[i].key||Math.abs(b.height-after[i].height)>2||Math.abs(b.top-after[i].top)>2))throw new Error('Production cards moved while data changed.');
-            await resolveAuditDialogs(page,`${out}/${width}-${theme}-production-live`);
+            await resolveAuditDialogs(page,`${out}/${width}-${theme}-production-live`);await ensurePaused(page);
             await first.getByRole('button',{name:'Margins',exact:true}).click();await page.screenshot({animations:'disabled',path:`${out}/${width}-${theme}-production-margins.png`});
             await first.getByRole('button',{name:'Grow',exact:true}).click();await page.screenshot({animations:'disabled',path:`${out}/${width}-${theme}-production-grow.png`});
             const clipped=await first.locator('.ln-panel:not([hidden]) .ln-opt:visible').evaluate(el=>{const r=el.getBoundingClientRect(),p=el.closest('.ln-command-body').getBoundingClientRect();return r.bottom>p.bottom+2;});
@@ -131,6 +138,38 @@ try {
               const line=page.locator(`[data-line="${type}:heartland"]`);
               if(await line.count()){await line.scrollIntoViewIfNeeded();await page.screenshot({animations:'disabled',path:`${out}/${width}-${theme}-${type}-ports.png`});}
             }
+          }
+          if(section==='production'&&process.env.AUDIT_FACILITIES) {
+            const retail=page.locator('[data-line="distribution:heartland"]');
+            await retail.scrollIntoViewIfNeeded();await retail.getByRole('button',{name:'Run',exact:true}).click();
+            await page.screenshot({animations:'disabled',path:`${out}/${width}-${theme}-retail-duplicates.png`});
+            await retail.getByRole('button',{name:'Keep best',exact:true}).click();
+            if(await retail.getByRole('button',{name:'Keep best',exact:true}).count())throw new Error('Keep-best did not pause redundant centres.');
+            for(const type of ['distribution','solar']) {
+              const line=page.locator(`[data-line="${type}:heartland"]`);await line.scrollIntoViewIfNeeded();
+              await line.getByRole('button',{name:'Grow',exact:true}).click();
+              await line.getByRole('button',{name:'⬆ Upgrade',exact:true}).click();
+              await page.screenshot({animations:'disabled',path:`${out}/${width}-${theme}-${type}-upgrade-preview.png`});
+              await line.getByRole('button',{name:'Upgrade',exact:true}).click();
+              const confirm=page.getByRole('dialog').filter({has:page.getByRole('button',{name:/^Pay /})});
+              await page.screenshot({animations:'disabled',path:`${out}/${width}-${theme}-${type}-upgrade-confirm.png`});
+              await confirm.getByRole('button',{name:/^Pay /}).click();
+              if((await line.locator('.ln-level').textContent())!=='Lv2')throw new Error(`${type} upgrade did not reach the actual line state.`);
+              await page.screenshot({animations:'disabled',path:`${out}/${width}-${theme}-${type}-upgraded.png`});
+            }
+          }
+          if(section==='markets'&&process.env.AUDIT_FACILITIES) {
+            await page.getByRole('row').filter({hasText:/Flour/}).first().click();
+            const sell=page.locator('.card').filter({has:page.getByRole('heading',{name:/^Sell Flour/})});
+            await ensurePaused(page);
+            if(!await sell.locator('.retail-quote').count()) {
+              await page.getByRole('combobox',{name:'Good to buy',exact:true}).selectOption('flour');
+              await page.getByRole('textbox',{name:'Units to buy',exact:true}).fill('50');
+              await page.getByRole('button',{name:/^Buy [0-9,]+ for /}).click();
+              await page.getByRole('textbox',{name:'Units to sell',exact:true}).fill('50');
+            }
+            await sell.scrollIntoViewIfNeeded();await sell.locator('.retail-quote').waitFor({state:'visible'});
+            await page.screenshot({animations:'disabled',path:`${out}/${width}-${theme}-retail-sale-split.png`});
           }
           if(section==='town') {
             const choose=page.getByRole('button',{name:'Choose Public',exact:true});
@@ -154,11 +193,18 @@ try {
         } else { await page.keyboard.press('Escape'); await page.getByRole('dialog',{name:'Ledger',exact:true}).waitFor({state:'hidden'}); }
       }
     }
-    results.push({width,theme,testedSpeeds,captureMode:save?'paused after live interval':'live',errors,consoleErrors,assets:await page.locator('.world-canvas').getAttribute('data-art'),overflow:await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)});
+    results.push({width,theme,graphics:process.env.AUDIT_GRAPHICS??'high',testedSpeeds,captureMode:save?'paused after live interval':'live',errors,consoleErrors,assets:await page.locator('.world-canvas').getAttribute('data-art'),overflow:await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)});
     console.log(JSON.stringify({width,theme,status:'captured'}));
     await context.close();
     console.log(JSON.stringify({width,theme,status:'closed'}));
   }
   await writeFile(`${out}/results.json`,JSON.stringify(results,null,2));
   if(results.some(r=>r.errors.length||r.consoleErrors.length||r.overflow))throw new Error('Browser review found an error or horizontal overflow; inspect results.json.');
-}catch(error){if(error instanceof ExpectedRenderError)console.log(error.message);else throw error;}finally{await browser?.close();server.kill();}
+}catch(error){
+ if(error instanceof ExpectedRenderError)console.log(error.message);
+ else {
+  const active=browser?.contexts().at(-1)?.pages().at(-1);
+  if(active){await active.screenshot({path:`${out}/failure.png`,timeout:5000}).catch(()=>{});await writeFile(`${out}/failure.txt`,String(error)+'\n'+await active.locator('body').innerText().catch(()=>''));}
+  throw error;
+ }
+}finally{await browser?.close();server.kill();}

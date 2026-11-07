@@ -1,3 +1,4 @@
+import { retailAllowance, retailChannel } from './facility-levels';
 import { recordRetailPremium } from './production-report';
 import { townOf } from './town-state';
 import type { Division } from './types';
@@ -10,7 +11,7 @@ import {
   CONFIG, CROPS, DAYS_PER_YEAR, GOODS, GRAINS, REGIONS, REGION_IDS, SAME_COUNTRY, TICKS_PER_DAY, TICKS_PER_YEAR, TRADEABLE,
   distance, type CropId, type GoodId, type RegionId,
 } from './config';
-import { activeEvents, buildingsIn, clamp, day, fuelPrice, gauss, has, hour, log, post, random, refPrice, round2, severity } from './core';
+import { activeEvents, clamp, day, fuelPrice, freeSpace, gauss, has, hour, log, post, random, refPrice, round2, severity } from './core';
 import { qualityMult } from './agriculture';
 import type { GameState, Market } from './types';
 
@@ -198,6 +199,7 @@ export function macroDaily(s: GameState) {
     reg.rain30 = reg.rain30 * (29 / 30) + reg.rainToday / 30;
     reg.temp = w.temp;
     reg.frostTonight = w.frost;
+    reg.retailToday = {};
     reg.haulToday = 0;
     reg.truckToday = 0;
     reg.portToday = 0;
@@ -255,25 +257,45 @@ export function avg30(s: GameState, r: RegionId, g: GoodId) {
 
 // ---------------------------------------------------------------- player trades
 
-export interface Quote { qty: number; gross: number; avgPrice: number; priceAfter: number; haul: number; net: number; limitedBy?: string }
+export interface Quote { qty: number; gross: number; avgPrice: number; priceAfter: number; haul: number; net: number; limitedBy?: string; retailQty?: number; retailValue?: number }
 
-/** Revenue (sign 1) or cost (sign −1) of trading q now: price moves exponentially through order-book depth. */
-function integral(P: number, D: number, q: number, sign: 1 | -1) {
-  return sign === 1 ? P * D * (1 - Math.exp(-q / D)) : P * D * (Math.exp(q / D) - 1);
-}
-/** Sale revenue with a buyer of last resort: no unit ever fills below the market's floor price. */
-function sellRevenue(s: GameState, g: GoodId, P: number, D: number, q: number) {
-  const floor = refPrice(s, g) * FLOOR;
-  if (P <= floor) return floor * q;
-  const toFloor = D * Math.log(P / floor); // units until the walk-down reaches the floor
-  return q <= toFloor ? integral(P, D, q, 1) : integral(P, D, toFloor, 1) + floor * (q - toFloor);
-}
-const FLOOR = 0.25;
-const MAX_IMPACT = 1.2; // order-book impact saturates; beyond it the floor buyer takes the rest
-/** Purchase cost: the ask walks up through the book, but never past e^MAX_IMPACT × today's price (sellers of last resort). */
-function buyCost(P: number, D: number, q: number) {
-  const cap = D * MAX_IMPACT;
-  return q <= cap ? integral(P, D, q, -1) : integral(P, D, cap, -1) + P * Math.exp(MAX_IMPACT) * (q - cap);
+const FLOOR = .25;
+const MAX_IMPACT = 1.2;
+/** Half a percent on each side: dealers quote a bid and ask, not an exploitable midpoint. */
+export const DEALER_SPREAD = .005;
+const bidCents=(n:number)=>Math.floor(n*100+1e-8)/100;
+const askCents=(n:number)=>Math.ceil(n*100-1e-8)/100;
+
+/** Integrate the very same inventory/impact curve that sets the post-trade price.
+ * Break at impact/floor kinks and inventory doublings; eight Simpson substeps per
+ * smooth piece keep work bounded by price changes rather than the number of goods.
+ * Bid/ask rounding is directional, so splitting orders cannot farm fractional cents.
+ */
+function bookValue(s:GameState,g:GoodId,m:Market,qty:number,direction:1|-1) {
+  if(qty<=0)return 0;
+  const D=depth(m),reference=refPrice(s,g),bound=reference*(direction===1?FLOOR:4);
+  const at=(x:number)=>priceFromInv(s,g,m,m.inv+direction*x,m.impact+direction*x/D);
+  if(at(0)===bound)return qty*bound;
+  let end=qty,tail=0;
+  if(at(qty)===bound) {
+    let lo=0,hi=qty;
+    for(let i=0;i<48;i++){const mid=(lo+hi)/2;if(at(mid)===bound)hi=mid;else lo=mid;}
+    end=(lo+hi)/2;tail=(qty-end)*bound;
+  }
+  const cuts=[0,end];
+  const cut=(n:number)=>{if(n>0&&n<end)cuts.push(n);};
+  cut(direction===1?(MAX_IMPACT-m.impact)*D:(MAX_IMPACT+m.impact)*D);
+  cut((minInv(m)-m.inv)/direction);
+  if(direction===1)for(let inv=Math.max(minInv(m),m.inv)*2,n=0;inv<m.inv+end&&n<64;inv*=2,n++)cut(inv-m.inv);
+  cuts.sort((a,b)=>a-b);
+  let value=tail;
+  for(let piece=1;piece<cuts.length;piece++) {
+    const a=cuts[piece-1],b=cuts[piece],h=(b-a)/8;
+    let sum=at(a)+at(b);
+    for(let i=1;i<8;i++)sum+=(i%2?4:2)*at(a+h*i);
+    value+=sum*h/3;
+  }
+  return value;
 }
 
 export function haulCost(s: GameState, r: RegionId, qty: number) {
@@ -292,7 +314,7 @@ export function haulCost(s: GameState, r: RegionId, qty: number) {
 }
 
 export function retailPremium(s: GameState, r: RegionId, g: GoodId) {
-  return GOODS[g].kind === 'processed' && buildingsIn(s, r, 'distribution').some((b) => b.active) ? 1.12 : 1;
+  return 1 + (GOODS[g].kind === 'processed' ? retailChannel(s,r) : 0);
 }
 
 export function quoteSell(s: GameState, r: RegionId, g: GoodId, qty: number): Quote {
@@ -301,10 +323,13 @@ export function quoteSell(s: GameState, r: RegionId, g: GoodId, qty: number): Qu
   const h = haulCost(s, r, qty);
   let limitedBy: string | undefined;
   if (h.viaSpot > 0) limitedBy = `Regular haulage is full today: ${Math.round(h.viaSpot).toLocaleString('en-US')} units go by short-notice lorry at 3× the rate. Own trucks are cheapest.`;
-  const gross = sellRevenue(s, g, m.price, depth(m), qty) * retailPremium(s, r, g) * qualityMult(s.regions[r].quality[g] ?? 0.65);
+  const rate=retailPremium(s,r,g)-1,retailQty=rate>0?Math.min(qty,retailAllowance(s,r,g).left):0;
+  const quality=qualityMult(s.regions[r].quality[g]??.65);
+  const retailValue=bookValue(s,g,m,retailQty,1)*(1-DEALER_SPREAD)*rate*quality;
+  const gross=bookValue(s,g,m,qty,1)*(1-DEALER_SPREAD)*quality+retailValue;
   const priceAfter = priceFromInv(s, g, m, m.inv + qty, m.impact + qty / depth(m));
   const hc = haulCost(s, r, qty).cost;
-  return { qty, gross: round2(gross), avgPrice: qty ? gross / qty : m.price, priceAfter, haul: round2(hc), net: round2(gross - hc), limitedBy };
+  return { qty, gross: bidCents(gross), avgPrice: qty ? bidCents(gross) / qty : m.price, priceAfter, haul: round2(hc), net: round2(bidCents(gross) - round2(hc)), limitedBy, retailQty, retailValue:round2(retailValue) };
 }
 
 export function quoteBuy(s: GameState, r: RegionId, g: GoodId, qty: number): Quote {
@@ -315,10 +340,24 @@ export function quoteBuy(s: GameState, r: RegionId, g: GoodId, qty: number): Quo
   if (qty > maxQ) (qty = maxQ), (limitedBy = 'The market does not hold that much stock.');
   const h = haulCost(s, r, qty);
   if (h.viaSpot > 0) limitedBy = 'Regular haulage is full today: part comes by short-notice lorry at 3× the rate.';
-  const gross = buyCost(m.price, depth(m), qty);
   const priceAfter = priceFromInv(s, g, m, m.inv - qty, m.impact - qty / depth(m));
+  const gross = askCents(bookValue(s,g,m,qty,-1)*(1+DEALER_SPREAD));
   const hc = haulCost(s, r, qty).cost;
-  return { qty, gross: round2(gross), avgPrice: qty ? gross / qty : m.price, priceAfter, haul: round2(hc), net: round2(gross + hc), limitedBy };
+  return { qty, gross: round2(gross), avgPrice: qty ? gross / qty : m.price, priceAfter, haul: round2(hc), net: round2(gross + round2(hc)), limitedBy };
+}
+
+/** Real order size after market depth, storage and the caller's explicit spending budget. */
+export function affordableBuy(s:GameState,r:RegionId,g:GoodId,desired:number,budget:number):Quote {
+  if(!Number.isFinite(desired)||desired<=0||!Number.isFinite(budget)||budget<=0)return quoteBuy(s,r,g,0);
+  const limit=Math.max(0,Math.min(Math.ceil(desired),Math.floor(freeSpace(s,r,g))));
+  const quote=quoteBuy(s,r,g,limit);
+  if(quote.net<=budget)return quote;
+  let lo=0,hi=Math.floor(quote.qty);
+  for(let i=0;i<32&&hi>lo;i++) {
+    const mid=Math.ceil((lo+hi)/2);
+    if(quoteBuy(s,r,g,mid).net<=budget)lo=mid;else hi=mid-1;
+  }
+  return quoteBuy(s,r,g,lo);
 }
 
 function useHaul(s: GameState, r: RegionId, qty: number) {
@@ -343,7 +382,7 @@ export function executeSell(s: GameState, r: RegionId, g: GoodId, qty: number, m
   m.playerSold += q.qty;
   m.price = priceFromInv(s, g, m);
   post(s, kind, q.gross, memo ?? `Sold ${Math.round(q.qty)} ${GOODS[g].name} @ $${q.avgPrice.toFixed(2)}`, r, g === 'meat' || g === 'milk' ? 'livestock' : GOODS[g].kind === 'processed' ? 'processing' : 'crops');
-  if(retailPremium(s,r,g)>1)recordRetailPremium(s,r,q.gross*(1-1/retailPremium(s,r,g)));
+  if((q.retailQty??0)>0){s.regions[r].retailToday[g]=(s.regions[r].retailToday[g]??0)+q.retailQty!;recordRetailPremium(s,r,q.retailValue??0);}
   useHaul(s, r, q.qty);
   s.stats.sales++;
   s.stats.peopleFed += (q.qty * GOODS[g].kcal) / (2000 * 365);

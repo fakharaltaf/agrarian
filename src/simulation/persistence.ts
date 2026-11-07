@@ -7,7 +7,7 @@ import type { GameState } from './types';
 import type { CivicService, CommunityHome, HouseholdCohort } from './types';
 import { createTownState } from './town-state';
 import { createSettlementState } from './community-state';
-export const SAVE_VERSION = 9;
+export const SAVE_VERSION = 10;
 export interface SaveFile { version: number; savedAt: number; paused?: boolean; game: GameState }
 
 /** Trust boundary: stored or imported JSON may be stale, hand-edited or corrupt. */
@@ -27,6 +27,10 @@ export function parseSave(text: string): SaveFile {
   for (const r of REGION_IDS) {
     if (!g.regions[r]) throw new Error('Save file is missing a region.');
     for (const gd of GOOD_IDS) if (!finite(g.regions[r].inventory[gd]) || g.regions[r].inventory[gd] < -1e-6) throw new Error('Save file inventory is corrupt.');
+  }
+  for (const r of REGION_IDS) {
+    const used=g.regions[r].retailToday;
+    if(!used||typeof used!=='object'||Array.isArray(used)||Object.keys(used).some(k=>!GOOD_IDS.includes(k as typeof GOOD_IDS[number]))||Object.values(used).some(q=>!finite(q)||q<0))throw new Error('Save file retail allowance is corrupt.');
   }
   for (const c of CROP_IDS) if (!finite(g.seeds[c]) || g.seeds[c] < 0) throw new Error('Save file seed stock is corrupt.');
   const numericMap = (v: unknown) => !!v && typeof v === 'object' && !Array.isArray(v) && Object.values(v).every(finite);
@@ -50,7 +54,7 @@ export function parseSave(text: string): SaveFile {
 /** Upgrades older saves in place. Version 1 (the prototype) predates the full economy. */
 export function migrate(g: Omit<GameState, 'version'> & { version: number }): GameState {
   if (g.version === 1) throw new Error('This save is from the early prototype and cannot be upgraded. Please start a new game.');
-  if (g.version !== 2 && g.version !== 3 && g.version !== 4 && g.version !== 5 && g.version !== 6 && g.version !== 7 && g.version !== 8 && g.version !== SAVE_VERSION) throw new Error(`Unsupported save version ${g.version}.`);
+  if (g.version !== 2 && g.version !== 3 && g.version !== 4 && g.version !== 5 && g.version !== 6 && g.version !== 7 && g.version !== 8 && g.version !== 9 && g.version !== SAVE_VERSION) throw new Error(`Unsupported save version ${g.version}.`);
   g.warned ??= {};
   g.bench ??= {};
   g.discovered ??= [];
@@ -101,7 +105,7 @@ export function migrate(g: Omit<GameState, 'version'> & { version: number }): Ga
     b.level ??= 1; b.reserved ??= 0;b.productionReport ??= emptyProductionReport();
     b.productionReport.open ??= null;b.productionReport.days ??= [];b.productionReport.lastBatches ??= 0;b.productionReport.lastTick ??= -1;
   }
-  for (const r of REGION_IDS) (g.regions[r].forecast ??= []), (g.regions[r].quality ??= {}), (g.regions[r].frostTonight ??= false);
+  for (const r of REGION_IDS) (g.regions[r].retailToday ??= {}), (g.regions[r].forecast ??= []), (g.regions[r].quality ??= {}), (g.regions[r].frostTonight ??= false);
   // goods and crops added after the save was made start empty, with fresh markets
   const fresh = createMarkets();
   for (const r of REGION_IDS) {

@@ -179,20 +179,25 @@ export function clearField(f: Field) {
   f.frost = 0;
 }
 
+export const spreadNeed=(s:GameState,f:Field,source:'fertilizer'|'manure')=>f.ha*(source==='fertilizer'?CONFIG.fertilizerPerHa*(has(s,'precisionFert')?.7:1):CONFIG.manurePerHa);
+const spreadingCrew=(s:GameState,f:Field)=>s.workers.some(w=>w.region===f.region&&w.role==='hand')||s.machines.some(m=>m.region===f.region&&MACHINES[m.type].autonomous&&MACHINES[m.type].task==='plant');
+export const spreadingCost=(s:GameState,f:Field)=>spreadingCrew(s,f)?0:round2(4*f.ha*s.macro.cpi);
+
 export function fertilizeField(s: GameState, f: Field, source: 'fertilizer' | 'manure'): string | null {
   const inv = s.regions[f.region].inventory;
-  const need = f.ha * (source === 'fertilizer' ? CONFIG.fertilizerPerHa * (has(s, 'precisionFert') ? 0.7 : 1) : CONFIG.manurePerHa);
+  const need = spreadNeed(s,f,source),cost=spreadingCost(s,f);
   if (inv[source] < need) return `Need ${Math.ceil(need)} ${GOODS[source].name.toLowerCase()} in ${REGIONS[f.region].name} storage.`;
   if (f.spreading) return `Field ${f.id} is already waiting to be spread.`;
+  if(cost>Math.max(0,s.cash))return `Spreading contractor costs $${cost.toFixed(2)}; hire a hand or raise cash first.`;
   inv[source] -= need;
   // with a crew in the region it's field work for them (tractors spread fastest); with none, a contractor does it at once
-  if (s.workers.some((w) => w.region === f.region && w.role === 'hand') || s.machines.some((m) => m.region === f.region && MACHINES[m.type].autonomous && MACHINES[m.type].task === 'plant')) {
+  if (spreadingCrew(s,f)) {
     f.spreading = source;
     f.spreadWork = 0;
     return null;
   }
   applySpread(s, f, source);
-  post(s, 'maintenance', -4 * f.ha * s.macro.cpi, 'Spreading contractor', f.region);
+  post(s, 'maintenance', -cost, 'Spreading contractor', f.region);
   return null;
 }
 

@@ -1,9 +1,10 @@
+import { bestRetailCentre, retailChannel, retailRate, solarCapacity } from './facility-levels';
 import { cowshedAlternative } from './production-report';
 import { townIndustryFactor } from './town-state';
 // Production-line economics for the UI: one source of truth for what a group of same-type
 // facilities in a region earns per day, what pausing it really saves, the prices it needs
 // to break even, and whether upgrading would pay. Everything is valued at today's prices.
-import { BUILDINGS, CONFIG, COWS_PER_DAIRY_BATCH, type BuildingType, type GoodId, type RegionId } from './config';
+import { BUILDINGS, CONFIG, COWS_PER_DAIRY_BATCH, REGIONS, type BuildingType, type GoodId, type RegionId } from './config';
 import { buildingDivision, electricityPrice, execOn, has, levelMult, priceUsd } from './core';
 import { upgradeCost } from './engine';
 import type { Building, GameState } from './types';
@@ -118,4 +119,28 @@ export function upgradeOutlook(s: GameState, list: Building[]): Upgrade | null {
   const blocked = t === 'dairy' && after.reduce((a, u) => a + u.bph, 0) < list.filter((b) => b.active).reduce((a, b) => a + b.stats.out * levelMult(Math.min(3, (b.level || 1) + 1)) / levelMult(b.level), 0) - 1e-6
     ? 'You would need more cows to fill the bigger dairy.' : undefined;
   return { cost, worthAfter, gain: worthAfter - now, level, blocked };
+}
+
+export interface FacilityUpgrade {
+  cost: number; ids: number[]; level: number; extraStaff: number;
+  extraKwh: number; conservativeGain: number | null;
+  rateBefore: number; rateAfter: number; extraBaseSales: number | null;
+}
+/** Exact capacity/staff change; retail gives a sales threshold rather than invented future demand. */
+export function facilityUpgrade(s: GameState, list: Building[]): FacilityUpgrade | null {
+  if (!list.length) return null;
+  const type=list[0].type,r=list[0].region;
+  if (type!=='solar'&&type!=='distribution') return null;
+  const best=bestRetailCentre(list);
+  const candidates=type==='distribution'?(best&&best.level<3?[best]:[]):list.filter(b=>b.active&&b.level<3);
+  if(!candidates.length)return null;
+  const extraStaff=candidates.reduce((n,b)=>n+staffDay(s,type,b.level+1)-staffDay(s,type,b.level),0);
+  const cost=candidates.reduce((n,b)=>n+upgradeCost(s,b),0),level=Math.min(...candidates.map(b=>b.level+1));
+  const sunHours=Array.from({length:12},(_,h)=>Math.sin((h+.5)/12*Math.PI)).reduce((n,x)=>n+x,0);
+  const extraKwh=candidates.reduce((n,b)=>n+solarCapacity({...b,level:b.level+1})-solarCapacity(b),0)*sunHours*REGIONS[r].solar*(1-.3*Math.min(1,s.regions[r].rainToday));
+  const rateBefore=type==='distribution'?retailChannel(s,r):0;
+  const rateAfter=type==='distribution'?Math.max(rateBefore,retailRate(best!.level+1)):0;
+  return {cost,ids:candidates.map(b=>b.id),level,extraStaff,extraKwh,
+    conservativeGain:type==='solar'?extraKwh*electricityPrice(s,r)*.5-extraStaff:null,
+    rateBefore,rateAfter,extraBaseSales:rateAfter>rateBefore?extraStaff/(rateAfter-rateBefore):null};
 }
