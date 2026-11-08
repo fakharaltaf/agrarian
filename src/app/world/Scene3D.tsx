@@ -7,12 +7,13 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { ANIMALS, BUILDINGS, CROPS, GOODS, REGIONS, SEASONS, type AnimalId, type CropId, type RegionId } from '../../simulation/config';
 import { timingFactor, fertility, growth, isMature, isReady } from '../../simulation/engine';
-import { stored } from '../../simulation/core';
+import { priceUsd, stored } from '../../simulation/core';
+import { spreadNeed } from '../../simulation/agriculture';
 import type { GameState } from '../../simulation/types';
 import { getGame, getSpeed } from '../../stores/game';
 import { stageAtLeast } from '../../simulation/stages';
 import { preloadArt, artRevision } from './art';
-import { num, pct0 } from '../format';
+import { money, num, pct0 } from '../format';
 import { layoutRegion, type Layout, type Lot, type Plot } from './layout';
 import { animal, buildCivic, buildCommunityHome, buildLot, box, cached, mat, mesh, PAL, person, tree, vehicle, type Model } from './models';
 
@@ -286,6 +287,15 @@ export function fieldNeeds(s: GameState, f: GameState['fields'][number]) {
     fertilise: fertility(f) < 0.5 && !f.spreading,
     irrigate: !f.irrigated && !!f.crop && f.moisture < CROPS[f.crop].water * 0.6,
   };
+}
+
+/** How the Fertilise button will feed this plot: free manure first, then fertiliser in store, then buy what is missing. */
+export function fertilisePlan(s: GameState, f: GameState['fields'][number]) {
+  const inv = s.regions[f.region].inventory, manure = spreadNeed(s, f, 'manure'), fert = spreadNeed(s, f, 'fertilizer');
+  if (inv.manure >= manure) return { source: 'manure' as const, buy: 0, cost: 0 };
+  if (inv.fertilizer >= fert) return { source: 'fertilizer' as const, buy: 0, cost: 0 };
+  const buy = Math.ceil(fert - inv.fertilizer);
+  return { source: 'fertilizer' as const, buy, cost: buy * priceUsd(s, f.region, 'fertilizer') };
 }
 
 // ---------------------------------------------------------------- camera
@@ -780,7 +790,8 @@ function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el
       const primary=hand ? ready?button(`harvest:${id}`,'🌾 Harvest'):!p.field.crop&&plantLabel?button(`plant:${id}`,`🌱 ${plantLabel}`):p.field.crop?`<span class="wl-grow">⏳ ${Math.floor(growth(s,p.field)*100)}%</span>`:'' : '';
       const plan=!hand&&stageAtLeast(s,'farm-business')?button(`plan:${id}`,'📋 Crop plan'):'';
       const need=fieldNeeds(s,p.field);
-      const care=(need.fertilise?button(`fertilise:${id}`,'🌿 Fertilise'):'')+(need.irrigate?button(`irrigate:${id}`,'💧 Irrigate'):'');
+      const fp=need.fertilise?fertilisePlan(s,p.field):null;
+      const care=(fp?button(`fertilise:${id}`,fp.source==='manure'?'🌿 Spread manure':fp.buy?`🌿 Fertilise · buy ${money(fp.cost)}`:'🌿 Fertilise'):'')+(need.irrigate?button(`irrigate:${id}`,'💧 Irrigate'):'');
       want.push({key:'act',x:Math.max(115,Math.min(W-115,px)),y:Math.max(80,Math.min(H-30,py)),html:primary+care+plan+button(`inspect:${id}`,'ⓘ'),cls:'wl-radial'});
     }
   }
@@ -829,7 +840,8 @@ function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el
     if (!d) { d = document.createElement('div'); d.dataset.k = w.key; el.appendChild(d); }
     have.delete(w.key);
     if (d.className !== w.cls) d.className = w.cls;
-    if (d.innerHTML !== w.html) d.innerHTML = w.html;
+    // Compare against the source string we last wrote: the browser re-serialises innerHTML (& → &amp;), which would rebuild nodes every frame.
+    if (d.dataset.html !== w.html) { d.innerHTML = w.html; d.dataset.html = w.html; }
     if ((d.dataset.action ?? '') !== (w.action ?? '')) w.action ? (d.dataset.action = w.action, d.setAttribute('role', 'button')) : (delete d.dataset.action, d.removeAttribute('role'));
     d.style.transform = `translate(${w.x}px, ${w.y}px) translate(-50%, -100%)`;
   }

@@ -1,5 +1,4 @@
 import { bestCrop } from '../crops';
-import { spreadNeed } from '../../simulation/agriculture';
 import {cityActive} from '../../simulation/city-state';
 import { townOf } from '../../simulation/town-state';
 // Everything that floats over the world: objective, selection panel, market, land, region switcher.
@@ -16,7 +15,7 @@ import { NEXT_STAGE, STAGES, stageAtLeast } from '../../simulation/stages';
 import { unlockedRegions } from '../pages/shared';
 import { Bar, Card, Confirm, Modal, Select, usePref } from '../ui';
 import { AdvisorPill } from '../Advisor';
-import { Scene3D, type WorldPick } from './Scene3D';
+import { Scene3D, fertilisePlan, type WorldPick } from './Scene3D';
 import { layoutRegion, type Lot } from './layout';
 import { communityOf, population, homeCapacity } from '../../simulation/community-state';
 
@@ -233,9 +232,9 @@ export function Hud() {
           else if(kind==='irrigate') act({type:'irrigate',fieldIds:[id]},'Irrigation installed.');
           else if(kind==='fertilise'){
             const f=s.fields.find(x=>x.id===id); if(!f)return;
-            const inv=s.regions[f.region].inventory, manure=spreadNeed(s,f,'manure'), need=spreadNeed(s,f,'fertilizer');
-            if(inv.manure>=manure) act({type:'fertilize',fieldIds:[id],source:'manure'},'Manure is on its way to the field.');
-            else { if(inv.fertilizer<need&&!act({type:'buy',region:f.region,good:'fertilizer',qty:Math.ceil(need-inv.fertilizer)}))return; act({type:'fertilize',fieldIds:[id],source:'fertilizer'},'Fertiliser is on its way to the field.'); }
+            const plan=fertilisePlan(s,f);
+            if(plan.buy&&!act({type:'buy',region:f.region,good:'fertilizer',qty:plan.buy}))return;
+            act({type:'fertilize',fieldIds:[id],source:plan.source},plan.source==='manure'?'Manure is on its way to the field.':'Fertiliser is on its way to the field.');
           }
           else if(kind==='place' && lot){
             const target=lot.service?.type==='barracks'?'nation':lot.service?.type==='watchtower'?'region':lot.service&&['sanitation','lighting','police'].includes(lot.service.type)?'city':lot.key.startsWith('civic:')?'town':lot.key.startsWith('community:')?'community':lot.key==='crew'?'workers':lot.key==='office'?'automation':lot.key==='market'?'markets':lot.type==='house'||lot.type==='shed'?'finance':LOT_PAGE[BUILDINGS[lot.type].category];
