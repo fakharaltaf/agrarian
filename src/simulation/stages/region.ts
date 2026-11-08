@@ -82,11 +82,12 @@ export function regionDaily(s: GameState) {
   const toll = tollIncome(s);
   if (toll > 0) post(s, 'tolls', toll, 'Border tolls', 'heartland', 'corporate', 'town');
   // Raids hit caravans still on the road; the loss is real goods.
-  for (const sh of s.shipments) {
-    if (!sh.caravan || s.tick >= sh.arrives || random(s) >= raidRisk(s)) continue;
+  // One bandit band: at most one caravan on the road is hit per day.
+  const road = s.shipments.filter(sh => sh.caravan && s.tick < sh.arrives);
+  const sh = road.length && random(s) < raidRisk(s) ? road[Math.floor(random(s) * road.length)] : undefined;
+  if (sh && Math.floor(sh.qty * .3) >= 1) {
     const lost = Math.floor(sh.qty * .3);
-    if (lost < 1) continue;
-    sh.qty -= lost; v.raids++; v.bandits = Math.min(1, v.bandits + .05);
+    sh.qty -= lost; v.raids++; v.bandits = Math.min(1, v.bandits + .02);
     const to = sh.to as NeighbourId;
     log(s, 'warning', `Bandits raided your caravan to ${REGIONS[to].name}: ${lost} ${GOODS[sh.good].name.toLowerCase()} lost.`, 'region');
     if (!v.raid) v.raid = { id: nextId(s), to, good: sh.good, lost, opened: s.tick, deadline: s.tick + 3 * 24 };

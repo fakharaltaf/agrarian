@@ -178,3 +178,40 @@ export function cityBotAct(s:GameState) {
   }
   if(v.case)dispatch(s,{type:'resolveCityCase',answer:'rehabilitate'});
 }
+
+// ---------------------------------------------------------------- Region and Nation, through real actions only
+import { canStartRegion, protection } from '../simulation/stages/region';
+import { regionActive, regionOf, NEIGHBOUR_IDS, NEIGHBOURS } from '../simulation/region-state';
+import { canStartNation, campaignOdds, soldiers } from '../simulation/stages/nation';
+import { nationActive, nationOf } from '../simulation/nation-state';
+export function regionBotAct(s: GameState) {
+  cityBotAct(s);
+  if (s.bankrupt) return;
+  if (canStartRegion(s)) dispatch(s, { type: 'startRegion', border: 'open' });
+  if (!regionActive(s) || s.tick % 24 !== 1) return;
+  const r = regionOf(s), t = townOf(s);
+  // A caravan of each neighbour's wanted good when the farm has it, otherwise wheat.
+  for (const id of NEIGHBOUR_IDS) if (!r.neighbours[id].route) {
+    const want = NEIGHBOURS[id].wants, good = s.regions.heartland.inventory[want] > 100 ? want : 'wheat';
+    dispatch(s, { type: 'setRoute', to: id, good, qty: 100 });
+  }
+  if (protection(s) < .5 && !t.services.some(b => b.type === 'watchtower') && t.cash > servicePrice(s, 'watchtower') + serviceDailyCost(s, 'watchtower') * 14)
+    dispatch(s, { type: 'buildService', service: 'watchtower', district: 'farmgate' });
+  if (r.raid) dispatch(s, { type: 'resolveRaid', answer: t.cash > 20000 * s.macro.cpi ? 'pursue' : 'absorb' });
+  if (r.demand) dispatch(s, { type: 'answerDemand', answer: s.cash > r.demand.amount * 3 ? 'pay' : 'refuse' });
+}
+export function nationBotAct(s: GameState) {
+  regionBotAct(s);
+  if (s.bankrupt) return;
+  if (canStartNation(s)) dispatch(s, { type: 'startNation', path: 'army' });
+  if (!nationActive(s) || s.tick % 24 !== 2) return;
+  const v = nationOf(s), t = townOf(s);
+  const companies = t.services.filter(b => b.type === 'barracks').reduce((n, b) => n + b.count, 0);
+  if (companies < 2 && soldiers(s) >= companies * 20 && t.cash > servicePrice(s, 'barracks') + plannedServiceCost(s) * 14)
+    dispatch(s, { type: 'buildService', service: 'barracks', district: 'farmgate' });
+  if (soldiers(s) && v.drillUntil < 0 && v.drill < 1) dispatch(s, { type: 'trainArmy' });
+  if (!v.campaign && soldiers(s) && v.supply >= 1) {
+    const target = [...NEIGHBOUR_IDS].sort((a, b) => campaignOdds(s, b, 'raid') - campaignOdds(s, a, 'raid'))[0];
+    if (campaignOdds(s, target, 'raid') >= .6) dispatch(s, { type: 'launchCampaign', target, stance: 'raid' });
+  }
+}
