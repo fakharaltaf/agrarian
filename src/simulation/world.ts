@@ -143,12 +143,15 @@ export const forget = (s: GameState, r: RegionId, key: string) => { delete world
 
 const LOT_W = 7, LOT_D = 5, LOTS_PER_ROW = 5, FIELD_ROW_W = 46;
 /** Rebuild the old automatic arrangement once, so existing farms look the same, then clear around it. */
-export function seedWorld(s: GameState, r: RegionId) {
+export type Wanted = { farmMarket: boolean; crew: boolean; office: boolean; hall: boolean };
+const NONE: Wanted = { farmMarket: false, crew: false, office: false, hall: false };
+export function seedWorld(s: GameState, r: RegionId, wanted: Wanted = NONE) {
   const w = worldOf(s, r);
   if (Object.keys(w.pos).length) return;
   const put = (key: string, x: number, y: number) => { const fp = footprintOf(s, key); if (!fp) return; w.pos[key] = [x, y]; clearRect(w, x, y, fp.w, fp.d, 2); };
   put(r === 'heartland' ? 'farmhouse' : 'shed', 1, 1);
-  if (r === 'heartland') { put('market', 1 * LOT_W + 1, 1); put('crew', 2 * LOT_W + 1, 1); put('office', 3 * LOT_W + 1, 1); }
+  // landmarks only once their chapter has arrived; later ones appear beside the farmhouse when it does
+  if (r === 'heartland') { if (wanted.farmMarket) put('market', 1 * LOT_W + 1, 1); if (wanted.crew) put('crew', 2 * LOT_W + 1, 1); if (wanted.office) put('office', 3 * LOT_W + 1, 1); }
   const extra: Building[] = [];
   for (const t of BUILDING_TYPES) {
     const bs = s.buildings.filter((b) => b.region === r && b.type === t);
@@ -169,7 +172,7 @@ export function seedWorld(s: GameState, r: RegionId) {
     const used = [0, 0, 0];
     for (const h of homes) { const st = street[h.tier as keyof typeof street] ?? 0; put(`home:${h.id}`, -7 - st * 8, 1 + used[st]); used[st] += homeFootprint(h).d + 1; }
     const services = ((s.stageState.town?.services as CivicService[] | undefined) ?? []).filter((v) => v.type !== 'road');
-    if (s.stageState.town?.active) put('hall', -31, 1);
+    if (wanted.hall) put('hall', -31, 1);
     const order = ['school', 'well', 'clinic', 'road', 'hospital', 'waterworks', 'park', 'sanitation', 'lighting', 'police', 'watchtower', 'barracks'];
     for (const v of services) put(`svc:${v.id}`, -7 - DISTRICT_IDS.indexOf(v.district) * 8, -6 - order.indexOf(v.type) * 5);
   }
@@ -204,11 +207,11 @@ export function patchesAround(s: GameState, r: RegionId, x: number, y: number, s
 
 /** Every object that exists should stand somewhere. Landmarks appear with their chapter; anything else missing a spot
  *  (older saves, automation) gets the nearest free spot, clearing forest under it if there is no room. */
-export function reconcileWorld(s: GameState, wanted: { farmMarket: boolean; crew: boolean; office: boolean; hall: boolean }) {
+export function reconcileWorld(s: GameState, wanted: Wanted) {
   for (const r of Object.keys(s.regions) as RegionId[]) {
     if (!s.regions[r].unlocked) continue;
     const w = worldOf(s, r);
-    if (!Object.keys(w.pos).length) seedWorld(s, r);
+    if (!Object.keys(w.pos).length) seedWorld(s, r, wanted);
     const keys: string[] = [r === 'heartland' ? 'farmhouse' : 'shed'];
     if (r === 'heartland') {
       if (wanted.farmMarket) keys.push('market');

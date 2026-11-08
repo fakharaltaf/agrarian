@@ -62,3 +62,18 @@ it('old saves keep their arrangement and start with their farm cleared; the map 
   for (const [k, [x, y]] of Object.entries(w.pos)) expect(clearedSet(w).has(Math.floor((y + 72) / 4) * 48 + Math.floor((x + 80) / 4)), k).toBe(true);
   expect(parseSave(JSON.stringify({ game: g })).game.world).toEqual(g.world);
 });
+
+it('a new farm starts with just its farmhouse; landmarks appear with their chapter and then stay', () => {
+  const s = createGame(1007), w = worldOf(s, 'heartland');
+  expect(Object.keys(w.pos).sort()).toEqual(['farmhouse', `field:${s.fields[0].id}`].sort());
+  const home = findSpot(s, 'heartland', { w: 3, d: 3 })!;
+  post(s, 'prize', 1000, 'fixture');
+  expect(dispatch(s, { type: 'moveObject', region: 'heartland', key: 'farmhouse', at: home }).ok).toBe(true);
+  s.stats.harvests = 1;
+  for (let i = 0; i < 8; i++) step(s);
+  expect(w.pos.market).toBeDefined();
+  const market = w.pos.market;
+  for (let i = 0; i < 48; i++) step(s);
+  expect(w.pos.market).toEqual(market);
+  expect(w.pos.farmhouse).toEqual(home);
+});

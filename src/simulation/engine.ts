@@ -181,7 +181,7 @@ export function moveFee(s: GameState, r: RegionId, key: string) {
 }
 /** One crew clears forest patch by patch; each finished patch adds timber to storage. */
 function worldTick(s: GameState) {
-  if (s.tick % TICKS_PER_DAY === 1) reconcileWorld(s, { farmMarket: s.stats.harvests > 0, crew: stageAtLeast(s, 'farm-business'), office: s.legacyProgression ? s.era >= 3 : stageAtLeast(s, 'industry'), hall: !!s.stageState.town?.active });
+  if (s.tick % 6 === 1) reconcileWorld(s, { farmMarket: s.stats.harvests > 0, crew: stageAtLeast(s, 'farm-business'), office: s.legacyProgression ? s.era >= 3 : stageAtLeast(s, 'industry'), hall: !!s.stageState.town?.active });
   for (const r of REGION_IDS) {
     const w = s.world?.[r];
     if (!w?.queue.length) continue;
