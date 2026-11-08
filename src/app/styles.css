@@ -778,3 +778,4 @@ body:has(.modal-bg) .shell .coach { display: none !important; }
 .cash-wrap { display: flex; align-items: center; min-width: 0; }
 @media (max-width: 480px) { .cash-wrap { flex-direction: column; align-items: flex-start; gap: 2px; } .tax-chip { margin-left: 0; padding: 1px 6px; font-size: 11px; line-height: 1.3; } }
 .game-strip .cash-wrap { margin-right: auto; } .game-strip .cash-wrap .cash-counter { margin-right: 0; }
+.ln-today { display: block; font-weight: 800; } .ln-today.up { color: var(--up); } .ln-today.down { color: var(--down); }

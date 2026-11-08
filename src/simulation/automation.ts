@@ -5,7 +5,7 @@ import { caravanReserve } from './region-state';
 // policies steer everything toward strategic objectives. Automation spends real money
 // through the same primitives as the player, and never below the cash reserve.
 import { ANIMALS, BUILDINGS, CONFIG, CROPS, DAYS_PER_YEAR, GOODS, GOOD_IDS, MACHINES, REGIONS, REGION_IDS, TICKS_PER_DAY, WORK_END, WORK_START, type CropId, type GoodId, type RegionId } from './config';
-import { canGrow, expectedYield, fertility, fertilizeField, soilAdequacy, spreadingCost, spreadNeed, warnOnce } from './agriculture';
+import { canGrow, expectedYield, readyAt, fertility, fertilizeField, soilAdequacy, spreadingCost, spreadNeed, warnOnce } from './agriculture';
 import { buildingsIn, clamp, freeSpace, levelMult, reservedStock, debt, execOn, has, hour, log, nextId, post, priceUsd, seasonOf, seedCost, stored, totalAssets } from './core';
 import { affordableBuy, avg30, closedPort, executeBuy, executeSell, forecast, marketDepth } from './markets';
 import { CONTRACT_SIZE, FUTURES_GOODS, openFutures, futuresPrice, closeFutures } from './finance';
@@ -228,7 +228,17 @@ export function policiesTick(s: GameState) {
 function sellRound(s: GameState, r: RegionId, midday: boolean) {
   const P = s.automation.policies;
   const st = stored(s, r);
-  let excess = Math.max(0, st.dry - st.cap.dry * P.sellStorageCap);
+  // Make room before a harvest: what ripe or nearly ripe fields will bring in over the next day, against free space.
+  // Without this, a big field lands in a full barn and the overflow is dumped on the market at once.
+  let incomingDry = 0, incomingCold = 0;
+  for (const f of s.fields) {
+    if (f.region !== r || !f.crop || readyAt(f) - s.tick > 24) continue;
+    const units = expectedYield(s, f, f.crop);
+    if (GOODS[f.crop].storage === 'cold') incomingCold += units; else incomingDry += units;
+  }
+  const coldShort = Math.max(0, incomingCold - Math.max(0, st.cap.cold - st.cold));
+  let excess = Math.max(0, st.dry - st.cap.dry * P.sellStorageCap, incomingDry + coldShort - Math.max(0, st.cap.dry - st.dry));
+  let coldPrep = coldShort;
   const coldSpill = st.coldOverflow > 1; // chilled goods out of the cold store rot fast: sell them every hour until they fit
   const feedKeep = s.herds.reduce((a, h) => a + (h.region === r ? h.count * ANIMALS[h.animal].feedPerDay * 3 : 0), 0);
   const ordered = GOOD_IDS.filter(g => s.markets[r][g] && GOODS[g].kind !== 'input')
@@ -257,10 +267,12 @@ function sellRound(s: GameState, r: RegionId, midday: boolean) {
     const cold = GOODS[g].storage === 'cold';
     const overflow = cold ? stored(s, r).coldOverflow : Infinity;
     const relief = Math.min(q, excess, overflow, marketDepth(s, r, g) * 0.15);
-    const planned = perishable ? q : (coldSpill && cold) || (midday && good) ? q * 0.25 : relief;
+    const prep = cold && coldPrep > 0 ? Math.min(q, coldPrep, marketDepth(s, r, g) * 0.15) : 0;
+    const planned = Math.max(perishable ? q : (coldSpill && cold) || (midday && good) ? q * 0.25 : relief, prep);
     if (planned >= 1) {
       const sold = executeSell(s, r, g, planned, `Manager sales: ${GOODS[g].name}`).qty;
       excess = Math.max(0, excess - Math.min(sold, overflow));
+      if (cold) coldPrep = Math.max(0, coldPrep - sold);
     }
   }
 }
