@@ -427,6 +427,13 @@ export type Action =
   | { type: 'startNation'; path: import('./nation-state').NationPath }
   | { type: 'launchCampaign'; target: import('./region-state').NeighbourId; stance: import('./nation-state').Stance }
   | { type: 'trainArmy' }
+  | { type: 'inviteAlly'; to: import('./region-state').NeighbourId }
+  | { type: 'answerAid'; send: boolean }
+  | { type: 'castVote'; yes: boolean }
+  | { type: 'setEmbargo'; target: import('./region-state').NeighbourId | null }
+  | { type: 'hireSpies' }
+  | { type: 'hireMercenaries' }
+  | { type: 'mediate' }
   | { type: 'startTown'; charter: SchoolCharter }
   | { type: 'fundTown'; amount: number; direction: 'toTown' | 'repay' }
   | { type: 'setTownTax'; rate: number }

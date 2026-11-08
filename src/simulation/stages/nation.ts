@@ -88,6 +88,82 @@ function resolveCampaign(s: GameState) {
   v.campaign = null;
 }
 
+// ---------------------------------------------------------------- Alliance & Neutrality
+export const allyCharterCost = (s: GameState) => round2(20000 * s.macro.cpi);
+export const spyCost = (s: GameState) => round2(15000 * s.macro.cpi);
+export const mercenaryCost = (s: GameState) => round2(40000 * s.macro.cpi);
+export const mediationCost = (s: GameState) => round2(10000 * s.macro.cpi);
+export const ALLY_TRUST = 60;
+/** Extra road protection from the chosen path: allied patrols, or neutral goodwill and hired swords. */
+export function pathGuard(s: GameState) {
+  if (!nationActive(s)) return 0;
+  const v = nationOf(s);
+  if (v.path === 'alliance') return Math.min(.3, .1 * v.league.members.length * v.league.cohesion);
+  if (v.path === 'neutrality') return Math.min(.25, .06 * NEIGHBOUR_IDS.filter(id => regionOf(s).neighbours[id].route && v.neutral.embargo?.target !== id).length) + (s.tick < v.neutral.mercenariesUntil ? .3 : 0);
+  return 0;
+}
+/** Neighbours your caravans must not reach today: sanctioned by the league or under your embargo. */
+export const closedTo = (s: GameState, id: NeighbourId) => nationActive(s) && (nationOf(s).league.sanction?.target === id || nationOf(s).neutral.embargo?.target === id);
+function answerAid(s: GameState, send: boolean): ActionResult {
+  const L = nationOf(s).league, q = L.request, r = regionOf(s);
+  if (!q) return { ok: false, error: 'No ally is asking for help.' };
+  if (send) {
+    if (q.kind === 'cash') { if (s.cash < q.amount) return { ok: false, error: 'Not enough cash.' }; post(s, 'diplomacy', -q.amount, `Aid to ${REGIONS[q.from].name}`); L.aid = round2(L.aid + q.amount); }
+    else {
+      const spare = (g: GoodId) => Math.max(0, s.regions.heartland.inventory[g] - reservedStock(s, 'heartland', g) - larderReserve(s, g));
+      if (RATION_GOODS.reduce((n, g) => n + spare(g), 0) < q.amount) return { ok: false, error: `You need ${Math.ceil(q.amount)} spare grain or bread.` };
+      let left = q.amount;
+      for (const g of RATION_GOODS) { const take = Math.min(left, spare(g)); s.regions.heartland.inventory[g] -= take; left -= take; }
+
+      L.aid = round2(L.aid + q.amount * 2 * s.macro.cpi);
+    }
+    r.neighbours[q.from].trust = clamp(r.neighbours[q.from].trust + 10, 0, 100); L.cohesion = clamp(L.cohesion + .08, 0, 1);
+  } else { r.neighbours[q.from].trust = clamp(r.neighbours[q.from].trust - 20, 0, 100); L.cohesion = clamp(L.cohesion - .15, 0, 1); }
+  L.request = null; return { ok: true };
+}
+function allianceDaily(s: GameState, today: number) {
+  const L = nationOf(s).league, r = regionOf(s);
+  L.cohesion = clamp(L.cohesion + (.6 - L.cohesion) * .01, 0, 1);
+  if (L.sanction && s.tick >= L.sanction.until) L.sanction = null;
+  if (L.request && s.tick >= L.request.deadline) answerAid(s, false);
+  if (L.vote && s.tick >= L.vote.deadline) { L.vote = null; L.cohesion = clamp(L.cohesion - .05, 0, 1); }
+  if (!L.members.length) return;
+  if (!L.request && today >= L.nextRequestDay) {
+    const from = L.members[Math.floor(random(s) * L.members.length)], grain = random(s) < .6;
+    L.request = { from, kind: grain ? 'grain' : 'cash', amount: grain ? 400 + 100 * L.members.length : round2(15000 * s.macro.cpi), deadline: s.tick + 10 * 24 };
+    L.nextRequestDay = today + 30;
+    log(s, 'warning', `${NEIGHBOURS[from].leader} asks the league for help: ${grain ? `${L.request.amount} grain` : `$${Math.round(L.request.amount).toLocaleString()}`}. Allies remember who answers.`, 'nation');
+  }
+  if (L.members.length >= 2 && !L.vote && !L.sanction && today >= L.nextVoteDay) {
+    const outsiders = NEIGHBOUR_IDS.filter(id => !L.members.includes(id)).sort((a, b) => r.neighbours[a].trust - r.neighbours[b].trust);
+    if (outsiders.length) { L.vote = { target: outsiders[0], deadline: s.tick + 7 * 24 }; log(s, 'info', `The league votes on sanctions against ${REGIONS[outsiders[0]].name}.`, 'nation'); }
+    L.nextVoteDay = today + 60;
+  }
+  if (L.cohesion < .25 && L.members.length) {
+    const gone = L.members.pop()!; r.neighbours[gone].treaty = false; L.cohesion = .4;
+    log(s, 'warning', `${REGIONS[gone].name} has left the league. Answer allies' requests to hold it together.`, 'nation');
+  }
+}
+function neutralDaily(s: GameState, today: number) {
+  const N = nationOf(s).neutral, r = regionOf(s);
+  if (N.embargo) {
+    const n = r.neighbours[N.embargo.target];
+    n.trust = clamp(n.trust - .3, 0, 100);
+    // Dependence on your food decides how fast they give in.
+    if (today - Math.floor(N.embargo.since / 24) >= (n.delivered > 0 ? 20 : 40)) {
+      r.bandits = Math.max(.1, r.bandits - .2); if (r.demand?.from === N.embargo.target) r.demand = null; n.trust = 50;
+      log(s, 'opportunity', `${NEIGHBOURS[N.embargo.target].leader} concedes after the embargo. Their raiders stand down; trade can resume.`, 'nation');
+      N.embargo = null;
+    }
+  }
+  if (N.dispute && s.tick >= N.dispute.deadline) { r.bandits = clamp(r.bandits + .1, 0, 1); log(s, 'warning', `${REGIONS[N.dispute.a].name} and ${REGIONS[N.dispute.b].name} came to blows. Bandits roam the roads between them.`, 'nation'); N.dispute = null; }
+  if (!N.dispute && today >= N.nextDisputeDay) {
+    const [a, b] = [...NEIGHBOUR_IDS].sort(() => random(s) - .5);
+    N.dispute = { a, b, deadline: s.tick + 10 * 24 }; N.nextDisputeDay = today + 45;
+    log(s, 'info', `${REGIONS[a].name} and ${REGIONS[b].name} are quarrelling. A neutral mediator could earn both their trust.`, 'nation');
+  }
+}
+
 export function nationDaily(s: GameState) {
   if (!nationActive(s) || s.tick % 24 !== 0) return;
   const v = nationOf(s), today = day(s), c = communityOf(s);
@@ -112,21 +188,60 @@ export function nationDaily(s: GameState) {
     else post(s, 'prize', v.vassal.daily, `Tribute from ${REGIONS[v.vassal.from].name}`);
   }
   if (v.campaign && s.tick >= v.campaign.ends) resolveCampaign(s);
+  if (v.path === 'alliance') allianceDaily(s, today);
+  if (v.path === 'neutrality') neutralDaily(s, today);
 }
 
 function action(s: GameState, a: Action): ActionResult | null {
-  if (!['startNation', 'launchCampaign', 'trainArmy'].includes(a.type)) return null;
+  if (!['startNation', 'launchCampaign', 'trainArmy', 'inviteAlly', 'answerAid', 'castVote', 'setEmbargo', 'hireSpies', 'hireMercenaries', 'mediate'].includes(a.type)) return null;
   const v = nationOf(s), fail = (error: string): ActionResult => ({ ok: false, error });
   if (a.type === 'startNation') {
-    if (a.path !== 'army') return fail('The Alliance and Neutrality paths arrive in a later update.');
+    if (a.path !== 'army' && a.path !== 'alliance' && a.path !== 'neutrality') return fail('Choose Army, Alliance or Neutrality.');
     if (!canStartNation(s)) return fail('Answer a rival’s demand in the Region chapter first.');
     v.active = true; v.path = a.path; v.enteredAt = s.tick; s.stageId = 'nation'; s.eraReady = false;
-    s.values.orderFreedom = clamp(s.values.orderFreedom + 8, 0, 100);
-    log(s, 'opportunity', 'Build barracks, keep them fed and drilled. Every soldier is a worker your farm and town no longer have.', 'nation');
+    const today = day(s); v.league.nextRequestDay = today + 20; v.league.nextVoteDay = today + 40; v.neutral.nextDisputeDay = today + 15;
+    s.values.orderFreedom = clamp(s.values.orderFreedom + (a.path === 'army' ? 8 : a.path === 'neutrality' ? -6 : 0), 0, 100);
+    log(s, 'opportunity', a.path === 'army' ? 'Build barracks, keep them fed and drilled. Every soldier is a worker your farm and town no longer have.'
+      : a.path === 'alliance' ? `Invite neighbours who trust you (${ALLY_TRUST}+) into a league. Members guard your roads; they will ask for help in return.`
+      : 'Stay unarmed and indispensable: every neighbour you feed makes you harder to attack.', 'nation');
     return { ok: true };
   }
   if (!v.active) return fail('Begin the Nation chapter first.');
+  if (a.type === 'inviteAlly' || a.type === 'answerAid' || a.type === 'castVote') {
+    if (v.path !== 'alliance') return fail('Only the Alliance path has a league.');
+    const L = v.league, r = regionOf(s);
+    if (a.type === 'answerAid') return answerAid(s, a.send);
+    if (a.type === 'castVote') {
+      if (!L.vote) return fail('There is no vote today.');
+      if (a.yes) { L.sanction = { target: L.vote.target, until: s.tick + 60 * 24 }; r.neighbours[L.vote.target].trust = clamp(r.neighbours[L.vote.target].trust - 15, 0, 100); r.bandits = Math.max(.1, r.bandits - .15); L.cohesion = clamp(L.cohesion + .05, 0, 1); }
+      else L.cohesion = clamp(L.cohesion - .1, 0, 1);
+      L.vote = null; return { ok: true };
+    }
+    if (!isNeighbour(a.to)) return fail('Choose a neighbour.');
+    if (L.members.includes(a.to)) return fail('Already in your league.');
+    if (r.neighbours[a.to].trust < ALLY_TRUST) return fail(`${NEIGHBOURS[a.to].leader} needs trust ${ALLY_TRUST} first.`);
+    const cost = allyCharterCost(s); if (s.cash < cost) return fail('Not enough cash.');
+    post(s, 'diplomacy', -cost, `League charter with ${REGIONS[a.to].name}`); L.members.push(a.to); r.neighbours[a.to].treaty = true; L.cohesion = clamp(L.cohesion + .05, 0, 1);
+    return { ok: true };
+  }
+  if (a.type === 'setEmbargo' || a.type === 'hireSpies' || a.type === 'hireMercenaries' || a.type === 'mediate') {
+    if (v.path !== 'neutrality') return fail('Only the Neutrality path uses these tools.');
+    const N = v.neutral, t = townOf(s), r = regionOf(s);
+    if (a.type === 'setEmbargo') {
+      if (a.target === null) { N.embargo = null; return { ok: true }; }
+      if (!isNeighbour(a.target)) return fail('Choose a neighbour.');
+      if (N.embargo) return fail('One embargo at a time.');
+      N.embargo = { target: a.target, since: s.tick }; return { ok: true };
+    }
+    if (a.type === 'hireSpies') { const cost = spyCost(s); if (t.cash < cost) return fail('Fund the treasury first.'); post(s, 'civic', -cost, 'Intelligence network', 'heartland', 'corporate', 'town'); N.intelUntil = Math.max(N.intelUntil, s.tick) + 60 * 24; return { ok: true }; }
+    if (a.type === 'hireMercenaries') { const cost = mercenaryCost(s); if (s.cash < cost) return fail('Not enough cash.'); post(s, 'wages', -cost, 'Mercenary company, 30 days'); N.mercenariesUntil = Math.max(N.mercenariesUntil, s.tick) + 30 * 24; return { ok: true }; }
+    if (!N.dispute) return fail('No dispute to mediate.');
+    const cost = mediationCost(s); if (s.cash < cost) return fail('Not enough cash.');
+    post(s, 'diplomacy', -cost, 'Mediation'); for (const id of [N.dispute.a, N.dispute.b]) r.neighbours[id].trust = clamp(r.neighbours[id].trust + 10, 0, 100);
+    N.mediated++; N.dispute = null; return { ok: true };
+  }
   if (a.type === 'trainArmy') {
+    if (v.path !== 'army') return fail('Only the Army path drills soldiers.');
     const next = DRILLS[v.drill];
     if (!next) return fail('Your army has every drill.');
     if (v.drillUntil >= 0) return fail('A drill is already under way.');
@@ -136,6 +251,7 @@ function action(s: GameState, a: Action): ActionResult | null {
     v.drillUntil = s.tick + next.days * 24; return { ok: true };
   }
   if (a.type === 'launchCampaign') {
+    if (v.path !== 'army') return fail('Only the Army path marches on neighbours.');
     if (v.campaign) return fail('A campaign is already under way.');
     if (!isNeighbour(a.target) || (a.stance !== 'raid' && a.stance !== 'siege')) return fail('Choose a target and a stance.');
     if (soldiers(s) < 1) return fail('Staff and fund barracks first.');
@@ -152,7 +268,7 @@ function action(s: GameState, a: Action): ActionResult | null {
 export const nation: StageModule = {
   id: 'nation', title: 'Nation', legacyEras: [8],
   eraUnlocks: { 8: (s) => lifetimeSales(s) >= 300_000_000 },
-  actionTypes: ['chooseEvent', 'takeLoan', 'repayLoan', 'startNation', 'launchCampaign', 'trainArmy'],
+  actionTypes: ['chooseEvent', 'takeLoan', 'repayLoan', 'startNation', 'launchCampaign', 'trainArmy', 'inviteAlly', 'answerAid', 'castVote', 'setEmbargo', 'hireSpies', 'hireMercenaries', 'mediate'],
   tips: ['era8'], discoveries: ['nationReady', 'nationVictory'],
   tick: nationDaily, handleAction: action, createState: () => createNationState() as unknown as Record<string, unknown>,
 };

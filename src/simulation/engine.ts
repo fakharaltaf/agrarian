@@ -716,7 +716,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
     }
     case 'sellToMill': case 'barter': case 'haggle': case 'chooseCharter':
       return fail('The village trader is not available in this chapter.');
-    case 'startNation': case 'launchCampaign': case 'trainArmy':
+    case 'startNation': case 'launchCampaign': case 'trainArmy': case 'inviteAlly': case 'answerAid': case 'castVote': case 'setEmbargo': case 'hireSpies': case 'hireMercenaries': case 'mediate':
     case 'startRegion': case 'setBorder': case 'setRoute': case 'giftNeighbour': case 'signTreaty': case 'resolveRaid': case 'answerDemand':
     case 'setCityFunding': case 'startCity': case 'changePolice': case 'setZone': case 'trainPolice': case 'setJustice': case 'resolveCityCase':
     case 'startTown': case 'fundTown': case 'setTownTax': case 'buildService': case 'toggleService': case 'changeSchools': case 'answerPetition':

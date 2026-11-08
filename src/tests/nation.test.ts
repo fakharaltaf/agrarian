@@ -23,9 +23,9 @@ function ready(){
 const flows=(s:ReturnType<typeof createGame>)=>Object.entries(s.lifetime).reduce((n,[k,v])=>n+(k==='depreciation'?0:v??0),0);
 const army=(s:ReturnType<typeof createGame>)=>{expect(dispatch(s,{type:'startNation',path:'army'}).ok).toBe(true);expect(dispatch(s,{type:'buildService',service:'barracks',district:'farmgate'}).ok).toBe(true);for(let i=0;i<48;i++)step(s);};
 
-it('Nation is offered once a rival demand is answered; only the Army path is open today',()=>{
+it('Nation is offered once a rival demand is answered; a path must be chosen',()=>{
  const s=ready();expect(canStartNation(s)).toBe(true);expect(canAdvance(s)).toBe(true);
- expect(dispatch(s,{type:'startNation',path:'alliance'}).ok).toBe(false);
+ expect(dispatch(s,{type:'startNation',path:'empire' as never}).ok).toBe(false);
  const cash=s.cash;expect(dispatch(s,{type:'startNation',path:'army'}).ok).toBe(true);
  expect(nationActive(s)).toBe(true);expect(s.stageId).toBe('nation');expect(s.cash).toBe(cash);
 });
@@ -77,4 +77,49 @@ it('A won siege makes the neighbour a tribute-paying vassal; state survives a sa
 it('Old saves without nation state load inactive',()=>{
  const s=ready(),raw=JSON.parse(JSON.stringify(s));delete raw.stageState.nation;raw.version=11;
  const g=parseSave(JSON.stringify({game:raw})).game;expect(nationActive(g)).toBe(false);expect(g.cash).toBe(s.cash);
+});
+
+import {allyCharterCost,pathGuard,closedTo} from '../simulation/stages/nation';
+import {raidRisk} from '../simulation/stages/region';
+const nextDay=(s:ReturnType<typeof createGame>)=>{s.tick=(Math.floor(s.tick/24)+1)*24;nationDaily(s);};
+
+it('Alliance: invites need trust and cost cash; members guard the roads; aid requests have real costs both ways',()=>{
+ const s=ready();expect(dispatch(s,{type:'startNation',path:'alliance'}).ok).toBe(true);
+ const r=regionOf(s),L=nationOf(s).league;
+ expect(dispatch(s,{type:'buildService',service:'barracks',district:'farmgate'}).ok).toBe(false);
+ expect(dispatch(s,{type:'launchCampaign',target:'river',stance:'raid'}).ok).toBe(false);
+ r.neighbours.river.trust=50;expect(dispatch(s,{type:'inviteAlly',to:'river'}).ok).toBe(false);
+ r.neighbours.river.trust=70;const cash=s.cash,risk=raidRisk(s);
+ expect(dispatch(s,{type:'inviteAlly',to:'river'}).ok).toBe(true);expect(cash-s.cash).toBeCloseTo(allyCharterCost(s),2);
+ expect(L.members).toEqual(['river']);expect(r.neighbours.river.treaty).toBe(true);expect(pathGuard(s)).toBeGreaterThan(0);expect(raidRisk(s)).toBeLessThan(risk);
+ L.nextRequestDay=0;nextDay(s);expect(L.request?.from).toBe('river');
+ L.request={from:'river',kind:'grain',amount:500,deadline:s.tick+240};
+ const wheat=s.regions.heartland.inventory.wheat,trust=r.neighbours.river.trust;
+ expect(dispatch(s,{type:'answerAid',send:true}).ok).toBe(true);
+ expect(s.regions.heartland.inventory.wheat).toBe(wheat-500);expect(r.neighbours.river.trust).toBe(trust+10);expect(L.aid).toBeGreaterThan(0);
+ L.request={from:'river',kind:'grain',amount:1e9,deadline:s.tick+240};const w2=s.regions.heartland.inventory.wheat;
+ expect(dispatch(s,{type:'answerAid',send:true}).ok).toBe(false);expect(s.regions.heartland.inventory.wheat).toBe(w2); // nothing taken on failure
+ L.cohesion=.2;L.request=null;nextDay(s);expect(L.members).toEqual([]);
+});
+
+it('Alliance: a passed sanction closes caravans to the target',()=>{
+ const s=ready();dispatch(s,{type:'startNation',path:'alliance'});const r=regionOf(s),L=nationOf(s).league;
+ L.members=['river','coastal'];L.vote={target:'arid',deadline:s.tick+100};
+ expect(dispatch(s,{type:'castVote',yes:true}).ok).toBe(true);expect(closedTo(s,'arid')).toBe(true);
+ r.neighbours.arid.route={good:'wheat',qty:10};nextDay(s);
+ expect(s.shipments.some(x=>x.to==='arid')).toBe(false);
+});
+
+it('Neutrality: feeding neighbours protects the roads; embargo makes a dependent neighbour concede; spies and mercenaries cost money',()=>{
+ const s=ready();dispatch(s,{type:'startNation',path:'neutrality'});const r=regionOf(s),N=nationOf(s).neutral;
+ const g0=pathGuard(s);r.neighbours.river.route={good:'wheat',qty:10};r.neighbours.coastal.route={good:'wheat',qty:10};expect(pathGuard(s)).toBeGreaterThan(g0);
+ r.neighbours.arid.delivered=1000;r.bandits=.6;r.demand={from:'arid',amount:1,opened:s.tick,deadline:s.tick+9999};
+ expect(dispatch(s,{type:'setEmbargo',target:'arid'}).ok).toBe(true);expect(closedTo(s,'arid')).toBe(true);
+ for(let d=0;d<21;d++)nextDay(s);
+ expect(N.embargo).toBeNull();expect(r.demand).toBeNull();expect(r.bandits).toBeLessThan(.6);
+ const tc=townOf(s).cash;expect(dispatch(s,{type:'hireSpies'}).ok).toBe(true);expect(townOf(s).cash).toBeLessThan(tc);
+ const c=s.cash,g1=pathGuard(s);expect(dispatch(s,{type:'hireMercenaries'}).ok).toBe(true);expect(s.cash).toBeLessThan(c);expect(pathGuard(s)).toBeCloseTo(g1+.3);
+ N.dispute={a:'river',b:'tropics',deadline:s.tick+100};const t0=r.neighbours.tropics.trust;
+ expect(dispatch(s,{type:'mediate'}).ok).toBe(true);expect(r.neighbours.tropics.trust).toBe(Math.min(100,t0+10));expect(N.mediated).toBe(1);
+ const loaded=parseSave(JSON.stringify({game:s})).game;expect(nationOf(loaded)).toEqual(nationOf(s));
 });

@@ -69,7 +69,11 @@ export function parseSave(text: string): SaveFile {
   if(typeof nation.active!=='boolean'||(nation.active&&!['army','alliance','neutrality'].includes(nation.path as string))||!['enteredAt','lastDay','drill','drillUntil','morale','supply','weariness','wins','losses','casualties'].every(k=>finite((nation as unknown as Record<string,unknown>)[k]))
     ||!Number.isInteger(nation.drill)||nation.drill<0||nation.drill>3||!NEIGHBOUR_IDS.every(id=>finite(nation.weakened?.[id]))||!Array.isArray(nation.history)||nation.history.length>12
     ||nation.campaign&&(!NEIGHBOUR_IDS.includes(nation.campaign.target)||!['raid','siege'].includes(nation.campaign.stance)||![nation.campaign.ends,nation.campaign.odds,nation.campaign.soldiers].every(finite))
-    ||nation.vassal&&(!NEIGHBOUR_IDS.includes(nation.vassal.from)||![nation.vassal.until,nation.vassal.daily].every(finite)))throw new Error('Save file nation state is corrupt.');
+    ||nation.vassal&&(!NEIGHBOUR_IDS.includes(nation.vassal.from)||![nation.vassal.until,nation.vassal.daily].every(finite))
+    ||!Array.isArray(nation.league?.members)||!nation.league.members.every(id=>NEIGHBOUR_IDS.includes(id))||new Set(nation.league.members).size!==nation.league.members.length||![nation.league.cohesion,nation.league.aid,nation.league.nextRequestDay,nation.league.nextVoteDay].every(finite)
+    ||nation.league.request&&(!NEIGHBOUR_IDS.includes(nation.league.request.from)||![nation.league.request.amount,nation.league.request.deadline].every(finite))
+    ||![nation.neutral?.intelUntil,nation.neutral?.mercenariesUntil,nation.neutral?.nextDisputeDay,nation.neutral?.mediated].every(finite)
+    ||nation.neutral.embargo&&!NEIGHBOUR_IDS.includes(nation.neutral.embargo.target))throw new Error('Save file nation state is corrupt.');
   return { version: SAVE_VERSION, savedAt: finite(f.savedAt) ? f.savedAt! : Date.now(), paused: f.paused === true, game: g };
 }
 

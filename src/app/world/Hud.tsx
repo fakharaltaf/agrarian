@@ -308,7 +308,7 @@ function HerdInfo({ s, lot }: { s: GameState; lot: Lot }) {
 }
 
 function LotPanel({ s, lot, region, onClose }: { s: GameState; lot: Lot; region: RegionId; onClose: () => void }) {
-  if(lot.service?.type==='barracks')return <Card title="Barracks"><button className="btn primary" onClick={()=>go('nation')}>Open War room</button></Card>;
+  if(lot.service?.type==='barracks')return <Card title="Barracks"><button className="btn primary" onClick={()=>go('nation')}>Open Nation</button></Card>;
   if(lot.service?.type==='watchtower')return <Card title="Watchtower & militia"><button className="btn primary" onClick={()=>go('region')}>Open Region map</button></Card>;
   if(lot.service&&['sanitation','lighting','police'].includes(lot.service.type))return <Card title="City watch"><button className="btn primary" onClick={()=>go('city')}>Open City watch</button></Card>;
   if (lot.key.startsWith('civic:')) return <Card title="Town services"><button className="btn primary" onClick={() => go('town')}>Open Town hall</button></Card>;

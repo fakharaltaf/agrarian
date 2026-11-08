@@ -8,6 +8,7 @@ import { cityActive, cityOf } from '../city-state';
 import { serviceJobs, townOf } from '../town-state';
 import { larderReserve } from './settlement';
 import { nationActive, nationOf } from '../nation-state';
+import { closedTo, pathGuard } from './nation';
 import { lifetimeSales } from './shared';
 import { createRegionState, isNeighbour, NEIGHBOUR_IDS, NEIGHBOURS, regionActive, regionOf, type BorderCharter, type NeighbourId } from '../region-state';
 
@@ -29,7 +30,7 @@ export function staffedTowers(s: GameState) {
 /** Police coverage from the City chapter pays off here; towers and militia add escort strength. */
 export function protection(s: GameState) {
   const towers = Math.min(.6, staffedTowers(s) * .2 * (regionOf(s).border === 'walls' ? 1.5 : 1));
-  return clamp(.35 * (cityActive(s) ? cityOf(s).police : 0) + towers, 0, .9);
+  return clamp(.35 * (cityActive(s) ? cityOf(s).police : 0) + towers + pathGuard(s), 0, .9);
 }
 /** Daily chance that one caravan on the road is raided. */
 export function raidRisk(s: GameState) {
@@ -100,6 +101,7 @@ export function regionDaily(s: GameState) {
     const n = v.neighbours[id];
     if (!n.route) continue;
     if (nationActive(s) && nationOf(s).campaign?.target === id) { n.note = 'Halted: your army is at war here'; continue; }
+    if (closedTo(s, id)) { n.note = 'Halted: sanction or embargo'; continue; }
     const qty = Math.floor(Math.min(n.route.qty, spendable(s, n.route.good)));
     n.note = qty < 1 ? 'No spare stock today' : shipGoods(s, n.route.good, qty, 'heartland', id, s.cash - s.automation.policies.cashReserve, true, true, true) ?? '';
     if (qty >= 1 && !n.note) v.caravans++;

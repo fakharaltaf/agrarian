@@ -18,10 +18,24 @@ export interface NationState {
   drill: number; drillUntil: number; morale: number; supply: number; weariness: number;
   weakened: Record<NeighbourId, number>; vassal: { from: NeighbourId; until: number; daily: number } | null;
   campaign: Campaign | null; wins: number; losses: number; casualties: number; history: WarRecord[];
+  league: League; neutral: Neutral;
+}
+/** Alliance path: a league of trusted neighbours with obligations both ways. */
+export interface League {
+  members: NeighbourId[]; cohesion: number; aid: number;
+  request: { from: NeighbourId; kind: 'grain' | 'cash'; amount: number; deadline: number } | null; nextRequestDay: number;
+  vote: { target: NeighbourId; deadline: number } | null; nextVoteDay: number; sanction: { target: NeighbourId; until: number } | null;
+}
+/** Neutrality path: safety by being indispensable, with embargoes, spies, mercenaries and mediation. */
+export interface Neutral {
+  embargo: { target: NeighbourId; since: number } | null; intelUntil: number; mercenariesUntil: number;
+  dispute: { a: NeighbourId; b: NeighbourId; deadline: number } | null; nextDisputeDay: number; mediated: number;
 }
 export function createNationState(): NationState {
   return { active: false, enteredAt: -1, path: null, lastDay: -1, drill: 0, drillUntil: -1, morale: .7, supply: 1, weariness: 0,
-    weakened: { river: 0, arid: 0, coastal: 0, tropics: 0 }, vassal: null, campaign: null, wins: 0, losses: 0, casualties: 0, history: [] };
+    weakened: { river: 0, arid: 0, coastal: 0, tropics: 0 }, vassal: null, campaign: null, wins: 0, losses: 0, casualties: 0, history: [],
+    league: { members: [], cohesion: .6, aid: 0, request: null, nextRequestDay: -1, vote: null, nextVoteDay: -1, sanction: null },
+    neutral: { embargo: null, intelUntil: -1, mercenariesUntil: -1, dispute: null, nextDisputeDay: -1, mediated: 0 } };
 }
 export const nationOf = (s: GameState): NationState => (s.stageState.nation ??= createNationState() as unknown as Record<string, unknown>) as unknown as NationState;
 export const nationActive = (s: GameState) => !!(s.stageState.nation as unknown as NationState | undefined)?.active;

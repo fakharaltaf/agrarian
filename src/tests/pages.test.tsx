@@ -44,6 +44,12 @@ describe('pages', () => {
       const Page = mod.default ?? mod[`${name}Page`];
       try { renderToString(<Page />); } catch (e) { failed.push(`${name}: ${(e as Error).stack?.split("\n").slice(0, 3).join(" / ")}`); }
     }
+    const NationPage = (await import('../app/pages/Nation')).default;
+    for (const path of ['alliance', 'neutrality'] as const) {
+      const n = nationOf(game); n.path = path; n.league.members = ['river']; n.league.request = { from: 'river', kind: 'grain', amount: 500, deadline: game.tick + 99 }; n.league.vote = { target: 'arid', deadline: game.tick + 99 };
+      n.neutral.dispute = { a: 'river', b: 'arid', deadline: game.tick + 99 }; n.neutral.embargo = { target: 'tropics', since: game.tick };
+      try { renderToString(<NationPage />); } catch (e) { failed.push(`Nation/${path}: ${(e as Error).message}`); }
+    }
     expect(failed).toEqual([]);
     const { default: Production } = await import('../app/pages/Production');
     const html = renderToString(<Production />);
