@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ANIMALS, ANIMAL_IDS, BUILDINGS, CONFIG, ERAS, GOODS, REGIONS, type CropId, type RegionId } from '../../simulation/config';
 import { known } from '../../simulation/core';
 import { buildingMargin } from '../../simulation/processing';
-import { DISCOVERIES, ERA_UNLOCK_TEXT, dailyGoals, dailyPrize, forecast, herdOf, homePlotPrice, housing, isManual, isReady, objective, PAGES, seedShortfall, upgradeCost } from '../../simulation/engine';
+import { DISCOVERIES, ERA_UNLOCK_TEXT, dailyGoals, dailyPrize, forecast, herdOf, homePlotPrice, housing, isManual, isReady, objective, chapterGate, gateProgress, type GateRow, PAGES, seedShortfall, upgradeCost } from '../../simulation/engine';
 import type { GameState } from '../../simulation/types';
 import { act, go, useGame, usePageState } from '../../stores/game';
 import { money, num, pct0 } from '../format';
@@ -285,8 +285,25 @@ function ObjectiveCard({ s }: { s: GameState }) {
       <strong>{o.title}</strong>
       <span className="muted small">{o.hint}</span>
       {target && <button className="btn ghost sm" onClick={() => go(target)}>Go →</button>}
+      <GateRows s={s} />
     </section>
   );
+}
+
+const gateValue = (r: GateRow, x: number) => r.fmt === 'pct' ? pct0(x) : r.fmt === 'money' ? money(x) : num(x);
+/** The next chapter's requirements as live bars: rows on wide screens, one bar and a count on phones. */
+function GateRows({ s }: { s: GameState }) {
+  const rows = chapterGate(s);
+  if (!rows || s.eraReady) return null;
+  const done = rows.filter((r) => r.done).length, next = NEXT_STAGE[s.stageId];
+  return <div className="gate-rows" aria-label={`Next chapter${next ? `: ${STAGES[next].title}` : ''}`}>
+    <div className="gate-head"><span>Next: {next ? STAGES[next].title : 'chapter'}</span><b>{rows.some((r) => r.either) ? 'either' : `${done}/${rows.length}`}</b></div>
+    <div className="gate-compact"><Bar thin value={gateProgress(rows)} color="var(--gold)" label="Progress to the next chapter" /></div>
+    {rows.map((r) => <div className={`gate-row${r.done ? ' done' : ''}`} key={r.label}>
+      <span>{r.done ? '✓' : r.either ? '◇' : '○'} {r.label}</span><b>{r.atMost ? `${gateValue(r, r.now)} ≤ ${gateValue(r, r.target)}` : `${gateValue(r, Math.min(r.now, r.target))} / ${gateValue(r, r.target)}`}</b>
+      <Bar thin value={r.done ? 1 : r.atMost ? Math.min(1, r.target / Math.max(1e-9, r.now)) : Math.min(1, r.now / Math.max(1e-9, r.target))} color={r.done ? 'var(--up)' : 'var(--gold)'} label={r.label} />
+    </div>)}
+  </div>;
 }
 
 const LOT_PAGE: Partial<Record<string, string>> = { storage: 'storage', processing: 'production', energy: 'production', commerce: 'production', research: 'research', livestock: 'livestock' };

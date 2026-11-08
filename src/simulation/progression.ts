@@ -1,19 +1,23 @@
 // Eras, unlocks, objectives and milestones. Progress comes from measurable business results.
-import { CHAPTER_SALES, BUILDINGS, CROPS, CROP_IDS, ERAS, REGION_IDS, type CropId } from './config';
-import { equity, has, log, stored } from './core';
+import { CHAPTER_SALES, BUILDINGS, CROPS, CROP_IDS, DAYS_PER_YEAR, ERAS, GOODS, REGION_IDS, type CropId } from './config';
+import { day, equity, has, log, stored } from './core';
 import { fertility, growth, isReady } from './agriculture';
+import { accruedTax } from './finance';
 import { topShare } from './corporate';
 import { eraUnlockAvailable, stageIdForEra, tickActiveStage, NEXT_STAGE, stageAtLeast, STAGES } from './stages';
 import { refreshHomestead } from './stages/homestead';
 import { PLAYABLE_CHAPTERS, frontierTick, atFrontier } from './stages/frontier';
-import { communityOf, population, homeCapacity } from './community-state';
+import { communityOf, population, homeCapacity, availableResidents } from './community-state';
 import { settlementTick, canStartSettlement } from './stages/settlement';
 import { canStartTown, townDaily } from './stages/town';
 import { canStartCity, cityDaily } from './stages/city';
-import { canStartRegion, regionDaily } from './stages/region';
-import { canStartNation, nationDaily } from './stages/nation';
+import { plannedServiceCost, serviceDailyCost } from './stages/town';
+import { dailyArrivals, wellbeing } from './stages/settlement';
+import { canStartRegion, regionDaily, protection as regionProtection } from './stages/region';
+import { nextMarketDay } from './stages/market-town';
+import { canStartNation, nationDaily, soldiers } from './stages/nation';
 import { nationActive, nationOf } from './nation-state';
-import { regionActive, regionOf, NEIGHBOURS } from './region-state';
+import { regionActive, regionOf, NEIGHBOURS, NEIGHBOUR_IDS } from './region-state';
 import { cityActive, cityOf } from './city-state';
 import { townOf } from './town-state';
 import type { GameState } from './types';
@@ -172,6 +176,19 @@ export function progressionTick(s: GameState) {
     log(s, 'opportunity', `A new chapter is ready: ${next}. Preview it and move on when you choose.`, 'overview');
   }
   s.eraReady = ready;
+  if (s.tick % 6 === 0 && !ready) {
+    // Small wins on the way to the next chapter: each requirement met gets a line in the journal.
+    const rows = chapterGate(s) ?? [];
+    for (const r of rows) {
+      const key = `gate:${s.stageId}:${r.label}`;
+      if (!r.done) s.warned[`${key}:open`] ??= s.tick;
+      else if (s.warned[`${key}:open`] !== undefined && s.warned[key] === undefined) { s.warned[key] = s.tick; log(s, 'opportunity', `✓ ${r.label} reached (${rows.filter((x) => x.done).length}/${rows.length} for ${STAGES[NEXT_STAGE[s.stageId]!]?.title ?? 'the next chapter'}).`, 'overview'); }
+    }
+  }
+  if (s.tick % 24 === 0 && day(s) % DAYS_PER_YEAR === DAYS_PER_YEAR - 14) {
+    const tax = accruedTax(s);
+    if (tax > 0) log(s, 'warning', `Profit tax of about $${Math.round(tax).toLocaleString()} is due in 14 days at year end. Keep cash for it.`, 'finance');
+  }
   for (const d of DISCOVERIES) if (!s.discovered.includes(d.id) && d.when(s)) discover(s, d.id);
   for (const g of STARTER_GIFTS) if (!s.rewarded.includes(g.id) && g.when(s)) (s.rewarded.push(g.id), g.give(s), log(s, 'opportunity', g.text, 'farm'));
   if (s.tick % 6 === 0) for (const a of ACHIEVEMENTS) if (!s.achievements.includes(a.id) && a.done(s)) (s.achievements.push(a.id), log(s, 'opportunity', `Achievement unlocked: ${a.icon} ${a.name}`));
@@ -201,22 +218,77 @@ const CROP_UNLOCK: Record<CropId, string> = {
   grapes: '',
 };
 
+// ---------------------------------------------------------------- chapter gates (one source for the HUD and the gate)
+
+export interface GateRow { label: string; now: number; target: number; fmt: 'n' | 'pct' | 'money'; done: boolean; either?: boolean; atMost?: boolean }
+const row = (label: string, now: number, target: number, fmt: GateRow['fmt'] = 'n', atMost = false): GateRow => ({ label, now, target, fmt, atMost, done: atMost ? now <= target : now >= target });
+/** What the current chapter needs before the next one opens, as rows with live values. Null when there is no next chapter gate. */
+export function chapterGate(s: GameState): GateRow[] | null {
+  if (s.legacyProgression && !communityOf(s).active) return null;
+  const sales = lifetimeSales(s), hands = s.workers.filter((w) => w.role === 'hand').length, c = communityOf(s), t = townOf(s);
+  switch (s.stageId) {
+    case 'homestead': return [row('Fields', s.fields.length, 4), row('Sales', sales, HOMESTEAD_SALES_GOAL, 'money')];
+    case 'market-town': return [{ ...row('Fields', s.fields.length, 12), either: true }, { ...row('Sales', sales, CHAPTER_SALES['market-town'], 'money'), either: true }];
+    case 'farm-business': return [row('Farm hands', hands, 2), row('Sales', sales, CHAPTER_SALES['farm-business'], 'money')];
+    case 'industry': return [row('Sales', sales, CHAPTER_SALES.industry, 'money'), row('Tractor or factory', s.machines.some((m) => m.type !== 'truck') || s.buildings.some((b) => BUILDINGS[b.type].category === 'processing') ? 1 : 0, 1), row('Farm hands', hands, 2)];
+    case 'settlement': return [row('Residents', population(s), 80), row('Happiness', c.happiness, .65, 'pct'), row('Fed', c.fed, .9, 'pct')];
+    case 'town': return [row('Residents', population(s), 400), row('Schooling', t.education, .6, 'pct'), row('Health', t.health, .7, 'pct'), row('Fed', c.fed, .9, 'pct')];
+    case 'city': {
+      if (cityOf(s).threatAt >= 0) return [row('Caravans have arrived', 1, 1)];
+      return [row('Residents', population(s), 1200), row('Fed', c.fed, .9, 'pct'), row('Sanitation', cityOf(s).sanitation, .7, 'pct'), row('Crime', cityOf(s).crime, .2, 'pct', true)];
+    }
+    case 'region': { const v = regionOf(s); return [row('Answer the rival’s demand', v.answered ? 1 : 0, 1)]; }
+    default: return null;
+  }
+}
+/** 0..1 progress toward the gate: the weakest required row, or the best of 'either' rows. */
+export function gateProgress(rows: GateRow[]) {
+  const r = (x: GateRow) => x.done ? 1 : x.atMost ? Math.min(1, x.target / Math.max(1e-9, x.now)) : Math.min(1, x.now / Math.max(1e-9, x.target));
+  const either = rows.filter((x) => x.either), all = rows.filter((x) => !x.either);
+  return Math.min(either.length ? Math.max(...either.map(r)) : 1, all.length ? Math.min(...all.map(r)) : 1);
+}
+
 // ---------------------------------------------------------------- objectives (onboarding)
 
 export function objective(s: GameState): { title: string; hint: string; page?: string } {
   if(canStartNation(s))return {title:'A nation takes shape',hint:'Choose Army, Alliance or Neutrality.',page:'nation'};
   if(nationActive(s)&&s.stageId==='nation'){const v=nationOf(s);
-    if(v.path==='alliance')return {title:v.league.request?`${NEIGHBOURS[v.league.request.from].leader} asks for help`:v.league.vote?'The league is voting':v.league.members.length?'Hold your league together':'Invite your first ally',hint:'Allies guard your roads; answer their calls.',page:'nation'};
-    if(v.path==='neutrality')return {title:v.neutral.dispute?'Neighbours are quarrelling':'Feed the region',hint:'Every neighbour you supply makes you harder to attack.',page:'nation'};
-    return {title:v.campaign?'Your army is on campaign':v.history.length?'Hold what you have won':'Raise your first barracks',hint:v.campaign?'Keep rations flowing until it returns.':'Fed, drilled soldiers win; every soldier is a worker lost.',page:'nation'};}
+    const r=regionOf(s),bestTrust=Math.max(...NEIGHBOUR_IDS.map(id=>r.neighbours[id].trust));
+    if(v.path==='alliance'){const L=v.league;
+      if(L.request)return {title:`${NEIGHBOURS[L.request.from].leader} asks for help`,hint:'Answer and the league holds; refuse and members may leave.',page:'nation'};
+      if(L.vote)return {title:'The league is voting',hint:'Sanctions close an outsider’s caravans for 60 days.',page:'nation'};
+      if(!L.members.length)return bestTrust<60?{title:`Earn an ally’s trust · ${Math.floor(bestTrust)}/60`,hint:'Caravans of wanted goods and gifts on the Region map build trust.',page:'region'}:{title:'Invite your first ally',hint:'Members trade tariff-free and patrol your roads.',page:'nation'};
+      if(L.members.length<2)return {title:'Grow the league · 1/2 members',hint:'Two members can vote on sanctions.',page:'nation'};
+      return {title:`Hold your league together · cohesion ${Math.round(L.cohesion*100)}%`,hint:'Answer requests; refusing costs trust and cohesion.',page:'nation'};}
+    if(v.path==='neutrality'){const routes=NEIGHBOUR_IDS.filter(id=>r.neighbours[id].route&&v.neutral.embargo?.target!==id).length;
+      if(v.neutral.dispute)return {title:'Neighbours are quarrelling',hint:'Mediate for both their trust, or bandits roam when they fight.',page:'nation'};
+      if(routes<4)return {title:`Feed the region · ${routes}/4 neighbours`,hint:'Every neighbour you supply by caravan adds road protection.',page:'region'};
+      return {title:'Indispensable',hint:'Use embargoes sparingly; settle disputes for influence.',page:'nation'};}
+    const men=soldiers(s),barracks=townOf(s).services.some(b=>b.type==='barracks');
+    if(v.campaign)return {title:'Your army is on campaign',hint:'Keep rations flowing until it returns.',page:'nation'};
+    if(!barracks)return {title:'Raise your first barracks',hint:'Every soldier is a resident who stops working the farm or town.',page:'nation'};
+    if(men<20)return {title:`Muster soldiers · ${men}/20`,hint:'Barracks need funding and resident adults.',page:'nation'};
+    if(v.supply<1)return {title:`Feed your army · rations ${Math.round(v.supply*100)}%`,hint:'Soldiers eat grain or bread from spare stock.',page:'nation'};
+    if(v.drill<1)return {title:'Drill your soldiers',hint:'Drill & tactics makes the army 25% stronger.',page:'nation'};
+    if(!v.history.length)return {title:'Plan your first campaign',hint:'Pick a target with good odds; casualties are residents.',page:'nation'};
+    return {title:'Hold what you have won',hint:'Keep the army fed; neighbours remember.',page:'nation'};}
   if(canStartRegion(s))return {title:'Neighbours at the gate',hint:'Open the Region map and choose your border policy.',page:'region'};
-  if(regionActive(s)&&s.stageId==='region'){const v=regionOf(s);return {title:v.demand?`${NEIGHBOURS[v.demand.from].leader} demands tribute`:v.raid?'Bandits raided a caravan':Object.values(v.neighbours).some(n=>n.route)?'Earn your neighbours’ trust':'Send your first caravan',hint:v.demand||v.raid?'Decide on the Region map.':'Trade what they want; protect the roads.',page:'region'};}
+  if(regionActive(s)&&s.stageId==='region'){const v=regionOf(s),ns=Object.values(v.neighbours),days=Math.floor((s.tick-v.enteredAt)/24);
+    if(v.demand)return {title:`${NEIGHBOURS[v.demand.from].leader} demands tribute`,hint:'Pay for their trust, or refuse and expect more raids.',page:'region'};
+    if(v.raid)return {title:'Bandits raided a caravan',hint:'Pursue to recover some goods, or let it go.',page:'region'};
+    if(!ns.some(n=>n.route))return {title:'Send your first caravan',hint:'Pick a neighbour and a good they want (★ earns double trust).',page:'region'};
+    if(regionProtection(s)<.5&&!townOf(s).services.some(b=>b.type==='watchtower'))return {title:`Guard the roads · escort ${Math.round(regionProtection(s)*100)}/50%`,hint:'A staffed watchtower and City police protect your caravans.',page:'region'};
+    const best=NEIGHBOUR_IDS.reduce((a,b)=>v.neighbours[b].trust>v.neighbours[a].trust?b:a);
+    if(!ns.some(n=>n.treaty)&&v.neighbours[best].trust<60)return {title:`Win ${NEIGHBOURS[best].leader}’s trust · ${Math.floor(v.neighbours[best].trust)}/60`,hint:'Wanted goods earn double trust; a goods gift adds 8 once a week. Trusted neighbours can become allies later.',page:'region'};
+    if(!ns.some(n=>n.treaty))return {title:`Sign a trade treaty with ${NEIGHBOURS[best].leader}`,hint:'No tariffs on your caravans to them.',page:'region'};
+    if(ns.filter(n=>n.route).length<2)return {title:'Open a second caravan route',hint:'More neighbours fed, more trust, more road protection later.',page:'region'};
+    return {title:`A rival is watching · day ${Math.min(days,60)}/60`,hint:'Keep caravans on the road; a rival will make a move.',page:'region'};}
   if(canStartCity(s))return {title:'A city worth protecting',hint:'Preview sanitation, lighting and your safety charter.',page:'city'};
-  if(cityActive(s)&&s.stageId==='city')return {title:cityOf(s).case?'Choose a response to theft':'Care for every district',hint:'Funded jobs, education and utilities keep the city safe.',page:'city'};
+  if(cityActive(s)&&s.stageId==='city')return civicObjective(s);
   if (canStartTown(s)) return { title: 'Your children need a school', hint: 'Preview Public or Trade schools at the Town hall.', page: 'town' };
-  if (townOf(s).active && s.stageId === 'town') return { title: townOf(s).services.length ? 'Care for each neighbourhood' : 'Build the first school', hint: 'Fund the public treasury, then place services near the families they serve.', page: 'town' };
+  if (townOf(s).active && s.stageId === 'town') return civicObjective(s);
   if (canStartSettlement(s)) return { title: 'Your workers want their families nearby', hint: 'Preview a settlement charter, then build the first homes when you are ready.', page: 'community' };
-  if (communityOf(s).active && s.stageId === 'settlement') return populationObjective(s);
+  if (communityOf(s).active && s.stageId === 'settlement') return civicObjective(s);
   if (!s.legacyProgression) {
     const sales = lifetimeSales(s);
     if (s.stageId === 'homestead') {
@@ -232,19 +304,32 @@ export function objective(s: GameState): { title: string; hint: string; page?: s
     }
     if (s.stageId === 'market-town') {
       if (s.eraReady) return { title: 'Your farm is ready for its next chapter', hint: 'Move into Farm Business when you want to hire your first crew.', page: 'overview' };
-      return { title: `Reach 12 fields or $${CHAPTER_SALES['market-town'].toLocaleString()} in sales`, hint: `${s.fields.length}/12 fields · ${moneyProgress(sales, CHAPTER_SALES['market-town'])}.`, page: 'fields' };
+      const md = nextMarketDay(s), mdHint = md.running ? '' : ` · Market day: ${GOODS[md.good].name.toLowerCase()} ${md.inDays === 0 ? 'today' : md.inDays === 1 ? 'tomorrow' : `in ${md.inDays} days`}`;
+      if (md.running) return { title: `Market day: sell ${GOODS[md.good].name.toLowerCase()} now`, hint: 'Buyers are in town until evening. Their demand lifts the price; big sales still push it down.', page: 'markets' };
+      if (!s.buildings.some((b) => b.region === 'heartland' && b.type === 'barn')) return { title: 'Build a barn: hold stock for market day', hint: `More storage lets you wait for good prices instead of selling at harvest${mdHint}.`, page: 'storage' };
+      if (s.fields.length < 10) return { title: `Grow to 10 fields · ${s.fields.length}/10`, hint: `More plots, more harvests running at once${mdHint}.`, page: 'fields' };
+      return { title: `Earn on the open market · ${moneyProgress(sales, CHAPTER_SALES['market-town'])}`, hint: `Sell when prices are good; 12 fields also opens the next chapter${mdHint}.`, page: 'markets' };
     }
     if (s.stageId === 'farm-business') {
       const hands = s.workers.filter((w) => w.role === 'hand').length;
       if (s.eraReady) return { title: 'Machines can take the strain', hint: 'Industry brings tractors, factories and research. Move on when ready.', page: 'overview' };
       if (hands < 2) return { title: hands ? 'Hire a second farm hand' : 'Hire your first farm hand', hint: 'Crop plans let hands plant and harvest while you focus elsewhere. Wages are a running cost.', page: 'workers' };
-      return { title: `Build the farm business · ${moneyProgress(sales, CHAPTER_SALES['farm-business'])}`, hint: `Two hands and $${CHAPTER_SALES['farm-business'].toLocaleString()} in sales open Industry. Check wages against what your fields earn.`, page: 'workers' };
+      if (!s.fields.some((f) => f.plan)) return { title: 'Give your fields a crop plan', hint: 'Hands only plant and harvest fields that have a plan.', page: 'fields' };
+      if (!s.herds.some((h) => h.count > 0) && !s.fields.some((f) => f.crop && CROPS[f.crop].perennial) && sales < 350_000) return { title: 'Start a flock: build a coop and buy hens', hint: `Eggs sell every day, between harvests. ${moneyProgress(sales, CHAPTER_SALES['farm-business'])}.`, page: 'livestock' };
+      if (s.unlockedCrops.includes('apples') && !s.fields.some((f) => f.crop && CROPS[f.crop].perennial) && sales < 400_000) return { title: 'Plant an orchard or vineyard', hint: `Slow to mature, then fruit every season. ${moneyProgress(sales, CHAPTER_SALES['farm-business'])}.`, page: 'fields' };
+      return { title: `Build the farm business · ${moneyProgress(sales, CHAPTER_SALES['farm-business'])}`, hint: `Two hands and $${CHAPTER_SALES['farm-business'].toLocaleString()} in sales open Industry. A-grade crops sell for more.`, page: 'workers' };
     }
     if (s.stageId === 'industry') {
       if (atFrontier(s)) return { title: 'Your next horizon', hint: 'Keep growing or earn stewardship marks. Settlement is the next chapter being built.', page: 'overview' };
       if (s.eraReady) return { title: 'Your workers want their families nearby', hint: 'Settlement is the next chapter. Your farm and factories keep running.', page: 'overview' };
-      if (!s.buildings.some((b) => BUILDINGS[b.type].category === 'processing')) return { title: 'Build your first mill', hint: 'Processing adds value to crops, but it needs steady inputs and labour.', page: 'production' };
-      return { title: `Grow into industry · ${moneyProgress(sales, CHAPTER_SALES.industry)}`, hint: 'Build a reliable farm-to-factory chain before moving on.', page: 'production' };
+      const ip = moneyProgress(sales, CHAPTER_SALES.industry);
+      if (!s.machines.some((m) => m.type !== 'truck')) return { title: 'Buy or lease your first tractor', hint: `One tractor does the work of several hands. ${ip}.`, page: 'equipment' };
+      if (!s.buildings.some((b) => BUILDINGS[b.type].category === 'processing')) return { title: 'Build your first mill', hint: `Processing adds value to crops, but it needs steady inputs and labour. ${ip}.`, page: 'production' };
+      if (!s.buildings.some((b) => b.type === 'lab') && sales < 1_200_000) return { title: 'Build a research station', hint: `Research cuts costs and opens new crops and machines. ${ip}.`, page: 'production' };
+      if (!s.research.active && !s.research.done.length && sales < 1_600_000) return { title: 'Start your first research project', hint: `Pick something that fixes today’s biggest cost. ${ip}.`, page: 'research' };
+      if (!s.futures.length && !s.contracts.some((c) => c.accepted) && sales < 2_000_000) return { title: 'Lock in a price', hint: `A supply contract or a futures hedge protects you from price swings. ${ip}.`, page: 'markets' };
+      if (s.buildings.filter((b) => BUILDINGS[b.type].category === 'processing').length < 2 && sales < 2_500_000) return { title: 'Add a second factory', hint: `A feed mill or bakery turns one chain into a business. ${ip}.`, page: 'production' };
+      return { title: `Grow into industry · ${ip}`, hint: 'Build a reliable farm-to-factory chain before moving on.', page: 'production' };
     }
     if (s.eraReady) return { title: `Next chapter: ${STAGES[NEXT_STAGE[s.stageId]!]?.title ?? 'Frontier'}`, hint: 'You choose when to move on. Your farm keeps operating.', page: 'overview' };
   }
@@ -273,10 +358,39 @@ export function objective(s: GameState): { title: string; hint: string; page?: s
 }
 
 const moneyProgress = (now: number, target: number) => `${Math.min(Math.floor(now), target).toLocaleString()} / ${target.toLocaleString()} sales`;
-function populationObjective(s: GameState) {
+const pctTxt = (x: number) => `${Math.round(x * 100)}%`;
+/** Settlement, Town and City: always name the first real blocker, then the chapter's own goals, then growth. */
+export function civicObjective(s: GameState): { title: string; hint: string; page?: string } {
+  const c = communityOf(s), t = townOf(s), pop = population(s), city = s.stageId === 'city', town = s.stageId === 'town';
+  const gate = (chapterGate(s) ?? []).filter((r) => !r.done).map((r) => `${r.label} ${r.fmt === 'pct' ? pctTxt(r.now) : Math.floor(r.now).toLocaleString()}/${r.fmt === 'pct' ? pctTxt(r.target) : r.target.toLocaleString()}`).join(' · ');
+  const hint = (x: string) => gate ? `${x} Next chapter: ${gate}.` : x;
   if (!homeCapacity(s)) return { title: 'Build the first cottage', hint: 'A home makes room for a worker’s family.', page: 'community' };
-  if (communityOf(s).fed < 0.95) return { title: 'Set the table for your families', hint: 'Keep food in storage or enable the larder policy.', page: 'community' };
-  return { title: `A place to belong · ${population(s)} people`, hint: 'Homes, food, warmth and jobs build a thriving settlement.', page: 'community' };
+  if (city && cityOf(s).case) return { title: 'Choose a response to theft', hint: hint('Rehabilitation builds prevention; punishment acts now but costs happiness.'), page: 'city' };
+  if (town && !t.services.length) return { title: 'Build the first school', hint: hint('Fund the public treasury, then place a school where families live.'), page: 'town' };
+  const upkeep = plannedServiceCost(s);
+  if ((town || city) && upkeep > 0 && t.cash < upkeep * 7) {
+    const days = Math.floor(t.cash / upkeep);
+    return { title: `The treasury is running low · ${days} day${days === 1 ? '' : 's'} left`, hint: hint(`Services close when it runs dry. Taxes cover ${pctTxt(Math.min(1, t.lastTax / upkeep))} of upkeep; fund the rest from the farm.`), page: 'town' };
+  }
+  if ((town || city) && t.services.some((b) => b.active && !b.funded && t.cash >= serviceDailyCost(s, b.type) * b.count)) return { title: 'Services need resident staff', hint: hint('Public jobs are filled by your own families. Build homes so more adults move in.'), page: 'community' };
+  if (c.fed < .9) return { title: `Families are going hungry · fed ${pctTxt(c.fed)}`, hint: hint('Keep food in storage and turn on the larder policy.'), page: 'community' };
+  if (c.happiness < .65) {
+    const w = wellbeing(s), weakest = (Object.entries({ food: w.fed, homes: w.housed, warmth: w.warm, jobs: w.jobs }) as [string, number][]).sort((a, b) => a[1] - b[1])[0][0];
+    return { title: `Families have stopped coming · happiness ${pctTxt(c.happiness)}/65%`, hint: hint(`Weakest: ${weakest}. Happy towns grow; unhappy ones stall.`), page: 'community' };
+  }
+  if (homeCapacity(s) - pop < 4) return { title: pop >= 200 && !c.homes.some((h) => h.tier === 'apartment') ? 'Open the Heights: build apartments' : 'Families are waiting for homes', hint: hint('New families arrive only when there is room for them.'), page: 'community' };
+  if (s.stageId === 'settlement') {
+    if (availableResidents(s) > 0 && s.workers.some((w) => w.region === 'heartland' && !w.resident)) return { title: 'Hire from your own families', hint: hint('Residents earn local wages and spend them here. Move commuters into homes or hire locally.'), page: 'workers' };
+    if (pop >= 40 && !c.homes.some((h) => h.tier === 'terrace')) return { title: 'Terraces are available', hint: hint('Terraces house four times as many families on the same street.'), page: 'community' };
+  }
+  if (town && t.education < .6) return { title: `A school place for every child · ${pctTxt(t.education)}/60%`, hint: hint('Build schools in the districts where children live.'), page: 'town' };
+  if (town && t.health < .7) return { title: `Health for every district · ${pctTxt(t.health)}/70%`, hint: hint('Wells, clinics and food keep families healthy.'), page: 'town' };
+  if (city && cityOf(s).sanitation < .7) return { title: `City sanitation · ${pctTxt(cityOf(s).sanitation)}/70%`, hint: hint('Sanitation works in each district protect health.'), page: 'city' };
+  if (city && cityOf(s).crime > .2) return { title: `Bring crime under 20% · now ${pctTxt(cityOf(s).crime)}`, hint: hint('Street lighting, jobs and schools lower crime; a watchhouse adds policing.'), page: 'city' };
+  const target = s.stageId === 'settlement' ? 80 : town ? 400 : 1200;
+  const perDay = dailyArrivals(s) * 4, days = Math.ceil(Math.max(0, target - pop) / Math.max(1, perDay));
+  const next = city && pop >= 600 && Object.values(cityOf(s).districts).every((d) => d.rezonedAt < 0) ? ' Try zoning a district.' : '';
+  return { title: `Grow to ${target.toLocaleString()} residents · ${pop.toLocaleString()}/${target.toLocaleString()}`, hint: hint(`About ${days} day${days === 1 ? '' : 's'} at today’s pace if homes keep up.${next}`), page: 'community' };
 }
 
 // ---------------------------------------------------------------- milestones (endgame)

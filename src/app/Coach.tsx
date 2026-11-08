@@ -1,6 +1,9 @@
 import { createPortal } from 'react-dom';
 import {cityActive,cityOf} from '../simulation/city-state';
 import { townOf } from '../simulation/town-state';
+import { communityOf } from '../simulation/community-state';
+import { regionActive, regionOf } from '../simulation/region-state';
+import { nationActive, nationOf } from '../simulation/nation-state';
 // First-timer guide: contextual coach marks that point at the real control when it becomes
 // relevant, and finish themselves when the player does the thing. One tip at a time.
 import { fertility, homePlotPrice, isReady } from '../simulation/engine';
@@ -26,6 +29,11 @@ const anyField = (s: GameState, f: (x: GameState['fields'][number]) => boolean) 
 const chapter = (s: GameState, legacyEra: number, stage: Parameters<typeof stageAtLeast>[1]) => s.legacyProgression ? s.era >= legacyEra : stageAtLeast(s, stage);
 
 export const TIPS: CoachTip[] = [
+  {id:'region-route',page:'region',target:'region-map',title:'Trade builds trust',body:'Tap a neighbour, then pick a good they want (★) and a daily load. Caravans sell at their market and every delivery raises trust.',when:regionActive,done:s=>Object.values(regionOf(s).neighbours).some(n=>n.route)},
+  {id:'region-defence',page:'region',target:'region-map',title:'Roads need guarding',body:'Bandits hit caravans on the road. City police and a staffed watchtower (Defence tab) protect them; pursuing a raid recovers part of the loss.',when:s=>regionActive(s)&&regionOf(s).raids>0,done:s=>townOf(s).services.some(b=>b.type==='watchtower')},
+  {id:'nation-army',page:'nation',target:'nation-main',title:'An army eats',body:'Soldiers are your own residents, paid from the treasury, and eat grain every day. Drill them, keep them fed, and only march when the odds are good.',when:s=>nationActive(s)&&nationOf(s).path==='army',done:s=>nationOf(s).history.length>0},
+  {id:'nation-ally',page:'nation',target:'nation-main',title:'Allies expect help',body:'Invite neighbours with trust 60+. They guard your roads; when they ask for grain or cash, answering keeps the league together.',when:s=>nationActive(s)&&nationOf(s).path==='alliance',done:s=>nationOf(s).league.members.length>0},
+  {id:'nation-neutral',page:'nation',target:'nation-main',title:'Be indispensable',body:'Feed every neighbour by caravan. If one turns on you, an embargo makes a dependent neighbour back down.',when:s=>nationActive(s)&&nationOf(s).path==='neutrality',done:s=>nationOf(s).neutral.mediated>0},
   {id:'city-utilities',page:'city',target:'city-next',title:'Care before enforcement',body:'Sanitation protects health; lighting makes streets safer. Both need funded local staff from the public treasury.',when:cityActive,done:s=>townOf(s).services.some(b=>b.type==='sanitation')},
   {id:'city-safety',page:'city',target:'city-safety',title:'Prosperity prevents crime',body:'Jobs, schools and happiness lower crime too. Your police charter changes its cost, effectiveness and effect on freedom.',when:s=>cityActive(s)&&townOf(s).services.some(b=>b.type==='sanitation'),done:s=>cityOf(s).police>0||cityOf(s).crime<.05},
   {id:'city-employment',page:'city',target:'city-decisions',title:'A town has more than one employer',body:'Tap District to see neighbouring jobs and real wages. A 1.1× offer can attract an employed neighbour to your crew; wages remain a recurring expense.',when:s=>cityActive(s)&&cityOf(s).neighbourJobs>0&&townOf(s).services.some(b=>b.type==='sanitation')},
@@ -87,7 +95,7 @@ export const TIPS: CoachTip[] = [
   { id: 'era7', page: 'corporation', target: 'nav-corporation', title: 'Agricultural corporation', body: 'Incorporate to hire division heads, issue shares and acquire competitors. Always run due diligence before you buy.',
     when: (s) => chapter(s, 7, 'city') },
   { id: 'era8', page: 'policy', target: 'nav-policy', title: 'The global food system', body: 'You now move world markets. Market power invites antitrust scrutiny; climate keeps shifting. Long-term milestones live on the Policy page.',
-    when: (s) => chapter(s, 8, 'nation') },
+    when: (s) => s.legacyProgression && !communityOf(s).active && s.era >= 8 },
 ];
 
 /** Each kind of problem the advisor spots is taught once, the first time it actually happens on this farm. */

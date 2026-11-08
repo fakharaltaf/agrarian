@@ -30,7 +30,7 @@ import type { Action, ActionResult, GameState, RegionState } from './types';
 
 export * from './agriculture';
 export { quoteSell, quoteBuy, avgPrice, avg30, outlook } from './markets';
-export { objective, PAGES, MILESTONES, lifetimeSales, totalHa, canAdvance, DISCOVERIES, ERA_UNLOCK_TEXT, ERA_SALES } from './progression';
+export { objective, chapterGate, gateProgress, type GateRow, PAGES, MILESTONES, lifetimeSales, totalHa, canAdvance, DISCOVERIES, ERA_UNLOCK_TEXT, ERA_SALES } from './progression';
 export { forecast } from './markets';
 export { dailyGoals, dailyPrize } from './daily';
 export { ACHIEVEMENTS } from './progression';

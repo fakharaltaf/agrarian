@@ -4,6 +4,7 @@ import { avgPrice, executeSell, haulCost } from './markets';
 import { clamp, day, debt, fixedAssets, inventoryValue, log, nextId, pick, post, random, round2, sumBooks, totalAssets } from './core';
 import { warnOnce } from './agriculture';
 import type { FuturesPosition, GameState, SupplyContract } from './types';
+import { featureEra } from './stages';
 
 export const FUTURES_GOODS: GoodId[] = ['wheat', 'corn', 'soybeans', 'rice', 'sugar', 'cotton', 'coffee', 'fuel', 'fertilizer'];
 export const CONTRACT_SIZE = 100;
@@ -134,7 +135,7 @@ const BUYERS = ['Harvest Table Grocers', 'Northline Mills', 'City Schools Board'
 
 function contractsDaily(s: GameState) {
   // offers arrive every few days, scaled to what you actually produce
-  if (s.era >= 5 && day(s) % 3 === 0 && s.contracts.filter((c) => !c.accepted).length < 5) {
+  if (featureEra(s, 5) && day(s) % 3 === 0 && s.contracts.filter((c) => !c.accepted).length < 5) {
     const regions = REGION_IDS.filter((r) => s.regions[r].unlocked);
     const produced = Object.entries(s.stats.produced).filter(([, q]) => q! > 0).map(([g]) => g as GoodId).filter((g) => GOODS[g].tradeable);
     if (produced.length) {

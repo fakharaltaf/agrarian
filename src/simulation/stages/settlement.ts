@@ -8,6 +8,13 @@ import { executeBuy, quoteBuy } from '../markets';
 import { communityOf, createSettlementState, HOME_DEFS, homePrice, homeCapacity, households, population, residentWorkers, availableResidents, recruitableResidents, workingAdults } from '../community-state';
 
 export const COMMUNITY_FOOD: GoodId[] = ['bread', 'wheat', 'corn', 'rice', 'potatoes', 'apples', 'grapes', 'milk', 'eggs', 'meat', 'cheese', 'flour'];
+/** Happiness ingredients (food, homes, warmth, jobs), each 0..1. */
+export function wellbeing(s: GameState) {
+  const c = communityOf(s), people = population(s);
+  return { fed: c.fed, housed: people ? Math.min(1, homeCapacity(s) / people) : 1, warm: c.warm, jobs: people ? Math.min(1, localEmployment(s) / Math.max(1, households(s))) : 1 };
+}
+/** Families that move in on a good day, before the free-homes limit. */
+export const dailyArrivals = (s: GameState) => Math.max(1, Math.floor(households(s) * 0.015));
 export function canStartSettlement(s: GameState) {
   return !communityOf(s).active && (s.legacyProgression ? s.era >= 4 : s.stageId === 'industry')
     && (s.lifetime.sale ?? 0) + (s.lifetime.contract ?? 0) >= CHAPTER_SALES.industry
@@ -77,8 +84,7 @@ export function settlementTick(s: GameState) {
   const fuel = Math.min(fuelNeed, s.regions.heartland.inventory.fuel);
   s.regions.heartland.inventory.fuel -= fuel;
   c.warm = fuelNeed ? fuel / fuelNeed : 1;
-  const housed = people ? Math.min(1, homeCapacity(s) / people) : 1;
-  const jobs = people ? Math.min(1, localEmployment(s) / Math.max(1, households(s))) : 1;
+  const { housed, jobs } = wellbeing(s);
   const target = clamp(0.45 * c.fed + 0.2 * housed + 0.15 * c.warm + 0.2 * jobs + (c.charter === 'free' ? 0.04 : -0.04), 0, 1);
   c.happiness += (target - c.happiness) * 0.2;
   if (c.homes.length) post(s, 'maintenance', -c.homes.reduce((n, h) => n + HOME_DEFS[h.tier].families * h.count * 0.5, 0) * s.macro.cpi, 'Community homes', 'heartland', 'corporate');
@@ -87,7 +93,7 @@ export function settlementTick(s: GameState) {
     if (rent > 0) { c.householdCash = Math.max(0, round2(c.householdCash - rent)); post(s, 'rent', rent, 'Resident housing rent', 'heartland', 'corporate'); }
   }
   if (c.happiness >= 0.65 && homeCapacity(s) - people >= 4) {
-    const arrivals = Math.min(Math.floor((homeCapacity(s) - people) / 4), Math.max(1, Math.floor(households(s) * 0.015)));
+    const arrivals = Math.min(Math.floor((homeCapacity(s) - people) / 4), dailyArrivals(s));
     for (let i = 0; i < arrivals; i++) addFamily(s);
     if (!people) log(s, 'opportunity', 'The first family has arrived. Keep the larder stocked.', 'community');
   }

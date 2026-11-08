@@ -1,8 +1,8 @@
 import { useMemo } from 'react';
-import { CHAPTER_SALES, BUILDINGS, CROP_IDS, ERAS, GOODS, REGIONS, REVENUE_KINDS, type CropId, type LedgerKind } from '../../simulation/config';
+import { BUILDINGS, CROP_IDS, ERAS, GOODS, REGIONS, REVENUE_KINDS, type CropId, type LedgerKind } from '../../simulation/config';
 import { debt, equity, inventoryValue, stored, sumBooks } from '../../simulation/core';
 import { companyValue, globalShare } from '../../simulation/corporate';
-import { lifetimeSales, objective, totalHa } from '../../simulation/engine';
+import { chapterGate, gateProgress, type GateRow, lifetimeSales, objective, totalHa } from '../../simulation/engine';
 import { ratios, incomeStatement } from '../../simulation/statements';
 import type { DayBook, GameState } from '../../simulation/types';
 import { go, useGame } from '../../stores/game';
@@ -188,14 +188,9 @@ function EraCard({ s }: { s: GameState }) {
   if (!s.legacyProgression || communityOf(s).active) {
     if (atFrontier(s)) return <Card title={`Chapter · ${STAGES[s.stageId].title}`}><p className="muted">Keep your operation growing. The next chapter will be offered here when it arrives.</p></Card>;
     const o = objective(s);
-    const sales = lifetimeSales(s);
-    const ratio = (n: number, target: number) => Math.min(1, n / target);
-    let progress = 0;
-    let requirement = 'The newest playable chapter is ready when you are.';
-    if (s.stageId === 'homestead') { progress = Math.min(ratio(s.fields.length, 4), ratio(sales, CHAPTER_SALES.homestead)); requirement = '4 fields + $90,000 in sales'; }
-    else if (s.stageId === 'market-town') { progress = Math.max(ratio(s.fields.length, 12), ratio(sales, CHAPTER_SALES['market-town'])); requirement = '12 fields or $165,000 in sales'; }
-    else if (s.stageId === 'farm-business') { progress = Math.min(ratio(s.workers.filter(w => w.role === 'hand').length, 2), ratio(sales, CHAPTER_SALES['farm-business'])); requirement = `2 farm hands + ${money(CHAPTER_SALES['farm-business'])} in sales`; }
-    else if (s.stageId === 'industry') { progress = Math.min(ratio(sales, CHAPTER_SALES.industry), s.buildings.some(b => BUILDINGS[b.type].category === 'processing') ? 1 : 0); requirement = `Machines or processing + ${money(CHAPTER_SALES.industry)} in sales`; }
+    const rows = chapterGate(s) ?? [], progress = rows.length ? gateProgress(rows) : 1;
+    const fmt = (r: GateRow, x: number) => r.fmt === 'pct' ? pct0(x) : r.fmt === 'money' ? money(x) : num(x);
+    const requirement = rows.length ? rows.map((r) => `${r.label} ${r.atMost ? '≤ ' : ''}${fmt(r, r.target)}`).join(rows.some((r) => r.either) ? ' or ' : ' · ') : 'The newest playable chapter is ready when you are.';
     return <Card title={<>Chapter · {STAGES[s.stageId].title}</>} info="Chapters open when your business reaches clear milestones. You choose when to advance.">
       <div className="stack s">
         <div className="row between small"><b>{o.title}</b><span className="mono">{pct0(progress)}</span></div>

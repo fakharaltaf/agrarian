@@ -107,7 +107,7 @@ export function regionDaily(s: GameState) {
     n.note = qty < 1 ? 'No spare stock today' : shipGoods(s, n.route.good, qty, 'heartland', id, s.cash - s.automation.policies.cashReserve, true, true, true) ?? '';
     if (qty >= 1 && !n.note) v.caravans++;
   }
-  if (!v.demand && !v.answered && v.raids > 0 && today - Math.floor(v.enteredAt / 24) >= 60) {
+  if (!v.demand && !v.answered && (v.raids > 0 || v.caravans >= 1) && today - Math.floor(v.enteredAt / 24) >= 60) {
     const from = [...NEIGHBOUR_IDS].sort((a, b) => v.neighbours[a].trust - v.neighbours[b].trust)[0];
     v.demand = { from, amount: tributeAmount(s), opened: s.tick, deadline: s.tick + 14 * 24 };
     log(s, 'warning', `${NEIGHBOURS[from].leader} of ${REGIONS[from].name} demands tribute. Pay, or refuse and expect more raids.`, 'region');

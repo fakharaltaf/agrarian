@@ -20,7 +20,12 @@ export default function NationPage() {
   const s = useGame(), v = nationOf(s), t = townOf(s), r = regionOf(s);
   const [target, setTarget] = useState<NeighbourId>('river'), [stance, setStance] = useState<Stance>('raid');
   if (!v.active) return <Modal title="A nation takes shape" onClose={() => go('farm')}><div className="charter-heading"><b>Choose your path</b><span>Your farm, town and region keep running</span></div>
-    <div className="charter-grid">{(Object.keys(PATHS) as NationPath[]).map(id => { const p = PATHS[id]; return <article className="charter-tile" key={id}><div className="charter-crest">{p.icon}</div><h3>{p.name}</h3><strong>{p.line}</strong><span>{p.detail}</span>
+    <div className="charter-grid">{(Object.keys(PATHS) as NationPath[]).map(id => { const p = PATHS[id];
+      const best = Math.max(...NEIGHBOUR_IDS.map(n => r.neighbours[n].trust)), routes = NEIGHBOUR_IDS.filter(n => r.neighbours[n].route).length;
+      const fit = id === 'army' ? <span className={t.cash >= servicePrice(s, 'barracks') ? 'good' : 'bad'}>Barracks {money(servicePrice(s, 'barracks'))} · treasury {money(t.cash)}</span>
+        : id === 'alliance' ? <span className={best >= ALLY_TRUST ? 'good' : 'bad'}>Best trust {Math.floor(best)}/{ALLY_TRUST}</span>
+        : <span className={routes >= 2 ? 'good' : 'bad'}>Neighbours fed {routes}/4</span>;
+      return <article className="charter-tile" key={id}><div className="charter-crest">{p.icon}</div><h3>{p.name}</h3><strong>{p.line}</strong><span>{p.detail}</span>{fit}
       <button className="btn primary" aria-label={`Choose ${p.name}`} disabled={!p.ready} onClick={() => act({ type: 'startNation', path: id })}>{p.ready ? 'Choose' : 'Coming soon'}</button></article>; })}</div></Modal>;
 
   if (v.path === 'alliance') return <LeagueRoom />;
@@ -28,7 +33,7 @@ export default function NationPage() {
   const men = soldiers(s), strength = armyStrength(s), barracks = t.services.find(b => b.type === 'barracks');
   const upkeep = plannedServiceCost(s), topUp = Math.ceil(Math.max(0, upkeep * 14 - t.cash) / 100) * 100;
   const odds = campaignOdds(s, target, stance), next = DRILLS[v.drill], war = v.campaign;
-  return <div className="stack town-page nation-page"><PageHead title="War room" />
+  return <div className="stack town-page nation-page" data-coach="nation-main"><PageHead title="War room" />
     <div className="town-purse"><b>🪙 {money(t.cash)}</b><span>⚔ {num(strength)} strength</span><Info text={`Strength = soldiers × drill (${drillPower(v.drill)}×) × morale × rations. Soldiers are local adults paid from the town treasury; each eats ${RATIONS_PER_SOLDIER} units of grain or bread a day from spare stock.`} /></div>
     {t.cash < upkeep * 7 && <button className="btn primary community-next" onClick={() => topUp > s.cash ? go(s.corp.incorporated ? 'corporation' : 'finance') : act({ type: 'fundTown', amount: topUp, direction: 'toTown' })}><span>🪙 {t.cash < upkeep ? 'Treasury empty: soldiers go unpaid' : 'Fund two weeks of public services'}</span><b>{money(topUp)}</b></button>}
     <div className="community-strip"><span><b>🪖 {num(men)}</b><small>soldiers</small></span><span><b>🍞 {pct0(v.supply)}</b><small>rations</small></span><span><b>☺ {pct0(v.morale)}</b><small>morale</small></span></div>
@@ -46,7 +51,9 @@ export default function NationPage() {
         {men < 1 && <small className="muted">Build and staff barracks first.</small>}
       </article>}
     <article className="town-service"><div className="town-portrait"><b>⚔</b></div><div className="town-service-body"><h3>{SERVICE_DEFS.barracks.name} {barracks && <small>×{barracks.count}</small>}</h3><strong>{SERVICE_DEFS.barracks.jobs} soldiers each · {money(serviceDailyCost(s, 'barracks'))}/day</strong>
-      <button className="btn primary" disabled={servicePrice(s, 'barracks') > t.cash} onClick={() => act({ type: 'buildService', service: 'barracks', district: 'farmgate' })}>Build · {money(servicePrice(s, 'barracks'))}</button></div>
+      {(() => { const gap = Math.ceil((servicePrice(s, 'barracks') + (plannedServiceCost(s) + serviceDailyCost(s, 'barracks')) * 7 - t.cash) / 100) * 100;
+        return gap > 0 && gap <= s.cash ? <button className="btn primary" onClick={() => { if (act({ type: 'fundTown', amount: gap, direction: 'toTown' })) act({ type: 'buildService', service: 'barracks', district: 'farmgate' }); }}>Advance {money(gap)} & build</button>
+          : <button className="btn primary" disabled={servicePrice(s, 'barracks') > t.cash} onClick={() => act({ type: 'buildService', service: 'barracks', district: 'farmgate' })}>Build · {money(servicePrice(s, 'barracks'))}</button>; })()}</div>
       {barracks && <div className="town-service-status"><span>{!barracks.active ? 'Stood down' : barracks.funded ? `${barracks.staffed}/${SERVICE_DEFS.barracks.jobs * barracks.count} soldiers` : 'Needs funding or recruits'}</span><button className="btn ghost" onClick={() => act({ type: 'toggleService', serviceId: barracks.id })}>{barracks.active ? 'Stand down' : 'Muster'}</button></div>}</article>
     <div className="row wrap">{next ? <Confirm label={v.drillUntil >= 0 ? `${next.icon} ${next.name} · ${Math.ceil((v.drillUntil - s.tick) / 24)} days` : `${next.icon} ${next.name} · ${money(drillCost(s))}`} title={`Begin ${next.name}?`} body={<>{money(drillCost(s))} from the treasury · {next.days} days. Army strength {drillPower(v.drill)}× → {next.power}×.</>} disabled={v.drillUntil >= 0 || t.cash < drillCost(s)} className="btn" onConfirm={() => act({ type: 'trainArmy' })} /> : <span className="pill">🎖 Fully drilled · {drillPower(v.drill)}×</span>}</div>
     {v.vassal && <div className="town-service-status"><span>👑 {REGIONS[v.vassal.from].name} pays {money(v.vassal.daily)}/day · {Math.ceil((v.vassal.until - s.tick) / 24)} days left</span></div>}
@@ -67,7 +74,7 @@ const days = (s: ReturnType<typeof useGame>, until: number) => Math.max(0, Math.
 
 function LeagueRoom() {
   const s = useGame(), L = nationOf(s).league, r = regionOf(s);
-  return <div className="stack town-page nation-page"><PageHead title="League hall" /><Purse />
+  return <div className="stack town-page nation-page" data-coach="nation-main"><PageHead title="League hall" /><Purse />
     <div className="community-strip"><span><b>🤝 {L.members.length}</b><small>members</small></span><span><b>🔗 {pct0(L.cohesion)}</b><small>cohesion</small></span><span><b>🎁 {money(L.aid)}</b><small>aid sent</small></span></div>
     {L.request && <article className="city-case region-alert"><h3>{NEIGHBOURS[L.request.from].icon} {NEIGHBOURS[L.request.from].leader} asks for help</h3><strong>{L.request.kind === 'grain' ? `${num(L.request.amount)} grain or bread` : money(L.request.amount)} · {days(s, L.request.deadline)} days</strong><span>Answering: +10 trust, cohesion up. Refusing: −20 trust; members may leave.</span>
       <div className="row wrap"><button className="btn primary" onClick={() => act({ type: 'answerAid', send: true })}>Send aid</button><button className="btn ghost" onClick={() => act({ type: 'answerAid', send: false })}>Refuse</button></div></article>}
@@ -87,7 +94,7 @@ function EmbassyRoom() {
   const s = useGame(), N = nationOf(s).neutral, r = regionOf(s), t = townOf(s), intel = s.tick < N.intelUntil;
   const [target, setTarget] = useState<NeighbourId>('arid');
   const fed = NEIGHBOUR_IDS.filter(id => r.neighbours[id].route && N.embargo?.target !== id).length;
-  return <div className="stack town-page nation-page"><PageHead title="Embassy" /><Purse />
+  return <div className="stack town-page nation-page" data-coach="nation-main"><PageHead title="Embassy" /><Purse />
     <div className="community-strip"><span><b>🌾 {fed}/4</b><small>fed by you</small></span><span><b>🕊 {N.mediated}</b><small>mediated</small></span><span><b>🏴 {intel ? pct0(raidRisk(s)) : '?'}</b><small>raid risk</small></span></div>
     {N.dispute && <article className="city-case region-alert"><h3>⚖ {REGIONS[N.dispute.a].name} vs {REGIONS[N.dispute.b].name}</h3><span>Mediate: both +10 trust. Ignore: bandits rise when they fight · {days(s, N.dispute.deadline)} days</span>
       <button className="btn primary" disabled={s.cash < mediationCost(s)} onClick={() => act({ type: 'mediate' })}>Mediate · {money(mediationCost(s))}</button></article>}

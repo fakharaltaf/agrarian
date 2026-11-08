@@ -760,3 +760,12 @@ body:has(.modal-bg) .shell .coach { display: none !important; }
 .nation-targets small { font-size: 14px; font-variant-numeric: tabular-nums; }
 .nation-odds { display: flex; align-items: baseline; gap: 8px; } .nation-odds b { font-size: 30px; font-variant-numeric: tabular-nums; }
 .nation-odds b.good { color: var(--up); } .nation-odds b.bad { color: var(--down); }
+/* Next-chapter requirements inside the objective card. */
+.gate-rows { display: grid; gap: 4px; margin-top: 6px; padding-top: 6px; border-top: 1px dashed color-mix(in srgb, var(--wheat) 45%, var(--line)); font-size: 13px; }
+.gate-head { display: flex; justify-content: space-between; color: var(--muted); font-weight: 700; }
+.gate-row { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; align-items: center; }
+.gate-row > :last-child { grid-column: 1 / -1; }
+.gate-row b { font-variant-numeric: tabular-nums; } .gate-row.done span { color: var(--up); }
+.gate-compact { display: none; }
+@media (max-width: 520px) { .gate-row { display: none; } .gate-compact { display: block; } .gate-rows { margin-top: 4px; padding-top: 4px; } }
+.hud-objective .gate-rows { grid-column: 1 / -1; }

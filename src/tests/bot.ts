@@ -8,6 +8,7 @@ import { CONFIG, CROPS, REGION_IDS, type BuildingType, type CropId, type GoodId,
 import { avg30, dispatch, homePlotPrice, isManual, isReady, parcelPrice, totalHa } from '../simulation/engine';
 import { seasonOf, stored } from '../simulation/core';
 import { communityOf, population, homeCapacity, availableResidents } from '../simulation/community-state';
+import { accruedTax } from '../simulation/finance';
 import { canStartSettlement, larderReserve } from '../simulation/stages/settlement';
 import type { GameState } from '../simulation/types';
 
@@ -16,6 +17,9 @@ export type Strategy = 'balanced' | 'volume' | 'processor' | 'idle';
 const count = (s: GameState, r: RegionId, t: string) => s.machines.filter((m) => m.region === r && m.type === t).length;
 const haIn = (s: GameState, r: RegionId) => s.fields.reduce((a, f) => a + (f.region === r ? f.ha : 0), 0);
 const hasB = (s: GameState, r: RegionId, t: BuildingType) => s.buildings.some((b) => b.region === r && b.type === t);
+
+/** A sensible player keeps this year's profit tax in hand (the game warns 14 days ahead). */
+const taxDue = (s: GameState) => accruedTax(s) * 1.1;
 
 export function botAct(s: GameState, strategy: Strategy = 'balanced', civicPriority = false) {
   if (strategy === 'idle') return;
@@ -155,7 +159,7 @@ export function townBotAct(s: GameState) {
       if(t.cash>=cost+reserve)dispatch(s,{type:'buildService',service:type,district:id});
     }
   }
-  const need=plannedServiceCost(s)*14-t.cash, spare=s.cash-Math.max(30000*s.macro.cpi,s.automation.policies.cashReserve);
+  const need=plannedServiceCost(s)*14-t.cash, spare=s.cash-Math.max(30000*s.macro.cpi,s.automation.policies.cashReserve)-taxDue(s);
   if(need>0&&spare>0){const amount=Math.floor(Math.min(need,spare)*100)/100;if(amount>0)dispatch(s,{type:'fundTown',amount,direction:'toTown'});}
   if(t.petition)dispatch(s,{type:'answerPetition',accept:false});
 }
@@ -172,8 +176,8 @@ export function cityBotAct(s:GameState) {
   // control floor bound this source of capital; it is never a recurring grant.
   if(s.corp.incorporated&&s.corp.playerShares/(s.corp.shares*1.2)>=.51&&s.cash<100000)dispatch(s,{type:'issueShares',pct:.2});
   const target=plannedServiceCost(s)*14;
-  if(t.cash<target&&s.cash>100000*s.macro.cpi) {
-    const amount=Math.floor(Math.min(s.cash-100000*s.macro.cpi,target-t.cash)*100)/100;
+  if(t.cash<target&&s.cash>100000*s.macro.cpi+taxDue(s)) {
+    const amount=Math.floor(Math.min(s.cash-100000*s.macro.cpi-taxDue(s),target-t.cash)*100)/100;
     if(amount>0)dispatch(s,{type:'fundTown',amount,direction:'toTown'});
   }
   for(const id of DISTRICT_IDS)if(pop[id])for(const type of ['sanitation','lighting','police'] as const) {
