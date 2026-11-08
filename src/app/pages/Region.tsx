@@ -68,6 +68,7 @@ export default function RegionPage() {
       <div className="community-strip"><span><b>🏴 {pct0(raidRisk(s))}</b><small>raid risk</small></span><span><b>⚔ {v.raids}</b><small>raids</small></span><span><b>🐫 {num(v.caravans)}</b><small>caravans</small></span></div>
       <h3>{BORDERS[v.border!].icon} {BORDERS[v.border!].name}</h3>{borders(true)}
       <button className="btn ghost" onClick={() => go('city')}>🛡 City watch & police</button>
+      {(regionOf(s).answered !== null) && <button className="btn ghost" onClick={() => go('nation')}>⚔ War room</button>}
     </div>}
   </div>;
 }

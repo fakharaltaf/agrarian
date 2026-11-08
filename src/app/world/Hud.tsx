@@ -26,7 +26,7 @@ function EraBanner({ s }: { s: GameState }) {
   const next = oldChapter ? ERAS[s.era] : null;
   const title = oldChapter ? `Era ${s.era + 1}: ${next?.name ?? 'Frontier'}` : STAGES[nextId ?? s.stageId].title;
   const theme = next?.theme ?? (nextId === 'market-town' ? 'Surplus outgrows barter. The village opens its first market day.' : nextId === 'farm-business' ? 'Bring in a crew, plan the fields and manage the new costs.' : nextId === 'industry' ? 'Machines and processing turn a farm business into an industry.' : 'A new chapter is ready. Your farm keeps running behind you.');
-  const unlocks = oldChapter ? ERA_UNLOCK_TEXT[s.era + 1] ?? [] : nextId === 'market-town' ? ['Open commodity market and daily market day', 'Keep the village trader as a side channel'] : nextId === 'farm-business' ? ['Farm hands, managers and crop plans', 'Soil care, livestock, orchards and seasons'] : nextId === 'industry' ? ['Tractors, processing and energy', 'Research and larger parcels'] : nextId==='settlement'?['Housing, families and local jobs','Feed your community from the farm']:nextId==='town'?['Schools, clean water and healthcare','A separate public treasury and council']:nextId==='city'?['Sanitation, lighting and district zoning','A safety charter and justice choices']:nextId==='region'?['Four neighbours with leaders and trust','Caravans, raids, watchtowers and a border policy']:['New systems arrive here as the story expands.'];
+  const unlocks = oldChapter ? ERA_UNLOCK_TEXT[s.era + 1] ?? [] : nextId === 'market-town' ? ['Open commodity market and daily market day', 'Keep the village trader as a side channel'] : nextId === 'farm-business' ? ['Farm hands, managers and crop plans', 'Soil care, livestock, orchards and seasons'] : nextId === 'industry' ? ['Tractors, processing and energy', 'Research and larger parcels'] : nextId==='settlement'?['Housing, families and local jobs','Feed your community from the farm']:nextId==='town'?['Schools, clean water and healthcare','A separate public treasury and council']:nextId==='city'?['Sanitation, lighting and district zoning','A safety charter and justice choices']:nextId==='region'?['Four neighbours with leaders and trust','Caravans, raids, watchtowers and a border policy']:nextId==='nation'?['Choose Army, Alliance or Neutrality','Barracks, drills and campaigns on the region map']:['New systems arrive here as the story expands.'];
   const chooseTrader = (charter: 'fair' | 'shrewd') => {
     if (!act({ type: 'chooseCharter', charter })) return;
     if (act({ type: 'advanceEra' })) setOpen(false);
@@ -41,7 +41,7 @@ function EraBanner({ s }: { s: GameState }) {
       {open && (
         <Modal title={title} onClose={() => setOpen(false)} actions={nextId === 'market-town' && !oldChapter
           ? <button className="btn ghost" onClick={() => setOpen(false)}>Not yet</button>
-          : <><button className="btn ghost" onClick={() => setOpen(false)}>Not yet</button><button className="btn primary" onClick={() => { if(nextId === 'settlement') go('community'); else if(nextId==='town') go('town'); else if(nextId==='city')go('city'); else if(nextId==='region')go('region'); else act({ type: 'advanceEra' }); setOpen(false); }}>Begin chapter</button></>}>
+          : <><button className="btn ghost" onClick={() => setOpen(false)}>Not yet</button><button className="btn primary" onClick={() => { if(nextId === 'settlement') go('community'); else if(nextId==='town') go('town'); else if(nextId==='city')go('city'); else if(nextId==='region')go('region'); else if(nextId==='nation')go('nation'); else act({ type: 'advanceEra' }); setOpen(false); }}>Begin chapter</button></>}>
           <p className="muted">{theme}</p>
           <ul>{unlocks.map((t) => <li key={t}>{t}</li>)}</ul>
           {nextId === 'market-town' && !oldChapter ? <>
@@ -230,7 +230,7 @@ export function Hud() {
         selectedLot={lot?.key} onAction={(kind, id) => {
           if(kind==='plant'||kind==='harvest') act(kind==='harvest'?{type:'harvest',fieldId:id}:{type:'plant',fieldId:id,crop});
           else if(kind==='place' && lot){
-            const target=lot.service?.type==='watchtower'?'region':lot.service&&['sanitation','lighting','police'].includes(lot.service.type)?'city':lot.key.startsWith('civic:')?'town':lot.key.startsWith('community:')?'community':lot.key==='crew'?'workers':lot.key==='office'?'automation':lot.key==='market'?'markets':lot.type==='house'||lot.type==='shed'?'finance':LOT_PAGE[BUILDINGS[lot.type].category];
+            const target=lot.service?.type==='barracks'?'nation':lot.service?.type==='watchtower'?'region':lot.service&&['sanitation','lighting','police'].includes(lot.service.type)?'city':lot.key.startsWith('civic:')?'town':lot.key.startsWith('community:')?'community':lot.key==='crew'?'workers':lot.key==='office'?'automation':lot.key==='market'?'markets':lot.type==='house'||lot.type==='shed'?'finance':LOT_PAGE[BUILDINGS[lot.type].category];
             if(target && PAGES.find(p=>p.id===target)?.unlocked(s))go(target);else {setPanel(true);setJournal(false);}
           } else {setPanel(true);setJournal(false); if(kind==='plan') requestAnimationFrame(()=>document.querySelector('[data-coach=plan-picker]')?.scrollIntoView({block:'center'}));}
         }} />
@@ -308,6 +308,7 @@ function HerdInfo({ s, lot }: { s: GameState; lot: Lot }) {
 }
 
 function LotPanel({ s, lot, region, onClose }: { s: GameState; lot: Lot; region: RegionId; onClose: () => void }) {
+  if(lot.service?.type==='barracks')return <Card title="Barracks"><button className="btn primary" onClick={()=>go('nation')}>Open War room</button></Card>;
   if(lot.service?.type==='watchtower')return <Card title="Watchtower & militia"><button className="btn primary" onClick={()=>go('region')}>Open Region map</button></Card>;
   if(lot.service&&['sanitation','lighting','police'].includes(lot.service.type))return <Card title="City watch"><button className="btn primary" onClick={()=>go('city')}>Open City watch</button></Card>;
   if (lot.key.startsWith('civic:')) return <Card title="Town services"><button className="btn primary" onClick={() => go('town')}>Open Town hall</button></Card>;

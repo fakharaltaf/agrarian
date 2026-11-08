@@ -74,7 +74,7 @@ function FrontierCard({ s }: { s: GameState }) {
   return <Card title={<>🌄 Frontier <span className="muted">· {marks} marks</span></>} info="Optional goals continue indefinitely. Marks recognize achievements; they do not grant money or production bonuses.">
     <div className="frontier-goals">
       {frontierGoals(s).map(goal => <div className="frontier-goal" key={goal.id}>
-        <div className="row between"><b>{goal.icon} {goal.name}</b><span className="mono">{goal.name === 'Trade horizon' ? money(goal.value) : `${num(goal.value)} ${goal.unit}`} / {goal.name === 'Trade horizon' ? money(goal.target) : `${num(goal.target)} ${goal.unit}`}</span></div>
+        <div className="row between"><b>{goal.icon} {goal.name}</b><span className="mono">{goal.unit === 'usd' ? money(goal.value) : `${num(goal.value)} ${goal.unit}`} / {goal.unit === 'usd' ? money(goal.target) : `${num(goal.target)} ${goal.unit}`}</span></div>
         <Bar value={Math.min(1, goal.progress)} label={goal.detail} />
         <span className="small muted">{goal.progress >= 1 ? 'Complete · marks recorded at midnight' : goal.name === 'Stewardship' ? '80% average fertility required' : 'Each mark opens a larger horizon'}</span>
       </div>)}

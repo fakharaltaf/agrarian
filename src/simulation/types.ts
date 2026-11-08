@@ -320,7 +320,7 @@ export interface SettlementState {
 export type SchoolCharter = 'public' | 'trade';
 export const DISTRICT_IDS = ['farmgate', 'orchard', 'heights'] as const;
 export type DistrictId = (typeof DISTRICT_IDS)[number];
-export type ServiceType = 'school' | 'well' | 'clinic' | 'road' | 'hospital' | 'waterworks' | 'park' | 'sanitation' | 'lighting' | 'police' | 'watchtower';
+export type ServiceType = 'school' | 'well' | 'clinic' | 'road' | 'hospital' | 'waterworks' | 'park' | 'sanitation' | 'lighting' | 'police' | 'watchtower' | 'barracks';
 export interface CivicService { id: number; type: ServiceType; district: DistrictId; count: number; active: boolean; cost: number; staffed: number; funded: boolean }
 export interface DistrictCoverage { people: number; school: number; water: number; medical: number; road: number }
 export interface CouncilPetition { id: number; kind: 'park' | 'bread'; opened: number }
@@ -424,6 +424,9 @@ export type Action =
   | { type: 'signTreaty'; to: import('./region-state').NeighbourId }
   | { type: 'resolveRaid'; answer: 'pursue' | 'absorb' }
   | { type: 'answerDemand'; answer: 'pay' | 'refuse' }
+  | { type: 'startNation'; path: import('./nation-state').NationPath }
+  | { type: 'launchCampaign'; target: import('./region-state').NeighbourId; stance: import('./nation-state').Stance }
+  | { type: 'trainArmy' }
   | { type: 'startTown'; charter: SchoolCharter }
   | { type: 'fundTown'; amount: number; direction: 'toTown' | 'repay' }
   | { type: 'setTownTax'; rate: number }

@@ -755,3 +755,8 @@ body:has(.modal-bg) .shell .coach { display: none !important; }
 .crop-choice.best { border-color: color-mix(in srgb, var(--gold) 75%, var(--line)); }
 .crop-best { position: absolute; top: -10px; left: 50%; transform: translateX(-50%); padding: 2px 10px; border-radius: 999px; background: var(--gold); color: #2b221b; font: 800 13px var(--font); white-space: nowrap; z-index: 1; }
 .crop-grid { padding-top: 10px; }
+.nation-targets { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.nation-targets button { display: grid; gap: 2px; min-height: 56px; padding: 6px; }
+.nation-targets small { font-size: 14px; font-variant-numeric: tabular-nums; }
+.nation-odds { display: flex; align-items: baseline; gap: 8px; } .nation-odds b { font-size: 30px; font-variant-numeric: tabular-nums; }
+.nation-odds b.good { color: var(--up); } .nation-odds b.bad { color: var(--down); }

@@ -7,6 +7,7 @@ import { shipGoods } from '../logistics';
 import { cityActive, cityOf } from '../city-state';
 import { serviceJobs, townOf } from '../town-state';
 import { larderReserve } from './settlement';
+import { nationActive, nationOf } from '../nation-state';
 import { lifetimeSales } from './shared';
 import { createRegionState, isNeighbour, NEIGHBOUR_IDS, NEIGHBOURS, regionActive, regionOf, type BorderCharter, type NeighbourId } from '../region-state';
 
@@ -98,6 +99,7 @@ export function regionDaily(s: GameState) {
   for (const id of NEIGHBOUR_IDS) {
     const n = v.neighbours[id];
     if (!n.route) continue;
+    if (nationActive(s) && nationOf(s).campaign?.target === id) { n.note = 'Halted: your army is at war here'; continue; }
     const qty = Math.floor(Math.min(n.route.qty, spendable(s, n.route.good)));
     n.note = qty < 1 ? 'No spare stock today' : shipGoods(s, n.route.good, qty, 'heartland', id, s.cash - s.automation.policies.cashReserve, true, true, true) ?? '';
     if (qty >= 1 && !n.note) v.caravans++;

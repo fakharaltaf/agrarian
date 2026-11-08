@@ -8,6 +8,7 @@ import type { GameState } from './types';
 import type { CivicService, CommunityHome, HouseholdCohort } from './types';
 import { createTownState } from './town-state';
 import { createRegionState, NEIGHBOUR_IDS, type RegionState } from './region-state';
+import { createNationState, type NationState } from './nation-state';
 import { createSettlementState } from './community-state';
 export const SAVE_VERSION = 12;
 export interface SaveFile { version: number; savedAt: number; paused?: boolean; game: GameState }
@@ -64,6 +65,11 @@ export function parseSave(text: string): SaveFile {
     ||!NEIGHBOUR_IDS.every(id=>{const n=region.neighbours?.[id];return !!n&&[n.trust,n.delivered,n.giftDay].every(finite)&&n.trust>=0&&n.trust<=100&&typeof n.treaty==='boolean'&&(n.route===null||GOOD_IDS.includes(n.route.good)&&finite(n.route.qty)&&n.route.qty>=1);})
     ||region.raid&&(!GOOD_IDS.includes(region.raid.good)||!NEIGHBOUR_IDS.includes(region.raid.to)||![region.raid.lost,region.raid.deadline].every(finite))
     ||region.demand&&(!NEIGHBOUR_IDS.includes(region.demand.from)||![region.demand.amount,region.demand.deadline].every(finite)))throw new Error('Save file region state is corrupt.');
+  const nation=g.stageState.nation as unknown as NationState;
+  if(typeof nation.active!=='boolean'||(nation.active&&!['army','alliance','neutrality'].includes(nation.path as string))||!['enteredAt','lastDay','drill','drillUntil','morale','supply','weariness','wins','losses','casualties'].every(k=>finite((nation as unknown as Record<string,unknown>)[k]))
+    ||!Number.isInteger(nation.drill)||nation.drill<0||nation.drill>3||!NEIGHBOUR_IDS.every(id=>finite(nation.weakened?.[id]))||!Array.isArray(nation.history)||nation.history.length>12
+    ||nation.campaign&&(!NEIGHBOUR_IDS.includes(nation.campaign.target)||!['raid','siege'].includes(nation.campaign.stance)||![nation.campaign.ends,nation.campaign.odds,nation.campaign.soldiers].every(finite))
+    ||nation.vassal&&(!NEIGHBOUR_IDS.includes(nation.vassal.from)||![nation.vassal.until,nation.vassal.daily].every(finite)))throw new Error('Save file nation state is corrupt.');
   return { version: SAVE_VERSION, savedAt: finite(f.savedAt) ? f.savedAt! : Date.now(), paused: f.paused === true, game: g };
 }
 
@@ -101,6 +107,8 @@ export function migrate(g: Omit<GameState, 'version'> & { version: number }): Ga
     saved[id] ??= districts[id] as unknown as Record<string,unknown>;
     for(const [key,value] of Object.entries(districts[id]))saved[id][key] ??= value;
   }
+  g.stageState.nation ??= createNationState() as unknown as Record<string,unknown>;
+  for(const [key,value] of Object.entries(createNationState()))g.stageState.nation[key] ??= value;
   g.stageState.region ??= createRegionState() as unknown as Record<string,unknown>;
   for(const [key,value] of Object.entries(createRegionState()))g.stageState.region[key] ??= value;
   g.stageState.town ??= createTownState() as unknown as Record<string, unknown>;

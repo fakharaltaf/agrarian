@@ -409,6 +409,7 @@ export function buildCivic(type: string, w: number, d: number): Model {
       group.add(box(.8,.45,.12,PAL.wood,w/2,1.2,d-.35));
       group.add(box(.28,.34,.02,PAL.white,w/2-.15,1.25,d-.27),box(.28,.34,.02,PAL.creamDark,w/2+.15,1.25,d-.27));
     }
+    if(type==='barracks'){group.add(box(.06,2.6,.06,PAL.wood,w-.3,.1,.3),box(.7,.4,.03,PAL.barnRed,w-.65,2.4,.3));}
     if(type==='police')group.add(box(.5,.6,.08,PAL.roofBlue,w/2,1.2,d-.3),box(.12,.4,.1,PAL.cream,w/2,1.3,d-.25));
     if(type==='hall') {group.add(box(.08,1.6,.08,PAL.wood,w-.4,2,.5),box(.5,.3,.06,PAL.roofGreen,w-.15,3,.5));}
   }

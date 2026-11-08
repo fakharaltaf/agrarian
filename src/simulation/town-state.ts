@@ -15,6 +15,7 @@ export const SERVICE_DEFS: Record<ServiceType, { name: string; icon: string; cos
   waterworks: { name: 'Waterworks', icon: '⛲', cost: 120000, capacity: 1500, jobs: 4, kwh: 40 },
   park: { name: 'Park', icon: '🌳', cost: 15000, capacity: 1e12, jobs: 0, kwh: 0 },
   watchtower: {name:'Watchtower & militia',icon:'🗼',cost:50000,capacity:1e12,jobs:5,kwh:2},
+  barracks: {name:'Barracks',icon:'⚔',cost:120000,capacity:1e12,jobs:20,kwh:10},
 };
 export const DISTRICT_NAMES: Record<DistrictId, string> = { farmgate: 'Farmgate', orchard: 'Orchard', heights: 'Heights' };
 export function createTownState(): TownState {

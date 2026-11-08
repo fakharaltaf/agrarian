@@ -51,7 +51,7 @@ export function layoutRegion(s: GameState, r: RegionId): Layout {
   }
   if(r==='heartland' && townOf(s).active) {
     lots.push({key:'civic:hall',type:'house',buildings:[],x:-31,y:1,w:4,d:3});
-    const order=['school','well','clinic','road','hospital','waterworks','park','sanitation','lighting','police','watchtower'];
+    const order=['school','well','clinic','road','hospital','waterworks','park','sanitation','lighting','police','watchtower','barracks'];
     for(const service of townOf(s).services) {
       const road=service.type==='road';
       lots.push({key:`civic:${service.type}:${service.id}`,type:'house',buildings:[],service,x:-7-DISTRICT_IDS.indexOf(service.district)*8+(road?3.2:0),y:road?1:-6-order.indexOf(service.type)*5,w:road?1:3,d:road?36:3});
