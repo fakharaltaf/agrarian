@@ -250,7 +250,17 @@ function loop() {
     if (ticks > 0) {
       carry -= ticks;
       if (carry > 5) carry = 0;
-      advance(store.game, ticks);
+      // One hour at a time so the clock can stop the moment the farm slips into overdraft:
+      // at high speed the three-day insolvency clock would otherwise pass in about a second.
+      for (let i = 0; i < ticks && !store.game.bankrupt; i++) {
+        const over = store.game.overdraftDays;
+        advance(store.game, 1);
+        if (store.game.overdraftDays > over && store.speed > 1) {
+          setSpeed(0);
+          toast(`Paused: overdraft over its limit (day ${store.game.overdraftDays}/3). Sell stock, a field or a machine, or take a loan, before day 3.`);
+          break;
+        }
+      }
     }
   }
   last = now;
