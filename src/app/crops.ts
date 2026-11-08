@@ -5,11 +5,12 @@ import { canGrow, expectedYield } from '../simulation/engine';
 import { dayPrice } from '../simulation/lines';
 import type { Field, GameState } from '../simulation/types';
 
-/** Expected profit of one planting at the 24h average price, and per hour of growing (orchards: per harvest cycle once mature). */
+/** Expected profit of one planting at the 24h average price, per hour until that harvest (orchards include the years to first fruit). */
 export function cropReturn(s: GameState, f: Field, id: CropId) {
   const units = expectedYield(s, f, id), seed = f.ha * CONFIG.seedsPerHa * seedCost(s, id), value = units * dayPrice(s, f.region, id);
-  const profit = value - (CROPS[id].perennial ? 0 : seed);
-  return { units, seed, value, profit, perHour: canGrow(f, id) ? profit / CROPS[id].growthTicks : -Infinity };
+  // Orchards and vineyards: the first harvest waits for the trees to mature, so count that time too.
+  const hours = CROPS[id].growthTicks + (CROPS[id].perennial && f.crop !== id ? CROPS[id].perennial!.matureDays * 24 : 0);
+  return { units, seed, value, profit: value - seed, perHour: canGrow(f, id) ? (value - seed) / hours : -Infinity };
 }
 export const rankCrops = (s: GameState, f: Field) => [...s.unlockedCrops].sort((a, b) => cropReturn(s, f, b).perHour - cropReturn(s, f, a).perHour);
 /** The best-paying crop this field can grow; wheat if nothing pays. */

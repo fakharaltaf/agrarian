@@ -1,4 +1,5 @@
 import { bestCrop } from '../crops';
+import { spreadNeed } from '../../simulation/agriculture';
 import {cityActive} from '../../simulation/city-state';
 import { townOf } from '../../simulation/town-state';
 // Everything that floats over the world: objective, selection panel, market, land, region switcher.
@@ -229,6 +230,13 @@ export function Hud() {
       <Scene3D region={region} selected={lot ? [] : sel} onPick={onPick} plantLabel={plantLabel(s, crop, one)}
         selectedLot={lot?.key} onAction={(kind, id) => {
           if(kind==='plant'||kind==='harvest') act(kind==='harvest'?{type:'harvest',fieldId:id}:{type:'plant',fieldId:id,crop});
+          else if(kind==='irrigate') act({type:'irrigate',fieldIds:[id]},'Irrigation installed.');
+          else if(kind==='fertilise'){
+            const f=s.fields.find(x=>x.id===id); if(!f)return;
+            const inv=s.regions[f.region].inventory, manure=spreadNeed(s,f,'manure'), need=spreadNeed(s,f,'fertilizer');
+            if(inv.manure>=manure) act({type:'fertilize',fieldIds:[id],source:'manure'},'Manure is on its way to the field.');
+            else { if(inv.fertilizer<need&&!act({type:'buy',region:f.region,good:'fertilizer',qty:Math.ceil(need-inv.fertilizer)}))return; act({type:'fertilize',fieldIds:[id],source:'fertilizer'},'Fertiliser is on its way to the field.'); }
+          }
           else if(kind==='place' && lot){
             const target=lot.service?.type==='barracks'?'nation':lot.service?.type==='watchtower'?'region':lot.service&&['sanitation','lighting','police'].includes(lot.service.type)?'city':lot.key.startsWith('civic:')?'town':lot.key.startsWith('community:')?'community':lot.key==='crew'?'workers':lot.key==='office'?'automation':lot.key==='market'?'markets':lot.type==='house'||lot.type==='shed'?'finance':LOT_PAGE[BUILDINGS[lot.type].category];
             if(target && PAGES.find(p=>p.id===target)?.unlocked(s))go(target);else {setPanel(true);setJournal(false);}

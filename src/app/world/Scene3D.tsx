@@ -55,7 +55,7 @@ interface Rig {
   rain: THREE.Points; smoke: THREE.Sprite[]; pops: { key: string; text: string; x: number; z: number; t0: number; tone?: string }[]; seenHarvest: Map<number, object>; popsReady: boolean; crownMat: THREE.MeshStandardMaterial; lastHaul: number; layout: Layout | null; region: RegionId;
 }
 
-export type WorldAction = 'harvest' | 'plant' | 'inspect' | 'plan' | 'place';
+export type WorldAction = 'harvest' | 'plant' | 'inspect' | 'plan' | 'place' | 'fertilise' | 'irrigate';
 
 export function Scene3D({ region, selected, onPick, plantLabel, onAction, selectedLot }: { region: RegionId; selected: number[]; onPick: (p: WorldPick) => void; plantLabel?: string; selectedLot?: string; onAction?: (kind: WorldAction, fieldId: number) => void }) {
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -276,6 +276,16 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
       </div>
     </div>
   );
+}
+
+/** A field that needs care: tired soil, or dry ground that irrigation would fix. Only once these tools are open. */
+export function fieldNeeds(s: GameState, f: GameState['fields'][number]) {
+  const open = s.legacyProgression ? s.era >= 2 : stageAtLeast(s, 'farm-business');
+  if (!open || f.greenhouse) return { fertilise: false, irrigate: false };
+  return {
+    fertilise: fertility(f) < 0.5 && !f.spreading,
+    irrigate: !f.irrigated && !!f.crop && f.moisture < CROPS[f.crop].water * 0.6,
+  };
 }
 
 // ---------------------------------------------------------------- camera
@@ -769,7 +779,9 @@ function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el
       const hand=p.field.ha<=1;
       const primary=hand ? ready?button(`harvest:${id}`,'🌾 Harvest'):!p.field.crop&&plantLabel?button(`plant:${id}`,`🌱 ${plantLabel}`):p.field.crop?`<span class="wl-grow">⏳ ${Math.floor(growth(s,p.field)*100)}%</span>`:'' : '';
       const plan=!hand&&stageAtLeast(s,'farm-business')?button(`plan:${id}`,'📋 Crop plan'):'';
-      want.push({key:'act',x:Math.max(115,Math.min(W-115,px)),y:Math.max(80,Math.min(H-30,py)),html:primary+plan+button(`inspect:${id}`,'ⓘ'),cls:'wl-radial'});
+      const need=fieldNeeds(s,p.field);
+      const care=(need.fertilise?button(`fertilise:${id}`,'🌿 Fertilise'):'')+(need.irrigate?button(`irrigate:${id}`,'💧 Irrigate'):'');
+      want.push({key:'act',x:Math.max(115,Math.min(W-115,px)),y:Math.max(80,Math.min(H-30,py)),html:primary+care+plan+button(`inspect:${id}`,'ⓘ'),cls:'wl-radial'});
     }
   }
   if(selectedLot){
@@ -787,6 +799,14 @@ function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el
     const [x, y] = project(p.x + p.s / 2, 1.1 + Math.sin(t * 3) * 0.06, p.y + p.s / 2);
     if (x < -20 || y < -20 || x > W + 20 || y > H + 20) continue;
     want.push({ key: `r${p.field.id}`, x, y, html: '!', cls: 'wl-ready' });
+  }
+  for (const p of L.plots) {
+    if (isReady(s, p.field) || selected.includes(p.field.id)) continue;
+    const need = fieldNeeds(s, p.field);
+    if (!need.fertilise && !need.irrigate) continue;
+    const [x, y] = project(p.x + p.s / 2, 1.1, p.y + p.s / 2);
+    if (x < -20 || y < -20 || x > W + 20 || y > H + 20) continue;
+    want.push({ key: `n${p.field.id}`, x, y, html: need.fertilise ? '🌿' : '💧', cls: 'wl-need' });
   }
   if (zoomed) for (const m of R.models) {
     const lot = m.lot;

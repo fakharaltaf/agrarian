@@ -190,7 +190,7 @@ export function FieldPanel({ s, f, crop, setCrop }: { s: GameState; f: Field; cr
         )}
         {stageAtLeast(s, 'farm-business') && <PlanPicker s={s} fields={[f]} />}
         <SupplyPicker s={s} fields={[f]} />
-        {stageAtLeast(s, 'farm-business') && <details className="field-details"><summary>🌱 Soil & water · {pct0(fertility(f))}</summary><SoilPanel s={s} f={f} /></details>}
+        {stageAtLeast(s, 'farm-business') && <SoilPanel s={s} f={f} />}
         {f.lastHarvest && (
           <Tip text="Why this harvest came out as it did — every factor is from the simulation."
             breakdown={[['Base', num(f.lastHarvest.base)], ['Soil', f.lastHarvest.soil.toFixed(2)], ['Water', f.lastHarvest.water.toFixed(2)], ['Season/temp', f.lastHarvest.weather.toFixed(2)], ['Pests', f.lastHarvest.pest.toFixed(2)], ['Technology', f.lastHarvest.tech.toFixed(2)], ['Region fit', f.lastHarvest.suitability.toFixed(2)], ['Timing', f.lastHarvest.timing.toFixed(2)]]}>
