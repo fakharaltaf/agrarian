@@ -8,7 +8,11 @@ import { known } from '../../simulation/core';
 import { buildingMargin } from '../../simulation/processing';
 import { DISCOVERIES, ERA_UNLOCK_TEXT, dailyGoals, dailyPrize, forecast, herdOf, homePlotPrice, housing, isManual, isReady, objective, chapterGate, gateProgress, type GateRow, PAGES, seedShortfall, upgradeCost } from '../../simulation/engine';
 import type { GameState } from '../../simulation/types';
-import { act, go, useGame, usePageState } from '../../stores/game';
+import { act, cancelPlacement, confirmPlacement, go, startPlacement, useGame, usePageState, useStore, type Placement } from '../../stores/game';
+import { footprintOf, patchesAround, plotSide } from '../../simulation/world';
+import { buildingPrice, moveFee, parcelPrice } from '../../simulation/engine';
+import { homePrice } from '../../simulation/community-state';
+import { servicePrice } from '../../simulation/town-state';
 import { money, num, pct0 } from '../format';
 import { BatchPanel, FieldPanel, HomesteadTraderCard, RecentLog, SellCard } from '../pages/Fields';
 import { NEXT_STAGE, STAGES, stageAtLeast } from '../../simulation/stages';
@@ -146,6 +150,8 @@ export function Hud() {
   const [sel, setSel] = useState<number[]>(() => (s.fields[0] ? [s.fields[0].id] : []));
   const [lot, setLot] = useState<Lot | null>(null);
   const [chosen, setCrop] = useState<CropId | null>(null);
+  const [forest, setForest] = useState<[number, number] | null>(null);
+  const placing = useStore((x) => x.placing);
   const [panel, setPanel] = useState(false);
   const [journal, setJournal] = useState(false);
   const dragStart = useRef<number | null>(null);
@@ -213,7 +219,9 @@ export function Hud() {
       setLot(p.lot);
       setSel([]);
     } else if (p.kind === 'buy') act({ type: 'buyPlot' });
-    else if (s.era >= 3) (setLot(null), setSel([]));
+    else if (p.kind === 'forest') (setForest([p.x, p.y]), setLot(null), setSel([]));
+    else { setForest(null); if (s.era >= 3) (setLot(null), setSel([])); }
+    if (p.kind !== 'forest') setForest(null);
   };
 
   const selected = lot ? [] : s.fields.filter((f) => sel.includes(f.id));
@@ -227,8 +235,14 @@ export function Hud() {
     <div className="hud">
       <DiscoveryCard s={s} />
       <Scene3D region={region} selected={lot ? [] : sel} onPick={onPick} plantLabel={plantLabel(s, crop, one)}
+        placing={placing} forestAt={forest} placeCost={placing ? placementCost(s, placing) : 0}
         selectedLot={lot?.key} onAction={(kind, id) => {
-          if(kind==='plant'||kind==='harvest') act(kind==='harvest'?{type:'harvest',fieldId:id}:{type:'plant',fieldId:id,crop});
+          if(kind==='placeok'){ if(confirmPlacement()) { setSel([]); setLot(null); } }
+          else if(kind==='placecancel'){ cancelPlacement(); setForest(null); }
+          else if(kind==='clear1'||kind==='clear9'){ if(forest&&act({type:'clearForest',region,chunks:patchesAround(s,region,forest[0],forest[1],kind==='clear1'?1:3)}))setForest(null); }
+          else if(kind==='move'){ const f=s.fields.find(x=>x.id===id); if(f){ const side=plotSide(f.ha); startPlacement({kind:'move',key:`field:${id}`,region:f.region,w:side,d:side,label:`Field ${id}`,action:{type:'seeTip',tip:''}}); setSel([]); } }
+          else if(kind==='movelot'&&lot){ const fp=footprintOf(s,lot.place); if(fp){ startPlacement({kind:'move',key:lot.place,region,w:fp.w,d:fp.d,label:'Move',action:{type:'seeTip',tip:''}}); setLot(null); } }
+          else if(kind==='plant'||kind==='harvest') act(kind==='harvest'?{type:'harvest',fieldId:id}:{type:'plant',fieldId:id,crop});
           else if(kind==='irrigate') act({type:'irrigate',fieldIds:[id]},'Irrigation installed.');
           else if(kind==='fertilise'){
             const f=s.fields.find(x=>x.id===id); if(!f)return;
@@ -275,6 +289,18 @@ export function Hud() {
       )}
     </div>
   );
+}
+
+/** What confirming a placement will cost: the purchase itself, or the moving fee. */
+function placementCost(s: GameState, p: Placement) {
+  if (p.kind === 'move') return moveFee(s, p.region, p.key!);
+  const a = p.action;
+  if (a.type === 'buyPlot') return homePlotPrice(s);
+  if (a.type === 'buyParcel') return parcelPrice(s, a.region, a.ha);
+  if (a.type === 'build') return buildingPrice(s, a.building, a.region);
+  if (a.type === 'buildHomes') return homePrice(s, a.tier) * a.count;
+  if (a.type === 'buildService') return servicePrice(s, a.service) * (a.count ?? 1);
+  return 0;
 }
 
 function plantLabel(s: GameState, crop: CropId, f: GameState['fields'][number] | null) {

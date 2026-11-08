@@ -10,19 +10,20 @@ import { timingFactor, fertility, growth, isMature, isReady } from '../../simula
 import { priceUsd, stored } from '../../simulation/core';
 import { spreadNeed } from '../../simulation/agriculture';
 import type { GameState } from '../../simulation/types';
-import { getGame, getSpeed } from '../../stores/game';
+import { getGame, getSpeed, moveGhost, type Placement } from '../../stores/game';
 import { stageAtLeast } from '../../simulation/stages';
 import { preloadArt, artRevision } from './art';
 import { money, num, pct0 } from '../format';
 import { layoutRegion, type Layout, type Lot, type Plot } from './layout';
-import { animal, buildCivic, buildCommunityHome, buildLot, box, cached, mat, mesh, PAL, person, tree, vehicle, type Model } from './models';
+import { CHUNK, CHUNKS_X, CHUNKS_Y, MAP, PROBLEM_TEXT, ROAD_H, ROAD_Y, chunkAt, chunkOrigin, clearCost, clearedSet, isRoad, patchesAround, placeProblem, worldOf } from '../../simulation/world';
+import { animal, buildCivic, buildCommunityHome, buildLot, box, cached, mat, mesh, PAL, person, vehicle, type Model } from './models';
 
 /** Graphics quality chosen in Settings (per browser). Low turns off shadows and high-DPI rendering. */
 export const graphicsQuality = (): 'high' | 'low' => {
   try { return localStorage.getItem('agrarian.ui.graphics') === '"low"' ? 'low' : 'high'; } catch { return 'high'; }
 };
 
-export type WorldPick = { kind: 'field'; id: number; multi: boolean } | { kind: 'lot'; lot: Lot } | { kind: 'buy' } | { kind: 'none' };
+export type WorldPick = { kind: 'field'; id: number; multi: boolean } | { kind: 'lot'; lot: Lot } | { kind: 'buy' } | { kind: 'forest'; x: number; y: number } | { kind: 'none' };
 
 const SEASON_GROUND: Record<string, number> = { Spring: 0x88ba5c, Summer: 0x93b14f, Autumn: 0xb3a253, Winter: 0xe4eaec };
 const REGION_GROUND: Partial<Record<RegionId, number>> = { arid: 0xd3bd86, tropics: 0x5ea849 };
@@ -48,7 +49,7 @@ const RIPE: Partial<Record<CropId, number>> = { wheat: 0xe0b23f, rice: 0xd9c46a,
 interface Rig {
   renderer: THREE.WebGLRenderer; scene: THREE.Scene; camera: THREE.OrthographicCamera; target: THREE.Vector3; yaw: number; yawTo: number; zoom: number;
   sun: THREE.DirectionalLight; hemi: THREE.HemisphereLight; ground: THREE.Mesh;
-  lots: THREE.Group; fields: THREE.Group; units: THREE.Group; deco: THREE.Group; fx: THREE.Group; sel: THREE.Group;
+  lots: THREE.Group; fields: THREE.Group; units: THREE.Group; deco: THREE.Group; fx: THREE.Group; sel: THREE.Group; ghost: THREE.Group; ghostSig: string;
   models: { lot: Lot; model: Model; hit: THREE.Mesh }[]; pick: THREE.Object3D[];
   crops: Partial<Record<Shape, THREE.InstancedMesh>>; sig: { lots: string; fields: string; crops: string; sel: string; deco: string };
   neighbours: THREE.Group[]; people: Map<number, THREE.Group>; machines: Map<number, THREE.Group>; trucks: { obj: THREE.Group; t0: number }[]; herds: Map<string, THREE.Group[]>;
@@ -56,14 +57,14 @@ interface Rig {
   rain: THREE.Points; smoke: THREE.Sprite[]; pops: { key: string; text: string; x: number; z: number; t0: number; tone?: string }[]; seenHarvest: Map<number, object>; popsReady: boolean; crownMat: THREE.MeshStandardMaterial; lastHaul: number; layout: Layout | null; region: RegionId;
 }
 
-export type WorldAction = 'harvest' | 'plant' | 'inspect' | 'plan' | 'place' | 'fertilise' | 'irrigate';
+export type WorldAction = 'harvest' | 'plant' | 'inspect' | 'plan' | 'place' | 'fertilise' | 'irrigate' | 'move' | 'movelot' | 'placeok' | 'placecancel' | 'clear1' | 'clear9';
 
-export function Scene3D({ region, selected, onPick, plantLabel, onAction, selectedLot }: { region: RegionId; selected: number[]; onPick: (p: WorldPick) => void; plantLabel?: string; selectedLot?: string; onAction?: (kind: WorldAction, fieldId: number) => void }) {
+export function Scene3D({ region, selected, onPick, plantLabel, onAction, selectedLot, placing, forestAt, placeCost }: { region: RegionId; selected: number[]; onPick: (p: WorldPick) => void; plantLabel?: string; selectedLot?: string; onAction?: (kind: WorldAction, fieldId: number) => void; placing?: Placement | null; forestAt?: [number, number] | null; placeCost?: number }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const overlay = useRef<HTMLDivElement>(null);
   const rig = useRef<Rig | null>(null);
-  const live = useRef({ region, selected, onPick, plantLabel, onAction, selectedLot });
-  live.current = { region, selected, onPick, plantLabel, onAction, selectedLot };
+  const live = useRef({ region, selected, onPick, plantLabel, onAction, selectedLot, placing, forestAt, placeCost });
+  live.current = { region, selected, onPick, plantLabel, onAction, selectedLot, placing, forestAt, placeCost };
   const [hover, setHover] = useState<{ x: number; y: number; text: string[] } | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -105,7 +106,7 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
     scene.add(rain);
     const R: Rig = {
       renderer, scene, camera, target: new THREE.Vector3(6, 0, 8), yaw: Math.PI / 4, yawTo: Math.PI / 4, zoom: 1, sun, hemi, ground,
-      lots: g(), fields: g(), units: g(), deco: g(), fx: g(), sel: g(), models: [], pick: [], crops: {}, sig: { lots: '', fields: '', crops: '', sel: '', deco: '' },
+      lots: g(), fields: g(), units: g(), deco: g(), fx: g(), sel: g(), ghost: g(), ghostSig: '', models: [], pick: [], crops: {}, sig: { lots: '', fields: '', crops: '', sel: '', deco: '' },
       storageProps: g(), lastStockTick:-1, lastCash:getGame().cash, lastCoin:0,
       neighbours: [], people: new Map(), machines: new Map(), trucks: [], herds: new Map(), rain, smoke: [], pops: [], seenHarvest: new Map(), popsReady: false, crownMat: mat(CROWN.Spring).clone(), lastHaul: -1, layout: null, region,
     };
@@ -133,14 +134,15 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
       syncFields(R, L);
       if (now - lastCrops > 400) { syncCrops(R, L, s); lastCrops = now; }
       syncSelection(R, L, live.current.selected);
-      syncDeco(R, L);
+      syncGhost(R, s, live.current.placing ?? null, live.current.forestAt ?? null);
+      syncDeco(R, L, s);
       syncStorage(R,L,s);
       animateUnits(R, L, s, now / 1000);
       animateNeighbours(R, L, s, now / 1000);
       atmosphere(R, s, now / 1000);
       updateCamera(R, W, H);
       renderer.render(scene, camera);
-      overlayLabels(R, L, s, W, H, overlay.current, now / 1000, live.current.selected, live.current.plantLabel, live.current.selectedLot);
+      overlayLabels(R, L, s, W, H, overlay.current, now / 1000, live.current.selected, live.current.plantLabel, live.current.selectedLot, live.current.placing ?? null, live.current.forestAt ?? null, live.current.placeCost ?? 0);
     };
     raf = requestAnimationFrame(frame);
     return () => { cancelAnimationFrame(raf); renderer.dispose(); renderer.forceContextLoss(); rig.current = null; };
@@ -158,6 +160,18 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
       const r = c.getBoundingClientRect();
       ray.setFromCamera(new THREE.Vector2((sx / r.width) * 2 - 1, -(sy / r.height) * 2 + 1), R.camera);
       return ray.intersectObjects(R.pick, false)[0]?.object.userData ?? null;
+    };
+    const groundAt = (sx: number, sy: number) => {
+      const R = rig.current;
+      if (!R) return null;
+      const r = c.getBoundingClientRect();
+      ray.setFromCamera(new THREE.Vector2((sx / r.width) * 2 - 1, -(sy / r.height) * 2 + 1), R.camera);
+      const hit = ray.intersectObject(R.ground, false)[0];
+      return hit ? [Math.floor(hit.point.x), Math.floor(hit.point.z)] as [number, number] : null;
+    };
+    const ghostTo = (sx: number, sy: number) => {
+      const P = live.current.placing, g = groundAt(sx, sy);
+      if (P && g) moveGhost([g[0] - Math.floor(P.w / 2), g[1] - Math.floor(P.d / 2)]);
     };
     const pan = (dx: number, dy: number) => {
       const R = rig.current;
@@ -180,6 +194,7 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
       if (!p) {
         if (performance.now() - lastHover < 70) return;
         lastHover = performance.now();
+        if (live.current.placing && e.pointerType === 'mouse') { ghostTo(e.clientX - r.left, e.clientY - r.top); return; }
         const u = pickAt(e.clientX - r.left, e.clientY - r.top);
         const s = getGame();
         const L = rig.current?.layout;
@@ -203,6 +218,7 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
     };
     const up = (e: PointerEvent) => {
       const r = c.getBoundingClientRect();
+      if (pts.size === 1 && moved <= 4 && live.current.placing) { ghostTo(e.clientX - r.left, e.clientY - r.top); pts.delete(e.pointerId); return; }
       if (pts.size === 1 && moved <= 4) {
         const u = pickAt(e.clientX - r.left, e.clientY - r.top);
         const L = rig.current?.layout;
@@ -210,7 +226,11 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
         if (u?.kind === 'field') { live.current.onPick({ kind: 'field', id: u.id, multi }); if(performance.now()-downAt>500)live.current.onAction?.('inspect',u.id); }
         else if (u?.kind === 'lot' && L) { const lot = L.lots.find((q) => q.key === u.key); if (lot) {live.current.onPick({ kind: 'lot', lot });if(performance.now()-downAt>500)live.current.onAction?.('inspect',0);} }
         else if (u?.kind === 'buy') live.current.onPick({ kind: 'buy' });
-        else live.current.onPick({ kind: 'none' });
+        else {
+          const g = groundAt(e.clientX - r.left, e.clientY - r.top), R = rig.current;
+          const forest = g && R && !isRoad(g[1]) && !clearedSet(worldOf(getGame(), R.region)).has(chunkAt(g[0], g[1]));
+          live.current.onPick(forest && g ? { kind: 'forest', x: g[0], y: g[1] } : { kind: 'none' });
+        }
         setHover(null);
       }
       pts.delete(e.pointerId);
@@ -538,6 +558,28 @@ function syncCrops(R: Rig, L: Layout, s: GameState) {
   }
 }
 
+/** The placement ghost (green where it fits, red where it does not) and the forest patches about to be cleared. */
+function syncGhost(R: Rig, s: GameState, P: Placement | null, forest: [number, number] | null) {
+  const sig = P ? `${P.region}:${P.at}:${P.w}x${P.d}:${P.key ?? ''}:${worldOf(s, P.region).cleared.length}` : forest ? `f${forest}:${worldOf(s, R.region).queue.length}` : '';
+  if (sig === R.ghostSig) return;
+  R.ghostSig = sig;
+  clear(R.ghost);
+  if (P) {
+    const ok = !placeProblem(s, P.region, P.at[0], P.at[1], { w: P.w, d: P.d }, P.key);
+    const box = mesh(new THREE.BoxGeometry(P.w, 0.25, P.d), new THREE.MeshBasicMaterial({ color: ok ? 0x6fd36a : 0xe0533d, transparent: true, opacity: 0.45, depthWrite: false }), P.at[0] + P.w / 2, 0.13, P.at[1] + P.d / 2, false);
+    R.ghost.add(box);
+    const edge = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(P.w, 0.25, P.d)), new THREE.LineBasicMaterial({ color: ok ? 0x2f8f3a : 0xa02a1a }));
+    edge.position.set(P.at[0] + P.w / 2, 0.13, P.at[1] + P.d / 2);
+    R.ghost.add(edge);
+    return;
+  }
+  if (forest) for (const c of patchesAround(s, R.region, forest[0], forest[1], 3)) {
+    const [ox, oy] = chunkOrigin(c), center = c === chunkAt(forest[0], forest[1]);
+    const pts = [[ox, oy], [ox + CHUNK, oy], [ox + CHUNK, oy + CHUNK], [ox, oy + CHUNK]].map(([x, z]) => new THREE.Vector3(x, 0.15, z));
+    R.ghost.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: center ? 0xffc94d : 0xd8b46a, transparent: true, opacity: center ? 1 : 0.55 })));
+  }
+}
+
 function syncSelection(R: Rig, L: Layout, selected: number[]) {
   const sig = selected.join(',') + '|' + R.sig.fields;
   if (sig === R.sig.sel) return;
@@ -555,43 +597,51 @@ function syncSelection(R: Rig, L: Layout, selected: number[]) {
 }
 
 /** Scenery: trees and a road around the farm, kept clear of fields and buildings. */
-function syncDeco(R: Rig, L: Layout) {
-  const sig = `${L.maxX},${L.maxY},${L.roadY},${L.plots.length},${L.lots.length}`;
+/** Scenery: the road and the forest. Every patch not yet cleared is woodland, drawn with a few instanced meshes. */
+function syncDeco(R: Rig, L: Layout, s: GameState) {
+  const w = worldOf(s, R.region);
+  // Only woods near the view are drawn; the set is rebuilt when the camera moves or zooms far enough.
+  const reach = Math.min(110, 9 / R.zoom * 2.4 + 10), step = Math.max(6, reach / 4);
+  const cx = Math.round(R.target.x / step) * step, cz = Math.round(R.target.z / step) * step, rb = Math.ceil(reach / 6) * 6;
+  const sig = `${R.region}:${w.cleared.length}:${w.queue.map((j) => j.chunk).join(',')}:${cx},${cz},${rb}`;
   if (sig === R.sig.deco) return;
   R.sig.deco = sig;
   clear(R.deco);
-  const road = mesh(cached(`road${L.maxX}`, () => new THREE.BoxGeometry(L.maxX + 80, 0.04, 1.1)), mat(0xb9a37c, { rough: 1 }), L.maxX / 2, 0, L.roadY + 0.5, false);
-  R.deco.add(road);
-  const busy = (x: number, z: number) =>
-    (z > L.roadY - 0.8 && z < L.roadY + 1.8) ||
-    L.lots.some((l) => x > l.x - 0.8 && x < l.x + l.w + 0.8 && z > l.y - 0.8 && z < l.y + l.d + 0.8) ||
-    L.plots.some((p) => x > p.x - 0.8 && x < p.x + p.s + 0.8 && z > p.y - 0.8 && z < p.y + p.s + 0.8) ||
-    (L.buy !== null && x > L.buy.x - 0.8 && x < L.buy.x + 2.8 && z > L.buy.y - 0.8 && z < L.buy.y + 2.8);
-  // Trees grow in a few groves on the farm's outskirts and line the far side of the road, never among the plots.
-  const inside = (x: number, z: number) => x > -4 && x < L.maxX + 4 && z > -4 && z < L.maxY + 4;
-  const budget = graphicsQuality() === 'low' ? 36 : 72;
-  let placed = 0;
-  const plant = (x: number, z: number, i: number) => {
-    if (placed >= budget || busy(x, z) || inside(x, z)) return;
-    const t = tree(0.8 + hash(i * 5.3) * 0.6, R.crownMat, hash(i * 2.9) < 0.35 ? 1 : 0);
-    t.position.set(x, 0, z);
-    t.rotation.y = hash(i) * 6;
-    R.deco.add(t);
-    placed++;
-  };
-  for (let g = 0; g < 10; g++) {
-    // grove centres around the edge of the farm
-    const side = g % 4, u = hash(g * 4.1 + 2);
-    const cx = side === 0 ? -9 : side === 1 ? L.maxX + 9 : -10 + u * (L.maxX + 20);
-    const cz = side === 2 ? -9 : side === 3 ? L.maxY + 9 : -10 + u * (L.maxY + 20);
-    const n = 5 + Math.floor(hash(g * 7.3) * 5);
-    for (let k = 0; k < n; k++) {
-      const a = hash(g * 31 + k * 3.7) * Math.PI * 2, r = 0.6 + hash(g * 17 + k * 5.1) * 3.2;
-      plant(cx + Math.cos(a) * r, cz + Math.sin(a) * r, g * 50 + k);
+  R.deco.add(mesh(cached('road-map', () => new THREE.BoxGeometry(MAP.w, 0.04, ROAD_H - 0.4)), mat(0xb9a37c, { rough: 1 }), MAP.x0 + MAP.w / 2, 0, ROAD_Y + ROAD_H / 2, false));
+  const cleared = clearedSet(w), queued = new Set(w.queue.map((j) => j.chunk));
+  const trunks: THREE.Matrix4[] = [], leafy: THREE.Matrix4[] = [], pines: THREE.Matrix4[] = [], floor: THREE.Matrix4[] = [];
+  const q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0);
+  const low = graphicsQuality() === 'low';
+  for (let c = 0; c < CHUNKS_X * CHUNKS_Y; c++) {
+    if (cleared.has(c)) continue;
+    const [ox, oy] = chunkOrigin(c);
+    if (Math.abs(ox + CHUNK / 2 - cx) > rb + CHUNK || Math.abs(oy + CHUNK / 2 - cz) > rb + CHUNK) continue;
+    floor.push(new THREE.Matrix4().makeTranslation(ox + CHUNK / 2, 0.012, oy + CHUNK / 2));
+    const n = queued.has(c) ? 1 : low ? 3 : 6; // a patch being felled has one tree left standing
+    for (let i = 0; i < n; i++) {
+      // a jittered 3×2 grid inside the patch keeps woods dense without trees stacking on each other
+      const gx = i % 3, gz = Math.floor(i / 3) % 2;
+      const x = ox + 0.5 + (gx + 0.15 + hash(c * 7.1 + i * 3.3) * 0.7) * ((CHUNK - 1) / 3), z = oy + 0.5 + (gz + 0.15 + hash(c * 3.7 + i * 5.9 + 1) * 0.7) * ((CHUNK - 1) / 2);
+      if (isRoad(Math.floor(z)) || isRoad(Math.floor(z + 0.6)) || isRoad(Math.floor(z - 0.6))) continue;
+      const k = 0.85 + hash(c * 1.3 + i) * 0.7;
+      q.setFromAxisAngle(up, hash(c + i * 11) * 6.28);
+      const m = new THREE.Matrix4().compose(new THREE.Vector3(x, 0, z), q, new THREE.Vector3(k, k, k));
+      trunks.push(m);
+      (hash(c * 2.9 + i) < 0.35 ? pines : leafy).push(m);
     }
   }
-  // trees line the road where it leaves the farm
-  for (let k = 0; k < 16; k++) plant(L.maxX + 6 + k * 2.4 + (hash(k * 3.3) - 0.5), L.roadY + (k % 2 ? 3.2 : -2.4) + hash(k * 9.1), 900 + k);
+  const inst = (geo: THREE.BufferGeometry, material: THREE.Material, list: THREE.Matrix4[]) => {
+    const im = new THREE.InstancedMesh(geo, material, Math.max(1, list.length));
+    list.forEach((m, i) => im.setMatrixAt(i, m));
+    im.count = list.length; im.castShadow = false; im.receiveShadow = false; im.frustumCulled = false;
+    R.deco.add(im);
+  };
+  // darker forest floor under the trees, so woodland and cleared land read apart at a glance
+  inst(cached('forest-floor', () => new THREE.PlaneGeometry(CHUNK, CHUNK).rotateX(-Math.PI / 2)), mat(0x46663a, { rough: 1 }), floor);
+  inst(cached('forest-trunk', () => new THREE.CylinderGeometry(0.06, 0.1, 0.6, 6).translate(0, 0.3, 0)), mat(PAL.woodDark), trunks);
+  inst(cached('forest-leafy', () => merged(new THREE.IcosahedronGeometry(0.42, 0).translate(0, 0.85, 0), new THREE.IcosahedronGeometry(0.3, 0).translate(0.24, 0.72, 0.1), new THREE.IcosahedronGeometry(0.28, 0).translate(-0.2, 0.75, -0.12))), R.crownMat, leafy);
+  inst(cached('forest-pine', () => merged(new THREE.ConeGeometry(0.42, 0.55, 7).translate(0, 0.55, 0), new THREE.ConeGeometry(0.33, 0.48, 7).translate(0, 0.85, 0), new THREE.ConeGeometry(0.22, 0.4, 7).translate(0, 1.12, 0))), mat(0x3f6b45, { rough: 0.95 }), pines);
+  void L;
 }
 
 // ---------------------------------------------------------------- live things
@@ -757,7 +807,7 @@ function atmosphere(R: Rig, s: GameState, t: number) {
 
 // ---------------------------------------------------------------- HTML overlay (crisp labels and markers)
 
-function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el: HTMLDivElement | null, t: number, selected: number[], plantLabel?: string, selectedLot?: string) {
+function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el: HTMLDivElement | null, t: number, selected: number[], plantLabel?: string, selectedLot?: string, placing: Placement | null = null, forestAt: [number, number] | null = null, placeCost = 0) {
   if (!el) return;
   const want: { key: string; x: number; y: number; html: string; cls: string; action?: string }[] = [];
   const v = new THREE.Vector3();
@@ -781,7 +831,22 @@ function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el
     want.push({ key: p.key, x, y, html: p.text, cls: `wl-pop ${p.tone ?? ''}` });
   }
   const button = (action: string, label: string) => `<button data-action="${action}" type="button"${label==='ⓘ'?' aria-label="Inspect selected item"':''}>${label}</button>`;
-  if (selected.length === 1) {
+  if (placing) {
+    const problem = placeProblem(s, placing.region, placing.at[0], placing.at[1], { w: placing.w, d: placing.d }, placing.key);
+    const [px, py] = project(placing.at[0] + placing.w / 2, 1.2, placing.at[1] + placing.d / 2);
+    const label = `✓ ${placing.kind === 'move' ? 'Move here' : 'Place'}${placeCost > 0 ? ` · $${num(placeCost)}` : ''}`;
+    want.push({ key: 'ghost', x: Math.max(130, Math.min(W - 130, px)), y: Math.max(80, Math.min(H - 30, py)), cls: 'wl-radial', html: (problem ? `<span class="wl-grow wl-problem">${PROBLEM_TEXT[problem]}</span>` : `<span class="wl-grow">${placing.label}</span>${button('placeok:0', label)}`) + button('placecancel:0', '✕') });
+  } else if (forestAt) {
+    const one = patchesAround(s, R.region, forestAt[0], forestAt[1], 1).length, nine = patchesAround(s, R.region, forestAt[0], forestAt[1], 3).length;
+    const [px, py] = project(forestAt[0] + 0.5, 1.6, forestAt[1] + 0.5);
+    want.push({ key: 'forest', x: Math.max(150, Math.min(W - 150, px)), y: Math.max(80, Math.min(H - 30, py)), cls: 'wl-radial', html: one || nine ? (one ? button('clear1:0', `🪓 Clear patch · $${num(clearCost(s))}`) : '') + (nine > 1 ? button('clear9:0', `🪓 Clear ${nine} · $${num(clearCost(s) * nine)}`) : '') + button('placecancel:0', '✕') : `<span class="wl-grow">Already being cleared</span>${button('placecancel:0', '✕')}` });
+  }
+  const queue = worldOf(s, R.region).queue;
+  if (queue.length) {
+    const [ox, oy] = chunkOrigin(queue[0].chunk), [qx, qy] = project(ox + CHUNK / 2, 1.4, oy + CHUNK / 2);
+    want.push({ key: 'felling', x: qx, y: qy, cls: 'wl-name', html: `🪓 ${queue.length} patch${queue.length === 1 ? '' : 'es'} · ${queue.reduce((n, j) => n + j.hours, 0)}h` });
+  }
+  if (selected.length === 1 && !placing) {
     const p = L.plots.find(q=>q.field.id===selected[0]);
     if(p){
       const ready=isReady(s,p.field), id=p.field.id;
@@ -792,14 +857,15 @@ function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el
       const need=fieldNeeds(s,p.field);
       const fp=need.fertilise?fertilisePlan(s,p.field):null;
       const care=(fp?button(`fertilise:${id}`,fp.source==='manure'?'🌿 Spread manure':fp.buy?`🌿 Fertilise · buy ${money(fp.cost)}`:'🌿 Fertilise'):'')+(need.irrigate?button(`irrigate:${id}`,'💧 Irrigate'):'');
-      want.push({key:'act',x:Math.max(115,Math.min(W-115,px)),y:Math.max(80,Math.min(H-30,py)),html:primary+care+plan+button(`inspect:${id}`,'ⓘ'),cls:'wl-radial'});
+      const mv=!p.field.crop?button(`move:${id}`,'✥ Move'):'';
+      want.push({key:'act',x:Math.max(115,Math.min(W-115,px)),y:Math.max(80,Math.min(H-30,py)),html:primary+care+plan+mv+button(`inspect:${id}`,'ⓘ'),cls:'wl-radial'});
     }
   }
-  if(selectedLot){
+  if(selectedLot && !placing){
     const lot=L.lots.find(x=>x.key===selectedLot);
     if(lot){const [px,py]=project(lot.x+lot.w/2,2.5,lot.y+lot.d/2);
       const label=lot.service?.type==='barracks'?'⚔ Nation':lot.service?.type==='watchtower'?'🗼 Region':lot.service&&['sanitation','lighting','police'].includes(lot.service.type)?'🛡 City':lot.key.startsWith('civic:')?'🏛 Town':lot.key.startsWith('community:')?'🏠 Families':lot.key==='crew'?'👒 Crew':lot.key==='office'?'⚙ Policies':lot.key==='market'?'🪙 Trade':lot.type==='house'||lot.type==='shed'?'📖 Books':BUILDINGS[lot.type].category==='storage'?'📦 Store':'⚙ Manage';
-      want.push({key:'place-act',x:Math.max(100,Math.min(W-100,px)),y:Math.max(80,Math.min(H-30,py)),html:button('place:0',label)+button('inspect:0','ⓘ'),cls:'wl-radial'});
+      want.push({key:'place-act',x:Math.max(100,Math.min(W-100,px)),y:Math.max(80,Math.min(H-30,py)),html:button('place:0',label)+button('movelot:0','✥ Move')+button('inspect:0','ⓘ'),cls:'wl-radial'});
     }
   }
   const st=stored(s,R.region), store=L.lots.find(l=>l.type!=='house'&&l.type!=='shed'&&BUILDINGS[l.type].category==='storage');

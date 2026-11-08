@@ -3,6 +3,9 @@
 import { useSyncExternalStore } from 'react';
 import { CONFIG } from '../simulation/config';
 import { advance, createGame, dispatch as engineDispatch } from '../simulation/engine';
+import { BUILDINGS, type RegionId } from '../simulation/config';
+import { FOOTPRINT, SERVICE_FOOTPRINT, findSpot, homeFootprint, plotSide, worldOf } from '../simulation/world';
+import { SERVICE_DEFS } from '../simulation/town-state';
 import { parseSave, SAVE_VERSION, type SaveFile } from '../simulation/persistence';
 export { parseSave, SAVE_VERSION } from '../simulation/persistence';
 import type { Action, GameState } from '../simulation/types';
@@ -23,9 +26,12 @@ interface Store {
   catchUp: { done: number; total: number } | null;
   page: string;
   ready: boolean;
+  /** Placing something new or moving something: a ghost footprint the player positions on the map. */
+  placing: Placement | null;
 }
+export type Placement = { kind: 'new' | 'move'; action: Action; region: RegionId; w: number; d: number; label: string; key?: string; at: [number, number] };
 
-let store: Store = { game: createGame(), v: 0, speed: 1, toasts: [], away: null, catchUp: null, page: 'farm', ready: false };
+let store: Store = { game: createGame(), v: 0, speed: 1, toasts: [], away: null, catchUp: null, page: 'farm', ready: false, placing: null };
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((l) => l());
 const set = (patch: Partial<Store>) => {
@@ -222,7 +228,37 @@ const SOUND: Partial<Record<Action['type'], Sfx>> = {
   upgradeMachine: 'buy', greenhouse: 'buy', irrigate: 'buy', research: 'buy', advanceEra: 'celebrate', claimDaily: 'celebrate', choosePerk: 'pop', setPlan: 'click',
 };
 
+/** Footprint of whatever this action would put on the map, when the player should choose the spot. */
+function placementFor(a: Action): { region: RegionId; w: number; d: number; label: string } | null {
+  if ('at' in a && a.at) return null;
+  if (a.type === 'buyPlot') return { region: 'heartland', w: plotSide(1), d: plotSide(1), label: 'New field (1 ha)' };
+  if (a.type === 'buyParcel') return { region: a.region, w: plotSide(a.ha), d: plotSide(a.ha), label: `New field (${a.ha} ha)` };
+  if (a.type === 'build' && (a.count ?? 1) === 1) { const [w, d] = FOOTPRINT[a.building]; return { region: a.region, w, d, label: BUILDINGS[a.building].name }; }
+  if (a.type === 'buildHomes') { const f = homeFootprint({ id: 0, tier: a.tier, count: a.count, cost: 0 }); return { region: 'heartland', ...f, label: `${a.count} ${a.tier} home${a.count === 1 ? '' : 's'}` }; }
+  if (a.type === 'buildService' && a.service !== 'road') return { region: 'heartland', ...SERVICE_FOOTPRINT, label: SERVICE_DEFS[a.service].name };
+  return null;
+}
+export function startPlacement(p: Omit<Placement, 'at'>) {
+  const g = store.game, at = findSpot(g, p.region, { w: p.w, d: p.d }) ?? (worldOf(g, p.region).pos[p.region === 'heartland' ? 'farmhouse' : 'shed'] ?? [1, 1]);
+  set({ placing: { ...p, at: [at[0], at[1]] }, page: 'farm' });
+}
+export const moveGhost = (at: [number, number]) => store.placing && set({ placing: { ...store.placing, at } });
+export const cancelPlacement = () => set({ placing: null });
+export function confirmPlacement() {
+  const p = store.placing;
+  if (!p) return false;
+  const a = (p.kind === 'move' ? { type: 'moveObject', region: p.region, key: p.key!, at: p.at } : { ...p.action, at: p.at }) as Action;
+  const r = engineDispatch(store.game, a);
+  sfx(r.ok ? 'buy' : 'error');
+  if (!r.ok) { toast(r.error); bump(); return false; }
+  if (r.note) toast(r.note, 'ok');
+  set({ placing: null });
+  bump();
+  return true;
+}
 export function act(a: Action, success?: string) {
+  const spot = store.ready ? placementFor(a) : null;
+  if (spot) { startPlacement({ kind: 'new', action: a, ...spot }); return true; }
   const r = engineDispatch(store.game, a);
   if (a.type !== 'seeTip' && a.type !== 'startDay') sfx(r.ok ? SOUND[a.type] ?? 'click' : 'error');
   if (!r.ok) toast(r.error);
