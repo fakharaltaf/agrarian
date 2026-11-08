@@ -780,3 +780,10 @@ body:has(.modal-bg) .shell .coach { display: none !important; }
 .game-strip .cash-wrap { margin-right: auto; } .game-strip .cash-wrap .cash-counter { margin-right: 0; }
 .ln-today { display: block; font-weight: 800; } .ln-today.up { color: var(--up); } .ln-today.down { color: var(--down); }
 .wl-problem { color: var(--down); }
+/* Placement controls: fixed at the bottom centre, never attached to the moving ghost. */
+.placement-bar { position: absolute; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 20; display: flex; align-items: center; gap: 10px; padding: 10px 12px; width: min(560px, calc(100vw - 24px)); background: var(--surface); border: 2px solid var(--gold); border-radius: 16px; box-shadow: var(--shadow-lg); }
+.placement-info { display: grid; gap: 2px; flex: 1; min-width: 0; font-size: 14px; }
+.placement-info b { font-size: 15px; } .placement-info .bad { color: var(--down); }
+.placement-bar .btn { min-height: 44px; white-space: nowrap; }
+/* Smaller world bubbles with a mouse; touch keeps 44px targets. */
+@media (pointer: fine) { .wl-radial button { min-height: 34px; min-width: 34px; padding: 4px 10px; font-size: 14px; } .world-overlay > .wl-radial { padding: 4px; gap: 4px; } .wl-radial .wl-grow { min-height: 34px; font-size: 14px; } }

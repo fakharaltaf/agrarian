@@ -175,6 +175,8 @@ export function moveFee(s: GameState, r: RegionId, key: string) {
   const [kind, id] = key.split(':');
   if (kind === 'b') { const b = s.buildings.find((x) => x.id === +id); return b ? Math.round(buildingPrice(s, b.type, r) * 0.1) : 0; }
   if (kind === 'field') { const f = s.fields.find((x) => x.id === +id); return f ? Math.round(20 * f.ha * s.macro.cpi) : 0; }
+  // the farmhouse, trader, bunkhouse, office and hall: a small fee; homes and public buildings cost more to move
+  if (['farmhouse', 'shed', 'market', 'crew', 'office'].includes(key)) return Math.round(25 * s.macro.cpi);
   return Math.round(500 * s.macro.cpi);
 }
 /** One crew clears forest patch by patch; each finished patch adds timber to storage. */

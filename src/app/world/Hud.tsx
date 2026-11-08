@@ -9,7 +9,7 @@ import { buildingMargin } from '../../simulation/processing';
 import { DISCOVERIES, ERA_UNLOCK_TEXT, dailyGoals, dailyPrize, forecast, herdOf, homePlotPrice, housing, isManual, isReady, objective, chapterGate, gateProgress, type GateRow, PAGES, seedShortfall, upgradeCost } from '../../simulation/engine';
 import type { GameState } from '../../simulation/types';
 import { act, cancelPlacement, confirmPlacement, go, startPlacement, useGame, usePageState, useStore, type Placement } from '../../stores/game';
-import { footprintOf, patchesAround, plotSide } from '../../simulation/world';
+import { footprintOf, patchesAround, placeProblem, plotSide, PROBLEM_TEXT } from '../../simulation/world';
 import { buildingPrice, moveFee, parcelPrice } from '../../simulation/engine';
 import { homePrice } from '../../simulation/community-state';
 import { servicePrice } from '../../simulation/town-state';
@@ -147,7 +147,7 @@ export function Hud() {
   const regions = unlockedRegions(s).filter((r) => r === 'heartland' || s.fields.some((f) => f.region === r) || s.buildings.some((b) => b.region === r));
   const [regionPref, setRegion] = usePref<RegionId>('world.region', 'heartland');
   const region = regions.includes(regionPref) ? regionPref : 'heartland';
-  const [sel, setSel] = useState<number[]>(() => (s.fields[0] ? [s.fields[0].id] : []));
+  const [sel, setSel] = useState<number[]>(() => (s.fields[0] && !s.stats.harvests ? [s.fields[0].id] : [])); // only a brand-new farm starts with its first field picked
   const [lot, setLot] = useState<Lot | null>(null);
   const [chosen, setCrop] = useState<CropId | null>(null);
   const [forest, setForest] = useState<[number, number] | null>(null);
@@ -183,10 +183,10 @@ export function Hud() {
     if(first){firstCityShown.current=true;setRegion('heartland');setSel([]);setLot(first);}
   },[cityGroups]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // keep the selection valid; in the homestead always have the field selected so its controls are visible
+  // keep the selection valid; only a brand-new farm (before its first harvest) keeps its field picked so Plant is visible
   useEffect(() => {
     const valid = sel.filter((id) => s.fields.some((f) => f.id === id && f.region === region));
-    if (valid.length !== sel.length || (!valid.length && !lot && s.era < 3)) setSel(valid.length ? valid : s.fields.filter((f) => f.region === region).slice(0, 1).map((f) => f.id));
+    if (valid.length !== sel.length || (!valid.length && !lot && !s.stats.harvests)) setSel(valid.length ? valid : s.stats.harvests ? [] : s.fields.filter((f) => f.region === region).slice(0, 1).map((f) => f.id));
   }, [s.fields.length, region]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // keyboard: P plant selected plot, H harvest every ready hand-worked plot, B buy a plot
@@ -220,7 +220,7 @@ export function Hud() {
       setSel([]);
     } else if (p.kind === 'buy') act({ type: 'buyPlot' });
     else if (p.kind === 'forest') (setForest([p.x, p.y]), setLot(null), setSel([]));
-    else { setForest(null); if (s.era >= 3) (setLot(null), setSel([])); }
+    else { setForest(null); setLot(null); setSel([]); }
     if (p.kind !== 'forest') setForest(null);
   };
 
@@ -255,6 +255,7 @@ export function Hud() {
             if(target && PAGES.find(p=>p.id===target)?.unlocked(s))go(target);else {setPanel(true);setJournal(false);}
           } else {setPanel(true);setJournal(false); if(kind==='plan') requestAnimationFrame(()=>document.querySelector('[data-coach=plan-picker]')?.scrollIntoView({block:'center'}));}
         }} />
+      {placing && <PlacementBar s={s} p={placing} />}
       <div className={`hud-left${journal ? ' journal-open' : ''}`} hidden={page !== 'farm'}>
         <ObjectiveCard s={s} />
         <div id="coach-slot" className="coach-slot" />
@@ -289,6 +290,17 @@ export function Hud() {
       )}
     </div>
   );
+}
+
+/** Fixed controls while placing: they never move with the ghost. With a mouse, clicking the map places it. */
+function PlacementBar({ s, p }: { s: GameState; p: Placement }) {
+  const problem = placeProblem(s, p.region, p.at[0], p.at[1], { w: p.w, d: p.d }, p.key), cost = placementCost(s, p);
+  return <div className="placement-bar" role="dialog" aria-label={`Placing ${p.label}`}>
+    <div className="placement-info"><b>{p.kind === 'move' ? '✥ Moving' : '📍 Placing'} {p.label}{cost > 0 ? ` · ${money(cost)}` : ''}</b>
+      <span className={problem ? 'bad' : 'muted'}>{problem ? PROBLEM_TEXT[problem] : matchMedia('(pointer: fine)').matches ? 'Click a green spot to place it.' : 'Tap where it goes, then confirm.'}</span></div>
+    <button className="btn primary" disabled={!!problem} onClick={() => confirmPlacement()}>{p.kind === 'move' ? 'Move here' : 'Place'}</button>
+    <button className="btn ghost" onClick={() => cancelPlacement()}>Cancel</button>
+  </div>;
 }
 
 /** What confirming a placement will cost: the purchase itself, or the moving fee. */

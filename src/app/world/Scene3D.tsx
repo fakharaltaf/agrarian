@@ -15,7 +15,7 @@ import { stageAtLeast } from '../../simulation/stages';
 import { preloadArt, artRevision } from './art';
 import { money, num, pct0 } from '../format';
 import { layoutRegion, type Layout, type Lot, type Plot } from './layout';
-import { CHUNK, CHUNKS_X, CHUNKS_Y, MAP, PROBLEM_TEXT, ROAD_H, ROAD_Y, chunkAt, chunkOrigin, clearCost, clearedSet, isRoad, patchesAround, placeProblem, worldOf } from '../../simulation/world';
+import { CHUNK, CHUNKS_X, CHUNKS_Y, MAP, ROAD_H, ROAD_Y, chunkAt, chunkOrigin, clearCost, clearedSet, isRoad, patchesAround, placeProblem, worldOf } from '../../simulation/world';
 import { animal, buildCivic, buildCommunityHome, buildLot, box, cached, mat, mesh, PAL, person, vehicle, type Model } from './models';
 
 /** Graphics quality chosen in Settings (per browser). Low turns off shadows and high-DPI rendering. */
@@ -220,7 +220,12 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
     };
     const up = (e: PointerEvent) => {
       const r = c.getBoundingClientRect();
-      if (pts.size === 1 && moved <= 4 && live.current.placing) { ghostTo(e.clientX - r.left, e.clientY - r.top); pts.delete(e.pointerId); return; }
+      if (pts.size === 1 && moved <= 4 && live.current.placing) {
+        ghostTo(e.clientX - r.left, e.clientY - r.top);
+        // with a mouse, a click on a valid spot places it; on touch the tap only positions the ghost
+        if (e.pointerType === 'mouse') requestAnimationFrame(() => live.current.onAction?.('placeok', 0));
+        pts.delete(e.pointerId); return;
+      }
       if (pts.size === 1 && moved <= 4) {
         const u = pickAt(e.clientX - r.left, e.clientY - r.top);
         const L = rig.current?.layout;
@@ -622,17 +627,19 @@ function syncDeco(R: Rig, L: Layout, s: GameState) {
     const c = inside ? gy * CHUNKS_X + gxx : 100000 + (gy + 500) * 2000 + (gxx + 500); // stable id for scenery patches
     if (inside && cleared.has(c)) continue;
     const ox = MAP.x0 + gxx * CHUNK, oy = MAP.y0 + gy * CHUNK;
-    const n = queued.has(c) ? 1 : low || R.zoom < 0.5 ? 3 : 6; // a patch being felled has one tree left standing; fewer when zoomed far out
-    for (let i = 0; i < n; i++) {
-      // a jittered 3×2 grid inside the patch keeps woods dense without trees stacking on each other
-      const gx = i % 3, gz = Math.floor(i / 3) % 2;
-      const x = ox + 0.5 + (gx + 0.15 + hash(c * 7.1 + i * 3.3) * 0.7) * ((CHUNK - 1) / 3), z = oy + 0.5 + (gz + 0.15 + hash(c * 3.7 + i * 5.9 + 1) * 0.7) * ((CHUNK - 1) / 2);
+    // Natural woodland: an uneven number of trees per patch, scattered with a little spacing so none overlap.
+    const dense = hash(c * 0.37 + 5), n = queued.has(c) ? 1 : Math.round((low || R.zoom < 0.5 ? 2 : 3) + dense * (low || R.zoom < 0.5 ? 2 : 5));
+    const spots: [number, number][] = [];
+    for (let i = 0, tries = 0; i < n && tries < n * 4; tries++) {
+      const x = ox + 0.3 + hash(c * 7.1 + tries * 3.3) * (CHUNK - 0.6), z = oy + 0.3 + hash(c * 3.7 + tries * 5.9 + 1) * (CHUNK - 0.6);
+      if (spots.some(([a, b]) => (a - x) ** 2 + (b - z) ** 2 < 0.55)) continue;
       if (isRoad(Math.floor(z)) || isRoad(Math.floor(z + 0.6)) || isRoad(Math.floor(z - 0.6))) continue;
-      const k = 0.85 + hash(c * 1.3 + i) * 0.7;
-      q.setFromAxisAngle(up, hash(c + i * 11) * 6.28);
-      const m = new THREE.Matrix4().compose(new THREE.Vector3(x, 0, z), q, new THREE.Vector3(k, k, k));
+      spots.push([x, z]); i++;
+      const k = 0.7 + hash(c * 1.3 + tries) * 0.9;
+      q.setFromAxisAngle(up, hash(c + tries * 11) * 6.28);
+      const m = new THREE.Matrix4().compose(new THREE.Vector3(x, 0, z), q, new THREE.Vector3(k, k * (0.9 + hash(c + tries) * 0.3), k));
       trunks.push(m);
-      (hash(c * 2.9 + i) < 0.35 ? pines : leafy).push(m);
+      (hash(c * 2.9 + tries) < 0.3 + 0.3 * hash(c * 0.11) ? pines : leafy).push(m);
     }
   }
   const inst = (geo: THREE.BufferGeometry, material: THREE.Material, list: THREE.Matrix4[]) => {
@@ -834,11 +841,9 @@ function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el
     want.push({ key: p.key, x, y, html: p.text, cls: `wl-pop ${p.tone ?? ''}` });
   }
   const button = (action: string, label: string) => `<button data-action="${action}" type="button"${label==='ⓘ'?' aria-label="Inspect selected item"':''}>${label}</button>`;
+  void placeCost;
   if (placing) {
-    const problem = placeProblem(s, placing.region, placing.at[0], placing.at[1], { w: placing.w, d: placing.d }, placing.key);
-    const [px, py] = project(placing.at[0] + placing.w / 2, 1.2, placing.at[1] + placing.d / 2);
-    const label = `✓ ${placing.kind === 'move' ? 'Move here' : 'Place'}${placeCost > 0 ? ` · $${num(placeCost)}` : ''}`;
-    want.push({ key: 'ghost', x: Math.max(130, Math.min(W - 130, px)), y: Math.max(80, Math.min(H - 30, py)), cls: 'wl-radial', html: (problem ? `<span class="wl-grow wl-problem">${PROBLEM_TEXT[problem]}</span>` : `<span class="wl-grow">${placing.label}</span>${button('placeok:0', label)}`) + button('placecancel:0', '✕') });
+    // placement controls live in a fixed bar (Hud), so they never chase the ghost
   } else if (forestAt) {
     const one = patchesAround(s, R.region, forestAt[0], forestAt[1], 1).length, nine = patchesAround(s, R.region, forestAt[0], forestAt[1], 3).length;
     const [px, py] = project(forestAt[0] + 0.5, 1.6, forestAt[1] + 0.5);
