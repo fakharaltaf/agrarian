@@ -197,7 +197,7 @@ export function FieldPanel({ s, f, crop, setCrop }: { s: GameState; f: Field; cr
             <p className="explain">Last harvest: <b style={{ color: 'var(--text)' }}>{num(f.lastHarvest.units)} {GOODS[f.lastHarvest.crop].name.toLowerCase()}</b> ({pct0(f.lastHarvest.units / Math.max(1, f.lastHarvest.base))} of potential){known(s, 'quality') && f.lastHarvest.quality !== undefined && <> · grade <GradePill q={f.lastHarvest.quality} /></>} — hover for why.</p>
           </Tip>
         )}
-        {stageAtLeast(s, 'industry') && s.fields.length > 1 && (
+        {s.fields.length > 1 && (
           <div className="row end">
             <Confirm label="Sell field" title={`Sell field ${f.id}?`} body={<>You will receive about <b>{money(f.cost * 0.85)}</b> (85% of what you paid). Any crop on it is lost.</>} onConfirm={() => act({ type: 'sellField', fieldId: f.id })} className="btn danger sm" confirmLabel="Sell" />
           </div>
@@ -354,6 +354,7 @@ export function BatchPanel({ s, fields }: { s: GameState; fields: Field[] }) {
               onClick={() => act({ type: 'fertilize', fieldIds: todo.map((f) => f.id), source: src })}>
               Spread {src === 'manure' ? 'manure' : 'fertiliser'} on all · {num(Math.min(need, held))}/{num(need)}{batchSpreadFee > 0 ? ` · up to ${money(batchSpreadFee)}` : ''}</button>;
           })}
+          {fields.length < s.fields.length && <Confirm label={`Sell ${fields.length} fields · ${money(fields.reduce((n, f) => n + f.cost * 0.85, 0))}`} className="btn danger sm" title={`Sell ${fields.length} fields?`} body={<>You receive about <b>{money(fields.reduce((n, f) => n + f.cost * 0.85, 0))}</b> (85% of what you paid). Crops growing on them are lost.</>} confirmLabel="Sell" onConfirm={() => { for (const f of fields) act({ type: 'sellField', fieldId: f.id }); }} />}
           {unirrigated.length > 0 && <Confirm label={`Irrigate ${unirrigated.length} · ${money(irrigationPrice(s, unirrigated.reduce((a, f) => a + f.ha, 0)))}`} title="Install irrigation?" body={`Equip ${unirrigated.length} fields with irrigation. Water is then bought whenever soil moisture falls below ${pct0(s.automation.policies.irrigateMin)}.`} onConfirm={() => act({ type: 'irrigate', fieldIds: unirrigated.map((f) => f.id) })} />}
         </div>
       </div>

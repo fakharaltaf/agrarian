@@ -324,6 +324,8 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       const value = Math.round(f.cost * 0.85);
       post(s, 'assetSale', value, `Sold field ${f.id}`, f.region);
       s.fields.splice(s.fields.indexOf(f), 1);
+      // A sold 1 ha home plot goes back on the market (re-buying costs at least what was paid; sales return 85%).
+      if (f.region === 'heartland' && f.ha === 1) s.regions.heartland.homePlotsBought = Math.max(1, s.regions.heartland.homePlotsBought - 1);
       return ok(`Sold for $${value.toLocaleString()}.`);
     }
     case 'hire': {
