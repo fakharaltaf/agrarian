@@ -200,6 +200,14 @@ export function deliver(s: GameState, c: SupplyContract) {
 
 // ---------------------------------------------------------------- tax
 
+/** Profit tax building up this year, assessed at year end. Same rule as taxYear, for warnings and planning. */
+export function accruedTax(s: GameState) {
+  const today = day(s), from = today - (today % DAYS_PER_YEAR);
+  const year = s.books.filter((b) => b.day >= from);
+  return REGION_IDS.reduce((n, r) => { const taxable = year.reduce((a, b) => a + (b.op[r] ?? 0), 0); return n + (taxable > 0 ? taxable * REGIONS[r].tax * (s.era < 3 ? 0.5 : 1) : 0); }, 0);
+}
+export const daysToTax = (s: GameState) => DAYS_PER_YEAR - (day(s) % DAYS_PER_YEAR);
+
 function taxYear(s: GameState) {
   const year = s.books.slice(-DAYS_PER_YEAR);
   for (const r of REGION_IDS) {

@@ -27,7 +27,12 @@ export function botAct(s: GameState, strategy: Strategy = 'balanced', civicPrior
   const civic = civicPriority && communityOf(s).active;
   const civicReady = !civic || (townOf(s).active && townOf(s).education >= .8 && townOf(s).water >= .8 && townOf(s).cash >= plannedServiceCost(s) * 14 && (!cityActive(s)||cityOf(s).sanitation>=.7));
   if (!s.legacyProgression && canStartSettlement(s)) dispatch(s, { type: 'startSettlement', charter: 'free' });
-  if ((!civicPriority || (!townOf(s).active && population(s)<100) || townOf(s).active && (civicReady || availableResidents(s)<4)) && communityOf(s).active && homeCapacity(s) - population(s) < 8 && s.cash > 15000 * s.macro.cpi) dispatch(s, { type: 'buildHomes', tier: population(s) < 40 ? 'cottage' : 'terrace', count: 1 });
+  const settled = townOf(s).active && townOf(s).education >= .6 && townOf(s).water >= .6;
+  const homeGap = cityActive(s) ? 16 : 8;
+  if ((!civicPriority || (!townOf(s).active && population(s)<100) || townOf(s).active && (civicReady || settled || availableResidents(s)<4)) && communityOf(s).active && homeCapacity(s) - population(s) < homeGap && s.cash > 15000 * s.macro.cpi) {
+    const tier = population(s) < 40 ? 'cottage' : 'terrace';
+    dispatch(s, { type: 'buildHomes', tier, count: 1 });
+  }
   if (s.eraReady) {
     if (!s.legacyProgression && s.stageId === 'homestead' && !s.charters.trader) dispatch(s, { type: 'chooseCharter', charter: 'fair' });
     dispatch(s, { type: 'advanceEra' });
@@ -59,7 +64,8 @@ export function botAct(s: GameState, strategy: Strategy = 'balanced', civicPrior
         dispatch(s,{type:'fire',workerId:spare.id});
       }
       const st = stored(s, r);
-      if (st.dry > st.cap.dry * 0.7) dispatch(s, { type: 'build', region: r, building: s.cash > 40000 ? 'silo' : 'barn' });
+      const stores = s.buildings.filter(b => b.region === r && (b.type === 'barn' || b.type === 'silo')).length;
+      if (st.dry > st.cap.dry * 0.7 && stores < Math.ceil(ha / 10)) dispatch(s, { type: 'build', region: r, building: s.cash > 40000 ? 'silo' : 'barn' });
     }
     if (s.era >= 3 && ha > 0) {
       if (ha >= (s.legacyProgression ? 15 : 6) && !s.workers.some((w) => w.region === r && w.role === 'manager') && s.cash > 8000) dispatch(s, { type: 'hire', region: r, role: 'manager', wageFactor: 1 });
@@ -71,15 +77,16 @@ export function botAct(s: GameState, strategy: Strategy = 'balanced', civicPrior
     Object.assign(P, { autoRotate: true, autoFertilize: true, autoRepair: 0.45, sellDiscipline: 0, cashReserve: 0 });
     const parcel = strategy === 'volume' ? 25 : s.cash > 300000 ? 25 : 5;
     const cap = strategy === 'volume' ? 3000 : civic ? 600 : 1200;
-    if (civicReady && s.cash > parcelPrice(s, 'heartland', parcel) * 1.5 + 15000 && totalHa(s) < cap) dispatch(s, { type: 'buyParcel', region: 'heartland', ha: parcel });
+    const needsChain = !s.legacyProgression && s.stageId === 'industry' && (!hasB(s, 'heartland', 'lab') || (strategy !== 'volume' && !hasB(s, 'heartland', 'flourMill')));
+    if (civicReady && !needsChain && s.cash > parcelPrice(s, 'heartland', parcel) * 1.5 + 15000 && totalHa(s) < cap) dispatch(s, { type: 'buyParcel', region: 'heartland', ha: parcel });
     for (const l of s.loans) if (s.cash > 100000) dispatch(s, { type: 'repayLoan', loanId: l.id, amount: Math.min(l.balance, s.cash - 80000) });
   }
   if (s.era >= 4 && civicReady) {
-    if (!hasB(s, 'heartland', 'lab') && s.cash > 60000) dispatch(s, { type: 'build', region: 'heartland', building: 'lab' });
+    if (!hasB(s, 'heartland', 'lab') && s.cash > 45000) dispatch(s, { type: 'build', region: 'heartland', building: 'lab' });
     if (!s.research.active) for (const t of ['farmSoftware', 'improvedSeeds', 'soilTesting', 'mech2', 'solar', 'processEfficiency', 'routeOptimization', 'dripIrrigation', 'predictiveMaintenance', 'coldChain', 'advancedLab'])
       if (dispatch(s, { type: 'research', tech: t }).ok) break;
     if (strategy !== 'volume') {
-      if (!hasB(s, 'heartland', 'flourMill') && s.cash > 60000) dispatch(s, { type: 'build', region: 'heartland', building: 'flourMill' });
+      if (!hasB(s, 'heartland', 'flourMill') && s.cash > 37500) dispatch(s, { type: 'build', region: 'heartland', building: 'flourMill' });
       if (strategy === 'processor') for (const b of ['feedMill', 'warehouse', 'bakery', 'ranch'] as BuildingType[]) if (!hasB(s, 'heartland', b) && s.cash > 150000) dispatch(s, { type: 'build', region: 'heartland', building: b });
     }
     if (s.tick % 24 === 12) for (const g of ['flour', 'feed', 'bread', 'meat', 'milk'] as GoodId[]) if (s.regions.heartland.inventory[g] > 10) dispatch(s, { type: 'sell', region: 'heartland', good: g, qty: Math.min(s.regions.heartland.inventory[g], s.markets.heartland[g]!.d0) });
@@ -148,7 +155,8 @@ export function townBotAct(s: GameState) {
       if(t.cash>=cost+reserve)dispatch(s,{type:'buildService',service:type,district:id});
     }
   }
-  if(t.cash<t.lastCost*14&&s.cash>100000)dispatch(s,{type:'fundTown',amount:50000,direction:'toTown'});
+  const need=plannedServiceCost(s)*14-t.cash, spare=s.cash-Math.max(30000*s.macro.cpi,s.automation.policies.cashReserve);
+  if(need>0&&spare>0){const amount=Math.floor(Math.min(need,spare)*100)/100;if(amount>0)dispatch(s,{type:'fundTown',amount,direction:'toTown'});}
   if(t.petition)dispatch(s,{type:'answerPetition',accept:false});
 }
 
@@ -180,7 +188,7 @@ export function cityBotAct(s:GameState) {
 }
 
 // ---------------------------------------------------------------- Region and Nation, through real actions only
-import { canStartRegion, protection } from '../simulation/stages/region';
+import { canStartRegion, protection, treatyCost, TREATY_TRUST } from '../simulation/stages/region';
 import { regionActive, regionOf, NEIGHBOUR_IDS, NEIGHBOURS } from '../simulation/region-state';
 import { canStartNation, campaignOdds, soldiers } from '../simulation/stages/nation';
 import { nationActive, nationOf } from '../simulation/nation-state';
@@ -198,6 +206,10 @@ export function regionBotAct(s: GameState) {
   if (protection(s) < .5 && !t.services.some(b => b.type === 'watchtower') && t.cash > servicePrice(s, 'watchtower') + serviceDailyCost(s, 'watchtower') * 14)
     dispatch(s, { type: 'buildService', service: 'watchtower', district: 'farmgate' });
   if (r.raid) dispatch(s, { type: 'resolveRaid', answer: t.cash > 20000 * s.macro.cpi ? 'pursue' : 'absorb' });
+  const best = [...NEIGHBOUR_IDS].sort((a, b) => r.neighbours[b].trust - r.neighbours[a].trust)[0];
+  if (!r.neighbours[best].treaty && r.neighbours[best].trust >= TREATY_TRUST && s.cash > treatyCost(s) * 3) dispatch(s, { type: 'signTreaty', to: best });
+  const cold = [...NEIGHBOUR_IDS].filter(id => r.neighbours[id].route).sort((a, b) => r.neighbours[a].trust - r.neighbours[b].trust)[0];
+  if (cold) dispatch(s, { type: 'giftNeighbour', to: cold, kind: 'goods' });
   if (r.demand) dispatch(s, { type: 'answerDemand', answer: s.cash > r.demand.amount * 3 ? 'pay' : 'refuse' });
 }
 export function nationBotAct(s: GameState) {
@@ -207,6 +219,8 @@ export function nationBotAct(s: GameState) {
   if (!nationActive(s) || s.tick % 24 !== 2) return;
   const v = nationOf(s), t = townOf(s);
   const companies = t.services.filter(b => b.type === 'barracks').reduce((n, b) => n + b.count, 0);
+  const gap = Math.ceil(servicePrice(s, 'barracks') + (plannedServiceCost(s) + serviceDailyCost(s, 'barracks')) * 14 - t.cash + 100);
+  if (companies < 2 && gap > 0 && s.cash > gap + 100000 * s.macro.cpi) dispatch(s, { type: 'fundTown', amount: gap, direction: 'toTown' });
   if (companies < 2 && soldiers(s) >= companies * 20 && t.cash > servicePrice(s, 'barracks') + plannedServiceCost(s) * 14)
     dispatch(s, { type: 'buildService', service: 'barracks', district: 'farmgate' });
   if (soldiers(s) && v.drillUntil < 0 && v.drill < 1) dispatch(s, { type: 'trainArmy' });
