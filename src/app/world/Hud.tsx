@@ -1,3 +1,4 @@
+import { bestCrop } from '../crops';
 import {cityActive} from '../../simulation/city-state';
 import { townOf } from '../../simulation/town-state';
 // Everything that floats over the world: objective, selection panel, market, land, region switcher.
@@ -144,12 +145,14 @@ export function Hud() {
   const region = regions.includes(regionPref) ? regionPref : 'heartland';
   const [sel, setSel] = useState<number[]>(() => (s.fields[0] ? [s.fields[0].id] : []));
   const [lot, setLot] = useState<Lot | null>(null);
-  const [crop, setCrop] = useState<CropId>('wheat');
+  const [chosen, setCrop] = useState<CropId | null>(null);
   const [panel, setPanel] = useState(false);
   const [journal, setJournal] = useState(false);
   const dragStart = useRef<number | null>(null);
   const dragged = useRef(false);
   const page = usePageState();
+  const oneField = sel.length === 1 ? s.fields.find((f) => f.id === sel[0]) : undefined;
+  const crop = chosen ?? (oneField ? bestCrop(s, oneField) : 'wheat'); // best pay until the player picks
   const live = useRef({ s, sel, crop });
   live.current = { s, sel: lot ? [] : sel, crop };
   const firstHomesShown = useRef(false);

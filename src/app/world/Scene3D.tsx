@@ -210,6 +210,7 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
         else if (u?.kind === 'lot' && L) { const lot = L.lots.find((q) => q.key === u.key); if (lot) {live.current.onPick({ kind: 'lot', lot });if(performance.now()-downAt>500)live.current.onAction?.('inspect',0);} }
         else if (u?.kind === 'buy') live.current.onPick({ kind: 'buy' });
         else live.current.onPick({ kind: 'none' });
+        setHover(null);
       }
       pts.delete(e.pointerId);
       if (pts.size < 2) pinch = 0;
@@ -766,7 +767,7 @@ function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el
       const ready=isReady(s,p.field), id=p.field.id;
       const [px,py]=project(p.x+p.s/2,1.5,p.y+p.s/2);
       const hand=p.field.ha<=1;
-      const primary=hand ? ready?button(`harvest:${id}`,'🌾 Harvest'):!p.field.crop&&plantLabel?button(`plant:${id}`,'🌱 Plant'):p.field.crop?`<span class="wl-grow">⏳ ${Math.floor(growth(s,p.field)*100)}%</span>`:'' : '';
+      const primary=hand ? ready?button(`harvest:${id}`,'🌾 Harvest'):!p.field.crop&&plantLabel?button(`plant:${id}`,`🌱 ${plantLabel}`):p.field.crop?`<span class="wl-grow">⏳ ${Math.floor(growth(s,p.field)*100)}%</span>`:'' : '';
       const plan=!hand&&stageAtLeast(s,'farm-business')?button(`plan:${id}`,'📋 Crop plan'):'';
       want.push({key:'act',x:Math.max(115,Math.min(W-115,px)),y:Math.max(80,Math.min(H-30,py)),html:primary+plan+button(`inspect:${id}`,'ⓘ'),cls:'wl-radial'});
     }

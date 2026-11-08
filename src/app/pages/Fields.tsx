@@ -3,13 +3,14 @@ import { DEALER_SPREAD } from '../../simulation/markets';
 import { RetailQuote } from '../RetailQuote';
 import { useEffect, useRef, useState } from 'react';
 import { BUILDINGS, CONFIG, CROPS, GOODS, GOOD_IDS, MACHINES, REGIONS, WORK_END, WORK_START, type CropId, type GoodId, type RegionId } from '../../simulation/config';
-import { factoryCrop, freeSpace, has, known, reservedStock, priceUsd, seedCost, stored } from '../../simulation/core';
+import { factoryCrop, freeSpace, has, known, reservedStock, priceUsd, stored } from '../../simulation/core';
 import {
   canGrow, expectedYield, fertility, grade, greenhousePrice, growth, homePlotPrice, irrigationPrice, isManual, isMature, isReady, parcelPrice, qualityMult, quoteSell, seedShortfall, soilFactor, tempFactor, timingFactor, waterFactor, techFactor,
 } from '../../simulation/engine';
 import type { Field, GameState } from '../../simulation/types';
 import { act, useGame } from '../../stores/game';
 import { dayPrice } from '../../simulation/lines';
+import { bestCrop, cropReturn, rankCrops } from '../crops';
 import { duration, money, num, pct, pct0, price, stamp } from '../format';
 import { Bar, Card, Confirm, Info, Seg, Select, Swatch, Tip, usePref } from '../ui';
 import { unlockedRegions } from './shared';
@@ -24,9 +25,10 @@ export function FieldsPage() {
   const r = regions.includes(region) ? region : 'heartland';
   const fields = s.fields.filter((f) => f.region === r);
   const [sel, setSel] = useState<number[]>([fields[0]?.id ?? 1]);
-  const [crop, setCrop] = useState<CropId>('wheat');
+  const [chosen, setCrop] = useState<CropId | null>(null);
   const selected = s.fields.filter((f) => sel.includes(f.id));
   const one = selected.length === 1 ? selected[0] : null;
+  const crop = chosen ?? (one ? bestCrop(s, one) : 'wheat'); // best pay until the player picks
   const live = useRef({ s, one, crop });
   live.current = { s, one, crop };
 
@@ -175,7 +177,7 @@ export function FieldPanel({ s, f, crop, setCrop }: { s: GameState; f: Field; cr
             {manual && (
               <>
                 <div className="crop-grid" role="radiogroup" aria-label="Crop to plant" data-coach="crop-picker">
-                  {(() => { const ranked = [...s.unlockedCrops].sort((a, b) => cropReturn(s, f, b).perHour - cropReturn(s, f, a).perHour); return ranked.map((id, i) => <CropCard key={id} s={s} f={f} id={id} on={crop === id} best={i === 0 && cropReturn(s, f, id).perHour > 0} pick={() => setCrop(id)} />); })()}
+                  {(() => { const ranked = rankCrops(s, f); return ranked.map((id, i) => <CropCard key={id} s={s} f={f} id={id} on={crop === id} best={i === 0 && cropReturn(s, f, id).perHour > 0} pick={() => setCrop(id)} />); })()}
                 </div>
                 <button className="btn primary lg" data-coach="plant-btn" disabled={cost.cost > s.cash || !canGrow(f, crop)} onClick={() => act({ type: 'plant', fieldId: f.id, crop })} title="Shortcut: P">
                   Plant {GOODS[crop].name.toLowerCase()}
@@ -206,12 +208,6 @@ export function FieldPanel({ s, f, crop, setCrop }: { s: GameState; f: Field; cr
 }
 
 const GOOD_ICON: Partial<Record<GoodId,string>> = {wheat:'🌾',corn:'🌽',potatoes:'🥔',soybeans:'🫘',rice:'🍚',sugarcane:'🎋',cotton:'☁',coffee:'☕',apples:'🍎',grapes:'🍇',bread:'🍞',flour:'🌾',milk:'🥛',eggs:'🥚',wool:'🧶',wine:'🍷',meat:'🥩',cheese:'🧀',butter:'🧈',feed:'🌿'};
-/** Expected profit of one planting at the 24h average price, and per hour of growing (orchards: per harvest cycle once mature). */
-function cropReturn(s: GameState, f: Field, id: CropId) {
-  const units = expectedYield(s, f, id), seed = f.ha * CONFIG.seedsPerHa * seedCost(s, id), value = units * dayPrice(s, f.region, id);
-  const profit = value - (CROPS[id].perennial ? 0 : seed);
-  return { units, seed, value, profit, perHour: canGrow(f, id) ? profit / CROPS[id].growthTicks : -Infinity };
-}
 function CropCard({ s, f, id, on, pick, best }: { s: GameState; f: Field; id: CropId; on: boolean; pick: () => void; best: boolean }) {
   const c=CROPS[id], {units,seed,value,profit,perHour}=cropReturn(s,f,id), ok=canGrow(f,id);
   return <article className={`crop-choice${on?' selected':''}${best?' best':''}`}>
