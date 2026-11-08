@@ -1,3 +1,4 @@
+import { canPlaceNew, homeFootprint, placeNew } from '../world';
 import {releaseNeighbourJob} from '../employment';
 import type { StageModule } from './types';
 import type { Action, ActionResult, GameState } from '../types';
@@ -138,10 +139,13 @@ function action(s: GameState, a: Action): ActionResult | null {
   if (a.tier === 'apartment' && population(s) < 200) return fail('Apartments arrive at 200 residents.');
   const cost = homePrice(s, a.tier);
   if (cost * a.count > s.cash) return fail('Not enough cash for these homes.');
+  // Each placement is its own street block on the map.
+  const home = { id: nextId(s), tier: a.tier, count: a.count, cost: cost * a.count };
+  const room = canPlaceNew(s, 'heartland', homeFootprint(home), a.at);
+  if (room) return fail(room);
   post(s, 'building', -cost * a.count, `${a.count} community ${a.tier} homes`, 'heartland', 'corporate');
-  const group = c.homes.find(h => h.tier === a.tier);
-  if (group) { group.count += a.count; group.cost += cost * a.count; }
-  else c.homes.push({ id: nextId(s), tier: a.tier, count: a.count, cost: cost * a.count });
+  c.homes.push(home);
+  placeNew(s, 'heartland', `home:${home.id}`, a.at);
   return { ok: true };
 }
 export const settlement: StageModule = {

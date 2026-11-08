@@ -3,14 +3,15 @@ import { emptyProductionReport } from './production-report';
 // Pure save validation and migration, shared by the browser and regression tools.
 import { CROPS, CROP_IDS, GOOD_IDS, REGION_IDS } from './config';
 import { createMarkets } from './markets';
-import { stageIdForEra, STAGES, STAGE_IDS } from './stages';
+import { stageAtLeast, stageIdForEra, STAGES, STAGE_IDS } from './stages';
+import { CHUNKS_X, CHUNKS_Y, reconcileWorld } from './world';
 import type { GameState } from './types';
 import type { CivicService, CommunityHome, HouseholdCohort } from './types';
 import { createTownState } from './town-state';
 import { createRegionState, NEIGHBOUR_IDS, type RegionState } from './region-state';
 import { createNationState, type NationState } from './nation-state';
 import { createSettlementState } from './community-state';
-export const SAVE_VERSION = 12;
+export const SAVE_VERSION = 13;
 export interface SaveFile { version: number; savedAt: number; paused?: boolean; game: GameState }
 
 /** Trust boundary: stored or imported JSON may be stale, hand-edited or corrupt. */
@@ -60,6 +61,13 @@ export function parseSave(text: string): SaveFile {
   if(!Number.isInteger(city.neighbourJobs)||city.neighbourJobs<0||city.neighbourJobs!==city.employers.reduce((n,e)=>n+e.jobs,0)||Math.abs(city.neighbourPayroll-city.employers.reduce((n,e)=>n+e.wages,0))>.01||city.employers.some(e=>!g.competitors.some(c=>c.id===e.id)))throw new Error('Save file local employment is corrupt.');
   for(const district of Object.values(city.districts))if(!district||!['farm','residential','industrial'].includes(district.zone)||![district.rezonedAt,district.sanitation,district.lighting,district.police].every(finite))throw new Error('Save file district state is corrupt.');
   if(city.case&&(!GOOD_IDS.includes(city.case.good)||!['id','opened','deadline','lost'].every(k=>finite((city.case as unknown as Record<string,unknown>)[k]))))throw new Error('Save file civic case is corrupt.');
+  for (const [r, w] of Object.entries(g.world ?? {})) {
+    if (!REGION_IDS.includes(r as never) || !w || !Array.isArray(w.cleared) || !Array.isArray(w.queue) || typeof w.pos !== 'object' || w.pos === null
+      || !w.cleared.every((c) => Number.isInteger(c) && c >= 0 && c < CHUNKS_X * CHUNKS_Y)
+      || !w.queue.every((j) => Number.isInteger(j.chunk) && j.chunk >= 0 && j.chunk < CHUNKS_X * CHUNKS_Y && finite(j.hours))
+      || !Object.values(w.pos).every((p) => Array.isArray(p) && p.length === 2 && p.every((v) => Number.isInteger(v) && Math.abs(v) < 1000)))
+      throw new Error('Save file map is corrupt.');
+  }
   const region=g.stageState.region as unknown as RegionState;
   if(typeof region.active!=='boolean'||(region.active&&!['open','walls'].includes(region.border as string))||!['enteredAt','lastDay','bandits','raids','pursued','caravans','demandDay','defiantUntil'].every(k=>finite((region as unknown as Record<string,unknown>)[k]))
     ||!NEIGHBOUR_IDS.every(id=>{const n=region.neighbours?.[id];return !!n&&[n.trust,n.delivered,n.giftDay].every(finite)&&n.trust>=0&&n.trust<=100&&typeof n.treaty==='boolean'&&(n.route===null||GOOD_IDS.includes(n.route.good)&&finite(n.route.qty)&&n.route.qty>=1);})
@@ -79,8 +87,9 @@ export function parseSave(text: string): SaveFile {
 
 /** Upgrades older saves in place. Version 1 (the prototype) predates the full economy. */
 export function migrate(g: Omit<GameState, 'version'> & { version: number }): GameState {
+  const fromVersion = g.version;
   if (g.version === 1) throw new Error('This save is from the early prototype and cannot be upgraded. Please start a new game.');
-  if (g.version !== 2 && g.version !== 3 && g.version !== 4 && g.version !== 5 && g.version !== 6 && g.version !== 7 && g.version !== 8 && g.version !== 9 && g.version !== 10 && g.version !== 11 && g.version !== SAVE_VERSION) throw new Error(`Unsupported save version ${g.version}.`);
+  if (g.version !== 2 && g.version !== 3 && g.version !== 4 && g.version !== 5 && g.version !== 6 && g.version !== 7 && g.version !== 8 && g.version !== 9 && g.version !== 10 && g.version !== 11 && g.version !== 12 && g.version !== SAVE_VERSION) throw new Error(`Unsupported save version ${g.version}.`);
   g.warned ??= {};
   g.bench ??= {};
   g.discovered ??= [];
@@ -160,6 +169,11 @@ export function migrate(g: Omit<GameState, 'version'> & { version: number }): Ga
   for (const r of REGION_IDS) for (const k in g.markets[r]) g.markets[r][k as keyof typeof g.markets.heartland]!.impact ??= 0;
   for (const shipment of g.shipments) shipment.batchDay ??= -1;
   g.version = SAVE_VERSION;
-  return g as GameState;
+  // The map arrived after many saves were made: rebuild the old arrangement once, then keep every object placed.
+  const gs = g as GameState;
+  const before = fromVersion < 13;
+  gs.world ??= {};
+  if (before) reconcileWorld(gs, { farmMarket: gs.stats.harvests > 0, crew: stageAtLeast(gs, 'farm-business'), office: gs.legacyProgression ? gs.era >= 3 : stageAtLeast(gs, 'industry'), hall: !!gs.stageState.town?.active });
+  return gs;
 }
 

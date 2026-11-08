@@ -89,6 +89,7 @@ export interface ProductionDay {
 export interface ProductionReport { open: ProductionDay | null; days: ProductionDay[]; lastBatches: number; lastTick: number }
 
 export interface Building {
+  movedUntil?: number; // a moved building stands idle until this tick
   id: number;
   type: BuildingType;
   region: RegionId;
@@ -336,7 +337,7 @@ export interface TownState {
 }
 
 export interface GameState {
-  version: 12;
+  version: 13;
   seed: number;
   rng: number;
   tick: number;
@@ -370,6 +371,7 @@ export interface GameState {
   stageId: import('./stages/types').StageId;
   /** Persisted stage-specific state, keyed by stable stage id. */
   stageState: Partial<Record<import('./stages/types').StageId, Record<string, unknown>>>;
+  world?: import('./world').WorldState;
   /** Old saves retain the pre-roadmap era gates and market behavior. */
   legacyProgression: boolean;
   /** Lasting choices shape the village's economic and civic character. */
@@ -407,7 +409,7 @@ export type Action =
   | { type: 'haggle'; offerId: string }
   | { type: 'chooseCharter'; charter: TraderCharter }
   | { type: 'startSettlement'; charter: SettlementCharter }
-  | { type: 'buildHomes'; tier: HomeTier; count: number }
+  | { type: 'buildHomes'; tier: HomeTier; count: number; at?: [number, number] }
   | { type: 'setLarder'; enabled: boolean }
   | { type: 'settleWorker'; workerId: number }
   | { type: 'setCityFunding'; enabled:boolean }
@@ -437,13 +439,13 @@ export type Action =
   | { type: 'startTown'; charter: SchoolCharter }
   | { type: 'fundTown'; amount: number; direction: 'toTown' | 'repay' }
   | { type: 'setTownTax'; rate: number }
-  | { type: 'buildService'; service: ServiceType; district: DistrictId; count?: number }
+  | { type: 'buildService'; service: ServiceType; district: DistrictId; count?: number; at?: [number, number] }
   | { type: 'toggleService'; serviceId: number }
   | { type: 'changeSchools'; charter: SchoolCharter }
   | { type: 'answerPetition'; accept: boolean }
   | { type: 'buy'; region: RegionId; good: GoodId; qty: number }
-  | { type: 'buyPlot' }
-  | { type: 'buyParcel'; region: RegionId; ha: number }
+  | { type: 'buyPlot'; at?: [number, number] }
+  | { type: 'buyParcel'; region: RegionId; ha: number; at?: [number, number] }
   | { type: 'sellField'; fieldId: number }
   | { type: 'hire'; region: RegionId; role: 'hand' | 'manager'; wageFactor: number }
   | { type: 'fire'; workerId: number }
@@ -454,7 +456,9 @@ export type Action =
   | { type: 'sellMachine'; machineId: number }
   | { type: 'sellIdleMachines'; machineIds: number[] }
   | { type: 'service'; machineId: number }
-  | { type: 'build'; region: RegionId; building: BuildingType; count?: number }
+  | { type: 'build'; region: RegionId; building: BuildingType; count?: number; at?: [number, number] }
+  | { type: 'moveObject'; region: RegionId; key: string; at: [number, number] }
+  | { type: 'clearForest'; region: RegionId; chunks: number[] }
   | { type: 'demolish'; buildingId: number }
   | { type: 'toggleBuilding'; buildingId: number }
   | { type: 'ship'; good: GoodId; qty: number; from: RegionId; to: RegionId; sell?: boolean }

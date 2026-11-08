@@ -8,6 +8,7 @@ import {
 } from './config';
 import { buildingDivision, clamp, debt, factoryCrop, equity, freeSpace, has, known, log, marketWage, nextId, post, round2, todayBook } from './core';
 import { addGoods, canGrow, clearField, fertilizeField, fieldsTick, frostNight, harvestField, isManual, isReady, newField, plantField, spoilageDaily } from './agriculture';
+import { reconcileWorld, canPlaceNew, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, clearCost, clearedSet, FOOTPRINT, footprintOf, forget, MOVE_DOWNTIME, placeNew, placeProblem, plotSide, PROBLEM_TEXT, seedWorld, TIMBER_PER_PATCH, worldOf } from './world';
 import { buyAnimals, livestockDaily, sellAnimals } from './livestock';
 import { claimDaily, startDay } from './daily';
 import { createMarkets, drawWeather, executeBuy, executeSell, quoteBuy, macroDaily, marketsDaily, marketsTick, priceFromInv } from './markets';
@@ -44,7 +45,7 @@ export function createGame(seed = (Date.now() % 2147483646) + 1): GameState {
     retailToday: {}, haulToday: 0, truckToday: 0, portToday: 0, insured: false, insuredFrom: 0, forecast: [], frostTonight: false, quality: {}, homePlotsBought: 1, parcelsBought: 0, waterToday: 0, powerGen: 0, powerUse: 0, backlog: 0,
   }])) as Record<RegionId, RegionState>;
   const s: GameState = {
-    version: 12, seed, rng: seed, tick: 0, cash: CONFIG.startingCash, marginAccount: 0,
+    version: 13, seed, rng: seed, tick: 0, cash: CONFIG.startingCash, marginAccount: 0,
     fields: [], workers: [], machines: [], buildings: [], regions, markets: createMarkets(),
     seeds: Object.fromEntries(Object.keys(CROPS).map((c) => [c, c === 'wheat' ? 10 : 0])) as Record<CropId, number>,
     macro: { cpi: 1, inflation: 0.025, baseRate: 0.045, energy: 1, income: 1, climate: 0, crunch: 0, emissions: 0 },
@@ -87,6 +88,7 @@ export function createGame(seed = (Date.now() % 2147483646) + 1): GameState {
   refreshHomestead(s);
   for (const r of REGION_IDS) while (s.regions[r].forecast.length < 4) s.regions[r].forecast.push(drawWeather(s));
   todayBook(s);
+  seedWorld(s, 'heartland');
   log(s, 'info', 'You have $250, one hectare, ten wheat seeds and a hoe. Plant your first crop.', 'fields');
   return s;
 }
@@ -97,6 +99,7 @@ export function step(s: GameState) {
   if (s.bankrupt) return;
   s.tick++;
   if (s.tick % TICKS_PER_DAY === 0) daily(s);
+  worldTick(s);
   fieldsTick(s);
   laborTick(s);
   prepareLarder(s);
@@ -167,6 +170,31 @@ export const irrigationPrice = (s: GameState, ha: number) => Math.round(ha * (CO
 export const regionEntryCost = (s: GameState) => Math.round(25000 * s.macro.cpi);
 export const upgradeCost = (s: GameState, b: { type: keyof typeof BUILDINGS; level: number; region: RegionId }) => Math.round(buildingPrice(s, b.type, b.region) * (b.level === 1 ? 0.8 : 1.4));
 export const machineUpgradeCost = (s: GameState, m: { type: keyof typeof MACHINES; tier: number }) => Math.round(machinePrice(s, m.type) * 0.5 * m.tier);
+/** Moving fee: a tenth of a building's price; fields by area; homes, services and landmarks a flat amount. */
+export function moveFee(s: GameState, r: RegionId, key: string) {
+  const [kind, id] = key.split(':');
+  if (kind === 'b') { const b = s.buildings.find((x) => x.id === +id); return b ? Math.round(buildingPrice(s, b.type, r) * 0.1) : 0; }
+  if (kind === 'field') { const f = s.fields.find((x) => x.id === +id); return f ? Math.round(20 * f.ha * s.macro.cpi) : 0; }
+  return Math.round(500 * s.macro.cpi);
+}
+/** One crew clears forest patch by patch; each finished patch adds timber to storage. */
+function worldTick(s: GameState) {
+  if (s.tick % TICKS_PER_DAY === 1) reconcileWorld(s, { farmMarket: s.stats.harvests > 0, crew: stageAtLeast(s, 'farm-business'), office: s.legacyProgression ? s.era >= 3 : stageAtLeast(s, 'industry'), hall: !!s.stageState.town?.active });
+  for (const r of REGION_IDS) {
+    const w = s.world?.[r];
+    if (!w?.queue.length) continue;
+    const job = w.queue[0];
+    job.hours--;
+    if (job.hours > 0) continue;
+    w.queue.shift();
+    if (!clearedSet(w).has(job.chunk)) { clearedSet(w).add(job.chunk); w.cleared.push(job.chunk); }
+    // The crew sells the felled timber straight to the local market, so it never crowds storage.
+    s.regions[r].inventory.timber += TIMBER_PER_PATCH;
+    const sold = executeSell(s, r, 'timber', TIMBER_PER_PATCH, 'Timber from forest clearing');
+    s.regions[r].inventory.timber -= TIMBER_PER_PATCH - sold.qty;
+    if (!w.queue.length) log(s, 'info', `Forest cleared in ${REGIONS[r].name}. The crew sold the timber at the local market.`, 'farm');
+  }
+}
 export const greenhousePrice = (s: GameState, ha: number) => Math.round(2000 * ha * s.macro.cpi);
 const BUILDING_GATE: Partial<Record<keyof typeof BUILDINGS, string>> = { coop: 'chickens', pigsty: 'livestock', sheepfold: 'livestock', cowshed: 'livestock' };
 
@@ -297,9 +325,12 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       if (n >= CONFIG.homePlots) return fail('No more small plots for sale — buy larger parcels instead.');
       const price = homePlotPrice(s);
       if (price > s.cash) return fail(`Need $${price.toLocaleString()} to buy another hectare.`);
+      const room = canPlaceNew(s, 'heartland', { w: plotSide(1), d: plotSide(1) }, a.at);
+      if (room) return fail(room);
       post(s, 'land', -price, `Field plot (1 ha)`);
       const f = newField(s, 'heartland', 1, price);
       s.fields.push(f);
+      placeNew(s, 'heartland', `field:${f.id}`, a.at);
       s.regions.heartland.homePlotsBought++;
       log(s, 'info', `Bought field ${f.id} for $${price.toLocaleString()}.`, 'fields');
       return ok();
@@ -310,9 +341,12 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       if (!CONFIG.parcelSizes.includes(a.ha)) return fail('Invalid parcel size.');
       const price = parcelPrice(s, a.region, a.ha);
       if (price > s.cash) return fail(`A ${a.ha} ha parcel costs $${price.toLocaleString()}.`);
+      const room = canPlaceNew(s, a.region, { w: plotSide(a.ha), d: plotSide(a.ha) }, a.at);
+      if (room) return fail(room);
       post(s, 'land', -price, `${a.ha} ha parcel`, a.region);
       const f = newField(s, a.region, a.ha, price);
       s.fields.push(f);
+      placeNew(s, a.region, `field:${f.id}`, a.at);
       s.regions[a.region].parcelsBought++;
       log(s, 'info', `Bought a ${a.ha} ha parcel in ${REGIONS[a.region].name} (field ${f.id}).`, 'fields');
       return ok();
@@ -324,6 +358,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       const value = Math.round(f.cost * 0.85);
       post(s, 'assetSale', value, `Sold field ${f.id}`, f.region);
       s.fields.splice(s.fields.indexOf(f), 1);
+      forget(s, f.region, `field:${f.id}`);
       // A sold 1 ha home plot goes back on the market (re-buying costs at least what was paid; sales return 85%).
       if (f.region === 'heartland' && f.ha === 1) s.regions.heartland.homePlotsBought = Math.max(1, s.regions.heartland.homePlotsBought - 1);
       return ok(`Sold for $${value.toLocaleString()}.`);
@@ -425,17 +460,58 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       if (!Number.isInteger(n) || n < 1 || n > 50) return fail('Build between 1 and 50 at a time.');
       const price = buildingPrice(s, a.building, a.region);
       if (price * n > s.cash) return fail(`Costs $${(price * n).toLocaleString()}.`);
+      if (a.at && n > 1) return fail('Place buildings one at a time.');
+      const [fw, fd] = FOOTPRINT[a.building];
+      const room = canPlaceNew(s, a.region, { w: fw, d: fd }, a.at);
+      if (room) return fail(room);
+      let built = 0;
       for (let i = 0; i < n; i++) {
+        const id = nextId(s);
+        s.buildings.push({ id, type: a.building, region: a.region, active: true, level: 1, cost: price, depreciated: 0, util: 0, reserved: 0, reason: '', productionReport: emptyProductionReport(), stats: { out: 0, inCost: 0, outValue: 0, opCost: 0 } });
+        const placed = placeNew(s, a.region, `b:${id}`, a.at);
+        if (placed) { s.buildings.pop(); if (!i) return fail(placed); log(s, 'warning', `Only ${i} ${d.name.toLowerCase()}s fitted. Clear forest to make room for more.`, 'farm'); break; }
         post(s, 'building', -price, d.name, a.region);
-        s.buildings.push({ id: nextId(s), type: a.building, region: a.region, active: true, level: 1, cost: price, depreciated: 0, util: 0, reserved: 0, reason: '', productionReport: emptyProductionReport(), stats: { out: 0, inCost: 0, outValue: 0, opCost: 0 } });
+        built++;
       }
-      log(s, 'info', `Built ${n > 1 ? `${n} ${d.name.toLowerCase()}s` : `a ${d.name.toLowerCase()}`} in ${REGIONS[a.region].name}.`, BUILDINGS[a.building].category === 'storage' ? 'storage' : 'production');
+      log(s, 'info', `Built ${built > 1 ? `${built} ${d.name.toLowerCase()}s` : `a ${d.name.toLowerCase()}`} in ${REGIONS[a.region].name}.`, BUILDINGS[a.building].category === 'storage' ? 'storage' : 'production');
       return ok();
+    }
+    case 'moveObject': {
+      if (!s.regions[a.region]?.unlocked) return fail('You have no operations there.');
+      const w = worldOf(s, a.region);
+      if (!w.pos[a.key]) return fail('Nothing to move.');
+      const fp = footprintOf(s, a.key);
+      if (!fp || !Array.isArray(a.at) || a.at.length !== 2) return fail('Choose where to move it.');
+      const [kind, id] = a.key.split(':');
+      const fieldToMove = kind === 'field' ? s.fields.find((f) => f.id === +id) : undefined;
+      if (fieldToMove?.crop) return fail('Harvest the field before moving it.');
+      const problem = placeProblem(s, a.region, a.at[0], a.at[1], fp, a.key);
+      if (problem) return fail(PROBLEM_TEXT[problem]);
+      const fee = moveFee(s, a.region, a.key);
+      if (fee > s.cash) return fail(`Moving costs $${fee.toLocaleString()}.`);
+      post(s, 'maintenance', -fee, 'Moving on the farm', a.region);
+      w.pos[a.key] = [a.at[0], a.at[1]];
+      const b = kind === 'b' ? s.buildings.find((x) => x.id === +id) : undefined;
+      if (b) b.movedUntil = s.tick + MOVE_DOWNTIME;
+      return ok(b ? `Moved. It restarts in ${MOVE_DOWNTIME} hours.` : 'Moved.');
+    }
+    case 'clearForest': {
+      if (!s.regions[a.region]?.unlocked) return fail('You have no operations there.');
+      const w = worldOf(s, a.region), set = clearedSet(w), queued = new Set(w.queue.map((j) => j.chunk));
+      const chunks = [...new Set(a.chunks)].filter((c) => Number.isInteger(c) && c >= 0 && c < CHUNKS_X * CHUNKS_Y && !set.has(c) && !queued.has(c));
+      if (!chunks.length) return fail('That forest is already cleared or being cleared.');
+      if (chunks.length > 25) return fail('Clear at most 25 patches at a time.');
+      const cost = clearCost(s) * chunks.length;
+      if (cost > s.cash) return fail(`Clearing costs $${cost.toLocaleString()}.`);
+      post(s, 'maintenance', -cost, `Forest clearing (${chunks.length} patch${chunks.length === 1 ? '' : 'es'})`, a.region);
+      for (const c of chunks) w.queue.push({ chunk: c, hours: CLEAR_HOURS });
+      return ok(`The crew will clear ${chunks.length} patch${chunks.length === 1 ? '' : 'es'} over about ${chunks.length * CLEAR_HOURS} hours and sell the timber.`);
     }
     case 'demolish': {
       const b = s.buildings.find((x) => x.id === a.buildingId);
       if (!b) return fail('No such building.');
       s.buildings.splice(s.buildings.indexOf(b), 1);
+      forget(s, b.region, `b:${b.id}`);
       for (const f of s.fields) if (f.supplies === b.id) (f.supplies = null), (f.planLocked = false);
       post(s, 'assetSale', Math.round(Math.max(0, b.cost - b.depreciated) * 0.5), `Sold ${BUILDINGS[b.type].name}`, b.region);
       // contents that no longer fit are sold or lost through the normal overflow rule
@@ -528,6 +604,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       if (c > s.cash) return fail(`Setting up costs $${c.toLocaleString()} (permits, office, local bank).`);
       post(s, 'legal', -c, `Entry: ${REGIONS[a.region].name}`, a.region, 'corporate');
       s.regions[a.region].unlocked = true;
+      seedWorld(s, a.region);
       log(s, 'opportunity', `You now operate in ${REGIONS[a.region].name}. Buy land, hire locally and build storage there.`, 'world');
       return ok();
     }

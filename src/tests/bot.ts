@@ -9,6 +9,7 @@ import { avg30, dispatch, homePlotPrice, isManual, isReady, parcelPrice, totalHa
 import { seasonOf, stored } from '../simulation/core';
 import { communityOf, population, homeCapacity, availableResidents } from '../simulation/community-state';
 import { accruedTax } from '../simulation/finance';
+import { clearCost, findSpot, frontierPatches, worldOf } from '../simulation/world';
 import { canStartSettlement, larderReserve } from '../simulation/stages/settlement';
 import type { GameState } from '../simulation/types';
 
@@ -50,6 +51,11 @@ export function botAct(s: GameState, strategy: Strategy = 'balanced', civicPrior
   if (s.tick % 3 === 0) sell(s);
   if (s.era < 3 && s.regions.heartland.homePlotsBought < 16 && s.cash > homePlotPrice(s) * 1.3 && homePlotPrice(s) < 6000) dispatch(s, { type: 'buyPlot' });
   if (s.tick % 6 !== 0) return; // management decisions a few times a day
+  // Keep room to grow: clear forest at the edge of the farm when a big field no longer fits.
+  for (const r of REGION_IDS) {
+    if (!s.regions[r].unlocked || worldOf(s, r).queue.length) continue;
+    if (!findSpot(s, r, { w: 10, d: 10 }) && s.cash > clearCost(s) * 9 * 3) dispatch(s, { type: 'clearForest', region: r, chunks: frontierPatches(s, r, 9) });
+  }
 
   for (const r of REGION_IDS) {
     if (!s.regions[r].unlocked) continue;

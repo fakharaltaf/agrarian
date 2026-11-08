@@ -12,7 +12,7 @@ export const WORK_END = 18; // workers supply labour 06:00–17:59
 // ---------------------------------------------------------------- goods
 
 export type CropId = 'wheat' | 'corn' | 'potatoes' | 'soybeans' | 'rice' | 'sugarcane' | 'cotton' | 'coffee' | 'apples' | 'grapes';
-export type ProcessedId = 'flour' | 'bread' | 'feed' | 'meat' | 'milk' | 'cheese' | 'butter' | 'soyoil' | 'soymeal' | 'sugar' | 'greens' | 'eggs' | 'wool' | 'wine';
+export type ProcessedId = 'flour' | 'bread' | 'feed' | 'meat' | 'milk' | 'cheese' | 'butter' | 'soyoil' | 'soymeal' | 'sugar' | 'greens' | 'eggs' | 'wool' | 'wine' | 'timber';
 export type InputId = 'fertilizer' | 'fuel' | 'manure';
 export type GoodId = CropId | ProcessedId | InputId;
 export type StorageClass = 'dry' | 'cold';
@@ -59,6 +59,7 @@ export const GOODS: Record<GoodId, GoodDef> = {
   soymeal: G('soymeal', 'Soybean meal', 'processed', 4, 'dry', 0.003, 0.003, 0.5, 0.3, 80, 0, '#A89060', { inputs: { soybeans: 0.6 } }),
   sugar: G('sugar', 'Sugar', 'processed', 14, 'dry', 0, 0, 0.4, 0.3, 40, 3900, '#F7F4EE', { inputs: { sugarcane: 5 } }),
   greens: G('greens', 'Fresh greens', 'processed', 6, 'cold', 0.03, 0.3, 0.9, 1.1, 40, 200, '#6FAF5A'),
+  timber: G('timber', 'Timber', 'processed', 3, 'dry', 0, 0, 0.6, 0.8, 30, 0, '#A07850'),
   eggs: G('eggs', 'Eggs (trays)', 'processed', 3.5, 'cold', 0.01, 0.04, 0.4, 0.3, 120, 2100, '#F1E3C6'),
   wool: G('wool', 'Wool', 'processed', 9, 'dry', 0, 0, 0.6, 0.7, 20, 0, '#E9E4D8'),
   wine: G('wine', 'Wine', 'processed', 9, 'dry', 0, 0, 0.9, 1.2, 30, 850, '#7A2A3A', { inputs: { grapes: 1.7 } }),

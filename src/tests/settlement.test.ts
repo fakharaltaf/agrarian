@@ -1,3 +1,4 @@
+import { frontierPatches, worldOf } from '../simulation/world';
 import { expect, it } from 'vitest';
 import { botAct } from './bot';
 import { createGame, dispatch, step } from '../simulation/engine';
@@ -67,6 +68,9 @@ it('a fresh-game player can establish a healthy 100-person settlement through th
 it('a growing community aggregates families and keeps housing counts compact', () => {
   const s = ready(); post(s, 'sharesIssued', 20e6, 'Community capacity fixture');
   dispatch(s, { type: 'startSettlement', charter: 'free' });
+  // Streets for 100 homes need room: clear forest at the edge of the farm first, as a player would.
+  expect(dispatch(s, { type: 'clearForest', region: 'heartland', chunks: frontierPatches(s, 'heartland', 25) }).ok).toBe(true);
+  while (worldOf(s, 'heartland').queue.length) step(s);
   expect(dispatch(s, { type: 'buildHomes', tier: 'apartment', count: 1 }).ok).toBe(false);
   expect(dispatch(s, { type: 'buildHomes', tier: 'cottage', count: 50 }).ok).toBe(true);
   let apartments = false;

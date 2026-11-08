@@ -26,9 +26,9 @@ export function buildingsTick(s: GameState) {
     for (const b of s.buildings) {
       if (b.region !== r) continue;
       const def = BUILDINGS[b.type];
-      if (!b.active) {
+      if (!b.active || (b.movedUntil ?? 0) > s.tick) {
         b.util *= 1 - EMA;
-        b.reason = 'Paused';
+        b.reason = b.active ? 'Moving' : 'Paused';
         recordProductionHour(s,b,0,0,0,0,0);
         b.stats = { out: 0, inCost: 0, outValue: 0, opCost: 0 }; // a paused factory pays no staff and makes nothing
         continue;

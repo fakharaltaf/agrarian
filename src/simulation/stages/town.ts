@@ -1,4 +1,5 @@
 import { regionActive } from '../region-state';
+import { canPlaceNew, placeNew, SERVICE_FOOTPRINT } from '../world';
 import { nationActive, nationOf } from '../nation-state';
 import {allocateNeighbourJobs} from '../employment';
 import { cityActive, cityOf } from '../city-state';
@@ -187,9 +188,10 @@ function action(s: GameState,a:Action):ActionResult|null {
     if(a.accept) {
       if(t.petition.kind==='park') {
         const cost=servicePrice(s,'park');if(t.cash<cost)return fail('The treasury cannot afford a park yet.');
-        post(s,'building',-cost,'Council park','heartland','corporate','town');
         const group=t.services.find(b=>b.type==='park'&&b.district==='farmgate');
-        if(group){group.count++;group.cost+=cost;}else t.services.push({id:nextId(s),type:'park',district:'farmgate',count:1,cost,active:true,staffed:0,funded:false});
+        if(!group){const room=canPlaceNew(s,'heartland',SERVICE_FOOTPRINT);if(room)return fail(room);}
+        post(s,'building',-cost,'Council park','heartland','corporate','town');
+        if(group){group.count++;group.cost+=cost;}else{const svc={id:nextId(s),type:'park' as const,district:'farmgate' as const,count:1,cost,active:true,staffed:0,funded:false};t.services.push(svc);placeNew(s,'heartland',`svc:${svc.id}`);}
       } else {
         // Council buys a real bread delivery from the company; it is eaten, not duplicated.
         const qty=Math.ceil(population(s)*2000/GOODS.bread.kcal), inv=s.regions.heartland.inventory;
@@ -209,9 +211,12 @@ function action(s: GameState,a:Action):ActionResult|null {
     if(!SERVICE_DEFS[a.service]||!DISTRICT_IDS.includes(a.district)||!serviceAvailable(s,a.service))return fail('This service is not available yet.');
     const count=a.count??1;if(!Number.isInteger(count)||count<1||count>50)return fail('Build 1–50 service units.');
     const cost=round2(servicePrice(s,a.service)*count);if(t.cash<cost)return fail('Fund the town treasury before building.');
+    // Roads are part of the street plan; other services stand on the map. A chosen spot always starts a new building.
+    const group=a.at||a.service==='road'?undefined:t.services.find(b=>b.type===a.service&&b.district===a.district);
+    if(!group&&a.service!=='road'){const room=canPlaceNew(s,'heartland',SERVICE_FOOTPRINT,a.at);if(room)return fail(room);}
     post(s,'building',-cost,`${count} ${SERVICE_DEFS[a.service].name}`,'heartland','corporate','town');
-    const group=t.services.find(b=>b.type===a.service&&b.district===a.district);
-    if(group){group.count+=count;group.cost=round2(group.cost+cost);}else t.services.push({id:nextId(s),type:a.service,district:a.district,count,cost,active:true,staffed:0,funded:false});
+    if(group){group.count+=count;group.cost=round2(group.cost+cost);}
+    else{const svc={id:nextId(s),type:a.service,district:a.district,count,cost,active:true,staffed:0,funded:false};t.services.push(svc);if(a.service!=='road')placeNew(s,'heartland',`svc:${svc.id}`,a.at);}
     return {ok:true};
   }
   return null;
