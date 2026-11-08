@@ -240,7 +240,7 @@ function TopBar({ onLog, onSettings, onHelp, onLedger, warnings, bare }: { onLog
     <button className="icon-btn" aria-label="Farm menu" aria-expanded={menu} onClick={()=>{setMenu(!menu);setTime(false);}}>☰{warnings>0&&<span className="dot">{warnings}</span>}</button>
     {time && <div className="strip-popover">
       <div data-coach="clock">{c.season} {c.day} · Year {c.year} · {c.hour}</div>
-      <div className="seg" role="radiogroup" aria-label="Simulation speed">{SPEEDS.filter(sp=>s.stats.sales>0||sp<=1).map(sp=><button key={sp} role="radio" aria-checked={speed===sp} className={speed===sp?'on':''} onClick={()=>{setSpeed(sp);setTime(false);}}>{sp===0?'❚❚':`${sp}×`}</button>)}</div>
+      <div className="seg" role="radiogroup" aria-label="Simulation speed">{SPEEDS.filter(sp=>s.stats.sales>0||sp<=5).map(sp=><button key={sp} role="radio" aria-checked={speed===sp} className={speed===sp?'on':''} onClick={()=>{setSpeed(sp);setTime(false);}}>{sp===0?'❚❚':`${sp}×`}</button>)}</div>
     </div>}
     {menu && <div className="strip-popover menu-popover">
       {s.era>=2 && <span>Net worth {money(equity(s))}</span>}
@@ -523,11 +523,11 @@ function useShortcuts(h: { help: () => void; log: () => void }) {
       if (e.key === ' ') {
         e.preventDefault();
         e.stopPropagation();
-        if (e.repeat || L.sales === 0) return;
+        if (e.repeat) return;
         if (L.speed === 0) setSpeed(prev.current);
         else (prev.current = L.speed), setSpeed(0);
       } else if ((e.target as HTMLElement).closest('[role=dialog]')) return;
-      else if (/^[1-6]$/.test(e.key) && L.sales > 0) setSpeed(SPEEDS[+e.key - 1]);
+      else if (/^[1-6]$/.test(e.key) && (L.sales > 0 || SPEEDS[+e.key - 1] <= 5)) setSpeed(SPEEDS[+e.key - 1]);
       else if (e.key === '?') L.help();
       else if (e.key === 'n') L.log();
     };
