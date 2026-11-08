@@ -180,8 +180,10 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
       const right = new THREE.Vector3(Math.cos(R.yaw), 0, -Math.sin(R.yaw));
       const fwd = new THREE.Vector3(-Math.sin(R.yaw), 0, -Math.cos(R.yaw));
       R.target.addScaledVector(right, -dx * k).addScaledVector(fwd, (dy * k) / Math.sin(0.62));
+      // stay over the map
+      R.target.x = Math.max(MAP.x0 + 10, Math.min(MAP.x0 + MAP.w - 10, R.target.x)); R.target.z = Math.max(MAP.y0 + 10, Math.min(MAP.y0 + MAP.h - 10, R.target.z));
     };
-    const zoomBy = (f: number) => { if (rig.current) rig.current.zoom = Math.max(0.15, Math.min(4, rig.current.zoom * f)); };
+    const zoomBy = (f: number) => { if (rig.current) rig.current.zoom = Math.max(0.3, Math.min(4, rig.current.zoom * f)); };
     const down = (e: PointerEvent) => {
       c.setPointerCapture(e.pointerId);
       pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -601,23 +603,26 @@ function syncSelection(R: Rig, L: Layout, selected: number[]) {
 function syncDeco(R: Rig, L: Layout, s: GameState) {
   const w = worldOf(s, R.region);
   // Only woods near the view are drawn; the set is rebuilt when the camera moves or zooms far enough.
-  const reach = Math.min(110, 9 / R.zoom * 2.4 + 10), step = Math.max(6, reach / 4);
+  const reach = Math.min(150, 9 / R.zoom * 3 + 12), step = Math.max(6, reach / 4);
   const cx = Math.round(R.target.x / step) * step, cz = Math.round(R.target.z / step) * step, rb = Math.ceil(reach / 6) * 6;
-  const sig = `${R.region}:${w.cleared.length}:${w.queue.map((j) => j.chunk).join(',')}:${cx},${cz},${rb}`;
+  const sig = `${R.region}:${w.cleared.length}:${w.queue.map((j) => j.chunk).join(',')}:${cx},${cz},${rb}:${R.zoom < 0.5}`;
   if (sig === R.sig.deco) return;
   R.sig.deco = sig;
   clear(R.deco);
-  R.deco.add(mesh(cached('road-map', () => new THREE.BoxGeometry(MAP.w, 0.04, ROAD_H - 0.4)), mat(0xb9a37c, { rough: 1 }), MAP.x0 + MAP.w / 2, 0, ROAD_Y + ROAD_H / 2, false));
+  R.deco.add(mesh(cached('road-far', () => new THREE.BoxGeometry(MAP.w + 600, 0.04, ROAD_H - 0.4)), mat(0xb9a37c, { rough: 1 }), MAP.x0 + MAP.w / 2, 0, ROAD_Y + ROAD_H / 2, false));
   const cleared = clearedSet(w), queued = new Set(w.queue.map((j) => j.chunk));
-  const trunks: THREE.Matrix4[] = [], leafy: THREE.Matrix4[] = [], pines: THREE.Matrix4[] = [], floor: THREE.Matrix4[] = [];
+  const trunks: THREE.Matrix4[] = [], leafy: THREE.Matrix4[] = [], pines: THREE.Matrix4[] = [];
   const q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0);
   const low = graphicsQuality() === 'low';
-  for (let c = 0; c < CHUNKS_X * CHUNKS_Y; c++) {
-    if (cleared.has(c)) continue;
-    const [ox, oy] = chunkOrigin(c);
-    if (Math.abs(ox + CHUNK / 2 - cx) > rb + CHUNK || Math.abs(oy + CHUNK / 2 - cz) > rb + CHUNK) continue;
-    floor.push(new THREE.Matrix4().makeTranslation(ox + CHUNK / 2, 0.012, oy + CHUNK / 2));
-    const n = queued.has(c) ? 1 : low ? 3 : 6; // a patch being felled has one tree left standing
+  // Walk the patches around the view; beyond the map edge the woods simply continue (scenery, never cleared).
+  const gx0 = Math.floor((cx - rb - MAP.x0) / CHUNK) - 1, gx1 = Math.ceil((cx + rb - MAP.x0) / CHUNK) + 1;
+  const gy0 = Math.floor((cz - rb - MAP.y0) / CHUNK) - 1, gy1 = Math.ceil((cz + rb - MAP.y0) / CHUNK) + 1;
+  for (let gy = gy0; gy <= gy1; gy++) for (let gxx = gx0; gxx <= gx1; gxx++) {
+    const inside = gxx >= 0 && gy >= 0 && gxx < CHUNKS_X && gy < CHUNKS_Y;
+    const c = inside ? gy * CHUNKS_X + gxx : 100000 + (gy + 500) * 2000 + (gxx + 500); // stable id for scenery patches
+    if (inside && cleared.has(c)) continue;
+    const ox = MAP.x0 + gxx * CHUNK, oy = MAP.y0 + gy * CHUNK;
+    const n = queued.has(c) ? 1 : low || R.zoom < 0.5 ? 3 : 6; // a patch being felled has one tree left standing; fewer when zoomed far out
     for (let i = 0; i < n; i++) {
       // a jittered 3×2 grid inside the patch keeps woods dense without trees stacking on each other
       const gx = i % 3, gz = Math.floor(i / 3) % 2;
@@ -636,8 +641,6 @@ function syncDeco(R: Rig, L: Layout, s: GameState) {
     im.count = list.length; im.castShadow = false; im.receiveShadow = false; im.frustumCulled = false;
     R.deco.add(im);
   };
-  // darker forest floor under the trees, so woodland and cleared land read apart at a glance
-  inst(cached('forest-floor', () => new THREE.PlaneGeometry(CHUNK, CHUNK).rotateX(-Math.PI / 2)), mat(0x46663a, { rough: 1 }), floor);
   inst(cached('forest-trunk', () => new THREE.CylinderGeometry(0.06, 0.1, 0.6, 6).translate(0, 0.3, 0)), mat(PAL.woodDark), trunks);
   inst(cached('forest-leafy', () => merged(new THREE.IcosahedronGeometry(0.42, 0).translate(0, 0.85, 0), new THREE.IcosahedronGeometry(0.3, 0).translate(0.24, 0.72, 0.1), new THREE.IcosahedronGeometry(0.28, 0).translate(-0.2, 0.75, -0.12))), R.crownMat, leafy);
   inst(cached('forest-pine', () => merged(new THREE.ConeGeometry(0.42, 0.55, 7).translate(0, 0.55, 0), new THREE.ConeGeometry(0.33, 0.48, 7).translate(0, 0.85, 0), new THREE.ConeGeometry(0.22, 0.4, 7).translate(0, 1.12, 0))), mat(0x3f6b45, { rough: 0.95 }), pines);
