@@ -345,7 +345,15 @@ export function BatchPanel({ s, fields }: { s: GameState; fields: Field[] }) {
         <PlanPicker s={s} fields={fields} />
         <SupplyPicker s={s} fields={fields} />
         <div className="row wrap">
-          <button className="btn ghost sm" onClick={() => act({ type: 'fertilize', fieldIds: fields.map((f) => f.id), source: 'fertilizer' })}>Spread fertiliser on all{batchSpreadFee>0?` · up to ${money(batchSpreadFee)}`:''}</button>
+          {(['fertilizer', 'manure'] as const).map((src) => {
+            // poorest soil first, so a short supply goes where it matters most
+            const todo = fields.filter((f) => !f.spreading).sort((a, b) => fertility(a) - fertility(b));
+            const need = todo.reduce((n, f) => n + spreadNeed(s, f, src), 0), held = fields.length ? s.regions[fields[0].region].inventory[src] : 0;
+            if (src === 'manure' && held < 1) return null;
+            return <button key={src} className="btn ghost sm" disabled={!todo.length || held < 1} title={held < need ? `Enough for the poorest fields first; the rest are skipped.` : undefined}
+              onClick={() => act({ type: 'fertilize', fieldIds: todo.map((f) => f.id), source: src })}>
+              Spread {src === 'manure' ? 'manure' : 'fertiliser'} on all · {num(Math.min(need, held))}/{num(need)}{batchSpreadFee > 0 ? ` · up to ${money(batchSpreadFee)}` : ''}</button>;
+          })}
           {unirrigated.length > 0 && <Confirm label={`Irrigate ${unirrigated.length} · ${money(irrigationPrice(s, unirrigated.reduce((a, f) => a + f.ha, 0)))}`} title="Install irrigation?" body={`Equip ${unirrigated.length} fields with irrigation. Water is then bought whenever soil moisture falls below ${pct0(s.automation.policies.irrigateMin)}.`} onConfirm={() => act({ type: 'irrigate', fieldIds: unirrigated.map((f) => f.id) })} />}
         </div>
       </div>
