@@ -1,7 +1,7 @@
 // Eras, unlocks, objectives and milestones. Progress comes from measurable business results.
 import { CHAPTER_SALES, BUILDINGS, CROPS, CROP_IDS, ERAS, REGION_IDS, type CropId } from './config';
 import { equity, has, log, stored } from './core';
-import { fertility } from './agriculture';
+import { fertility, growth, isReady } from './agriculture';
 import { topShare } from './corporate';
 import { eraUnlockAvailable, stageIdForEra, tickActiveStage, NEXT_STAGE, stageAtLeast, STAGES } from './stages';
 import { refreshHomestead } from './stages/homestead';
@@ -217,7 +217,11 @@ export function objective(s: GameState): { title: string; hint: string; page?: s
   if (!s.legacyProgression) {
     const sales = lifetimeSales(s);
     if (s.stageId === 'homestead') {
-      if (!s.stats.harvests) return { title: 'Plant your first wheat crop', hint: 'Tap the field, plant wheat, then bring in the golden crop.', page: 'fields' };
+      if (!s.stats.harvests) {
+        const f = s.fields.find((x) => x.crop);
+        if (!f) return { title: 'Plant your first wheat crop', hint: 'Double-tap the field to plant wheat, then bring in the golden crop.', page: 'fields' };
+        return isReady(s, f) ? { title: 'Harvest your wheat', hint: 'Tap the golden field to bring it in.', page: 'fields' } : { title: `Your wheat is growing · ${Math.floor(growth(s, f) * 100)}%`, hint: 'Speed up time with the clock if you like. Tap the field when it turns gold.', page: 'fields' };
+      }
       if (!s.stats.sales) return { title: 'Meet the village trader', hint: 'Trade a little wheat for useful seed, or sell it to the mill at its posted price.', page: 'markets' };
       if (s.eraReady) return { title: 'Your first market day is ready', hint: 'The open market brings changing prices and new choices. Advance whenever you like.', page: 'overview' };
       if (s.fields.length < 4) return { title: `Grow your farm · ${s.fields.length}/4 fields`, hint: 'Use the mill buyer to build cash for more land.', page: 'fields' };
