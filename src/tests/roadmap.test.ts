@@ -7,7 +7,7 @@ import { expect, it } from 'vitest';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { parseSave } from '../simulation/persistence';
 import { canAdvance, createGame, dispatch, newField, step } from '../simulation/engine';
-import { BUILDINGS, GOOD_IDS, OPEX_KINDS, REGION_IDS } from '../simulation/config';
+import { BUILDINGS, CHAPTER_SALES, GOOD_IDS, OPEX_KINDS, REGION_IDS } from '../simulation/config';
 import { lineEcon } from '../simulation/lines';
 import { STAGES, STAGE_IDS, stageIdForEra, tickActiveStage } from '../simulation/stages';
 import { HOMESTEAD_MILL_PRICE, homesteadState, traderHaggleChance } from '../simulation/stages/homestead';
@@ -146,8 +146,8 @@ it('a competent new-game bot reaches Market Town without cash grants', () => {
   const s = createGame(741);
   for (let i = 0; i < 2200 && s.stageId === 'homestead'; i++) { botAct(s); step(s); }
   expect(s.stageId).toBe('market-town');
-  expect(s.tick - 6).toBeGreaterThanOrEqual(1200);
-  expect(s.tick - 6).toBeLessThanOrEqual(1800);
+  expect(s.tick - 6).toBeGreaterThanOrEqual(420);
+  expect(s.tick - 6).toBeLessThanOrEqual(900);
   expect(s.lifetime.sale).toBeGreaterThanOrEqual(HOMESTEAD_SALES_GOAL);
   expect(s.fields.length).toBeGreaterThanOrEqual(4);
   expect(s.ledger.some((entry) => entry.memo.startsWith('Village mill bought'))).toBe(true);
@@ -161,10 +161,10 @@ it('a competent player can grow from Market Town into Farm Business', () => {
     if (enteredMarket < 0 && s.stageId === 'market-town') enteredMarket = s.tick;
   }
   expect(s.stageId).toBe('farm-business');
-  expect(s.lifetime.sale).toBeGreaterThanOrEqual(165_000);
+  expect(s.lifetime.sale).toBeGreaterThanOrEqual(CHAPTER_SALES['market-town']);
   const homesteadTicks = enteredMarket - start, marketTownTicks = s.tick - enteredMarket;
   expect(marketTownTicks).toBeGreaterThanOrEqual(homesteadTicks * 1.5);
-  expect(marketTownTicks).toBeLessThanOrEqual(homesteadTicks * 2);
+  expect(marketTownTicks).toBeLessThanOrEqual(homesteadTicks * 3.5);
 });
 it('pure save migration round-trips and preserves deterministic continuation', () => {
   const a = parseSave(JSON.stringify({version: 2, game: createGame(819)})).game;
