@@ -77,3 +77,17 @@ it('a new farm starts with just its farmhouse; landmarks appear with their chapt
   expect(w.pos.market).toEqual(market);
   expect(w.pos.farmhouse).toEqual(home);
 });
+
+it('orchards, vineyards and greenhouse fields move with what stands on them, for a higher fee', () => {
+  const s = createGame(1008); s.legacyProgression = true; s.era = 4; post(s, 'prize', 1e6, 'fixture');
+  const [plain, orch, glass] = [0, 1, 2].map(() => { dispatch(s, { type: 'buyPlot' }); return s.fields[s.fields.length - 1]; });
+  plain.crop = 'wheat'; orch.crop = 'apples'; glass.crop = 'wheat'; glass.greenhouse = true;
+  const move = (f: typeof plain) => dispatch(s, { type: 'moveObject', region: 'heartland', key: `field:${f.id}`, at: findSpot(s, 'heartland', { w: 2, d: 2 })! });
+  expect(move(plain).ok).toBe(false); // ordinary crops are harvested first
+  for (const f of [orch, glass]) {
+    const cash = s.cash;
+    expect(move(f).ok).toBe(true);
+    expect(cash - s.cash).toBeCloseTo(220 * f.ha * s.macro.cpi, 0);
+    expect(f.crop).toBeTruthy();
+  }
+});

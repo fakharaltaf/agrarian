@@ -27,7 +27,7 @@ import { refreshHomestead } from './stages/homestead';
 import {releaseNeighbourJob} from './employment';
 import { availableResidents, recruitableResidents, communityOf } from './community-state';
 import { shipGoods, shipmentsTick } from './logistics';
-import type { Action, ActionResult, GameState, RegionState } from './types';
+import type { Action, ActionResult, Field, GameState, RegionState } from './types';
 
 export * from './agriculture';
 export { quoteSell, quoteBuy, avgPrice, avg30, outlook } from './markets';
@@ -171,10 +171,14 @@ export const regionEntryCost = (s: GameState) => Math.round(25000 * s.macro.cpi)
 export const upgradeCost = (s: GameState, b: { type: keyof typeof BUILDINGS; level: number; region: RegionId }) => Math.round(buildingPrice(s, b.type, b.region) * (b.level === 1 ? 0.8 : 1.4));
 export const machineUpgradeCost = (s: GameState, m: { type: keyof typeof MACHINES; tier: number }) => Math.round(machinePrice(s, m.type) * 0.5 * m.tier);
 /** Moving fee: a tenth of a building's price; fields by area; homes, services and landmarks a flat amount. */
+const orchard = (f: Field) => !!f.crop && !!CROPS[f.crop].perennial;
+/** Orchards, vineyards and greenhouse fields move with what stands on them; other fields must be harvested first. */
+export const fieldMovable = (f: Field) => !f.crop || orchard(f) || !!f.greenhouse;
 export function moveFee(s: GameState, r: RegionId, key: string) {
   const [kind, id] = key.split(':');
   if (kind === 'b') { const b = s.buildings.find((x) => x.id === +id); return b ? Math.round(buildingPrice(s, b.type, r) * 0.1) : 0; }
-  if (kind === 'field') { const f = s.fields.find((x) => x.id === +id); return f ? Math.round(20 * f.ha * s.macro.cpi) : 0; }
+  // trees and vines, or a greenhouse, are lifted and moved with the field: $200/ha each on top of the plain $20/ha
+  if (kind === 'field') { const f = s.fields.find((x) => x.id === +id); return f ? Math.round((20 + (orchard(f) ? 200 : 0) + (f.greenhouse ? 200 : 0)) * f.ha * s.macro.cpi) : 0; }
   // the farmhouse, trader, bunkhouse, office and hall: a small fee; homes and public buildings cost more to move
   if (['farmhouse', 'shed', 'market', 'crew', 'office'].includes(key)) return Math.round(25 * s.macro.cpi);
   return Math.round(500 * s.macro.cpi);
@@ -486,7 +490,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       if (!fp || !Array.isArray(a.at) || a.at.length !== 2) return fail('Choose where to move it.');
       const [kind, id] = a.key.split(':');
       const fieldToMove = kind === 'field' ? s.fields.find((f) => f.id === +id) : undefined;
-      if (fieldToMove?.crop) return fail('Harvest the field before moving it.');
+      if (fieldToMove && !fieldMovable(fieldToMove)) return fail('Harvest the field before moving it.');
       const problem = placeProblem(s, a.region, a.at[0], a.at[1], fp, a.key);
       if (problem) return fail(PROBLEM_TEXT[problem]);
       const fee = moveFee(s, a.region, a.key);

@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { ANIMALS, BUILDINGS, CROPS, GOODS, REGIONS, SEASONS, type AnimalId, type CropId, type RegionId } from '../../simulation/config';
-import { timingFactor, fertility, growth, isMature, isReady } from '../../simulation/engine';
+import { fieldMovable, timingFactor, fertility, growth, isMature, isReady } from '../../simulation/engine';
 import { priceUsd, stored } from '../../simulation/core';
 import { spreadNeed } from '../../simulation/agriculture';
 import type { GameState } from '../../simulation/types';
@@ -865,7 +865,7 @@ function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el
       const need=fieldNeeds(s,p.field);
       const fp=need.fertilise?fertilisePlan(s,p.field):null;
       const care=(fp?button(`fertilise:${id}`,fp.source==='manure'?'🌿 Spread manure':fp.buy?`🌿 Fertilise · buy ${money(fp.cost)}`:'🌿 Fertilise'):'')+(need.irrigate?button(`irrigate:${id}`,'💧 Irrigate'):'');
-      const mv=!p.field.crop?button(`move:${id}`,'✥ Move'):'';
+      const mv=fieldMovable(p.field)?button(`move:${id}`,'✥ Move'):'';
       want.push({key:'act',x:Math.max(115,Math.min(W-115,px)),y:Math.max(80,Math.min(H-30,py)),html:primary+care+plan+mv+button(`inspect:${id}`,'ⓘ'),cls:'wl-radial'});
     }
   }
