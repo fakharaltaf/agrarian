@@ -1055,3 +1055,18 @@ describe('connected mechanics', () => {
     expect(frostRisk(s, f, 'corn')).toBe(false);
   });
 });
+
+describe('full barn and a mill', () => {
+  it('a mill keeps grinding when the barn is full, because a batch frees more space than it fills', () => {
+    const s = fresh(7);
+    toEra(s, 4);
+    give(s, 100000);
+    expect(dispatch(s, { type: 'build', region: 'heartland', building: 'flourMill' }).ok).toBe(true);
+    const mill = s.buildings.find((b) => b.type === 'flourMill')!;
+    const st = stored(s, 'heartland');
+    s.regions.heartland.inventory.wheat += st.cap.dry - st.dry; // barn exactly full of wheat
+    advance(s, 12);
+    expect(s.regions.heartland.inventory.flour ?? 0).toBeGreaterThan(0);
+    expect(mill.reason).not.toBe('Output storage full');
+  });
+});

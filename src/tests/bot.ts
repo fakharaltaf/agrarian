@@ -99,7 +99,7 @@ export function botAct(s: GameState, strategy: Strategy = 'balanced', civicPrior
       if (!hasB(s, 'heartland', 'flourMill') && s.cash > 37500) dispatch(s, { type: 'build', region: 'heartland', building: 'flourMill' });
       if (strategy === 'processor') for (const b of ['feedMill', 'warehouse', 'bakery', 'ranch'] as BuildingType[]) if (!hasB(s, 'heartland', b) && s.cash > 150000) dispatch(s, { type: 'build', region: 'heartland', building: b });
     }
-    if (s.tick % 24 === 12) for (const g of ['flour', 'feed', 'bread', 'meat', 'milk'] as GoodId[]) if (s.regions.heartland.inventory[g] > 10) dispatch(s, { type: 'sell', region: 'heartland', good: g, qty: Math.min(s.regions.heartland.inventory[g], s.markets.heartland[g]!.d0) });
+    if (s.tick % 6 === 0) for (const g of ['flour', 'feed', 'bread', 'meat', 'milk'] as GoodId[]) if (s.regions.heartland.inventory[g] > 10) dispatch(s, { type: 'sell', region: 'heartland', good: g, qty: Math.min(s.regions.heartland.inventory[g], s.markets.heartland[g]!.d0) });
   }
   if (s.era >= 6 && civicReady) {
     for (const r of ['river', 'tropics'] as RegionId[]) if (!s.regions[r].unlocked && s.cash > 250000) dispatch(s, { type: 'unlockRegion', region: r });

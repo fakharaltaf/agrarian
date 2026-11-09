@@ -89,9 +89,16 @@ function produce(s: GameState, b: Building, staff: number, cows = 0) {
   const outMult = has(s, 'processEfficiency') ? 1.1 : 1;
   const outUnits = Object.values(rec.outputs).reduce((a, q) => a + q! * outMult, 0);
   if (outUnits > 0) {
-    // all outputs share storage; use the tightest one as the cap
+    // A batch uses up its inputs before the outputs need room, so only the net growth per storage
+    // type needs free space (a mill turning 10 wheat into 8 flour frees space, it never needs it).
+    const net = { dry: 0, cold: 0 };
+    for (const [g, q] of Object.entries(rec.outputs) as [GoodId, number][]) net[GOODS[g].storage === 'cold' ? 'cold' : 'dry'] += q * outMult;
+    for (const [g, q] of Object.entries(rec.inputs) as [GoodId, number][]) net[GOODS[g].storage === 'cold' ? 'cold' : 'dry'] -= q;
     let room = Infinity;
-    for (const [g, q] of Object.entries(rec.outputs) as [GoodId, number][]) room = Math.min(room, freeSpace(s, b.region, g) / (q * outMult));
+    for (const [g] of Object.entries(rec.outputs) as [GoodId, number][]) {
+      const k = GOODS[g].storage === 'cold' ? 'cold' : 'dry';
+      if (net[k] > 0) room = Math.min(room, freeSpace(s, b.region, g) / net[k]);
+    }
     if (room < batches) {
       batches = Math.max(0, room);
       reason = 'Output storage full';
