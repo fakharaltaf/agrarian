@@ -4,7 +4,7 @@ import { day, post } from '../simulation/core';
 import { DAYS_PER_YEAR, TICKS_PER_DAY } from '../simulation/config';
 import { parseSave } from '../simulation/persistence';
 
-const toDay = (s: ReturnType<typeof createGame>, d: number) => { while (day(s) < d) step(s); };
+const toDay = (s: ReturnType<typeof createGame>, d: number) => { while (day(s) < d && !s.bankrupt) step(s); expect(s.bankrupt).toBeNull(); };
 
 it('year end issues one fixed tax bill, payable within 30 days, taken on the due day if unpaid', () => {
   const s = createGame(42);
@@ -32,4 +32,25 @@ it('the bill can be paid early', () => {
   expect(s.taxBill).toBeNull();
   expect(s.lifetime.tax).toBe(-100);
   expect(dispatch(s, { type: 'payTax' }).ok).toBe(false);
+});
+
+it('farm investment is deducted the year it is paid, and losses carry forward', () => {
+  const a = createGame(44), b = createGame(44);
+  for (const s of [a, b]) post(s, 'sale', 50_000, 'fixture profit');
+  post(b, 'land', -30_000, 'fixture field');
+  for (const s of [a, b]) { toDay(s, DAYS_PER_YEAR + 1); }
+  expect(b.taxBill!.amount).toBeCloseTo(a.taxBill!.amount * 0.4, 0); // taxed on 20k, not 50k
+
+  const c = createGame(45);
+  post(c, 'loanIn', 40_000, 'fixture funding (not taxable)');
+  post(c, 'land', -40_000, 'fixture: invest more than earned');
+  post(c, 'sale', 10_000, 'fixture');
+  toDay(c, DAYS_PER_YEAR + 1);
+  expect(c.taxBill ?? null).toBeNull();
+  expect(c.taxLoss!.heartland!).toBeGreaterThanOrEqual(30_000);
+  const carried = c.taxLoss!.heartland!;
+  post(c, 'sale', carried + 5_000, 'fixture next year');
+  toDay(c, 2 * DAYS_PER_YEAR + 1);
+  expect(c.taxLoss?.heartland ?? 0).toBe(0);
+  expect(c.taxBill!.amount).toBeLessThan(5_000 * 0.2 + 1); // only the 5k above the carried loss (+ the year's small costs)
 });

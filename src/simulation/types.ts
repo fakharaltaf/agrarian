@@ -284,7 +284,7 @@ export interface LogEntry { id: number; tick: number; level: LogLevel; text: str
 
 export interface LedgerEntry { tick: number; kind: LedgerKind; amount: number; region: RegionId; division: Division; memo: string }
 
-export interface DayBook { day: number; kinds: Partial<Record<LedgerKind, number>>; regions: Partial<Record<RegionId, number>>; divisions: Partial<Record<Division, number>>; op: Partial<Record<RegionId, number>>; cash: number; debt: number; equity: number; produced: number }
+export interface DayBook { day: number; kinds: Partial<Record<LedgerKind, number>>; regions: Partial<Record<RegionId, number>>; divisions: Partial<Record<Division, number>>; op: Partial<Record<RegionId, number>>; /** Taxable result: operating profit with farm investment expensed (no depreciation). */ tx?: Partial<Record<RegionId, number>>; cash: number; debt: number; equity: number; produced: number }
 
 export interface BarterOffer {
   id: string;
@@ -367,6 +367,8 @@ export interface GameState {
   overdraftDays: number;
   /** Last year's profit tax, fixed at year end and payable within 30 days. */
   taxBill?: { amount: number; byRegion: Partial<Record<RegionId, number>>; dueDay: number } | null;
+  /** Losses (after investment) carried into later tax years, per region. */
+  taxLoss?: Partial<Record<RegionId, number>>;
   bankrupt: { reason: string } | null;
   era: number;
   /** Stable content-stage identity; the legacy era remains for save compatibility and existing rules. */

@@ -202,27 +202,37 @@ export function deliver(s: GameState, c: SupplyContract) {
 
 // ---------------------------------------------------------------- tax
 
-/** Profit tax building up this year, assessed at year end. Same rule as taxYear, for warnings and planning. */
+/**
+ * Profit tax per region for days [from, to): revenue minus running costs minus what was invested in the farm
+ * (land, buildings, machines, irrigation) that year, less losses carried from earlier years. Old books without
+ * a tax line fall back to operating profit.
+ */
+function assess(s: GameState, from: number, to: number) {
+  const year = s.books.filter((b) => b.day >= from && b.day < to), byRegion: Partial<Record<RegionId, number>> = {}, carry: Partial<Record<RegionId, number>> = {};
+  for (const r of REGION_IDS) {
+    const base = year.reduce((a, b) => a + ((b.tx ? b.tx[r] : b.op[r]) ?? 0), 0) - (s.taxLoss?.[r] ?? 0);
+    if (base > 0) byRegion[r] = round2(base * REGIONS[r].tax * (s.era < 3 ? 0.5 : 1));
+    else if (base < 0) carry[r] = round2(-base);
+  }
+  return { byRegion, carry };
+}
+/** Profit tax building up this year, for warnings and planning. */
 export function accruedTax(s: GameState) {
-  const today = day(s), from = today - (today % DAYS_PER_YEAR);
-  const year = s.books.filter((b) => b.day >= from);
-  return REGION_IDS.reduce((n, r) => { const taxable = year.reduce((a, b) => a + (b.op[r] ?? 0), 0); return n + (taxable > 0 ? taxable * REGIONS[r].tax * (s.era < 3 ? 0.5 : 1) : 0); }, 0);
+  const today = day(s);
+  return Object.values(assess(s, today - (today % DAYS_PER_YEAR), today + 1).byRegion).reduce((a, b) => a + b!, 0);
 }
 
 export const TAX_DAYS = 30;
 /** Year end fixes the bill for the year just closed; it is paid within TAX_DAYS (automatically on the due day). */
 function taxYear(s: GameState) {
-  const today = day(s), year = s.books.filter((b) => b.day >= today - DAYS_PER_YEAR && b.day < today), byRegion: Partial<Record<RegionId, number>> = {};
-  for (const r of REGION_IDS) {
-    // operating profit after interest and depreciation; capex and financing flows are not deductible
-    const taxable = year.reduce((a, b) => a + (b.op[r] ?? 0), 0);
-    if (taxable > 0) byRegion[r] = round2(taxable * REGIONS[r].tax * (s.era < 3 ? 0.5 : 1));
-  }
+  const today = day(s), { byRegion, carry } = assess(s, today - DAYS_PER_YEAR, today);
+  s.taxLoss = carry;
   if (s.taxBill) payTax(s); // never stack two bills
   const amount = round2(Object.values(byRegion).reduce((a, b) => a + b!, 0));
-  if (amount <= 0) return log(s, 'info', 'Year end: no profit tax due this year.', 'finance');
+  const loss = Object.values(carry).reduce((a, b) => a + b!, 0);
+  if (amount <= 0) return log(s, 'info', `Year end: no profit tax this year${loss > 0 ? `; $${Math.round(loss).toLocaleString()} of losses carry forward against next year` : ''}.`, 'finance');
   s.taxBill = { amount, byRegion, dueDay: day(s) + TAX_DAYS };
-  log(s, 'warning', `Year end: your profit tax bill is $${Math.round(amount).toLocaleString()}. Pay it within ${TAX_DAYS} days; it is taken automatically on the due date.`, 'finance');
+  log(s, 'warning', `Year end: your profit tax bill is $${Math.round(amount).toLocaleString()} (on sales minus costs and what you invested in the farm). Pay it within ${TAX_DAYS} days; it is taken automatically on the due date.`, 'finance');
 }
 export function payTax(s: GameState) {
   const bill = s.taxBill;
