@@ -58,30 +58,45 @@ function gable(w: number, d: number, h: number, color: number, x: number, y: num
   return mesh(g, mat(color), x, y, z);
 }
 
-/** A house-like volume: walls, gable roof, windows and a door on the front (+z) face. */
+/** A house-like volume: stone footing, walls with corner trim, gable roof with ridge cap, framed windows and door on the front (+z). */
 function shed(g: THREE.Group, w: number, d: number, wallH: number, wall: number, roof: number, x: number, z: number, opts: { door?: 'barn' | 'house' | 'roller'; windows?: number; roofH?: number } = {}) {
-  g.add(box(w, wallH, d, wall, x + w / 2, 0, z + d / 2));
-  g.add(gable(w, d, opts.roofH ?? d * 0.45, roof, x + w / 2, wallH, z + d / 2));
+  const trim = wall === PAL.white || wall === PAL.cream ? PAL.woodDark : PAL.white;
+  g.add(box(w + 0.06, 0.12, d + 0.06, PAL.stoneDark, x + w / 2, 0, z + d / 2, { rough: 1 })); // footing
+  g.add(box(w, wallH - 0.1, d, wall, x + w / 2, 0.1, z + d / 2));
+  for (const cx of [x, x + w]) for (const cz of [z, z + d]) g.add(box(0.06, wallH - 0.1, 0.06, trim, cx, 0.1, cz)); // corner boards
+  const rh = opts.roofH ?? d * 0.45;
+  g.add(gable(w, d, rh, roof, x + w / 2, wallH, z + d / 2));
+  g.add(box(w + 0.3, 0.05, 0.08, roof === PAL.roofGrey ? PAL.metalDark : PAL.woodDark, x + w / 2, wallH + rh - 0.02, z + d / 2)); // ridge cap
   const front = z + d + 0.01;
   if (opts.door === 'barn') {
-    g.add(box(w * 0.38, wallH * 0.72, 0.04, PAL.white, x + w / 2, 0, front));
-    g.add(box(w * 0.32, wallH * 0.64, 0.05, wall === PAL.barnRed ? PAL.barnRedDark : PAL.door, x + w / 2, 0.02, front));
+    g.add(box(w * 0.38, wallH * 0.72, 0.04, PAL.white, x + w / 2, 0.08, front));
+    g.add(box(w * 0.32, wallH * 0.64, 0.05, wall === PAL.barnRed ? PAL.barnRedDark : PAL.door, x + w / 2, 0.1, front));
+    const brace = box(0.04, wallH * 0.8, 0.02, PAL.white, x + w / 2, 0.1, front + 0.03); brace.rotation.z = 0.5; g.add(brace); // the barn-door X
+    const brace2 = box(0.04, wallH * 0.8, 0.02, PAL.white, x + w / 2, 0.1, front + 0.03); brace2.rotation.z = -0.5; g.add(brace2);
   } else if (opts.door === 'roller') {
-    g.add(box(w * 0.3, wallH * 0.7, 0.04, PAL.metalDark, x + w * 0.3, 0, front));
-    g.add(box(w * 0.3, wallH * 0.7, 0.04, PAL.metalDark, x + w * 0.7, 0, front));
-  } else g.add(box(0.28, wallH * 0.55, 0.04, PAL.door, x + w / 2, 0, front));
+    for (const fx of [0.3, 0.7]) {
+      g.add(box(w * 0.3 + 0.06, wallH * 0.7 + 0.04, 0.03, PAL.stoneDark, x + w * fx, 0.08, front));
+      g.add(box(w * 0.3, wallH * 0.7, 0.04, PAL.metalDark, x + w * fx, 0.1, front));
+      for (let k = 1; k < 5; k++) g.add(box(w * 0.3, 0.015, 0.05, PAL.metal, x + w * fx, 0.1 + (wallH * 0.7 * k) / 5, front)); // roller slats
+    }
+  } else {
+    g.add(box(0.36, wallH * 0.55 + 0.05, 0.03, trim, x + w / 2, 0.1, front));
+    g.add(box(0.28, wallH * 0.55, 0.04, PAL.door, x + w / 2, 0.1, front));
+    g.add(box(0.42, 0.06, 0.18, PAL.stone, x + w / 2, 0, front + 0.08)); // doorstep
+  }
   const n = opts.windows ?? Math.max(1, Math.floor(w) - 1);
+  const framed = (wx: number, wz: number, side: boolean) => {
+    g.add(side ? box(0.02, 0.3, 0.32, trim, wx, wallH * 0.5 - 0.03, wz) : box(0.32, 0.3, 0.02, trim, wx, wallH * 0.5 - 0.03, wz));
+    const win = side ? box(0.03, 0.24, 0.26, PAL.window, wx + 0.01, wallH * 0.5, wz) : box(0.26, 0.24, 0.03, PAL.window, wx, wallH * 0.5, wz + 0.01);
+    win.userData.window = true; g.add(win);
+    g.add(side ? box(0.08, 0.03, 0.34, trim, wx + 0.03, wallH * 0.5 - 0.05, wz) : box(0.34, 0.03, 0.08, trim, wx, wallH * 0.5 - 0.05, wz + 0.03)); // sill
+  };
   for (let i = 0; i < n; i++) {
     const wx = x + ((i + 0.5) / n) * w;
     if (Math.abs(wx - (x + w / 2)) < 0.3 && opts.door !== 'roller') continue;
-    const win = box(0.26, 0.24, 0.03, PAL.window, wx, wallH * 0.5, front);
-    win.userData.window = true;
-    g.add(win);
+    framed(wx, front, false);
   }
-  // side window
-  const sw = box(0.03, 0.24, 0.26, PAL.window, x + w + 0.01, wallH * 0.5, z + d / 2);
-  sw.userData.window = true;
-  g.add(sw);
+  framed(x + w + 0.01, z + d / 2, true); // side window
 }
 
 function chimney(g: THREE.Group, x: number, z: number, y: number, h = 0.7) {
@@ -151,6 +166,12 @@ function cottage(g: THREE.Group, w: number, d: number, seed: number) {
   g.add(box(w - 0.3, 0.18, 0.06, PAL.white, w / 2, 0, d - 0.12)); // picket fence
 }
 
+function awning(g: THREE.Group, w: number, x: number, y: number, z: number, a = PAL.barnRed, b = PAL.white) {
+  for (let i = 0; i < Math.round(w / 0.25); i++) { const s = box(0.25, 0.03, 0.4, i % 2 ? b : a, x + 0.125 + i * 0.25, y, z + 0.18); s.rotation.x = 0.35; g.add(s); }
+}
+const barrel = (g: THREE.Group, x: number, z: number, c = PAL.woodDark) => { g.add(cyl(0.12, 0.3, c, x, 0, z, 10)); g.add(cyl(0.125, 0.025, PAL.metalDark, x, 0.07, z, 10)); g.add(cyl(0.125, 0.025, PAL.metalDark, x, 0.22, z, 10)); };
+const pallet = (g: THREE.Group, x: number, z: number, c: number) => { g.add(box(0.36, 0.05, 0.36, PAL.wood, x, 0, z)); g.add(box(0.32, 0.22, 0.32, c, x, 0.05, z)); };
+
 export interface Model { group: THREE.Group; smoke: THREE.Vector3[]; sails?: THREE.Object3D; pen?: { x0: number; z0: number; x1: number; z1: number }; windows: THREE.Mesh[] }
 
 /** Builds the model for a lot; positions are relative to the lot origin. */
@@ -162,12 +183,28 @@ export function buildLot(type: Lot['type'], w: number, d: number, variant = ''):
   const pad = (c = PAL.stone) => g.add(box(w - 0.1, 0.05, d - 0.1, c, w / 2, 0, d / 2, { rough: 1 }));
   switch (type) {
     case 'house':
-      if (variant === 'crew') { // bunkhouse: a long timber building for the farm crew
+      if (variant === 'crew') { // bunkhouse: a log cabin for the farm crew, with a covered porch
         pad(PAL.creamDark);
-        shed(g, 2.6, 1.3, 1.0, PAL.wood, PAL.roofGreen, 0.2, 0.5, { door: 'house', windows: 4, roofH: 0.55 });
-        smoke.push(chimney(g, 2.4, 0.9, 1.0, 0.6));
-        g.add(box(0.9, 0.12, 0.25, PAL.woodDark, 0.8, 0.12, 2.25)); // bench
-        for (let i = 0; i < 3; i++) { const log = cyl(0.08, 0.6, PAL.woodDark, 2.45, 0.08 + i * 0.14, 2.3, 8); log.rotation.z = Math.PI / 2; g.add(log); } // woodpile
+        const lw = 2.6, ld = 1.3, x0 = 0.2, z0 = 0.4, rows = 6, lr = 0.085;
+        for (let i = 0; i < rows; i++) { // stacked logs, ends poking out at the corners
+          const y = lr + i * lr * 1.9, c = i % 2 ? PAL.wood : 0x8a5d3a;
+          for (const z of [z0, z0 + ld]) { const l = cyl(lr, lw + 0.16, c, x0 + lw / 2, y - lr, z, 7); l.rotation.z = Math.PI / 2; l.position.y = y; g.add(l); }
+          for (const x of [x0, x0 + lw]) { const l = cyl(lr, ld + 0.16, c, x, y - lr, z0 + ld / 2, 7); l.rotation.x = Math.PI / 2; l.position.y = y; g.add(l); }
+        }
+        g.add(box(lw - 0.05, rows * lr * 1.9, ld - 0.05, 0x7a5232, x0 + lw / 2, 0, z0 + ld / 2)); // infill
+        const wallH = rows * lr * 1.9 + 0.05;
+        g.add(gable(lw + 0.2, ld + 0.9, 0.6, PAL.roofGreen, x0 + lw / 2, wallH, z0 + ld / 2 + 0.35)); // roof runs out over the porch
+        const front = z0 + ld + 0.09;
+        g.add(box(0.3, 0.62, 0.04, PAL.door, x0 + lw / 2, 0, front));
+        for (const wx of [x0 + 0.45, x0 + 0.95, x0 + lw - 0.95, x0 + lw - 0.45]) {
+          const win = box(0.24, 0.24, 0.03, PAL.window, wx, 0.42, front); win.userData.window = true; g.add(win);
+          g.add(box(0.3, 0.04, 0.05, PAL.white, wx, 0.39, front + 0.01));
+        }
+        g.add(box(lw + 0.1, 0.06, 0.75, PAL.woodDark, x0 + lw / 2, 0, front + 0.38)); // porch deck
+        for (const px of [x0 + 0.05, x0 + lw / 2 - 0.5, x0 + lw / 2 + 0.5, x0 + lw - 0.05]) g.add(box(0.07, wallH, 0.07, PAL.woodDark, px, 0.06, front + 0.7));
+        g.add(box(0.8, 0.1, 0.22, PAL.wood, x0 + 0.6, 0.2, front + 0.2)); // bench
+        smoke.push(chimney(g, x0 + lw - 0.4, z0 + 0.4, wallH + 0.2, 0.6));
+        for (let i = 0; i < 4; i++) { const log = cyl(0.07, 0.5, PAL.woodDark, 0, 0, 0, 7); log.rotation.x = Math.PI / 2; log.position.set(x0 + lw + 0.35, 0.07 + Math.floor(i / 2) * 0.13, z0 + 0.3 + (i % 2) * 0.15 + Math.floor(i / 2) * 0.07); g.add(log); } // woodpile
         break;
       }
       if (variant === 'office') { // farm office: neat, painted, with a sign
@@ -185,6 +222,24 @@ export function buildLot(type: Lot['type'], w: number, d: number, variant = ''):
       g.add(sphere(0.32, 0x5f8f4a, 2.85, 0.32, 2.6)); // garden shrub
       break;
     case 'shed':
+      if (variant === 'market') { // village trader: a market stall with a striped awning, produce crates and a hand cart
+        g.add(box(w - 0.1, 0.04, d - 0.1, PAL.stone, w / 2, 0, d / 2, { rough: 1 }));
+        g.add(box(1.5, 0.55, 0.5, PAL.wood, w / 2, 0, 0.55)); // counter
+        g.add(box(1.6, 0.05, 0.6, PAL.woodDark, w / 2, 0.55, 0.55));
+        for (const x of [w / 2 - 0.78, w / 2 + 0.78]) for (const z of [0.3, 0.85]) g.add(box(0.06, 1.25, 0.06, PAL.woodDark, x, 0, z));
+        for (let i = 0; i < 6; i++) { // striped awning
+          const s = box(0.28, 0.04, 0.85, i % 2 ? PAL.white : PAL.barnRed, w / 2 - 0.7 + i * 0.28, 1.25, 0.62);
+          s.rotation.x = -0.25; g.add(s);
+        }
+        const goods = [0xd8aa54, 0xc0392b, 0x6faf5a, 0xe8c44a, 0xb0604a];
+        for (let i = 0; i < 5; i++) { g.add(box(0.24, 0.12, 0.2, PAL.wood, w / 2 - 0.6 + i * 0.3, 0.6, 0.55)); g.add(box(0.2, 0.06, 0.16, goods[i], w / 2 - 0.6 + i * 0.3, 0.72, 0.55)); }
+        for (let i = 0; i < 3; i++) g.add(box(0.3, 0.25, 0.3, PAL.wood, 0.35 + i * 0.05, i * 0.25, d - 0.45)); // stacked crates
+        g.add(box(0.5, 0.1, 0.35, PAL.wood, w - 0.45, 0.2, d - 0.45)); // hand cart
+        const wheel = cyl(0.14, 0.04, PAL.woodDark, w - 0.45, 0, d - 0.25, 10); wheel.rotation.x = Math.PI / 2; wheel.position.y = 0.14; g.add(wheel);
+        g.add(box(0.05, 0.05, 0.5, PAL.woodDark, w - 0.1, 0.25, d - 0.45));
+        g.add(box(0.9, 0.22, 0.04, PAL.roofGreen, w / 2, 1.45, 0.3)); // sign board
+        break;
+      }
       shed(g, 1.6, 1.2, 1.1, PAL.cream, PAL.roofGrey, 0.2, 0.4, { door: 'house' });
       break;
     case 'barn':
@@ -197,12 +252,16 @@ export function buildLot(type: Lot['type'], w: number, d: number, variant = ''):
     case 'coldStore':
       shed(g, 2.6, 1.6, 1.2, PAL.white, PAL.roofBlue, 0.2, 0.2, { door: 'roller', roofH: 0.4 });
       g.add(box(0.5, 0.3, 0.3, PAL.metal, 2.3, 1.2 + 0.2, 0.9)); // cooling unit
+      for (let i = 0; i < 9; i++) g.add(box(0.03, 1.05, 0.02, 0xd9dcdc, 0.35 + i * 0.29, 0.12, 1.82)); // ribbed cladding
+      g.add(box(2.6, 0.3, 0.35, PAL.stoneDark, 1.5, 0, 2.0)); // loading dock
       break;
     case 'warehouse':
     case 'distribution':
       pad();
       shed(g, w - 0.4, d - 0.6, 1.5, type === 'warehouse' ? 0xd7d2c4 : 0xc9d6df, type === 'warehouse' ? PAL.roofGrey : PAL.roofBlue, 0.2, 0.2, { door: 'roller', windows: 3, roofH: 0.5 });
       if (type === 'distribution') g.add(box(1.0, 0.6, 0.5, 0x3f6f9a, w - 1.0, 0, d - 0.3)); // a parked lorry box
+      g.add(box(w - 1.2, 0.28, 0.35, PAL.stoneDark, w / 2, 0, d - 0.2)); // loading dock
+      [0xd8aa54, 0x9a6b44, 0xc9b49a].forEach((c, i) => pallet(g, 0.6 + i * 0.45, d - 0.35, c));
       break;
     case 'flourMill': {
       g.add(cyl(0.75, 2.2, PAL.stone, 1, 0, 1, 10, 0.6));
@@ -225,6 +284,8 @@ export function buildLot(type: Lot['type'], w: number, d: number, variant = ''):
       pad(PAL.creamDark);
       shed(g, 1.6, 1.4, 1.2, PAL.brick, PAL.roofBrown, 0.2, 0.3, { door: 'house', windows: 2 });
       smoke.push(chimney(g, 0.5, 0.7, 1.2, 0.9));
+      awning(g, 1.5, 0.25, 0.95, 1.5);
+      g.add(box(0.6, 0.35, 0.25, PAL.wood, 1.45, 0, 1.95)); for (let i = 0; i < 3; i++) g.add(sphere(0.07, 0xc68a4e, 1.25 + i * 0.2, 0.42, 1.95)); // bread on the stall
       break;
     case 'feedMill':
       shed(g, 1.8, 1.5, 1.3, 0xd8c9a0, PAL.roofGrey, 0.2, 0.3, { door: 'roller' });
@@ -243,16 +304,19 @@ export function buildLot(type: Lot['type'], w: number, d: number, variant = ''):
       shed(g, 1.8, 1.4, 1.2, PAL.white, PAL.roofBlue, 0.2, 0.3, { door: 'house' });
       g.add(cyl(0.3, 1.2, PAL.metal, 2.5, 0, 0.8, 12));
       smoke.push(chimney(g, 0.4, 0.6, 1.2, 0.6));
+      for (let i = 0; i < 3; i++) { g.add(cyl(0.08, 0.22, PAL.metal, 2.2 + i * 0.2, 0, 1.75, 10)); g.add(cyl(0.05, 0.05, PAL.metalDark, 2.2 + i * 0.2, 0.22, 1.75, 8)); } // milk churns
       break;
     case 'oilPress':
       shed(g, 1.8, 1.4, 1.2, 0xd9c48a, PAL.roofBrown, 0.2, 0.3, { door: 'roller' });
       g.add(cyl(0.32, 1.1, 0xd9b95b, 2.4, 0, 0.6, 12)); g.add(cyl(0.32, 1.1, 0xd9b95b, 2.4, 0, 1.4, 12));
       smoke.push(chimney(g, 1.6, 0.6, 1.2, 0.7));
+      barrel(g, 2.3, 1.95, 0xd9b95b); barrel(g, 2.6, 1.95, 0xd9b95b);
       break;
     case 'sugarMill':
       shed(g, 2.4, 1.5, 1.3, PAL.stone, PAL.roofGrey, 0.2, 0.3, { door: 'roller' });
       g.add(cyl(0.18, 2.6, PAL.brick, 2.75, 0, 0.6, 8));
       smoke.push(new THREE.Vector3(2.75, 2.7, 0.6));
+      for (let i = 0; i < 6; i++) { const cane = cyl(0.03, 0.7, 0x8fae4a, 0, 0, 0, 5); cane.rotation.z = Math.PI / 2; cane.position.set(2.4, 0.04 + Math.floor(i / 3) * 0.06, 1.75 + (i % 3) * 0.07); g.add(cane); } // cut cane
       break;
     case 'biogas':
       pad();
@@ -277,6 +341,7 @@ export function buildLot(type: Lot['type'], w: number, d: number, variant = ''):
       shed(g, w - 1, d - 0.6, 1.2, PAL.white, PAL.roofGrey, 0.2, 0.3, { door: 'house', roofH: 0.35 });
       g.add(sphere(0.55, 0xdfe8ee, w - 0.6, 0.9, 0.7, { rough: 0.3, metal: 0.2 }));
       g.add(cyl(0.5, 0.9, PAL.white, w - 0.6, 0, 0.7, 12));
+      g.add(box(0.03, 0.8, 0.03, PAL.metalDark, 0.6, 1.5, 0.6)); g.add(box(0.3, 0.03, 0.03, PAL.metalDark, 0.6, 2.2, 0.6)); // antenna
       break;
     case 'coop':
       {const coop=artModel('coop',1.4,1);if(coop){coop.position.add(new THREE.Vector3(.2,0,.2));g.add(coop);}else shed(g, 1.4, 1.0, 0.8, PAL.barnRed, PAL.roofBrown, 0.2, 0.2, { door: 'house', windows: 1 });}
@@ -325,7 +390,7 @@ export function buildLot(type: Lot['type'], w: number, d: number, variant = ''):
       break;
   }
   const ids: Partial<Record<Lot['type'], ArtId>>={house:'house',shed:'shed',barn:'barn',silo:'silo',flourMill:'mill'};
-  const art=ids[type] && !(type==='house'&&variant) && artModel(ids[type]!, w, d);
+  const art=ids[type] && !variant && artModel(ids[type]!, w, d);
   if(art){g.clear();g.add(art);smoke.length=0;sails=undefined;}
   const windows: THREE.Mesh[] = [];
   g.traverse((o) => { if ((o as THREE.Mesh).isMesh && o.userData.window) windows.push(o as THREE.Mesh); });
