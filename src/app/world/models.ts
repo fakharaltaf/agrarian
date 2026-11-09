@@ -347,11 +347,18 @@ export function person(shirt: number, manager: boolean) {
 
 export function vehicle(type: MachineType | 'truck') {
   const g = new THREE.Group();
-  const body = type === 'truck' ? 0x3f6f9a : type.includes('arvester') ? 0x4c8a3a : type.startsWith('robot') ? 0xe8e8e8 : 0xc0392b;
-  const wheel = (x: number, z: number, r: number) => {
-    const w = mesh(cached(`wh${r}`, () => new THREE.CylinderGeometry(r, r, 0.08, 12)), mat(0x222222), x, r, z);
-    w.rotation.x = Math.PI / 2;
-    g.add(w);
+  const robot = type.startsWith('robot');
+  const body = type === 'truck' ? 0x3f6f9a : type === 'grapeHarvester' ? 0x7a4a8a : type.includes('arvester') ? 0x4c8a3a : robot ? 0xeef0f0 : 0xc0392b;
+  const TYRE = 0x222222, HUB = robot ? 0x2f7fd0 : 0xe8c44a, GLASS = 0x9fd0e0;
+  const wheel = (x: number, z: number, r: number, wdt = 0.07) => {
+    const w = mesh(cached(`wh${r},${wdt}`, () => new THREE.CylinderGeometry(r, r, wdt, 14)), mat(TYRE, { rough: 1 }), x, r, z);
+    w.rotation.x = Math.PI / 2; g.add(w);
+    const h = mesh(cached(`hub${r}`, () => new THREE.CylinderGeometry(r * 0.45, r * 0.45, wdt + 0.01, 10)), mat(HUB), x, r, z);
+    h.rotation.x = Math.PI / 2; g.add(h);
+  };
+  const cab = (x: number, y: number, w: number, d: number, h: number) => { // glass cab with a roof
+    g.add(box(w, h, d, GLASS, x, y, 0, { opacity: 0.55, rough: 0.2 }));
+    g.add(box(w + 0.04, 0.03, d + 0.04, robot ? 0x2f2f2f : body, x, y + h, 0));
   };
   if (type === 'orchardPlatform') {
     // low self-propelled deck with railings that pickers stand on
@@ -361,20 +368,45 @@ export function vehicle(type: MachineType | 'truck') {
     return g;
   }
   if (type === 'truck') {
-    g.add(box(0.36, 0.3, 0.32, body, 0.3, 0.12, 0));
-    g.add(box(0.62, 0.36, 0.36, PAL.creamDark, -0.2, 0.12, 0));
-    for (const x of [-0.35, 0, 0.32]) for (const z of [-0.17, 0.17]) wheel(x, z, 0.08);
-  } else if (type.includes('arvester')) {
-    g.add(box(0.6, 0.32, 0.4, body, 0, 0.14, 0));
-    g.add(box(0.26, 0.24, 0.3, 0x2f2f2f, -0.12, 0.46, 0, { opacity: 0.85 }));
-    g.add(box(0.12, 0.08, 0.7, 0xd8aa54, 0.38, 0.12, 0)); // header
-    for (const z of [-0.2, 0.2]) { wheel(0.12, z, 0.14); wheel(-0.22, z, 0.09); }
-  } else {
-    g.add(box(0.42, 0.18, 0.26, body, 0.04, 0.12, 0));
-    g.add(box(0.18, 0.22, 0.22, 0x2f2f2f, -0.06, 0.3, 0, { opacity: 0.8 }));
-    g.add(box(0.16, 0.14, 0.2, body, 0.2, 0.12, 0));
-    for (const z of [-0.16, 0.16]) { wheel(-0.12, z, 0.15); wheel(0.2, z, 0.08); }
+    g.add(box(0.9, 0.06, 0.3, 0x2f2f2f, -0.05, 0.1, 0)); // chassis
+    g.add(box(0.26, 0.28, 0.32, body, 0.32, 0.14, 0)); // cab
+    g.add(box(0.03, 0.12, 0.26, GLASS, 0.455, 0.27, 0, { opacity: 0.7, rough: 0.2 })); // windscreen
+    g.add(box(0.58, 0.34, 0.34, PAL.creamDark, -0.14, 0.15, 0)); // box body
+    g.add(box(0.58, 0.04, 0.35, body, -0.14, 0.49, 0)); // roof trim
+    for (const x of [-0.36, -0.2, 0.32]) for (const z of [-0.16, 0.16]) wheel(x, z, 0.075, 0.05);
+    return g;
   }
+  if (type.includes('arvester') && type !== 'grapeHarvester') {
+    g.add(box(0.55, 0.3, 0.34, body, -0.02, 0.12, 0)); // body
+    g.add(box(0.26, 0.14, 0.3, body, -0.15, 0.42, 0)); // grain tank
+    g.add(box(0.27, 0.02, 0.31, 0xd8aa54, -0.15, 0.56, 0)); // grain showing
+    if (robot) g.add(sphere(0.06, 0x2f7fd0, 0.15, 0.5, 0, { emissive: 0x103050 })); else cab(0.16, 0.42, 0.18, 0.24, 0.2);
+    g.add(box(0.12, 0.07, 0.8, 0xd8aa54, 0.36, 0.05, 0)); // header
+    const reel = mesh(cached('reel', () => new THREE.CylinderGeometry(0.06, 0.06, 0.74, 8)), mat(0xc0392b), 0.4, 0.17, 0);
+    reel.rotation.x = Math.PI / 2; g.add(reel);
+    const auger = mesh(cached('auger', () => new THREE.CylinderGeometry(0.025, 0.025, 0.4, 6)), mat(body), -0.15, 0.5, 0.3);
+    auger.rotation.x = Math.PI / 2 - 0.3; g.add(auger);
+    for (const z of [-0.19, 0.19]) { wheel(0.14, z, 0.15, 0.08); wheel(-0.22, z, 0.09); }
+    return g;
+  }
+  if (type === 'grapeHarvester') {
+    // tall straddle machine that drives over a vine row
+    for (const z of [-0.17, 0.17]) { g.add(box(0.5, 0.42, 0.07, body, 0, 0.12, z)); wheel(0.18, z, 0.1); wheel(-0.18, z, 0.1); }
+    g.add(box(0.5, 0.08, 0.42, body, 0, 0.54, 0));
+    cab(0.12, 0.62, 0.18, 0.22, 0.18);
+    g.add(box(0.18, 0.12, 0.3, 0x5a3a6a, -0.14, 0.62, 0)); // berry bin
+    return g;
+  }
+  // tractor (and its driverless cousin): big rear wheels, small front wheels, long hood, cab
+  g.add(box(0.48, 0.08, 0.2, 0x2f2f2f, 0.02, 0.12, 0)); // chassis
+  g.add(box(0.26, 0.15, 0.18, body, 0.15, 0.18, 0)); // hood
+  g.add(box(0.02, 0.11, 0.14, 0x3a3a3a, 0.285, 0.2, 0)); // grille
+  if (robot) { g.add(box(0.2, 0.16, 0.22, body, -0.08, 0.2, 0)); g.add(box(0.06, 0.04, 0.24, 0x2f7fd0, -0.04, 0.37, 0, { emissive: 0x103050 })); }
+  else {
+    cab(-0.08, 0.2, 0.2, 0.22, 0.24);
+    g.add(mesh(cached('exhaust', () => new THREE.CylinderGeometry(0.014, 0.014, 0.2, 6)), mat(0x3a3a3a), 0.22, 0.42, 0.06));
+  }
+  for (const z of [-0.155, 0.155]) { wheel(-0.1, z, 0.15, 0.08); g.add(box(0.22, 0.025, 0.09, body, -0.1, 0.31, z)); wheel(0.21, z, 0.08, 0.05); }
   return g;
 }
 
@@ -456,14 +488,24 @@ export function buildCommunityHome(tier: string, w: number, d: number, key = '')
     group.add(gable(w - 0.4, hd, 0.7, ROOFS[Math.floor(seed * ROOFS.length)], w / 2, wallH, z0 + hd / 2));
     group.add(box(w - 0.3, 0.18, 0.06, PAL.white, w / 2, 0, d - 0.15));
   } else {
-    group.add(box(w - 0.1, 0.06, d - 0.1, PAL.stone, w / 2, 0, d / 2));
-    group.add(box(2.4, 3.1, 1.8, PAL.cream, w / 2, 1.58, d / 2));
-    group.add(box(2.6, 0.16, 2, PAL.roofGrey, w / 2, 3.2, d / 2));
-    group.add(box(0.4, 0.65, 0.08, PAL.door, w / 2, 0.35, d / 2 + 0.93));
-    for (let floor = 0; floor < 3; floor++) for (let col = 0; col < 4; col++) {
-      const win = box(0.3, 0.4, 0.06, PAL.window, w / 2 - 0.85 + col * 0.55, 0.75 + floor * 0.95, d / 2 + 0.93);
-      group.add(win); windows.push(win);
+    // apartments: a four-storey block with balconies, an entrance canopy, a parapet and a water tank
+    const wall = [0xd8cfc0, 0xc9b49a, 0xbfc6c9, 0xd6c2a8][Math.floor(seed * 4)], bw = w - 0.6, bd = d - 1.2, floors = 4, fh = 0.78, cx = w / 2, cz = 0.4 + bd / 2;
+    group.add(box(w - 0.1, 0.05, d - 0.1, PAL.stone, w / 2, 0, d / 2, { rough: 1 }));
+    group.add(box(bw, floors * fh, bd, wall, cx, 0, cz));
+    group.add(box(bw + 0.1, 0.18, bd + 0.1, PAL.stoneDark, cx, floors * fh, cz)); // parapet
+    group.add(box(bw - 0.12, 0.04, bd - 0.12, PAL.roofGrey, cx, floors * fh + 0.12, cz));
+    group.add(cyl(0.22, 0.4, PAL.metalDark, cx + bw / 2 - 0.4, floors * fh + 0.14, cz - 0.2, 10)); // water tank
+    const front = cz + bd / 2 + 0.01;
+    for (let f = 0; f < floors; f++) for (let c = 0; c < 4; c++) {
+      const x = cx - bw / 2 + (c + 0.5) * (bw / 4);
+      if (f === 0 && c === 1) continue; // the entrance
+      const win = box(0.32, 0.36, 0.03, PAL.window, x, f * fh + 0.25, front); win.userData.window = true; group.add(win);
+      if (f > 0 && c % 2 === 0) { group.add(box(0.5, 0.05, 0.22, PAL.stone, x, f * fh + 0.18, front + 0.1)); group.add(box(0.5, 0.16, 0.02, PAL.metalDark, x, f * fh + 0.23, front + 0.21)); } // balcony
     }
+    const ex = cx - bw / 2 + 1.5 * (bw / 4);
+    group.add(box(0.4, 0.6, 0.04, PAL.door, ex, 0, front));
+    group.add(box(0.7, 0.05, 0.4, PAL.roofGrey, ex, 0.68, front + 0.18)); // canopy
+    for (const x of [0.35, w - 0.35]) group.add(sphere(0.25, 0x5f8f4a, x, 0.25, d - 0.4));
   }
   group.traverse((o) => { if ((o as THREE.Mesh).isMesh && o.userData.window && !windows.includes(o as THREE.Mesh)) windows.push(o as THREE.Mesh); });
   return { group, smoke, windows };

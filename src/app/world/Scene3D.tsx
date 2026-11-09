@@ -785,8 +785,10 @@ function animateUnits(R: Rig, L: Layout, s: GameState, t: number) {
       o.position.set(p.x + 0.4 + along * (p.s - 0.8), 0.1, p.y + 0.5 + ((m.id * 3) % Math.max(1, p.s - 1)));
       o.rotation.y = lap < 1 ? 0 : Math.PI;
     } else {
-      o.position.set((L.lots[1]?.x ?? 3) + (i % 8) * 0.8, 0, L.roadY - 0.55 - Math.floor(i / 8) * 0.6);
-      o.rotation.y = Math.PI / 2;
+      // parked in a neat row on the path in front of the barn (or the farmhouse), noses out
+      const yard = L.lots.find((l) => l.type === 'barn') ?? house;
+      o.position.set(yard.x + 0.45 + (i % 5) * 0.95, 0, yard.y + yard.d + 0.5 + Math.floor(i / 5) * 0.75);
+      o.rotation.y = -Math.PI / 2;
     }
   });
   for (const [id, o] of R.machines) if (!seenM.has(id)) { R.units.remove(o); R.machines.delete(id); }
@@ -977,6 +979,7 @@ function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el
   }
   if (zoomed) for (const m of R.models) {
     const lot = m.lot;
+    if (lot.key.startsWith('community:')) continue; // rows of homes read at a glance; a label on each is just clutter
     const [x, y] = project(lot.x + lot.w / 2, 0, lot.y + lot.d + 0.3);
     if (x < -60 || y < -20 || x > W + 60 || y > H + 20) continue;
     const name = lot.key.startsWith('civic:') ? (lot.key==='civic:hall'?'Town hall':SERVICE_DEFS[lot.key.split(':')[1] as ServiceType].name) : lot.key.startsWith('community:') ? ({cottage:'Cottage',terrace:'Terrace',apartment:'Apartments'}[lot.key.split(':')[1]] ?? 'Neighbourhood') : lot.key === 'crew' ? 'Bunkhouse' : lot.key === 'office' ? 'Farm office' : lot.key === 'market' ? 'Village trader' : lot.type === 'house' ? 'Farmhouse' : lot.type === 'shed' ? 'Office' : BUILDINGS[lot.type].name;
