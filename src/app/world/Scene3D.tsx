@@ -15,8 +15,8 @@ import { stageAtLeast } from '../../simulation/stages';
 import { preloadArt, artRevision } from './art';
 import { money, num, pct0 } from '../format';
 import { layoutRegion, type Layout, type Lot, type Plot } from './layout';
-import { CHUNK, CHUNKS_X, CHUNKS_Y, MAP, ROAD_H, ROAD_Y, chunkAt, chunkOrigin, clearCost, clearedSet, isRoad, patchesAround, placeProblem, worldOf } from '../../simulation/world';
-import { animal, buildCivic, buildCommunityHome, buildLot, box, cached, mat, mesh, PAL, person, vehicle, type Model } from './models';
+import { CHUNK, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, MAP, ROAD_H, ROAD_Y, chunkAt, chunkOrigin, clearCost, clearedSet, isRoad, patchesAround, placeProblem, worldOf } from '../../simulation/world';
+import { animal, buildCivic, buildCommunityHome, buildLot, box, cached, cyl, mat, mesh, PAL, person, tree, vehicle, type Model } from './models';
 
 /** Graphics quality chosen in Settings (per browser). Low turns off shadows and high-DPI rendering. */
 export const graphicsQuality = (): 'high' | 'low' => {
@@ -54,7 +54,8 @@ interface Rig {
   crops: Partial<Record<Shape, THREE.InstancedMesh>>; sig: { lots: string; fields: string; crops: string; sel: string; deco: string };
   neighbours: THREE.Group[]; people: Map<number, THREE.Group>; machines: Map<number, THREE.Group>; trucks: { obj: THREE.Group; t0: number }[]; herds: Map<string, THREE.Group[]>;
   storageProps: THREE.Group; lastStockTick: number; lastCash: number; lastCoin: number;
-  rain: THREE.Points; smoke: THREE.Sprite[]; pops: { key: string; text: string; x: number; z: number; t0: number; tone?: string }[]; seenHarvest: Map<number, object>; popsReady: boolean; crownMat: THREE.MeshStandardMaterial; lastHaul: number; layout: Layout | null; region: RegionId;
+  rain: THREE.Points; smoke: THREE.Sprite[]; pops: { key: string; text: string; x: number; z: number; t0: number; tone?: string }[]; seenHarvest: Map<number, object>; popsReady: boolean; crownMat: THREE.MeshStandardMaterial; lastHaul: number; layout: Layout | null; region: RegionId; animT?: number;
+  felling?: { chunk: number; trees: THREE.Group[]; fallAt: number[]; extras: THREE.Group };
 }
 
 export type WorldAction = 'harvest' | 'plant' | 'inspect' | 'plan' | 'place' | 'fertilise' | 'irrigate' | 'move' | 'movelot' | 'placeok' | 'placecancel' | 'clear1' | 'clear9';
@@ -138,6 +139,7 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
       syncDeco(R, L, s);
       syncStorage(R,L,s);
       animateUnits(R, L, s, now / 1000);
+      animateFelling(R, s, now / 1000);
       animateNeighbours(R, L, s, now / 1000);
       atmosphere(R, s, now / 1000);
       updateCamera(R, W, H);
@@ -373,7 +375,7 @@ function syncLots(R: Rig, L: Layout) {
   R.models = [];
   R.pick = R.pick.filter((o) => o.userData.kind !== 'lot');
   for (const lot of L.lots) {
-    const model = lot.key.startsWith('civic:') ? buildCivic(lot.key.split(':')[1],lot.w,lot.d) : lot.key.startsWith('community:') ? buildCommunityHome(lot.key.split(':')[1], lot.w, lot.d) : buildLot(lot.type, lot.w, lot.d);
+    const model = lot.key.startsWith('civic:') ? buildCivic(lot.key.split(':')[1],lot.w,lot.d) : lot.key.startsWith('community:') ? buildCommunityHome(lot.key.split(':')[1], lot.w, lot.d, lot.key) : buildLot(lot.type, lot.w, lot.d, lot.key === 'crew' || lot.key === 'office' ? lot.key : '');
     model.group.position.set(lot.x, 0, lot.y);
     const lvl = Math.max(1, ...lot.buildings.map((b) => b.level));
     if (lvl > 1) model.group.scale.set(1, 1 + (lvl - 1) * 0.18, 1); // upgraded buildings stand taller
@@ -603,55 +605,127 @@ function syncSelection(R: Rig, L: Layout, selected: number[]) {
   }
 }
 
-/** Scenery: trees and a road around the farm, kept clear of fields and buildings. */
+type TreeSpot = { x: number; z: number; k: number; ky: number; rot: number; kind: 0 | 1 | 2 }; // 0 oak, 1 pine, 2 birch
+/** The trees of one forest patch: an uneven number, scattered with a little spacing, a mix of oak, pine and birch. */
+function patchTrees(c: number, ox: number, oy: number, n: number): TreeSpot[] {
+  const spots: TreeSpot[] = [];
+  for (let tries = 0; spots.length < n && tries < n * 4; tries++) {
+    const x = ox + 0.3 + hash(c * 7.1 + tries * 3.3) * (CHUNK - 0.6), z = oy + 0.3 + hash(c * 3.7 + tries * 5.9 + 1) * (CHUNK - 0.6);
+    if (spots.some((p) => (p.x - x) ** 2 + (p.z - z) ** 2 < 0.45)) continue;
+    if (isRoad(Math.floor(z)) || isRoad(Math.floor(z + 0.6)) || isRoad(Math.floor(z - 0.6))) continue;
+    const k = 0.7 + hash(c * 1.3 + tries) * 0.9;
+    const kind = hash(c * 2.9 + tries) < 0.3 + 0.3 * hash(c * 0.11) ? 1 : hash(c * 5.3 + tries) < 0.22 ? 2 : 0;
+    spots.push({ x, z, k, ky: k * (0.9 + hash(c + tries) * 0.3), rot: hash(c + tries * 11) * 6.28, kind });
+  }
+  return spots;
+}
+const seasonOf = (s: GameState) => SEASONS[Math.floor((((Math.floor(s.tick / 24) % 120) + 120) % 120) / 30)];
+
 /** Scenery: the road and the forest. Every patch not yet cleared is woodland, drawn with a few instanced meshes. */
 function syncDeco(R: Rig, L: Layout, s: GameState) {
   const w = worldOf(s, R.region);
   // Only woods near the view are drawn; the set is rebuilt when the camera moves or zooms far enough.
   const reach = Math.min(150, 9 / R.zoom * 3 + 12), step = Math.max(6, reach / 4);
   const cx = Math.round(R.target.x / step) * step, cz = Math.round(R.target.z / step) * step, rb = Math.ceil(reach / 6) * 6;
-  const sig = `${R.region}:${w.cleared.length}:${w.queue.map((j) => j.chunk).join(',')}:${cx},${cz},${rb}:${R.zoom < 0.5}`;
+  const bare = seasonOf(s) === 'Winter' && R.region !== 'tropics';
+  const sig = `${R.region}:${w.cleared.length}:${w.queue.map((j) => j.chunk).join(',')}:${cx},${cz},${rb}:${R.zoom < 0.5}:${bare}`;
   if (sig === R.sig.deco) return;
   R.sig.deco = sig;
   clear(R.deco);
   R.deco.add(mesh(cached('road-far', () => new THREE.BoxGeometry(MAP.w + 600, 0.04, ROAD_H - 0.4)), mat(0xb9a37c, { rough: 1 }), MAP.x0 + MAP.w / 2, 0, ROAD_Y + ROAD_H / 2, false));
-  const cleared = clearedSet(w), queued = new Set(w.queue.map((j) => j.chunk));
-  const trunks: THREE.Matrix4[] = [], leafy: THREE.Matrix4[] = [], pines: THREE.Matrix4[] = [];
+  const cleared = clearedSet(w), felling = w.queue[0]?.chunk, waiting = new Set(w.queue.slice(1).map((j) => j.chunk));
+  const trunks: THREE.Matrix4[] = [], trunkCol: THREE.Color[] = [], oaks: THREE.Matrix4[] = [], oakCol: THREE.Color[] = [], birches: THREE.Matrix4[] = [], birchCol: THREE.Color[] = [], pines: THREE.Matrix4[] = [], pineCol: THREE.Color[] = [], ribbons: THREE.Matrix4[] = [];
   const q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0);
-  const low = graphicsQuality() === 'low';
+  const sparse = graphicsQuality() === 'low' || R.zoom < 0.5;
+  const BARK = new THREE.Color(PAL.woodDark), BIRCH = new THREE.Color(0xe8e4da);
   // Walk the patches around the view; beyond the map edge the woods simply continue (scenery, never cleared).
   const gx0 = Math.floor((cx - rb - MAP.x0) / CHUNK) - 1, gx1 = Math.ceil((cx + rb - MAP.x0) / CHUNK) + 1;
   const gy0 = Math.floor((cz - rb - MAP.y0) / CHUNK) - 1, gy1 = Math.ceil((cz + rb - MAP.y0) / CHUNK) + 1;
   for (let gy = gy0; gy <= gy1; gy++) for (let gxx = gx0; gxx <= gx1; gxx++) {
     const inside = gxx >= 0 && gy >= 0 && gxx < CHUNKS_X && gy < CHUNKS_Y;
     const c = inside ? gy * CHUNKS_X + gxx : 100000 + (gy + 500) * 2000 + (gxx + 500); // stable id for scenery patches
-    if (inside && cleared.has(c)) continue;
+    if (inside && (cleared.has(c) || c === felling)) continue; // the patch being felled is drawn tree by tree
     const ox = MAP.x0 + gxx * CHUNK, oy = MAP.y0 + gy * CHUNK;
-    // Natural woodland: an uneven number of trees per patch, scattered with a little spacing so none overlap.
-    const dense = hash(c * 0.37 + 5), n = queued.has(c) ? 1 : Math.round((low || R.zoom < 0.5 ? 2 : 3) + dense * (low || R.zoom < 0.5 ? 2 : 5));
-    const spots: [number, number][] = [];
-    for (let i = 0, tries = 0; i < n && tries < n * 4; tries++) {
-      const x = ox + 0.3 + hash(c * 7.1 + tries * 3.3) * (CHUNK - 0.6), z = oy + 0.3 + hash(c * 3.7 + tries * 5.9 + 1) * (CHUNK - 0.6);
-      if (spots.some(([a, b]) => (a - x) ** 2 + (b - z) ** 2 < 0.55)) continue;
-      if (isRoad(Math.floor(z)) || isRoad(Math.floor(z + 0.6)) || isRoad(Math.floor(z - 0.6))) continue;
-      spots.push([x, z]); i++;
-      const k = 0.7 + hash(c * 1.3 + tries) * 0.9;
-      q.setFromAxisAngle(up, hash(c + tries * 11) * 6.28);
-      const m = new THREE.Matrix4().compose(new THREE.Vector3(x, 0, z), q, new THREE.Vector3(k, k * (0.9 + hash(c + tries) * 0.3), k));
-      trunks.push(m);
-      (hash(c * 2.9 + tries) < 0.3 + 0.3 * hash(c * 0.11) ? pines : leafy).push(m);
+    const dense = hash(c * 0.37 + 5), n = Math.round(sparse ? 3 + dense * 3 : 6 + dense * 6);
+    for (const p of patchTrees(c, ox, oy, n)) {
+      q.setFromAxisAngle(up, p.rot);
+      const m = new THREE.Matrix4().compose(new THREE.Vector3(p.x, 0, p.z), q, new THREE.Vector3(p.k, p.ky, p.k));
+      const shade = 0.82 + hash(p.x * 3.1 + p.z) * 0.3;
+      trunks.push(p.kind === 2 ? m.clone().multiply(new THREE.Matrix4().makeScale(0.75, 1.5, 0.75)) : m); trunkCol.push(p.kind === 2 ? BIRCH : BARK);
+      if (p.kind === 1) { pines.push(m); pineCol.push(new THREE.Color().setScalar(shade)); }
+      else if (p.kind === 2) { birches.push(m); birchCol.push(new THREE.Color(shade * 1.08, shade * 1.12, shade * 0.8)); }
+      else { oaks.push(m); oakCol.push(new THREE.Color().setScalar(shade)); }
+    }
+    if (inside && waiting.has(c)) { // a red ribbon marks patches waiting for the crew
+      const r = hash(c * 9.7) * 6.28;
+      ribbons.push(new THREE.Matrix4().makeTranslation(ox + CHUNK / 2 + Math.cos(r) * 1.4, 0, oy + CHUNK / 2 + Math.sin(r) * 1.4));
     }
   }
-  const inst = (geo: THREE.BufferGeometry, material: THREE.Material, list: THREE.Matrix4[]) => {
+  const inst = (geo: THREE.BufferGeometry, material: THREE.Material, list: THREE.Matrix4[], cols?: THREE.Color[]) => {
     const im = new THREE.InstancedMesh(geo, material, Math.max(1, list.length));
-    list.forEach((m, i) => im.setMatrixAt(i, m));
+    list.forEach((m, i) => { im.setMatrixAt(i, m); if (cols) im.setColorAt(i, cols[i]); });
     im.count = list.length; im.castShadow = false; im.receiveShadow = false; im.frustumCulled = false;
     R.deco.add(im);
   };
-  inst(cached('forest-trunk', () => new THREE.CylinderGeometry(0.06, 0.1, 0.6, 6).translate(0, 0.3, 0)), mat(PAL.woodDark), trunks);
-  inst(cached('forest-leafy', () => merged(new THREE.IcosahedronGeometry(0.42, 0).translate(0, 0.85, 0), new THREE.IcosahedronGeometry(0.3, 0).translate(0.24, 0.72, 0.1), new THREE.IcosahedronGeometry(0.28, 0).translate(-0.2, 0.75, -0.12))), R.crownMat, leafy);
-  inst(cached('forest-pine', () => merged(new THREE.ConeGeometry(0.42, 0.55, 7).translate(0, 0.55, 0), new THREE.ConeGeometry(0.33, 0.48, 7).translate(0, 0.85, 0), new THREE.ConeGeometry(0.22, 0.4, 7).translate(0, 1.12, 0))), mat(0x3f6b45, { rough: 0.95 }), pines);
+  inst(cached('forest-trunk', () => new THREE.CylinderGeometry(0.06, 0.1, 0.6, 6).translate(0, 0.3, 0)), mat(0xffffff), trunks, trunkCol);
+  if (bare) {
+    // winter: broadleaf trees stand bare
+    inst(cached('forest-bare', () => merged(...[0, 1, 2, 3].map((n) => new THREE.CylinderGeometry(0.015, 0.035, 0.55, 4).translate(0, 0.27, 0).rotateZ(0.55).rotateY(n * 1.6 + 0.3).translate(0, 0.55, 0)))), mat(PAL.woodDark), [...oaks, ...birches]);
+  } else {
+    inst(cached('forest-leafy', () => merged(new THREE.IcosahedronGeometry(0.42, 0).translate(0, 0.85, 0), new THREE.IcosahedronGeometry(0.3, 0).translate(0.24, 0.72, 0.1), new THREE.IcosahedronGeometry(0.28, 0).translate(-0.2, 0.75, -0.12))), R.crownMat, oaks, oakCol);
+    inst(cached('forest-birch', () => merged(new THREE.IcosahedronGeometry(0.32, 0).scale(1, 1.5, 1).translate(0, 1.15, 0), new THREE.IcosahedronGeometry(0.22, 0).scale(1, 1.4, 1).translate(0.12, 0.85, 0.05))), R.crownMat, birches, birchCol);
+  }
+  inst(cached('forest-pine', () => merged(new THREE.ConeGeometry(0.42, 0.55, 7).translate(0, 0.55, 0), new THREE.ConeGeometry(0.33, 0.48, 7).translate(0, 0.85, 0), new THREE.ConeGeometry(0.22, 0.4, 7).translate(0, 1.12, 0))), mat(0xffffff, { rough: 0.95 }), pines, pineCol.map((c) => c.clone().multiply(new THREE.Color(0x3f6b45))));
+  inst(cached('ribbon', () => merged(new THREE.CylinderGeometry(0.03, 0.03, 0.9, 5).translate(0, 0.45, 0), new THREE.BoxGeometry(0.28, 0.14, 0.02).translate(0.15, 0.8, 0))), mat(0xd23c2c), ribbons);
   void L;
+}
+
+/** The patch the crew is clearing: a woodcutter fells its trees one by one, leaving stumps and a log pile. */
+function animateFelling(R: Rig, s: GameState, t: number) {
+  const job = worldOf(s, R.region).queue[0];
+  if (!job) { if (R.felling) { R.units.remove(R.felling.extras); R.felling.trees.forEach((o) => R.units.remove(o)); R.felling = undefined; } return; }
+  if (R.felling?.chunk !== job.chunk) {
+    if (R.felling) { R.units.remove(R.felling.extras); R.felling.trees.forEach((o) => R.units.remove(o)); }
+    const [ox, oy] = chunkOrigin(job.chunk), dense = hash(job.chunk * 0.37 + 5);
+    const trees = patchTrees(job.chunk, ox, oy, Math.round(6 + dense * 6)).map((p) => {
+      const g = new THREE.Group(), pivot = new THREE.Group(), tr = tree(1, R.crownMat, p.kind === 1 ? 1 : 0);
+      pivot.add(tr); g.add(pivot);
+      if (seasonOf(s) === 'Winter') tr.traverse((o) => { if (o.userData.crown) o.visible = false; });
+      g.position.set(p.x, 0, p.z); g.rotation.y = p.rot; tr.scale.set(p.k, p.ky, p.k);
+      g.userData.stump = cyl(0.08 * p.k, 0.1, PAL.wood, 0, 0, 0, 7); g.userData.stump.visible = false; g.add(g.userData.stump);
+      R.units.add(g); return g;
+    });
+    const extras = new THREE.Group(), cutter = person(0x8a3b2b, false), axe = new THREE.Group();
+    axe.add(box(0.03, 0.34, 0.03, PAL.wood, 0, 0, 0), box(0.1, 0.07, 0.03, PAL.metal, 0.04, 0.3, 0));
+    axe.position.set(0.1, 0.3, 0); cutter.add(axe); cutter.userData.axe = axe;
+    const pile = new THREE.Group(); pile.position.set(ox + 0.4, 0, oy + CHUNK - 0.4);
+    extras.add(cutter, pile); extras.userData = { cutter, pile };
+    R.units.add(extras);
+    R.felling = { chunk: job.chunk, trees, fallAt: trees.map(() => -1), extras };
+  }
+  const F = R.felling!, n = F.trees.length;
+  // trees down so far: the crew works through the patch over CLEAR_HOURS game hours
+  const due = Math.min(n, Math.ceil(((CLEAR_HOURS - job.hours + 1) / CLEAR_HOURS) * n));
+  const started = F.fallAt.filter((x) => x >= 0).length;
+  for (let i = started; i < due; i++) F.fallAt[i] = t + (i - started) * 0.35; // staggered, one after another
+  let logs = 0;
+  F.trees.forEach((g, i) => {
+    const at = F.fallAt[i], pivot = g.children[0];
+    if (at < 0 || t < at) { pivot.rotation.x = 0; return; }
+    const k = Math.min(1, (t - at) / 0.8);
+    pivot.rotation.x = k * k * (Math.PI / 2 - 0.08); // topples, speeding up as it falls
+    if (t - at > 2.2) { pivot.visible = false; g.userData.stump.visible = true; logs++; } // hauled off, a stump left behind
+  });
+  // the woodcutter stands at the next tree and swings
+  const next = F.trees.find((_, i) => F.fallAt[i] < 0 || t < F.fallAt[i]) ?? F.trees[n - 1];
+  const { cutter, pile } = F.extras.userData as { cutter: THREE.Group; pile: THREE.Group };
+  if (next) { cutter.position.set(next.position.x - 0.35, 0, next.position.z + 0.1); cutter.rotation.y = 0; }
+  (cutter.userData.axe as THREE.Group).rotation.z = -0.4 - Math.max(0, Math.sin(t * 6)) * 1.4;
+  while (pile.children.length < Math.min(9, logs)) {
+    const i = pile.children.length, log = cyl(0.07, 0.55, PAL.wood, 0, 0, 0, 7);
+    log.rotation.z = Math.PI / 2; log.position.set(0, 0.07 + Math.floor(i / 3) * 0.12, (i % 3) * 0.15 - (Math.floor(i / 3) % 2) * 0.07);
+    pile.add(log);
+  }
 }
 
 // ---------------------------------------------------------------- live things
@@ -730,26 +804,34 @@ function animateUnits(R: Rig, L: Layout, s: GameState, t: number) {
     k.obj.position.set(x, 0.02, L.roadY + 0.3);
     return true;
   });
-  // animals wander inside their pens
+  // animals wander inside their pens, spread across every pen of their kind
+  const dt = Math.min(0.1, Math.max(0, t - (R.animT ?? t))); R.animT = t;
   const seenH = new Set<string>();
   for (const h of s.herds) {
     if (h.region !== r) continue;
-    const m = R.models.find((x) => x.lot.type === ANIMAL_BUILDING[h.animal]);
-    if (!m?.model.pen) continue;
+    const pens = R.models.filter((x) => x.lot.type === ANIMAL_BUILDING[h.animal] && x.model.pen);
+    if (!pens.length) continue;
     const key = h.animal;
     seenH.add(key);
-    const want = Math.max(1, Math.min(h.animal === 'chickens' ? 18 : 10, Math.round(h.count / (h.animal === 'chickens' ? 6 : 2))));
+    const per = h.animal === 'chickens' ? 6 : 2, cap = (h.animal === 'chickens' ? 18 : 10) * pens.length;
+    const want = Math.max(1, Math.min(cap, Math.round(h.count / per)));
     let list = R.herds.get(key) ?? [];
-    while (list.length < want) { const o = animal(h.animal); R.units.add(o); list.push(o); }
+    while (list.length < want) {
+      const o = animal(h.animal);
+      const clip = o.userData.clips && THREE.AnimationClip.findByName(o.userData.clips, o.userData.play);
+      if (clip) { const mixer = new THREE.AnimationMixer(o.userData.rig); const act = mixer.clipAction(clip); act.time = hash(list.length) * clip.duration; act.play(); o.userData.mixer = mixer; }
+      R.units.add(o); list.push(o);
+    }
     while (list.length > want) R.units.remove(list.pop()!);
     R.herds.set(key, list);
-    const pen = m.model.pen;
     list.forEach((o, i) => {
+      const m = pens[i % pens.length], pen = m.model.pen!, j = Math.floor(i / pens.length);
       const sp = h.animal === 'chickens' ? 0.25 : 0.08;
-      const fx = 0.5 + 0.45 * Math.sin(t * sp + i * 2.3 + hash(i) * 6), fz = 0.5 + 0.45 * Math.cos(t * sp * 0.8 + i * 1.7);
-      o.position.set(m.lot.x + pen.x0 + (pen.x1 - pen.x0) * fx, 0, m.lot.y + pen.z0 + (pen.z1 - pen.z0) * fz);
-      o.rotation.y = Math.atan2(Math.cos(t * sp + i * 2.3), -Math.sin(t * sp * 0.8 + i * 1.7));
+      const a = t * sp + j * 2.3 + hash(i) * 6, b = t * sp * 0.8 + j * 1.7 + hash(i + 7) * 3;
+      o.position.set(m.lot.x + pen.x0 + (pen.x1 - pen.x0) * (0.5 + 0.45 * Math.sin(a)), 0, m.lot.y + pen.z0 + (pen.z1 - pen.z0) * (0.5 + 0.45 * Math.cos(b)));
+      o.rotation.y = Math.atan2(0.8 * Math.sin(b) * (pen.z1 - pen.z0), Math.cos(a) * (pen.x1 - pen.x0)); // face the way it walks (models look along +x)
       o.scale.setScalar(h.health < 0.5 ? 0.85 : 1);
+      (o.userData.mixer as THREE.AnimationMixer | undefined)?.update(dt);
     });
   }
   for (const [k, list] of R.herds) if (!seenH.has(k)) { list.forEach((o) => R.units.remove(o)); R.herds.delete(k); }

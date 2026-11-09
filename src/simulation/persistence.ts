@@ -11,7 +11,7 @@ import { createTownState } from './town-state';
 import { createRegionState, NEIGHBOUR_IDS, type RegionState } from './region-state';
 import { createNationState, type NationState } from './nation-state';
 import { createSettlementState } from './community-state';
-export const SAVE_VERSION = 13;
+export const SAVE_VERSION = 14;
 export interface SaveFile { version: number; savedAt: number; paused?: boolean; game: GameState }
 
 /** Trust boundary: stored or imported JSON may be stale, hand-edited or corrupt. */
@@ -89,7 +89,7 @@ export function parseSave(text: string): SaveFile {
 export function migrate(g: Omit<GameState, 'version'> & { version: number }): GameState {
   const fromVersion = g.version;
   if (g.version === 1) throw new Error('This save is from the early prototype and cannot be upgraded. Please start a new game.');
-  if (g.version !== 2 && g.version !== 3 && g.version !== 4 && g.version !== 5 && g.version !== 6 && g.version !== 7 && g.version !== 8 && g.version !== 9 && g.version !== 10 && g.version !== 11 && g.version !== 12 && g.version !== SAVE_VERSION) throw new Error(`Unsupported save version ${g.version}.`);
+  if (g.version !== 2 && g.version !== 3 && g.version !== 4 && g.version !== 5 && g.version !== 6 && g.version !== 7 && g.version !== 8 && g.version !== 9 && g.version !== 10 && g.version !== 11 && g.version !== 12 && g.version !== 13 && g.version !== SAVE_VERSION) throw new Error(`Unsupported save version ${g.version}.`);
   g.warned ??= {};
   g.bench ??= {};
   g.discovered ??= [];
@@ -173,6 +173,22 @@ export function migrate(g: Omit<GameState, 'version'> & { version: number }): Ga
   const gs = g as GameState;
   const before = fromVersion < 13;
   gs.world ??= {};
+  // v14: a home record built "×5" used to be one block of houses; split it into single homes where they stand.
+  const settled = gs.stageState.settlement as { homes?: CommunityHome[] } | undefined;
+  if (fromVersion < 14 && settled?.homes?.some((h) => h.count > 1)) {
+    const w = gs.world.heartland, out: CommunityHome[] = [];
+    for (const h of settled.homes) {
+      if (h.count <= 1) { out.push(h); continue; }
+      const p = w?.pos[`home:${h.id}`];
+      if (w) delete w.pos[`home:${h.id}`];
+      for (let i = 0; i < h.count; i++) {
+        const id = i === 0 ? h.id : gs.nextId++;
+        out.push({ id, tier: h.tier, count: 1, cost: h.cost / h.count });
+        if (p && w && i < 8) w.pos[`home:${id}`] = [p[0] + (i % 4) * 4, p[1] + Math.floor(i / 4) * 4]; // the blocks it already drew; the rest are placed on the next tidy-up
+      }
+    }
+    settled.homes = out;
+  }
   if (before) reconcileWorld(gs, { farmMarket: gs.stats.harvests > 0, crew: stageAtLeast(gs, 'farm-business'), office: gs.legacyProgression ? gs.era >= 3 : stageAtLeast(gs, 'industry'), hall: !!gs.stageState.town?.active });
   return gs;
 }

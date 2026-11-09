@@ -91,3 +91,27 @@ it('orchards, vineyards and greenhouse fields move with what stands on them, for
     expect(f.crop).toBeTruthy();
   }
 });
+
+it('building several homes makes separate homes, each on its own plot; old blocks are split where they stand', async () => {
+  const { communityOf } = await import('../simulation/community-state');
+  const s = createGame(1009); s.legacyProgression = true; s.era = 5; post(s, 'prize', 1e7, 'fixture');
+  const c = communityOf(s); c.active = true;
+  const before = c.homes.length;
+  expect(dispatch(s, { type: 'buildHomes', tier: 'cottage', count: 3 }).ok).toBe(true);
+  const made = c.homes.slice(before);
+  expect(made.map((h) => h.count)).toEqual([1, 1, 1]);
+  const w = worldOf(s, 'heartland');
+  expect(new Set(made.map((h) => String(w.pos[`home:${h.id}`]))).size).toBe(3);
+  expect(dispatch(s, { type: 'buildHomes', tier: 'cottage', count: 2, at: [0, 0] }).ok).toBe(false); // placed one at a time
+
+  // an old save holding one ×5 block
+  const old = JSON.parse(JSON.stringify(s)); old.version = 13;
+  const block = old.stageState.settlement.homes[before];
+  block.count = 5; block.cost = 5 * made[0].cost;
+  old.stageState.settlement.homes = old.stageState.settlement.homes.slice(0, before + 1);
+  for (const h of made.slice(1)) delete old.world.heartland.pos[`home:${h.id}`];
+  const g = parseSave(JSON.stringify({ game: old })).game, homes = (g.stageState.settlement as any).homes.slice(before);
+  expect(homes.map((h: any) => h.count)).toEqual([1, 1, 1, 1, 1]);
+  const at = worldOf(g, 'heartland').pos[`home:${block.id}`];
+  expect(worldOf(g, 'heartland').pos[`home:${homes[1].id}`]).toEqual([at[0] + 4, at[1]]);
+});

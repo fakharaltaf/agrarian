@@ -139,13 +139,18 @@ function action(s: GameState, a: Action): ActionResult | null {
   if (a.tier === 'apartment' && population(s) < 200) return fail('Apartments arrive at 200 residents.');
   const cost = homePrice(s, a.tier);
   if (cost * a.count > s.cash) return fail('Not enough cash for these homes.');
-  // Each placement is its own street block on the map.
-  const home = { id: nextId(s), tier: a.tier, count: a.count, cost: cost * a.count };
-  const room = canPlaceNew(s, 'heartland', homeFootprint(home), a.at);
-  if (room) return fail(room);
-  post(s, 'building', -cost * a.count, `${a.count} community ${a.tier} homes`, 'heartland', 'corporate');
-  c.homes.push(home);
-  placeNew(s, 'heartland', `home:${home.id}`, a.at);
+  if (a.at && a.count > 1) return fail('Place homes one at a time.');
+  // Every home is its own plot on the map: it moves on its own and leaves no unused space around it.
+  let built = 0;
+  for (let i = 0; i < a.count; i++) {
+    const home = { id: nextId(s), tier: a.tier, count: 1, cost };
+    const room = canPlaceNew(s, 'heartland', homeFootprint(home), a.at);
+    if (room) { if (!i) return fail(room); log(s, 'warning', `Only ${i} homes fitted. Clear forest to make room for more.`, 'community'); break; }
+    c.homes.push(home);
+    placeNew(s, 'heartland', `home:${home.id}`, a.at);
+    built++;
+  }
+  post(s, 'building', -cost * built, `${built} community ${a.tier} home${built === 1 ? '' : 's'}`, 'heartland', 'corporate');
   return { ok: true };
 }
 export const settlement: StageModule = {

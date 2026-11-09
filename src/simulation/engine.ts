@@ -28,6 +28,7 @@ import {releaseNeighbourJob} from './employment';
 import { availableResidents, recruitableResidents, communityOf } from './community-state';
 import { shipGoods, shipmentsTick } from './logistics';
 import type { Action, ActionResult, Field, GameState, RegionState } from './types';
+import { SAVE_VERSION } from './persistence';
 
 export * from './agriculture';
 export { quoteSell, quoteBuy, avgPrice, avg30, outlook } from './markets';
@@ -45,7 +46,7 @@ export function createGame(seed = (Date.now() % 2147483646) + 1): GameState {
     retailToday: {}, haulToday: 0, truckToday: 0, portToday: 0, insured: false, insuredFrom: 0, forecast: [], frostTonight: false, quality: {}, homePlotsBought: 1, parcelsBought: 0, waterToday: 0, powerGen: 0, powerUse: 0, backlog: 0,
   }])) as Record<RegionId, RegionState>;
   const s: GameState = {
-    version: 13, seed, rng: seed, tick: 0, cash: CONFIG.startingCash, marginAccount: 0,
+    version: SAVE_VERSION, seed, rng: seed, tick: 0, cash: CONFIG.startingCash, marginAccount: 0,
     fields: [], workers: [], machines: [], buildings: [], regions, markets: createMarkets(),
     seeds: Object.fromEntries(Object.keys(CROPS).map((c) => [c, c === 'wheat' ? 10 : 0])) as Record<CropId, number>,
     macro: { cpi: 1, inflation: 0.025, baseRate: 0.045, energy: 1, income: 1, climate: 0, crunch: 0, emissions: 0 },

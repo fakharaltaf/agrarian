@@ -29,7 +29,7 @@ interface Store {
   /** Placing something new or moving something: a ghost footprint the player positions on the map. */
   placing: Placement | null;
 }
-export type Placement = { kind: 'new' | 'move'; action: Action; region: RegionId; w: number; d: number; label: string; key?: string; at: [number, number] };
+export type Placement = { kind: 'new' | 'move'; action: Action; region: RegionId; w: number; d: number; label: string; key?: string; at: [number, number]; /** placing one of several: how many are left, of how many */ left?: number; total?: number };
 
 let store: Store = { game: createGame(), v: 0, speed: 1, toasts: [], away: null, catchUp: null, page: 'farm', ready: false, placing: null };
 const listeners = new Set<() => void>();
@@ -233,8 +233,8 @@ function placementFor(a: Action): { region: RegionId; w: number; d: number; labe
   if ('at' in a && a.at) return null;
   if (a.type === 'buyPlot') return { region: 'heartland', w: plotSide(1), d: plotSide(1), label: 'New field (1 ha)' };
   if (a.type === 'buyParcel') return { region: a.region, w: plotSide(a.ha), d: plotSide(a.ha), label: `New field (${a.ha} ha)` };
-  if (a.type === 'build' && (a.count ?? 1) === 1) { const [w, d] = FOOTPRINT[a.building]; return { region: a.region, w, d, label: BUILDINGS[a.building].name }; }
-  if (a.type === 'buildHomes') { const f = homeFootprint({ id: 0, tier: a.tier, count: a.count, cost: 0 }); return { region: 'heartland', ...f, label: `${a.count} ${a.tier} home${a.count === 1 ? '' : 's'}` }; }
+  if (a.type === 'build') { const [w, d] = FOOTPRINT[a.building]; return { region: a.region, w, d, label: BUILDINGS[a.building].name }; }
+  if (a.type === 'buildHomes') { const f = homeFootprint({ id: 0, tier: a.tier, count: 1, cost: 0 }); return { region: 'heartland', ...f, label: `${a.tier[0].toUpperCase()}${a.tier.slice(1)} home` }; }
   if (a.type === 'buildService' && a.service !== 'road') return { region: 'heartland', ...SERVICE_FOOTPRINT, label: SERVICE_DEFS[a.service].name };
   return null;
 }
@@ -253,12 +253,18 @@ export function confirmPlacement() {
   if (!r.ok) { toast(r.error); bump(); return false; }
   if (r.note) toast(r.note, 'ok');
   set({ placing: null });
+  // several at once are placed one after another, each where the player chooses
+  if (p.kind === 'new' && (p.left ?? 1) > 1) startPlacement({ ...p, left: p.left! - 1 });
   bump();
   return true;
 }
 export function act(a: Action, success?: string) {
   const spot = store.ready ? placementFor(a) : null;
-  if (spot) { startPlacement({ kind: 'new', action: a, ...spot }); return true; }
+  if (spot) {
+    const n = a.type === 'build' ? a.count ?? 1 : a.type === 'buildHomes' ? a.count : 1;
+    startPlacement({ kind: 'new', action: n > 1 ? { ...a, count: 1 } as Action : a, ...spot, ...(n > 1 ? { left: n, total: n } : {}) });
+    return true;
+  }
   const r = engineDispatch(store.game, a);
   if (a.type !== 'seeTip' && a.type !== 'startDay') sfx(r.ok ? SOUND[a.type] ?? 'click' : 'error');
   if (!r.ok) toast(r.error);

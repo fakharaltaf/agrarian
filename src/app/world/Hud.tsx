@@ -299,7 +299,7 @@ export function Hud() {
 function PlacementBar({ s, p }: { s: GameState; p: Placement }) {
   const problem = placeProblem(s, p.region, p.at[0], p.at[1], { w: p.w, d: p.d }, p.key), cost = placementCost(s, p);
   return <div className="placement-bar" role="dialog" aria-label={`Placing ${p.label}`}>
-    <div className="placement-info"><b>{p.kind === 'move' ? '✥ Moving' : '📍 Placing'} {p.label}{cost > 0 ? ` · ${money(cost)}` : ''}</b>
+    <div className="placement-info"><b>{p.kind === 'move' ? '✥ Moving' : '📍 Placing'} {p.label}{p.total ? ` ${p.total - p.left! + 1} of ${p.total}` : ''}{cost > 0 ? ` · ${money(cost)}` : ''}</b>
       <span className={problem ? 'bad' : 'muted'}>{problem ? PROBLEM_TEXT[problem] : matchMedia('(pointer: fine)').matches ? 'Click a green spot to place it.' : 'Tap where it goes, then confirm.'}</span></div>
     <button className="btn primary" disabled={!!problem} onClick={() => confirmPlacement()}>{p.kind === 'move' ? 'Move here' : 'Place'}</button>
     <button className="btn ghost" onClick={() => cancelPlacement()}>Cancel</button>

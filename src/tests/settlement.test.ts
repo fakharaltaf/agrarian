@@ -65,7 +65,7 @@ it('a fresh-game player can establish a healthy 100-person settlement through th
   console.log('New-game pacing ticks', JSON.stringify(pacing));
 }, 120000);
 
-it('a growing community aggregates families and keeps housing counts compact', () => {
+it('a growing community aggregates families into compact cohorts; every home is its own plot', () => {
   const s = ready(); post(s, 'sharesIssued', 20e6, 'Community capacity fixture');
   dispatch(s, { type: 'startSettlement', charter: 'free' });
   // Streets for 100 homes need room: clear forest at the edge of the farm first, as a player would.
@@ -80,6 +80,7 @@ it('a growing community aggregates families and keeps housing counts compact', (
     expect(communityOf(s).cohorts.length).toBeLessThanOrEqual(51);
   }
   expect(population(s)).toBeGreaterThan(200);
-  expect(communityOf(s).homes).toHaveLength(2);
+  expect(communityOf(s).homes.every((h) => h.count === 1)).toBe(true); // every home is its own plot on the map
+  expect(communityOf(s).homes.length).toBeGreaterThanOrEqual(50);
   expect(communityOf(s).cohorts.some(g=>g.households>1)).toBe(true);
 },120000);
