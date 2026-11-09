@@ -550,6 +550,12 @@ describe('farm advisor', () => {
     expect(d.profit).toBeLessThan(0);
     expect(d.advice[0].id).toBe('managers');
     expect(d.advice[0].title).toContain('2 managers');
+    expect(d.advice[0].act?.action.type).toBe('fire');
+    expect(d.after).toBeGreaterThan(d.profit);
+    // whole finished days only: the figures hold steady through the day
+    advance(s, 5);
+    expect(diagnose(s).profit).toBe(diagnose(s).profit);
+    const morning = diagnose(s).revenue; advance(s, 6); expect(diagnose(s).revenue).toBe(morning);
   });
 });
 

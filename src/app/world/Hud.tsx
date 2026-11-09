@@ -229,6 +229,8 @@ export function Hud() {
   const readyPlots = s.fields.filter((f) => f.region === region && isManual(f) && isReady(s, f));
   const plotPrice = homePlotPrice(s);
   const canBuyPlot = region === 'heartland' && s.stats.sales > 0 && s.regions.heartland.homePlotsBought < CONFIG.homePlots;
+  // From Farm Business, parcels are far cheaper per hectare than the next home plot; offer them first.
+  const parcelOpen = (s.legacyProgression ? s.era >= 3 : stageAtLeast(s, 'farm-business')) && s.regions[region].unlocked, parcel5 = parcelPrice(s, region, 5);
   const liveLot = lot && (lot.type === 'house' || lot.type === 'shed' ? lot : { ...lot, buildings: s.buildings.filter((b) => b.region === region && b.type === lot.type) });
 
   return (
@@ -268,7 +270,8 @@ export function Hud() {
         <div className="hud-actions">
           {regions.length > 1 && <Select label="Region shown" value={region} onChange={(r) => (setRegion(r), setSel([]), setLot(null))} options={regions.map((r) => ({ v: r, label: REGIONS[r].name }))} />}
           {readyPlots.length > 1 && <button className="btn gold sm" onClick={() => readyPlots.forEach((f) => act({ type: 'harvest', fieldId: f.id }))} title="Shortcut: H">Harvest {readyPlots.length} ready</button>}
-          {canBuyPlot && <button className="btn ghost sm" data-coach="buy-plot" disabled={s.cash < plotPrice} onClick={() => act({ type: 'buyPlot' })} title="Shortcut: B">Buy 1 ha · {money(plotPrice)}</button>}
+          {parcelOpen && <button className="btn gold sm" disabled={s.cash < parcel5} onClick={() => act({ type: 'buyParcel', region, ha: 5 })} title={`${money(parcel5 / 5)} a hectare`}>Buy 5 ha · {money(parcel5)}</button>}
+          {canBuyPlot && !(parcelOpen && parcel5 < plotPrice) && <button className="btn ghost sm" data-coach="buy-plot" disabled={s.cash < plotPrice} onClick={() => act({ type: 'buyPlot' })} title="Shortcut: B">Buy 1 ha · {money(plotPrice)}</button>}
           {stageAtLeast(s, 'farm-business') && <button className="btn ghost sm" onClick={() => go('fields')}>All fields</button>}
         </div>
         {(s.legacyProgression ? s.era < 3 : !stageAtLeast(s, 'industry')) && page === 'farm' && <div className="hud-log"><RecentLog s={s} /></div>}

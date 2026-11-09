@@ -1,48 +1,52 @@
-// Farm advisor UI: the numbers behind profit or loss, and plain-words tips that link to the fix.
+// Farm advisor UI: profit at a glance, then up to three fixes with their $ value and a button that does them.
 import { Fragment, useState } from 'react';
 import { diagnose, type Diagnosis } from '../simulation/advisor';
+import { day } from '../simulation/core';
 import type { GameState } from '../simulation/types';
-import { go } from '../stores/game';
+import { act, go } from '../stores/game';
 import { money } from './format';
 import { Card, Modal } from './ui';
 
+// Re-read once per game day, or straight away when the player changes something the advice is about.
+let cache: { key: string; d: Diagnosis } | null = null;
+export function advice(s: GameState) {
+  const key = [day(s), s.advisor, s.workers.map((w) => w.id).join('.'), s.fields.map((f) => `${f.id}${f.spreading ? 's' : ''}`).join('.'), s.buildings.length, s.machines.length].join('|');
+  if (cache?.key !== key) cache = { key, d: diagnose(s) };
+  return cache.d;
+}
+
 function AdvisorBody({ d, onGo }: { d: Diagnosis; onGo?: () => void }) {
-  const stockBuilding = d.profit < 0 && d.realProfit >= 0;
+  const max = Math.max(d.revenue, d.costs, 1);
   return (
-    <div className="stack s">
-      <p>
-        {d.realProfit < 0 ? <>The farm is <b className="down">losing about {money(-d.realProfit)} a day</b>.</>
-          : stockBuilding ? <>Cash is going down <b className="down">{money(-d.profit)} a day</b>, but the farm is <b className="up">gaining about {money(d.realProfit)} a day</b> in value — what you grow is piling up in storage instead of being sold.</>
-          : <>The farm is <b className="up">making about {money(d.realProfit)} a day</b>.</>}
-        <span className="small muted"> Sales {money(d.revenue)}/day · running costs {money(d.costs)}/day.</span>
-      </p>
-      {d.advice.length > 0 && (
-        <div className="stack s">
-          <b className="small">{d.advice.length > 1 ? 'Do these, in order' : 'Do this'}</b>
-          {d.advice.map((a, i) => (
-            <div key={a.id} className={`callout small ${i === 0 ? 'bad' : 'warn'}`}>
-              <b>{i + 1}. {a.icon} {a.title}</b>{a.perDay > 1 && <span className="muted"> · about {money(a.perDay)}/day</span>}
-              <p>{a.body}</p>
-              <button className="btn ghost sm" onClick={() => (go(a.page), onGo?.())}>Fix it →</button>
-            </div>
-          ))}
+    <div className="adv">
+      <div className="adv-head">
+        <b className={d.profit < 0 ? 'down' : 'up'}>{d.profit < 0 ? `Losing ${`$${Math.round(-d.profit).toLocaleString("en-US")}`}/day` : `Making ${`$${Math.round(d.profit).toLocaleString("en-US")}`}/day`}</b>
+        <span className="small muted">{d.days ? `last ${d.days} day${d.days === 1 ? '' : 's'}` : 'today so far'}</span>
+      </div>
+      <div className="adv-bars small">
+        <span>Sales</span><i style={{ width: `${(d.revenue / max) * 100}%` }} className="up" /><b>{money(d.revenue)}</b>
+        <span>Costs</span><i style={{ width: `${(d.costs / max) * 100}%` }} className="down" /><b>{money(d.costs)}</b>
+      </div>
+      {d.advice.map((a, i) => (
+        <div key={a.id} className="adv-tip">
+          <span className="adv-n">{i + 1}</span>
+          <div>
+            <b>{a.icon} {a.title}</b>
+            <div className="small muted">{a.proof}</div>
+          </div>
+          {a.act
+            ? <button className="btn primary sm" onClick={() => (act(a.act!.action, `${a.act!.label}: done.`), onGo?.())}>{a.act.label}{a.gain > 1 && <> +{money(a.gain)}/day</>}</button>
+            : <button className="btn ghost sm" onClick={() => (go(a.page), onGo?.())}>Open →</button>}
         </div>
-      )}
-      {d.working.length > 0 && (
-        <div className="callout small good">
-          <b>✅ What's working — leave it alone</b>
-          <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>{d.working.map((w) => <li key={w}>{w}</li>)}</ul>
-        </div>
-      )}
-      {!d.advice.length && <p className="explain">Nothing worrying. Tips appear here when something is costing you money.</p>}
+      ))}
+      {d.after > d.profit + 1 && <div className="adv-after small">After {d.advice.filter((a) => a.gain > 1).map((_, i) => i + 1).join(' + ')}: about <b className={d.after < 0 ? 'down' : 'up'}>{money(d.after)}/day</b></div>}
+      {!d.advice.length && <p className="small muted">Nothing worth changing right now.</p>}
+      {d.working.length > 0 && <div className="small muted">✅ {d.working.join(' · ')}</div>}
       {d.costLines.length > 0 && (
         <details>
-          <summary className="small" style={{ cursor: 'pointer' }}>Where the money goes (per day)</summary>
+          <summary className="small" style={{ cursor: 'pointer' }}>Every cost (per day)</summary>
           <dl className="facts small" style={{ marginTop: 6 }}>
-            <dt>Sales</dt><dd className="up">+{money(d.revenue)}</dd>
             {d.costLines.map((c) => <Fragment key={c.label}><dt>{c.label}</dt><dd className="down">−{money(c.perDay)}</dd></Fragment>)}
-            <dt><b>Cash from running the farm</b></dt><dd className={d.profit < 0 ? 'down' : 'up'}><b>{money(d.profit)}</b></dd>
-            <dt title="Change in what the farm is worth per day: cash plus stock (at today's prices), goods in transit, land, machines and buildings, less debt">Change in farm value (incl. stock)</dt><dd className={d.realProfit < 0 ? 'down' : 'up'}>{money(d.realProfit)}</dd>
           </dl>
         </details>
       )}
@@ -52,23 +56,21 @@ function AdvisorBody({ d, onGo }: { d: Diagnosis; onGo?: () => void }) {
 
 export function AdvisorCard({ s }: { s: GameState }) {
   if (!s.advisor) return null;
-  return <Card title="Farm advisor" info="Reads your books from the last few days and points out what is costing you money."><AdvisorBody d={diagnose(s)} /></Card>;
+  return <Card title="Farm advisor" info="Averages your last two weeks and names the changes worth the most money. Rechecks every morning."><AdvisorBody d={advice(s)} /></Card>;
 }
 
-/** Floating pill on the farm view, only when something needs attention. */
+/** Floating pill on the farm view: the single most valuable fix. */
 export function AdvisorPill({ s }: { s: GameState }) {
   const [open, setOpen] = useState(false);
   if (!s.advisor) return null;
-  const d = diagnose(s);
-  const losing = d.realProfit < 0 && s.era >= 2;
-  const cashDown = !losing && d.profit < 0 && s.era >= 2;
-  if (!losing && !cashDown && !d.advice.length) return null;
+  const d = advice(s), top = d.advice[0];
+  if (!top && d.profit >= 0) return null;
   return (
     <>
-      <button className={`hud-advisor ${losing ? 'bad' : ''}`} data-coach="advisor" onClick={() => setOpen(true)}>
-        {losing ? `📉 Losing ${money(-d.realProfit)}/day — why?` : cashDown ? `📦 Cash −${money(-d.profit)}/day, stock piling up — why?` : `💡 ${d.advice.length} farm tip${d.advice.length > 1 ? 's' : ''}`}
+      <button className={`hud-advisor ${d.profit < 0 ? 'bad' : ''}`} data-coach="advisor" onClick={() => setOpen(true)}>
+        {top ? <>{top.icon} {top.title}{top.gain > 1 && <> · +{money(top.gain)}/day</>}</> : `📉 Losing ${money(-d.profit)}/day`}
       </button>
-      {open && <Modal title="Farm advisor" onClose={() => setOpen(false)} actions={<button className="btn primary" onClick={() => setOpen(false)}>Thanks</button>}>
+      {open && <Modal title="Farm advisor" onClose={() => setOpen(false)} actions={<button className="btn primary" onClick={() => setOpen(false)}>Close</button>}>
         <AdvisorBody d={d} onGo={() => setOpen(false)} />
       </Modal>}
     </>

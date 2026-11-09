@@ -788,3 +788,16 @@ body:has(.modal-bg) .shell .coach { display: none !important; }
 .placement-bar .btn { min-height: 44px; white-space: nowrap; }
 /* Smaller world bubbles with a mouse; touch keeps 44px targets. */
 @media (pointer: fine) { .wl-radial button { min-height: 34px; min-width: 34px; padding: 4px 10px; font-size: 14px; } .world-overlay > .wl-radial { padding: 4px; gap: 4px; } .wl-radial .wl-grow { min-height: 34px; font-size: 14px; } }
+
+/* Farm advisor */
+.adv { display: flex; flex-direction: column; gap: 10px; }
+.adv-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 18px; }
+.adv-bars { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 4px 8px; }
+.adv-bars i { height: 10px; border-radius: 5px; min-width: 2px; background: var(--up); }
+.adv-bars i.down { background: var(--down); }
+.adv-tip { display: grid; grid-template-columns: 24px 1fr auto; align-items: center; gap: 10px; padding: 10px; border-radius: 10px; background: color-mix(in srgb, var(--warn) 10%, var(--surface)); border: 1px solid var(--line); }
+.adv-tip:first-of-type { border-color: color-mix(in srgb, var(--warn) 60%, var(--line)); }
+.adv-n { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; background: var(--surface); border: 1px solid var(--line); }
+.adv-tip .btn { white-space: nowrap; }
+.adv-after { text-align: right; }
+@media (max-width: 480px) { .adv-tip { grid-template-columns: 24px 1fr; } .adv-tip .btn { grid-column: 2; justify-self: start; } }

@@ -12,7 +12,7 @@ import type { GameState } from '../simulation/types';
 import { act, go, useGame, useStore } from '../stores/game';
 import { useElementRect } from './ui';
 import { useEffect, useState } from 'react';
-import { diagnose } from '../simulation/advisor';
+import { advice } from './Advisor';
 import { stageAtLeast } from '../simulation/stages';
 
 export interface CoachTip {
@@ -67,7 +67,7 @@ export const TIPS: CoachTip[] = [
   { id: 'plan', page: 'farm', target: 'plan-picker', title: 'Give fields a crop plan', body: 'Workers only replant fields that have a plan. Select fields, choose a crop plan, and they will keep them cycling.',
     when: (s) => s.workers.length > 0 && !anyField(s, (f) => !!f.plan), done: (s) => anyField(s, (f) => !!f.plan) },
   { id: 'advisorHire', page: 'workers', target: 'hire-advisor', title: 'Money is draining away', body: 'Your farm has been spending more than it earns these last days. A farm advisor (Workers page) reads your books and tells you exactly what is costing you — for a daily fee.',
-    when: (s) => stageAtLeast(s, 'farm-business') && !s.advisor && s.stats.sales > 0 && diagnose(s).realProfit < 0, done: (s) => s.advisor },
+    when: (s) => stageAtLeast(s, 'farm-business') && !s.advisor && s.stats.sales > 0 && advice(s).profit < 0, done: (s) => s.advisor },
   { id: 'soil', page: 'farm', target: 'soil-panel', title: 'Your soil is wearing out', body: 'Every harvest removes nutrients. Rotate crops — soybeans put nitrogen back — rest fields, or spread fertiliser (which costs money and can harm soil if overused).',
     when: (s) => stageAtLeast(s, 'farm-business') && anyField(s, (f) => fertility(f) < 0.75) },
   { id: 'storage', page: 'storage', target: 'nav-storage', title: 'Storage is filling up', body: 'Whatever does not fit in storage at harvest is sold on the spot at whatever price the market gives. More storage lets you wait for better prices — but stock slowly spoils.',
@@ -101,8 +101,8 @@ export const TIPS: CoachTip[] = [
 /** Each kind of problem the advisor spots is taught once, the first time it actually happens on this farm. */
 function adviceTip(s: GameState): CoachTip | undefined {
   if (!s.advisor) return undefined;
-  const a = diagnose(s).advice.find((x) => !s.seenTips.includes(`adv:${x.id.split(':')[0]}`));
-  return a && { id: `adv:${a.id.split(':')[0]}`, page: a.page, target: 'advisor', title: `${a.icon} ${a.title}`, body: a.body, when: () => true };
+  const a = advice(s).advice.find((x) => !s.seenTips.includes(`adv:${x.id.split(':')[0]}`));
+  return a && { id: `adv:${a.id.split(':')[0]}`, page: a.page, target: 'advisor', title: `${a.icon} ${a.title}`, body: a.proof, when: () => true };
 }
 
 export const tipsOff = (s: GameState) => s.seenTips.includes('__off');
