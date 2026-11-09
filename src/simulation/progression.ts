@@ -1,8 +1,7 @@
 // Eras, unlocks, objectives and milestones. Progress comes from measurable business results.
-import { CHAPTER_SALES, BUILDINGS, CROPS, CROP_IDS, DAYS_PER_YEAR, ERAS, GOODS, REGION_IDS, type CropId } from './config';
+import { CHAPTER_SALES, BUILDINGS, CROPS, CROP_IDS, ERAS, GOODS, REGION_IDS, type CropId } from './config';
 import { day, equity, has, log, stored } from './core';
 import { fertility, growth, isReady } from './agriculture';
-import { accruedTax } from './finance';
 import { topShare } from './corporate';
 import { eraUnlockAvailable, stageIdForEra, tickActiveStage, NEXT_STAGE, stageAtLeast, STAGES } from './stages';
 import { refreshHomestead } from './stages/homestead';
@@ -185,10 +184,7 @@ export function progressionTick(s: GameState) {
       else if (s.warned[`${key}:open`] !== undefined && s.warned[key] === undefined) { s.warned[key] = s.tick; log(s, 'opportunity', `✓ ${r.label} reached (${rows.filter((x) => x.done).length}/${rows.length} for ${STAGES[NEXT_STAGE[s.stageId]!]?.title ?? 'the next chapter'}).`, 'overview'); }
     }
   }
-  if (s.tick % 24 === 0 && day(s) % DAYS_PER_YEAR === DAYS_PER_YEAR - 14) {
-    const tax = accruedTax(s);
-    if (tax > 0) log(s, 'warning', `Profit tax of about $${Math.round(tax).toLocaleString()} is due in 14 days at year end. Keep cash for it.`, 'finance');
-  }
+  if (s.tick % 24 === 0 && s.taxBill && s.taxBill.dueDay - day(s) === 7) log(s, 'warning', `Your profit tax of $${Math.round(s.taxBill.amount).toLocaleString()} is taken in 7 days. Keep cash for it, or pay it now from the tax chip.`, 'finance');
   for (const d of DISCOVERIES) if (!s.discovered.includes(d.id) && d.when(s)) discover(s, d.id);
   for (const g of STARTER_GIFTS) if (!s.rewarded.includes(g.id) && g.when(s)) (s.rewarded.push(g.id), g.give(s), log(s, 'opportunity', g.text, 'farm'));
   if (s.tick % 6 === 0) for (const a of ACHIEVEMENTS) if (!s.achievements.includes(a.id) && a.done(s)) (s.achievements.push(a.id), log(s, 'opportunity', `Achievement unlocked: ${a.icon} ${a.name}`));

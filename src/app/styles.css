@@ -771,6 +771,7 @@ body:has(.modal-bg) .shell .coach { display: none !important; }
 .hud-objective .gate-rows { grid-column: 1 / -1; }
 .world-overlay > .wl-need { pointer-events: none; font-size: 18px; filter: drop-shadow(0 1px 2px #0006); }
 .tax-chip { margin-left: 8px; padding: 4px 10px; border-radius: 999px; font: 800 13px var(--font); white-space: nowrap; background: color-mix(in srgb, var(--warn) 18%, var(--surface)); color: var(--text); border: 1px solid color-mix(in srgb, var(--warn) 55%, var(--line)); }
+.tax-chip { cursor: pointer; } .tax-chip:disabled { cursor: default; opacity: 1; }
 .tax-chip.short { background: color-mix(in srgb, var(--down) 22%, var(--surface)); border-color: var(--down); }
 @media (max-width: 420px) { .tax-chip { font-size: 12px; padding: 3px 7px; margin-left: 4px; } }
 @media (max-width: 480px) { .tax-chip .tax-word { display: none; } .ledger-btn { padding: 0 8px; } }

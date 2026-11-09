@@ -1,6 +1,6 @@
 import { Component, lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
 import { equity, sumBooks } from '../simulation/core';
-import { accruedTax, daysToTax } from '../simulation/finance';
+import { taxDaysLeft } from '../simulation/finance';
 import { ACHIEVEMENTS, PAGES } from '../simulation/engine';
 import {
   act, deleteSlot, getGame, offlineOn, dismissAway, toast, exportSave, go, importSave, loadFrom, newGame, saveTo, setSpeed, slotInfo, slotLabel, SLOTS, SPEEDS, useGame, useStore, type Slot, type Speed,
@@ -168,13 +168,19 @@ function Trophies() {
 }
 
 /** Cash with a little celebration: it pulses and shows "+$X" whenever sales come in. */
-/** The year-end profit tax, visible for the last 30 days of the year so it never arrives as a surprise. */
+/** Last year's tax bill: one fixed figure from year end, 30 days to pay. Tap to pay early. */
 function TaxChip() {
-  const s = useGame(), days = daysToTax(s), tax = accruedTax(s);
-  if (days > 30 || tax < 1) return null;
-  const short = tax > s.cash;
-  const k = tax >= 1e9 ? `$${(tax / 1e9).toFixed(1)}B` : tax >= 1e6 ? `$${(tax / 1e6).toFixed(1)}M` : tax >= 1e3 ? `$${Math.round(tax / 1e3)}k` : money(tax);
-  return <span className={`tax-chip${short ? ' short' : ''}`} title={`Profit tax of ${money(tax)} on this year's profit is charged at year end in ${days} day${days === 1 ? '' : 's'}${short ? '. You do not have enough cash for it yet: sell stock or hold off big purchases.' : '.'}`}>🧾<span className="tax-word"> Tax</span> {k} · {days}d</span>;
+  const s = useGame(), bill = s.taxBill;
+  if (!bill) return null;
+  const tax = bill.amount, days = taxDaysLeft(s), short = tax > s.cash;
+  const due = days === 0 ? 'today' : `${days}d`;
+  return (
+    <button type="button" className={`tax-chip${short ? ' short' : ''}`} disabled={short}
+      title={`Profit tax for last year: ${money(tax)}. ${short ? `You need ${money(tax - s.cash)} more cash; it is taken automatically in ${days} day${days === 1 ? '' : 's'}.` : `Tap to pay now, or it is taken automatically in ${days} day${days === 1 ? '' : 's'}.`}`}
+      onClick={() => act({ type: 'payTax' }, `Tax of ${money(tax)} paid.`)}>
+      🧾<span className="tax-word"> Tax</span> {money(tax)} · {due}{short ? '' : <span className="tax-word"> · Pay</span>}
+    </button>
+  );
 }
 
 function CashCounter() {

@@ -20,7 +20,7 @@ const haIn = (s: GameState, r: RegionId) => s.fields.reduce((a, f) => a + (f.reg
 const hasB = (s: GameState, r: RegionId, t: BuildingType) => s.buildings.some((b) => b.region === r && b.type === t);
 
 /** A sensible player keeps this year's profit tax in hand (the game warns 14 days ahead). */
-const taxDue = (s: GameState) => accruedTax(s) * 1.1;
+const taxDue = (s: GameState) => accruedTax(s) * 1.1 + (s.taxBill?.amount ?? 0);
 
 export function botAct(s: GameState, strategy: Strategy = 'balanced', civicPriority = false) {
   if (strategy === 'idle') return;

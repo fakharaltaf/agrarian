@@ -14,7 +14,7 @@ import { claimDaily, startDay } from './daily';
 import { createMarkets, drawWeather, executeBuy, executeSell, quoteBuy, macroDaily, marketsDaily, marketsTick, priceFromInv } from './markets';
 import { hire, laborTick, service, serviceCost, wageOf, workforceDaily } from './operations';
 import { buildingsDaily, buildingsTick } from './processing';
-import { closeFutures, creditLimit, deliver, financeDaily, openFutures, restructure, takeLoan, insurancePremium } from './finance';
+import { closeFutures, creditLimit, deliver, financeDaily, openFutures, payTax, restructure, takeLoan, insurancePremium } from './finance';
 import { canResearch, researchDaily, startResearch } from './research';
 import { DEFAULT_POLICIES, newRule, policiesDaily, policiesTick, rulesTick } from './automation';
 import { acquire, acquisitionPrice, askingPrice, competitorsDaily, createCompetitors, diligenceCost } from './competitors';
@@ -542,6 +542,12 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       if (a.amount <= 0) return fail('Enter an amount.');
       if (a.amount > creditLimit(s)) return fail(`Your credit limit is $${Math.floor(creditLimit(s)).toLocaleString()}.`);
       takeLoan(s, Math.round(a.amount), a.termDays);
+      return ok();
+    }
+    case 'payTax': {
+      if (!s.taxBill) return fail('No tax bill to pay.');
+      if (s.taxBill.amount > s.cash) return fail('Not enough cash.');
+      payTax(s);
       return ok();
     }
     case 'repayLoan': {

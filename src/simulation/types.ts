@@ -365,6 +365,8 @@ export interface GameState {
   lifetime: Partial<Record<LedgerKind, number>>;
   books: DayBook[];
   overdraftDays: number;
+  /** Last year's profit tax, fixed at year end and payable within 30 days. */
+  taxBill?: { amount: number; byRegion: Partial<Record<RegionId, number>>; dueDay: number } | null;
   bankrupt: { reason: string } | null;
   era: number;
   /** Stable content-stage identity; the legacy era remains for save compatibility and existing rules. */
@@ -464,6 +466,7 @@ export type Action =
   | { type: 'ship'; good: GoodId; qty: number; from: RegionId; to: RegionId; sell?: boolean }
   | { type: 'takeLoan'; amount: number; termDays: number }
   | { type: 'repayLoan'; loanId: number; amount: number }
+  | { type: 'payTax' }
   | { type: 'openFutures'; good: GoodId; contracts: number; days: number }
   | { type: 'closeFutures'; positionId: number }
   | { type: 'acceptContract'; contractId: number }

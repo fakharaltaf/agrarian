@@ -68,6 +68,7 @@ export function financeDaily(s: GameState) {
   futuresDaily(s);
   contractsDaily(s);
   if (day(s) % DAYS_PER_YEAR === 0 && day(s) > 0) taxYear(s);
+  if (s.taxBill && day(s) >= s.taxBill.dueDay) payTax(s);
 }
 
 // ---------------------------------------------------------------- insurance
@@ -207,17 +208,29 @@ export function accruedTax(s: GameState) {
   const year = s.books.filter((b) => b.day >= from);
   return REGION_IDS.reduce((n, r) => { const taxable = year.reduce((a, b) => a + (b.op[r] ?? 0), 0); return n + (taxable > 0 ? taxable * REGIONS[r].tax * (s.era < 3 ? 0.5 : 1) : 0); }, 0);
 }
-export const daysToTax = (s: GameState) => DAYS_PER_YEAR - (day(s) % DAYS_PER_YEAR);
 
+export const TAX_DAYS = 30;
+/** Year end fixes the bill for the year just closed; it is paid within TAX_DAYS (automatically on the due day). */
 function taxYear(s: GameState) {
-  const year = s.books.slice(-DAYS_PER_YEAR);
+  const today = day(s), year = s.books.filter((b) => b.day >= today - DAYS_PER_YEAR && b.day < today), byRegion: Partial<Record<RegionId, number>> = {};
   for (const r of REGION_IDS) {
     // operating profit after interest and depreciation; capex and financing flows are not deductible
     const taxable = year.reduce((a, b) => a + (b.op[r] ?? 0), 0);
-    if (taxable > 0) post(s, 'tax', -taxable * REGIONS[r].tax * (s.era < 3 ? 0.5 : 1), `Profit tax ${REGIONS[r].name}`, r, 'corporate');
+    if (taxable > 0) byRegion[r] = round2(taxable * REGIONS[r].tax * (s.era < 3 ? 0.5 : 1));
   }
-  log(s, 'info', 'Year end: profit taxes assessed for each region.', 'finance');
+  if (s.taxBill) payTax(s); // never stack two bills
+  const amount = round2(Object.values(byRegion).reduce((a, b) => a + b!, 0));
+  if (amount <= 0) return log(s, 'info', 'Year end: no profit tax due this year.', 'finance');
+  s.taxBill = { amount, byRegion, dueDay: day(s) + TAX_DAYS };
+  log(s, 'warning', `Year end: your profit tax bill is $${Math.round(amount).toLocaleString()}. Pay it within ${TAX_DAYS} days; it is taken automatically on the due date.`, 'finance');
 }
+export function payTax(s: GameState) {
+  const bill = s.taxBill;
+  if (!bill) return;
+  for (const r of REGION_IDS) if (bill.byRegion[r]) post(s, 'tax', -bill.byRegion[r]!, `Profit tax ${REGIONS[r].name}`, r, 'corporate');
+  s.taxBill = null;
+}
+export const taxDaysLeft = (s: GameState) => (s.taxBill ? Math.max(0, s.taxBill.dueDay - day(s)) : 0);
 
 // ---------------------------------------------------------------- distress
 
