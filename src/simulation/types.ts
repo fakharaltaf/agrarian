@@ -326,7 +326,7 @@ export interface SettlementState {
 export type SchoolCharter = 'public' | 'trade';
 export const DISTRICT_IDS = ['farmgate', 'orchard', 'heights'] as const;
 export type DistrictId = (typeof DISTRICT_IDS)[number];
-export type ServiceType = 'school' | 'well' | 'clinic' | 'road' | 'hospital' | 'waterworks' | 'park' | 'sanitation' | 'lighting' | 'police' | 'watchtower' | 'barracks';
+export type ServiceType = 'school' | 'well' | 'clinic' | 'road' | 'hospital' | 'waterworks' | 'waterTower' | 'park' | 'sanitation' | 'lighting' | 'police' | 'watchtower' | 'barracks';
 export interface CivicService { id: number; type: ServiceType; district: DistrictId; count: number; active: boolean; cost: number; staffed: number; funded: boolean }
 export interface DistrictCoverage { people: number; school: number; water: number; medical: number; road: number }
 export interface CouncilPetition { id: number; kind: 'park' | 'bread'; opened: number }
@@ -337,6 +337,8 @@ export interface TownState {
   services: CivicService[]; coverage: Record<DistrictId, DistrictCoverage>;
   publicJobs: number; industrialJobs: number; factoryShare: number;
   health: number; education: number; water: number; roads: number;
+  /** Share of families inside the reach of sanitation and of a power station (radius coverage). */
+  sanitation?: number; power?: number; medical?: number;
   petition: CouncilPetition | null; nextPetition: number; goodwillUntil: number; breadUntil: number;
   crime: number; thefts: number; illnessDeaths: number; mortalityCarry: number;
 }
@@ -443,7 +445,7 @@ export type Action =
   | { type: 'hireSpies' }
   | { type: 'hireMercenaries' }
   | { type: 'mediate' }
-  | { type: 'startTown'; charter: SchoolCharter }
+  | { type: 'startTown'; charter?: SchoolCharter }
   | { type: 'fundTown'; amount: number; direction: 'toTown' | 'repay' }
   | { type: 'setTownTax'; rate: number }
   | { type: 'buildService'; service: ServiceType; district: DistrictId; count?: number; at?: [number, number] }

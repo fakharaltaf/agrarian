@@ -5,7 +5,7 @@ import { communityOf, workingAdults, population, residentWorkers, neighbourJobs 
 import type { DistrictId, GameState, ServiceType, TownState } from './types';
 export const SERVICE_DEFS: Record<ServiceType, { name: string; icon: string; cost: number; capacity: number; jobs: number; kwh: number }> = {
   sanitation: {name:'Sanitation works',icon:'🚿',cost:55000,capacity:500,jobs:4,kwh:12},
-  lighting: {name:'Power & lighting',icon:'⚡',cost:40000,capacity:400,jobs:2,kwh:24},
+  lighting: {name:'Power station',icon:'⚡',cost:40000,capacity:400,jobs:2,kwh:24},
   police: {name:'Watchhouse',icon:'🛡',cost:65000,capacity:300,jobs:6,kwh:8},
   school: { name: 'School', icon: '📚', cost: 30000, capacity: 80, jobs: 4, kwh: 8 },
   well: { name: 'Well', icon: '💧', cost: 8000, capacity: 100, jobs: 1, kwh: 0 },
@@ -13,10 +13,14 @@ export const SERVICE_DEFS: Record<ServiceType, { name: string; icon: string; cos
   road: { name: 'Road', icon: '🛤', cost: 12000, capacity: 1e12, jobs: 1, kwh: 0 },
   hospital: { name: 'Hospital', icon: '🏥', cost: 180000, capacity: 800, jobs: 12, kwh: 80 },
   waterworks: { name: 'Waterworks', icon: '⛲', cost: 120000, capacity: 1500, jobs: 4, kwh: 40 },
+  waterTower: { name: 'Water tower', icon: '🚰', cost: 20000, capacity: 1e12, jobs: 1, kwh: 4 },
   park: { name: 'Park', icon: '🌳', cost: 15000, capacity: 1e12, jobs: 0, kwh: 0 },
   watchtower: {name:'Watchtower & militia',icon:'🗼',cost:50000,capacity:1e12,jobs:5,kwh:2},
   barracks: {name:'Barracks',icon:'⚔',cost:120000,capacity:1e12,jobs:20,kwh:10},
 };
+/** How far (in tiles, centre to centre) each service reaches: homes inside the circle are served. */
+export const SERVICE_RADIUS: Partial<Record<ServiceType, number>> = { school: 12, clinic: 12, hospital: 22, well: 8, waterworks: 20, waterTower: 14, sanitation: 12, lighting: 16, police: 14, park: 8 };
+export const SERVICE_GROUPS = { school: ['school'], medical: ['clinic', 'hospital'], water: ['well', 'waterworks', 'waterTower'], sanitation: ['sanitation'], power: ['lighting'] } as const;
 export const DISTRICT_NAMES: Record<DistrictId, string> = { farmgate: 'Farmgate', orchard: 'Orchard', heights: 'Heights' };
 export function createTownState(): TownState {
   const district = () => ({ people: 0, school: 0, water: 0, medical: 0, road: 0 });

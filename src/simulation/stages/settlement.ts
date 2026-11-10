@@ -4,7 +4,7 @@ import type { StageModule } from './types';
 import type { Action, ActionResult, GameState } from '../types';
 import { CHAPTER_SALES, BUILDINGS, GOODS, type GoodId } from '../config';
 import { clamp, freeSpace, log, marketWage, nextId, post, reservedStock, round2 } from '../core';
-import { localEmployment } from '../town-state';
+import { localEmployment, townOf } from '../town-state';
 import { executeBuy, quoteBuy } from '../markets';
 import { communityOf, createSettlementState, familiesHere, familySize, HOME_DEFS, homeFamilies, homePrice, homeCapacity, households, population, availableResidents, recruitableResidents } from '../community-state';
 import { CONFIG, WORK_HOURS } from '../config';
@@ -100,6 +100,15 @@ export function settlementTick(s: GameState) {
     fam[w.id] = id; w.resident = true; free--; moved++;
     log(s, 'opportunity', `${w.name}'s family has moved into the settlement (${size} people).`, 'community');
   }
+  // once there is a town, families from outside settle too: one a day while homes are free and life is good
+  if (townOf(s).active && free > 0 && c.happiness >= 0.6) {
+    const id = nextId(s), size = 3 + (id % 3), name = ['Silva', 'Patel', 'Brook', 'Okafor', 'Tan', 'Reyes', 'Ito', 'Costa', 'Haddad', 'Varga'][id % 10];
+    c.cohorts.push({ id, name: `The ${name} family (newcomers)`, households: 1, adults: 2, children: size - 2 });
+    log(s, 'opportunity', `A new family, the ${name}s, has settled in town (${size} people).`, 'community');
+  }
+  // newcomers pay the housing tax on what they earn in town
+  const newcomers = c.cohorts.filter((g) => !Object.values(fam).includes(g.id)).length;
+  if (tax > 0 && newcomers) post(s, 'rent', round2(newcomers * marketWage(s, 'heartland') * WORK_HOURS * tax), 'Housing tax: newcomer families', 'heartland', 'corporate');
   c.hardshipDays = c.happiness < 0.35 ? c.hardshipDays + 1 : 0;
   if (c.hardshipDays >= 3) { // a family gives up and moves back; the worker stays on, unhappier
     const last = Object.entries(fam).pop();

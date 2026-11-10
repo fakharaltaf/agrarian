@@ -68,7 +68,7 @@ export function handleActiveStageAction(s: GameState, action: Action) {
   if (region.actionTypes.slice(3).includes(action.type)) return region.handleAction(s, action, (s.stageState.region ??= region.createState()));
   if (city.actionTypes.includes(action.type)) { const result=city.handleAction(s,action,(s.stageState.city ??= city.createState()));if(result)return result; }
   if (town.actionTypes.includes(action.type)) return town.handleAction(s, action, (s.stageState.town ??= town.createState()));
-  if (action.type === 'startSettlement' || action.type === 'buildHomes' || action.type === 'setLarder' || action.type === 'settleWorker') {
+  if (action.type === 'startSettlement' || action.type === 'buildHomes' || action.type === 'setLarder' || action.type === 'settleWorker' || action.type === 'setSettlementPay') {
     const stage = STAGES.settlement;
     const state = (s.stageState.settlement ??= stage.createState());
     return stage.handleAction(s, action, state);

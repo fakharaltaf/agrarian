@@ -634,6 +634,10 @@ export function buildCivic(type: string, w: number, d: number): Model {
     group.add(box(w-.6,.12,d-.6,PAL.wood,w/2,3,d/2),box(w-.6,.4,.08,PAL.wood,w/2,3.1,.55),box(w-.6,.4,.08,PAL.wood,w/2,3.1,d-.55));
     group.add(gable(w-.4,d-.4,.7,PAL.barnRed,w/2,3.5,d/2));
     const fire=sphere(.14,0xffb055,w/2,3.35,d/2,{emissive:0x804010});windows.push(fire);group.add(fire);
+  } else if(type==='waterTower'){
+    for(const [x,z] of [[w/2-.6,d/2-.6],[w/2+.6,d/2-.6],[w/2-.6,d/2+.6],[w/2+.6,d/2+.6]])group.add(box(.1,2.4,.1,PAL.metalDark,x,.1,z));
+    group.add(cyl(.85,.9,0x7fa7c4,w/2,2.5,d/2,16),cone(.9,.4,PAL.roofGrey,w/2,3.4,d/2,16));
+    group.add(box(.06,2.4,.06,PAL.metal,w/2,.1,d/2)); // feed pipe
   } else if(type==='road') {
     group.add(box(w-.1,.05,d-.1,PAL.roofGrey,w/2,.09,d/2));
     for(let i=0;i<Math.min(18,Math.ceil(d/2));i++)group.add(box(.06,.02,.4,PAL.white,w/2,.15,.4+i*2));

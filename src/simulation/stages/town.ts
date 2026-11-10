@@ -9,12 +9,15 @@ import { DISTRICT_IDS } from '../types';
 import { GOODS, WORK_HOURS } from '../config';
 import { clamp, electricityPrice, log, marketWage, nextId, post, priceUsd, random, reservedStock, round2 } from '../core';
 import { communityOf, familiesHere, population, workingAdults, children, residentWorkers } from '../community-state';
-import { createTownState, districtPopulation, factoryJobs, localEmployment, payHouseholds, schoolChangeCost, SERVICE_DEFS, servicePrice, serviceJobs, townOf, townWorkforce } from '../town-state';
+import { createTownState, districtPopulation, factoryJobs, localEmployment, payHouseholds, schoolChangeCost, SERVICE_DEFS, SERVICE_GROUPS, SERVICE_RADIUS, servicePrice, serviceJobs, townOf, townWorkforce } from '../town-state';
+import { HOME_DEFS } from '../community-state';
+import { worldOf } from '../world';
 
 export const canStartTown = (s: GameState) => communityOf(s).active && !townOf(s).active && familiesHere(s)>=6 && communityOf(s).happiness>=.6 && communityOf(s).fed>=.9;
 export function serviceAvailable(s: GameState, type: ServiceType): boolean {
   const t=townOf(s);
-  if(type==='sanitation'||type==='lighting'||type==='police')return cityActive(s);
+  if(type==='sanitation'||type==='lighting'||type==='waterTower')return t.active||cityActive(s); // the town's own utilities
+  if(type==='police')return cityActive(s);
   if(type==='watchtower')return regionActive(s);
   if(type==='barracks')return nationActive(s)&&nationOf(s).path==='army';
   if(type==='school'||type==='well') return true;
@@ -60,7 +63,7 @@ export function townDaily(s: GameState) {
   const t=townOf(s), c=communityOf(s), today=Math.floor(s.tick/24);
   if(!t.active || s.tick%24!==0 || t.lastDay===today) return;
   t.lastDay=today;
-  const tax=Math.floor(Math.min(c.householdCash, t.taxableIncome*t.taxRate)*100)/100;
+  const tax=0; // no town treasury: services are paid by the farm and recovered through the settlement's housing tax and pay cut
   t.taxableIncome=0; t.lastTax=tax;
   if(tax>0) { c.householdCash=Math.max(0,round2(c.householdCash-tax)); post(s,'residentTax',tax,'Household income tax','heartland','corporate','town'); }
   // Illness mortality is aggregate expected loss, not a per-person hourly loop.
@@ -96,8 +99,7 @@ export function townDaily(s: GameState) {
     const d=SERVICE_DEFS[b.type], needed=serviceJobs(s,b.type)*b.count, jobs=Math.min(adults,needed);
     if(needed>0 && jobs===0) continue;
     const cost=round2(serviceDailyCost(s,b.type,jobs/b.count)*b.count);
-    if(t.cash+1e-6<cost) continue;
-    post(s,'civic',-cost,`${d.name} services`,'heartland','corporate','town'); t.lastCost=round2(t.lastCost+cost);
+    post(s,'civic',-cost,`${d.name} upkeep`,'heartland','corporate'); t.lastCost=round2(t.lastCost+cost);
     const wages=round2(jobs*WORK_HOURS*marketWage(s,'heartland'));
     if(wages>0) payHouseholds(s,wages);
     b.staffed=jobs; b.funded=true; adults-=jobs; t.publicJobs+=jobs;
@@ -108,18 +110,23 @@ export function townDaily(s: GameState) {
     if(b.type==='clinic'||b.type==='hospital') cover.medical+=capacity;
     if(b.type==='road') cover.road=1;
   }
+  // Radius coverage: a family is served when its home stands within reach of a working service of that kind.
+  const w=worldOf(s,'heartland'),homes=c.homes.map(h=>{const p=w.pos[`home:${h.id}`];return p?{x:p[0]+1.5,y:p[1]+1.5,families:HOME_DEFS[h.tier].families*h.count}:null;}).filter(Boolean) as {x:number;y:number;families:number}[];
+  const total=homes.reduce((n,h)=>n+h.families,0);
+  const reach=(types:readonly ServiceType[])=>{
+    if(!total)return 0;
+    const live=t.services.filter(b=>types.includes(b.type)&&b.active&&b.funded&&(SERVICE_DEFS[b.type].jobs===0||b.staffed>0)).map(b=>{const p=w.pos[`svc:${b.id}`];return p?{x:p[0]+1.5,y:p[1]+1.5,r:SERVICE_RADIUS[b.type]??10}:null;}).filter(Boolean) as {x:number;y:number;r:number}[];
+    return homes.reduce((n,h)=>n+(live.some(v=>(v.x-h.x)**2+(v.y-h.y)**2<=v.r*v.r)?h.families:0),0)/total;
+  };
+  const cover={school:reach(SERVICE_GROUPS.school),water:reach(SERVICE_GROUPS.water),medical:reach(SERVICE_GROUPS.medical),sanitation:reach(SERVICE_GROUPS.sanitation),power:reach(SERVICE_GROUPS.power)};
+  for(const id of DISTRICT_IDS){const v=t.coverage[id];v.school=cover.school;v.water=cover.water;v.medical=cover.medical;v.road=1;}
+  t.sanitation=cover.sanitation;t.power=cover.power;t.medical=cover.medical;
   const people=population(s);
   let school=0,water=0,medical=0,roads=0;
-  for(const id of DISTRICT_IDS) {
-    const v=t.coverage[id];
-    v.school=v.people?clamp(v.school/Math.max(1,children(s)*v.people/Math.max(1,population(s))),0,1):0;
-    v.water=v.people?clamp(v.water/v.people,0,1):0;
-    v.medical=v.people?clamp(v.medical/v.people,0,1):0;
-    school+=v.school*v.people;water+=v.water*v.people;medical+=v.medical*v.people;roads+=v.road*v.people;
-  }
-  t.education=people?school/people:0;t.water=people?water/people:0;t.roads=people?roads/people:0;
-  const sanitation=cityActive(s)?cityOf(s).sanitation:1;
-  const wellbeing=clamp(c.fed*.45+t.water*.3+(people?medical/people:1)*.25-.1*(1-sanitation),0,1);
+  school=cover.school;water=cover.water;medical=cover.medical;roads=1;
+  t.education=school;t.water=water;t.roads=roads;
+  const sanitation=cityActive(s)?cityOf(s).sanitation:(t.sanitation??0);
+  const wellbeing=clamp(c.fed*.45+t.water*.3+medical*.25-.1*(1-sanitation),0,1);
   t.health=clamp(t.health+(wellbeing-t.health)*.15,0,1);
   const requested=factoryJobs(s);
   t.industrialJobs=Math.min(adults,requested);t.factoryShare=requested?t.industrialJobs/requested:0;
@@ -142,16 +149,16 @@ export function townDaily(s: GameState) {
   }
   const book=t.books[t.books.length-1];
   if(book&&book.day===today){book.cash=t.cash;book.debt=t.companyAdvance;book.equity=round2(t.cash+t.services.reduce((n,b)=>n+b.cost,0)-t.companyAdvance);}
-  if(!t.petition && today>=t.nextPetition) {t.petition={id:nextId(s),kind:random(s)<.5&&!t.services.some(b=>b.type==='park')?'park':'bread',opened:today};t.nextPetition=today+14;}
+  // council petitions drew on the old treasury; they return with the City rework
 }
 function action(s: GameState,a:Action):ActionResult|null {
   const t=townOf(s),fail=(error:string):ActionResult=>({ok:false,error});
-  if((a.type==='startTown'||a.type==='changeSchools')&&a.charter!=='public'&&a.charter!=='trade')return fail('Choose Public or Trade schools.');
+  if(((a.type==='startTown'&&a.charter!==undefined)||a.type==='changeSchools')&&a.charter!=='public'&&a.charter!=='trade')return fail('Choose Public or Trade schools.');
   if(a.type==='startTown') {
     if(!canStartTown(s)) return fail('Welcome 80 well-fed residents at 65% happiness first.');
-    t.active=true;t.enteredAt=s.tick;t.nextPetition=Math.floor(s.tick/24)+7;setCharter(s,a.charter);
+    t.active=true;t.enteredAt=s.tick;t.nextPetition=Math.floor(s.tick/24)+7;setCharter(s,a.charter??'public');
     s.stageId='town';if(!s.legacyProgression)s.era=6;s.eraReady=false;
-    log(s,'opportunity','A school and clean water are the first civic projects. Fund the treasury when you are ready.','town');
+    log(s,'opportunity','Newcomers want to settle here too. Homes inside the reach of a school, a clinic and a water tower keep them healthy and happy.','town');
     return {ok:true};
   }
   if(!['fundTown','setTownTax','buildService','toggleService','changeSchools','answerPetition'].includes(a.type))return null;
@@ -210,11 +217,11 @@ function action(s: GameState,a:Action):ActionResult|null {
   if(a.type==='buildService') {
     if(!SERVICE_DEFS[a.service]||!DISTRICT_IDS.includes(a.district)||!serviceAvailable(s,a.service))return fail('This service is not available yet.');
     const count=a.count??1;if(!Number.isInteger(count)||count<1||count>50)return fail('Build 1–50 service units.');
-    const cost=round2(servicePrice(s,a.service)*count);if(t.cash<cost)return fail('Fund the town treasury before building.');
+    const cost=round2(servicePrice(s,a.service)*count);if(s.cash<cost)return fail(`That costs $${cost.toLocaleString()}.`);
     // Roads are part of the street plan; other services stand on the map. A chosen spot always starts a new building.
     const group=a.at||a.service==='road'?undefined:t.services.find(b=>b.type===a.service&&b.district===a.district);
     if(!group&&a.service!=='road'){const room=canPlaceNew(s,'heartland',SERVICE_FOOTPRINT,a.at);if(room)return fail(room);}
-    post(s,'building',-cost,`${count} ${SERVICE_DEFS[a.service].name}`,'heartland','corporate','town');
+    post(s,'building',-cost,`${count} ${SERVICE_DEFS[a.service].name}`,'heartland','corporate');
     if(group){group.count+=count;group.cost=round2(group.cost+cost);}
     else{const svc={id:nextId(s),type:a.service,district:a.district,count,cost,active:true,staffed:0,funded:false};t.services.push(svc);if(a.service!=='road')placeNew(s,'heartland',`svc:${svc.id}`,a.at);}
     return {ok:true};

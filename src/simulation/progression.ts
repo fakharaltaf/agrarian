@@ -66,7 +66,7 @@ export function advanceEra(s: GameState): string | null {
     if(next==='city')return 'Choose a City watch charter at the City watch.';
     if(next==='region')return 'Choose a border policy on the Region map.';
     if(next==='nation')return 'Choose your path on the Nation page.';
-    if (next === 'town') return 'Choose Public or Trade schools at the Town hall.';
+    if (next === 'town') return 'Open the Town hall to welcome newcomers.';
     if (next === 'settlement') return 'Choose the Company town or Free settlement charter on the Community page.';
     s.stageId = next;
     s.stageState[next] ??= STAGES[next].createState();

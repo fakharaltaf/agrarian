@@ -1,4 +1,4 @@
-import { SERVICE_DEFS,serviceJobs } from '../../simulation/town-state';
+import { SERVICE_DEFS, SERVICE_GROUPS, SERVICE_RADIUS, serviceJobs, townOf } from '../../simulation/town-state';
 import type { ServiceType } from '../../simulation/types';
 import { communityOf, population, residentWorkers } from '../../simulation/community-state';
 // The 3D farm. A live, lit, low-poly picture of the simulation: everything shown is read from game state.
@@ -600,6 +600,19 @@ function syncGhost(R: Rig, s: GameState, P: Placement | null, forest: [number, n
     const edge = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(P.w, 0.25, P.d)), new THREE.LineBasicMaterial({ color: ok ? 0x2f8f3a : 0xa02a1a }));
     edge.position.set(P.at[0] + P.w / 2, 0.13, P.at[1] + P.d / 2);
     R.ghost.add(edge);
+    // a town service shows how far it reaches, with the reach of the ones already built of the same kind
+    const svcType = P.action.type === 'buildService' ? P.action.service : P.key?.startsWith('svc:') ? townOf(s).services.find((b) => `svc:${b.id}` === P.key)?.type : undefined;
+    const rad = svcType ? SERVICE_RADIUS[svcType] : undefined;
+    if (svcType && rad) {
+      const group = Object.values(SERVICE_GROUPS).find((g) => (g as readonly string[]).includes(svcType)) as readonly string[] | undefined ?? [svcType];
+      const ring = (x: number, z: number, r: number, strong: boolean) => {
+        R.ghost.add(mesh(new THREE.RingGeometry(r - (strong ? 0.18 : 0.1), r, 72).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: strong ? 0x2f86c8 : 0x6aa8d4, transparent: true, opacity: strong ? 0.85 : 0.5, side: THREE.DoubleSide, depthWrite: false }), x, 0.06, z, false));
+        if (strong) R.ghost.add(mesh(new THREE.CircleGeometry(r, 72).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x2f86c8, transparent: true, opacity: 0.1, depthWrite: false }), x, 0.05, z, false));
+      };
+      ring(P.at[0] + P.w / 2, P.at[1] + P.d / 2, rad, true);
+      const pos = worldOf(s, P.region).pos;
+      for (const b of townOf(s).services) if (group.includes(b.type) && `svc:${b.id}` !== P.key) { const q = pos[`svc:${b.id}`]; if (q) ring(q[0] + 1.5, q[1] + 1.5, SERVICE_RADIUS[b.type] ?? 10, false); }
+    }
     return;
   }
   if (forest) for (const c of patchesAround(s, R.region, forest[0], forest[1], 3)) {
