@@ -163,6 +163,11 @@ export function diagnose(s: GameState): Diagnosis {
     if (ret > 2) working.push(`Crops return ${ret.toFixed(1)}× their seed`);
   }
 
+  // the town's public services, paid for by advances from the company
+  const town = rate(['townTransfer']);
+  if (town > Math.max(200, profit * 0.25)) add({ id: 'townDrain', icon: '🏛', page: 'town', gain: town,
+    title: `The town costs you ${r0(town)}/day`, proof: `${profit > 0 ? `${pct(town / profit)} of what the farm makes` : 'on top of a loss'} · raise the town tax or pause services it doesn't need` });
+
   // the tax bill is the one cost that lands all at once: flag it before it empties the bank
   if (s.taxBill && s.taxBill.amount > s.cash) {
     const left = Math.max(0, s.taxBill.dueDay - today);
