@@ -12,7 +12,7 @@ import {
   CONFIG, CROPS, DAYS_PER_YEAR, GOODS, GRAINS, REGIONS, REGION_IDS, SAME_COUNTRY, TICKS_PER_DAY, TICKS_PER_YEAR, TRADEABLE,
   distance, type CropId, type GoodId, type RegionId,
 } from './config';
-import { activeEvents, clamp, day, fuelPrice, freeSpace, gauss, has, hour, log, post, random, refPrice, round2, severity } from './core';
+import { activeEvents, clamp, day, fuelPrice, freeSpace, gauss, has, hour, log, post, random, refPrice, round2, severity, leaning } from './core';
 import { qualityMult } from './agriculture';
 import type { GameState, Market } from './types';
 
@@ -325,7 +325,7 @@ export function quoteSell(s: GameState, r: RegionId, g: GoodId, qty: number): Qu
   let limitedBy: string | undefined;
   if (h.viaSpot > 0) limitedBy = `Regular haulage is full today: ${Math.round(h.viaSpot).toLocaleString('en-US')} units go by short-notice lorry at 3× the rate. Own trucks are cheapest.`;
   const rate=retailPremium(s,r,g)-1,retailQty=rate>0?Math.min(qty,retailAllowance(s,r,g).left):0;
-  const quality=qualityMult(s.regions[r].quality[g]??.65);
+  const quality=qualityMult(s.regions[r].quality[g]??.65)*(leaning(s).clean&&GOODS[g].kind!=='input'?1.05:1); // a clean farm's good name
   const retailValue=bookValue(s,g,m,retailQty,1)*(1-DEALER_SPREAD)*rate*quality;
   const gross=bookValue(s,g,m,qty,1)*(1-DEALER_SPREAD)*quality+retailValue;
   const priceAfter = priceFromInv(s, g, m, m.inv + qty, m.impact + qty / depth(m));

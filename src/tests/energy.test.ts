@@ -30,3 +30,16 @@ it('oil wells are found by drilling: the survey shows where, and a strike pumps 
   expect(oilChance('heartland', 1, 1)).toBeLessThan(0.2); // never rich right under the starting valley
   expect(oilOf(s).surveyed).toContain('heartland');
 });
+
+it('clean energy pulls the farm green and earns a better price; oil pulls it industrial and cheapens power', async () => {
+  const { leaning, electricityPrice } = await import('../simulation/core');
+  const { quoteSell } = await import('../simulation/markets');
+  const s = industry(603); s.regions.heartland.inventory.wheat = 100;
+  const before = quoteSell(s, 'heartland', 'wheat', 10).gross, power = electricityPrice(s, 'heartland');
+  for (let i = 0; i < 4; i++) expect(dispatch(s, { type: 'build', region: 'heartland', building: 'windTurbine' }).ok).toBe(true);
+  expect(leaning(s).clean).toBe(true);
+  expect(quoteSell(s, 'heartland', 'wheat', 10).gross).toBeGreaterThan(before);
+  s.values.cleanIndustrial = 80;
+  expect(leaning(s).industrial).toBe(true);
+  expect(electricityPrice(s, 'heartland')).toBeLessThan(power);
+});

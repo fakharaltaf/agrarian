@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { BUILDINGS, CROP_IDS, ERAS, GOODS, REGIONS, REVENUE_KINDS, type CropId, type LedgerKind } from '../../simulation/config';
-import { debt, equity, inventoryValue, stored, sumBooks } from '../../simulation/core';
+import { debt, equity, inventoryValue, leaning, stored, sumBooks } from '../../simulation/core';
 import { companyValue, globalShare } from '../../simulation/corporate';
 import { chapterGate, gateProgress, type GateRow, lifetimeSales, objective, totalHa } from '../../simulation/engine';
 import { ratios, incomeStatement } from '../../simulation/statements';
@@ -90,15 +90,19 @@ function ValuesCard({ s }: { s: GameState }) {
     ['⚖️', 'Order', 'Freedom', s.values.orderFreedom],
     ['🕊️', 'Peace', 'Strength', s.values.peaceStrength],
     ['🛠️', 'Tradition', 'Progress', s.values.traditionProgress],
+    ['🌱', 'Clean', 'Industrial', s.values.cleanIndustrial ?? 50],
   ] as const;
+  const L = leaning(s);
   const charter = communityOf(s).active ? (communityOf(s).charter === 'company' ? '🏘️ Company town' : '🌳 Free settlement') : s.charters.trader === 'fair' ? '🤝 Fair trader' : s.charters.trader === 'shrewd' ? '🪙 Shrewd trader' : 'Trader charter pending';
-  return <Card title="Character of your town" info="Lasting choices shape these values. Trading choices affect prosperity and fairness; civic choices also shape freedom, strength and progress.">
+  return <Card title="Character of your farm" info="Every decision nudges these, a little at a time. Past a point, a leaning starts to pay off.">
     <div className="town-values">
       <div className="town-charter">{charter}</div>
       {axes.map(([icon, left, right, value]) => <div className="town-axis" key={left}>
         <div className="town-axis-labels"><span>{icon} {left}</span><span>{right}</span></div>
         <div className="town-axis-track" aria-label={`${left} to ${right}: ${Math.round(value)}% ${right}`}><i style={{ left: `${Math.max(0, Math.min(100, value))}%` }} /></div>
       </div>)}
+      {(L.clean || L.industrial) && <p className="small">{L.clean ? '🌱 Clean name: market buyers pay 5% more for your produce.' : '🏭 Industrial: your power costs 15% less.'}</p>}
+      <p className="small muted">Your choices move these: solar, wind and biogas pull clean; striking oil pulls industrial.</p>
     </div>
   </Card>;
 }

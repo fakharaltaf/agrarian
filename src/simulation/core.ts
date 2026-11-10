@@ -103,7 +103,18 @@ export const refPrice = (s: GameState, g: GoodId) => GOODS[g].basePrice * s.macr
 
 /** Wages and land are local-currency costs: local inflation and the exchange rate both move them. */
 export const marketWage = (s: GameState, r: RegionId) => usd(s, r, REGIONS[r].wage * s.regions[r].cpi);
-export const electricityPrice = (s: GameState, r: RegionId) => 0.12 * s.macro.cpi * Math.sqrt(s.macro.energy) * (r === 'arid' ? 1.15 : r === 'tropics' ? 0.9 : 1);
+export const electricityPrice = (s: GameState, r: RegionId) => 0.12 * s.macro.cpi * Math.sqrt(s.macro.energy) * (r === 'arid' ? 1.15 : r === 'tropics' ? 0.9 : 1) * (leaning(s).industrial ? 0.85 : 1);
+/** Character of the farm, decided by many small choices rather than one fork. */
+export const LEAN_AT = 30;
+export function leaning(s: GameState) {
+  const ci = s.values?.cleanIndustrial ?? 50;
+  return { clean: ci <= LEAN_AT, industrial: ci >= 100 - LEAN_AT };
+}
+/** Nudge a value axis (0–100). */
+export function lean(s: GameState, axis: keyof GameState['values'], by: number) {
+  const v = s.values as unknown as Record<string, number>;
+  v[axis] = Math.max(0, Math.min(100, (v[axis] ?? 50) + by));
+}
 export const fuelPrice = (s: GameState, r: RegionId) => priceUsd(s, r, 'fuel');
 export const landPricePerHa = (s: GameState, r: RegionId) => (REGIONS[r].landPrice / REGIONS[r].fx0) * s.regions[r].cpi * s.regions[r].fx * (1 + 0.02 * s.regions[r].parcelsBought);
 

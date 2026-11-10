@@ -297,7 +297,8 @@ export interface BarterOffer {
 export interface HomesteadState { day: number; mood: number; offers: BarterOffer[] }
 export interface MarketTownState { lastMarketDay: number }
 export type TraderCharter = 'fair' | 'shrewd';
-export interface TownValues { prosperityFairness: number; orderFreedom: number; peaceStrength: number; traditionProgress: number }
+/** Each axis runs 0–100. cleanIndustrial: 0 clean energy, 100 heavy industry (oil). Everyday decisions nudge them. */
+export interface TownValues { prosperityFairness: number; orderFreedom: number; peaceStrength: number; traditionProgress: number; cleanIndustrial?: number }
 export type SettlementCharter = 'company' | 'free';
 export type HomeTier = 'cottage' | 'terrace' | 'apartment';
 export interface CommunityHome { id: number; tier: HomeTier; count: number; cost: number }

@@ -47,7 +47,7 @@ it('legacy saves migrate to their matching stage without advancing or changing t
   expect(migrated.stageId).toBe('city');
   expect(migrated.stageState.city).toEqual(createCityState());
   expect(migrated.charters).toEqual({ trader: null });
-  expect(migrated.values).toEqual({ prosperityFairness: 50, orderFreedom: 50, peaceStrength: 50, traditionProgress: 50 });
+  expect(migrated.values).toMatchObject({ prosperityFairness: 50, orderFreedom: 50, peaceStrength: 50, traditionProgress: 50 });
 });
 it('version-5 roadmap saves gain neutral charter values without losing their chosen progression', () => {
   const old = structuredClone(createGame(48)) as unknown as Record<string, unknown>;
@@ -55,7 +55,7 @@ it('version-5 roadmap saves gain neutral charter values without losing their cho
   const migrated = parseSave(JSON.stringify({ version: 5, savedAt: 20, game: old })).game;
   expect(migrated.legacyProgression).toBe(false);
   expect(migrated.charters).toEqual({ trader: null });
-  expect(migrated.values).toEqual({ prosperityFairness: 50, orderFreedom: 50, peaceStrength: 50, traditionProgress: 50 });
+  expect(migrated.values).toMatchObject({ prosperityFairness: 50, orderFreedom: 50, peaceStrength: 50, traditionProgress: 50 });
   expect(migrated.stageId).toBe('homestead');
 });
 it('player chapter advancement synchronizes the stable stage id', () => {
