@@ -10,7 +10,7 @@ import { Card, Modal } from './ui';
 // Re-read once per game day, or straight away when the player changes something the advice is about.
 let cache: { key: string; d: Diagnosis } | null = null;
 export function advice(s: GameState) {
-  const key = [day(s), s.advisor, s.workers.map((w) => w.id).join('.'), s.fields.map((f) => `${f.id}${f.spreading ? 's' : ''}`).join('.'), s.buildings.length, s.machines.length].join('|');
+  const key = [day(s), s.advisor, s.taxBill?.amount ?? 0, s.taxBill && s.taxBill.amount > s.cash, s.workers.map((w) => w.id).join('.'), s.fields.map((f) => `${f.id}${f.spreading ? 's' : ''}`).join('.'), s.buildings.length, s.machines.length].join('|');
   if (cache?.key !== key) cache = { key, d: diagnose(s) };
   return cache.d;
 }
@@ -27,6 +27,12 @@ function AdvisorBody({ d, onGo }: { d: Diagnosis; onGo?: () => void }) {
         <span>Sales</span><i style={{ width: `${(d.revenue / max) * 100}%` }} className="up" /><b>{money(d.revenue)}</b>
         <span>Costs</span><i style={{ width: `${(d.costs / max) * 100}%` }} className="down" /><b>{money(d.costs)}</b>
       </div>
+      {Math.abs(d.cash - d.profit) > 1 && (
+        <div className="adv-cash small">
+          Cash <b className={d.cash < 0 ? 'down' : 'up'}>{d.cash < 0 ? '−' : '+'}{money(Math.abs(Math.round(d.cash)))}/day</b>
+          <span className="muted"> after {d.below.filter((x) => x.perDay > 1).map((x) => x.label.toLowerCase()).join(', ') || 'other flows'}</span>
+        </div>
+      )}
       {d.advice.map((a, i) => (
         <div key={a.id} className="adv-tip">
           <span className="adv-n">{i + 1}</span>
@@ -44,9 +50,12 @@ function AdvisorBody({ d, onGo }: { d: Diagnosis; onGo?: () => void }) {
       {d.working.length > 0 && <div className="small muted">✅ {d.working.join(' · ')}</div>}
       {d.costLines.length > 0 && (
         <details>
-          <summary className="small" style={{ cursor: 'pointer' }}>Every cost (per day)</summary>
+          <summary className="small" style={{ cursor: 'pointer' }}>Where the money goes (per day)</summary>
           <dl className="facts small" style={{ marginTop: 6 }}>
             {d.costLines.map((c) => <Fragment key={c.label}><dt>{c.label}</dt><dd className="down">−{money(c.perDay)}</dd></Fragment>)}
+            {d.below.length > 0 && <><dt className="adv-sep"><b>Outside running the farm</b></dt><dd className="adv-sep" /></>}
+            {d.below.map((c) => <Fragment key={c.label}><dt>{c.label}</dt><dd className={c.perDay > 0 ? 'down' : 'up'}>{c.perDay > 0 ? '−' : '+'}{money(Math.abs(c.perDay))}</dd></Fragment>)}
+            <dt><b>Cash per day</b></dt><dd className={d.cash < 0 ? 'down' : 'up'}><b>{money(d.cash)}</b></dd>
           </dl>
         </details>
       )}

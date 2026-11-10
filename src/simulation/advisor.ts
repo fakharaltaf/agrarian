@@ -18,6 +18,8 @@ export interface Diagnosis {
   revenue: number; costs: number; profit: number;
   /** every cost line, biggest first */ costLines: { label: string; perDay: number }[];
   /** profit if the top tips with a $ figure are followed */ after: number;
+  /** what actually happens to cash per day: profit plus loans, investment, tax and asset sales */ cash: number;
+  /** cash flows outside running the farm, positive = money out */ below: { label: string; perDay: number }[];
   /** finished days the rates are averaged over (0 = today so far) */ days: number;
   working: string[];
   advice: Advice[];
@@ -161,7 +163,18 @@ export function diagnose(s: GameState): Diagnosis {
     if (ret > 2) working.push(`Crops return ${ret.toFixed(1)}× their seed`);
   }
 
+  // the tax bill is the one cost that lands all at once: flag it before it empties the bank
+  if (s.taxBill && s.taxBill.amount > s.cash) {
+    const left = Math.max(0, s.taxBill.dueDay - today);
+    add({ id: 'taxShort', icon: '🧾', page: 'finance', gain: 0, weight: 1e12,
+      title: `Tax ${r0(s.taxBill.amount)} due ${left ? `in ${plural(left, 'day')}` : 'today'}: ${r0(s.taxBill.amount - s.cash)} short`,
+      proof: 'It is taken on the due day; sell stock or hold off on buying land so it does not go on the overdraft' });
+  }
+
   advice.sort((a, b) => (b.gain || b.weight || 0) - (a.gain || a.weight || 0));
   const top = advice.slice(0, 3);
-  return { revenue, costs, profit, costLines, after: profit + top.reduce((a, x) => a + x.gain, 0), days: full, working, advice: top };
+  const BELOW: [string, LedgerKind[]][] = [['Loan repayments', ['loanRepay']], ['Land, buildings & machines', ['land', 'building', 'machine', 'irrigation', 'acquisition']], ['Tax', ['tax']], ['Town', ['townTransfer']], ['New loans', ['loanIn']], ['Assets sold', ['assetSale']], ['Shareholders', ['sharesIssued', 'dividends', 'buyback']], ['Futures & insurance', ['futures', 'insurancePayout', 'margin']]];
+  const below = BELOW.map(([label, k]) => ({ label, perDay: rate(k) })).filter((x) => Math.abs(x.perDay) > 1);
+  const cash = profit - below.reduce((a, x) => a + x.perDay, 0);
+  return { revenue, costs, profit, costLines, after: profit + top.reduce((a, x) => a + x.gain, 0), days: full, working, advice: top, cash, below };
 }
