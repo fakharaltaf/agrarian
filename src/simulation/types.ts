@@ -464,6 +464,7 @@ export type Action =
   | { type: 'ship'; good: GoodId; qty: number; from: RegionId; to: RegionId; sell?: boolean }
   | { type: 'takeLoan'; amount: number; termDays: number }
   | { type: 'repayLoan'; loanId: number; amount: number }
+  | { type: 'buyLand'; region: RegionId; chunks: number[] }
   | { type: 'openFutures'; good: GoodId; contracts: number; days: number }
   | { type: 'closeFutures'; positionId: number }
   | { type: 'acceptContract'; contractId: number }

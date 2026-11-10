@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { CONFIG, CROPS, GOOD_IDS, REGION_IDS, TICKS_PER_DAY } from '../simulation/config';
 import { advance, createGame, dispatch, harvestField, quoteSell, step } from '../simulation/engine';
 import { capacity, debt, equity, has, post, reserveCap, reservedStock, stored, sumBooks } from '../simulation/core';
+import { chunksIn, clearRect, own, worldOf } from '../simulation/world';
 import { breakEven, dayPrice, lineEcon, upgradeOutlook } from '../simulation/lines';
 import { frostNight, isReady } from '../simulation/agriculture';
 const frostNightForTest = (s: GameState) => frostNight(s, 'heartland');
@@ -24,6 +25,7 @@ const toEra = (s: GameState, era: number) => {
   s.legacyProgression = true;
   s.era = era;
   for (const c of Object.keys(CROPS) as (keyof typeof CROPS)[]) if (CROPS[c].minEra <= era && !s.unlockedCrops.includes(c)) s.unlockedCrops.push(c);
+  if (era >= 3) { const w = worldOf(s, 'heartland'); own(w, chunksIn(-48, -40, 96, 96)); clearRect(w, -48, -40, 96, 96); } // these tests are not about land: give big farms room
 };
 
 describe('homestead loop', () => {

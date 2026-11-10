@@ -3,7 +3,7 @@ import { createGame, dispatch, step } from '../simulation/engine';
 import { post } from '../simulation/core';
 import { parseSave } from '../simulation/persistence';
 import { layoutRegion } from '../app/world/layout';
-import { clearedSet, findSpot, frontierPatches, placeProblem, worldOf } from '../simulation/world';
+import { chunkAt, chunkOrigin, clearedSet, findSpot, frontierPatches, landFrontier, placeProblem, worldOf } from '../simulation/world';
 
 it('building and buying never move what is already placed', () => {
   const s = createGame(1003), before = layoutRegion(s, 'heartland');
@@ -22,7 +22,14 @@ it('a chosen spot must be cleared, free and off the road; forest can be cleared 
   const w = worldOf(s, 'heartland');
   expect(placeProblem(s, 'heartland', 1, 1, { w: 3, d: 2 })).toBe('occupied'); // the farmhouse
   expect(placeProblem(s, 'heartland', 10, 5, { w: 3, d: 2 })).toBe('road');
-  expect(placeProblem(s, 'heartland', 60, 60, { w: 3, d: 2 })).toBe('forest');
+  expect(placeProblem(s, 'heartland', 60, 60, { w: 3, d: 2 })).toBe('unowned');
+  expect(dispatch(s, { type: 'clearForest', region: 'heartland', chunks: [chunkAt(60, 60)] }).ok).toBe(false); // not yours to clear
+  expect(dispatch(s, { type: 'buyLand', region: 'heartland', chunks: [chunkAt(60, 60)] }).ok).toBe(false); // must join your land
+  const land = landFrontier(s, 'heartland', 4), before = s.cash;
+  expect(dispatch(s, { type: 'buyLand', region: 'heartland', chunks: land }).ok).toBe(true);
+  expect(s.cash).toBeLessThan(before);
+  const [lx, ly] = chunkOrigin(land[0]);
+  expect(placeProblem(s, 'heartland', lx, ly, { w: 2, d: 2 })).toBe('forest'); // yours now, but still woodland
   expect(dispatch(s, { type: 'build', region: 'heartland', building: 'barn', at: [60, 60] }).ok).toBe(false);
   const cash = s.cash, chunks = frontierPatches(s, 'heartland', 4);
   expect(dispatch(s, { type: 'clearForest', region: 'heartland', chunks }).ok).toBe(true);

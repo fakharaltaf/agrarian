@@ -8,7 +8,7 @@ import {
 } from './config';
 import { buildingDivision, clamp, debt, factoryCrop, equity, freeSpace, has, known, log, marketWage, nextId, post, round2, todayBook } from './core';
 import { addGoods, canGrow, clearField, fertilizeField, fieldsTick, frostNight, harvestField, isManual, isReady, newField, plantField, spoilageDaily } from './agriculture';
-import { reconcileWorld, canPlaceNew, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, clearCost, clearedSet, FOOTPRINT, footprintOf, forget, MOVE_DOWNTIME, placeNew, placeProblem, plotSide, PROBLEM_TEXT, seedWorld, TIMBER_PER_PATCH, worldOf } from './world';
+import { reconcileWorld, buyable, canPlaceNew, LAND_HA_PER_PATCH, landCost, own, ownedSet, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, clearCost, clearedSet, FOOTPRINT, footprintOf, forget, MOVE_DOWNTIME, placeNew, placeProblem, plotSide, PROBLEM_TEXT, seedWorld, TIMBER_PER_PATCH, worldOf } from './world';
 import { buyAnimals, livestockDaily, sellAnimals } from './livestock';
 import { claimDaily, startDay } from './daily';
 import { createMarkets, drawWeather, executeBuy, executeSell, quoteBuy, macroDaily, marketsDaily, marketsTick, priceFromInv } from './markets';
@@ -161,7 +161,7 @@ const finite = (n: number) => Number.isFinite(n);
 export const homePlotPrice = (s: GameState) => Math.round(CONFIG.homePlotBase * CONFIG.homePlotGrowth ** (s.regions.heartland.homePlotsBought - 1) * s.macro.cpi);
 export const parcelPrice = (s: GameState, r: RegionId, ha: number) => {
   const per = (REGIONS[r].landPrice / REGIONS[r].fx0) * s.regions[r].cpi * s.regions[r].fx * (1 + 0.02 * s.regions[r].parcelsBought);
-  return Math.round(per * ha);
+  return Math.round(per * ha * 0.3); // fencing, ploughing and drainage: the land itself is bought by the patch
 };
 export const hireCost = (s: GameState, r: RegionId) => Math.round(marketWage(s, r) * 8); // recruiting: one day's pay
 export const trainCost = (s: GameState) => Math.round(300 * s.macro.cpi);
@@ -502,11 +502,22 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       if (b) b.movedUntil = s.tick + MOVE_DOWNTIME;
       return ok(b ? `Moved. It restarts in ${MOVE_DOWNTIME} hours.` : 'Moved.');
     }
+    case 'buyLand': {
+      if (!s.regions[a.region]?.unlocked) return fail('You have no operations there.');
+      if (!Array.isArray(a.chunks) || a.chunks.length > 25) return fail('Buy at most 25 patches at a time.');
+      const w = worldOf(s, a.region), chunks = buyable(w, [...new Set(a.chunks)].filter(Number.isInteger));
+      if (!chunks.length) return fail('Land you buy must join land you already own.');
+      const cost = landCost(s, a.region, chunks.length);
+      if (cost > s.cash) return fail(`That land costs $${cost.toLocaleString()}.`);
+      post(s, 'land', -cost, `Land: ${chunks.length} patch${chunks.length === 1 ? '' : 'es'} (${chunks.length * LAND_HA_PER_PATCH} ha)`, a.region);
+      own(w, chunks);
+      return ok(`Bought ${chunks.length * LAND_HA_PER_PATCH} ha. Clear the forest on it to farm or build.`);
+    }
     case 'clearForest': {
       if (!s.regions[a.region]?.unlocked) return fail('You have no operations there.');
       const w = worldOf(s, a.region), set = clearedSet(w), queued = new Set(w.queue.map((j) => j.chunk));
-      const chunks = [...new Set(a.chunks)].filter((c) => Number.isInteger(c) && c >= 0 && c < CHUNKS_X * CHUNKS_Y && !set.has(c) && !queued.has(c));
-      if (!chunks.length) return fail('That forest is already cleared or being cleared.');
+      const owned = ownedSet(w), chunks = [...new Set(a.chunks)].filter((c) => Number.isInteger(c) && c >= 0 && c < CHUNKS_X * CHUNKS_Y && !set.has(c) && !queued.has(c) && owned.has(c));
+      if (!chunks.length) return fail(a.chunks.some((c) => !owned.has(c)) ? 'You can only clear forest on land you own.' : 'That forest is already cleared or being cleared.');
       if (chunks.length > 25) return fail('Clear at most 25 patches at a time.');
       const cost = clearCost(s) * chunks.length;
       if (cost > s.cash) return fail(`Clearing costs $${cost.toLocaleString()}.`);

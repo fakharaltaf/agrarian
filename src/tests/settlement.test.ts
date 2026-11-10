@@ -1,4 +1,4 @@
-import { frontierPatches, worldOf } from '../simulation/world';
+import { frontierPatches, landFrontier, worldOf } from '../simulation/world';
 import { expect, it } from 'vitest';
 import { botAct } from './bot';
 import { createGame, dispatch, step } from '../simulation/engine';
@@ -69,6 +69,10 @@ it('a growing community aggregates families into compact cohorts; every home is 
   const s = ready(); post(s, 'sharesIssued', 20e6, 'Community capacity fixture');
   dispatch(s, { type: 'startSettlement', charter: 'free' });
   // Streets for 100 homes need room: clear forest at the edge of the farm first, as a player would.
+  expect(dispatch(s, { type: 'buyLand', region: 'heartland', chunks: landFrontier(s, 'heartland', 25) }).ok).toBe(true);
+  expect(dispatch(s, { type: 'buyLand', region: 'heartland', chunks: landFrontier(s, 'heartland', 25) }).ok).toBe(true); // homes for 200+ need two blocks of land
+  expect(dispatch(s, { type: 'clearForest', region: 'heartland', chunks: frontierPatches(s, 'heartland', 25) }).ok).toBe(true);
+  while (worldOf(s, 'heartland').queue.length) step(s);
   expect(dispatch(s, { type: 'clearForest', region: 'heartland', chunks: frontierPatches(s, 'heartland', 25) }).ok).toBe(true);
   while (worldOf(s, 'heartland').queue.length) step(s);
   expect(dispatch(s, { type: 'buildHomes', tier: 'apartment', count: 1 }).ok).toBe(false);

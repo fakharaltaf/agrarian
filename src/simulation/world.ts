@@ -1,6 +1,6 @@
 // The map: where every field and building stands, which forest is cleared, and clearing work in progress.
 // Positions are in tiles. The region is a fixed square of forest split into 4×4-tile patches ("chunks").
-import { BUILDING_TYPES, type BuildingType, type RegionId } from './config';
+import { BUILDING_TYPES, REGIONS, type BuildingType, type RegionId } from './config';
 import { DISTRICT_IDS } from './types';
 import type { Building, CivicService, CommunityHome, GameState } from './types';
 
@@ -14,7 +14,8 @@ export const MOVE_DOWNTIME = 6; // hours a moved building stands idle
 
 export type Footprint = { w: number; d: number };
 export interface ClearJob { chunk: number; hours: number }
-export interface RegionWorld { cleared: number[]; pos: Record<string, [number, number]>; queue: ClearJob[] }
+/** owned: patches the farm has bought (you can only clear, farm and build on your own land). */
+export interface RegionWorld { cleared: number[]; owned: number[]; pos: Record<string, [number, number]>; queue: ClearJob[] }
 export type WorldState = Partial<Record<RegionId, RegionWorld>>;
 
 /** Tiles each building occupies (x × y). */
@@ -30,17 +31,44 @@ export const HOME_BLOCKS = (h: CommunityHome) => Math.min(h.count, 8);
 export const homeFootprint = (h: CommunityHome): Footprint => { const n = HOME_BLOCKS(h); return { w: Math.min(n, 4) * 4 - 1, d: Math.ceil(n / 4) * 4 - 1 }; };
 export const SERVICE_FOOTPRINT: Footprint = { w: 3, d: 3 };
 
-export const worldOf = (s: GameState, r: RegionId): RegionWorld => ((s.world ??= {})[r] ??= { cleared: [], pos: {}, queue: [] });
+export const worldOf = (s: GameState, r: RegionId): RegionWorld => { const w = ((s.world ??= {})[r] ??= { cleared: [], owned: [], pos: {}, queue: [] }); w.owned ??= []; return w; };
 export const chunkAt = (x: number, y: number) => {
   const cx = Math.floor((x - MAP.x0) / CHUNK), cy = Math.floor((y - MAP.y0) / CHUNK);
   return cx < 0 || cy < 0 || cx >= CHUNKS_X || cy >= CHUNKS_Y ? -1 : cy * CHUNKS_X + cx;
 };
 export const chunkOrigin = (c: number): [number, number] => [MAP.x0 + (c % CHUNKS_X) * CHUNK, MAP.y0 + Math.floor(c / CHUNKS_X) * CHUNK];
-const clearedSets = new WeakMap<number[], Set<number>>();
-export function clearedSet(w: RegionWorld) {
-  let set = clearedSets.get(w.cleared);
-  if (!set || set.size !== w.cleared.length) { set = new Set(w.cleared); clearedSets.set(w.cleared, set); }
-  return set;
+const sets = new WeakMap<number[], Set<number>>();
+const setOf = (list: number[]) => { let set = sets.get(list); if (!set || set.size !== list.length) { set = new Set(list); sets.set(list, set); } return set; };
+export const clearedSet = (w: RegionWorld) => setOf(w.cleared);
+export const ownedSet = (w: RegionWorld) => setOf(w.owned);
+/** Patches (cx, cy) in a rectangle of tiles, clipped to the map. */
+export function chunksIn(x: number, y: number, fw: number, fd: number) {
+  const out: number[] = [];
+  for (let yy = y; yy < y + fd; yy += CHUNK) for (let xx = x; xx < x + fw; xx += CHUNK) { const c = chunkAt(xx, yy); if (c >= 0) out.push(c); }
+  return out;
+}
+export function own(w: RegionWorld, chunks: number[]) { const set = ownedSet(w); for (const c of chunks) if (!set.has(c)) { set.add(c); w.owned.push(c); } }
+/** A new farm owns a 24×24-tile valley around its yard (the main road runs through it); everything else is for sale. */
+export const START_LAND = { x: -12, y: -8, w: 24, h: 24 };
+/** Price of one 4×4-tile patch (about 4 ha): the region's land price, a little dearer for every patch already bought. */
+export const LAND_HA_PER_PATCH = 4;
+export const landPrice = (s: GameState, r: RegionId, already = 0) => {
+  const bought = Math.max(0, worldOf(s, r).owned.length - 36) + already;
+  return Math.round((REGIONS[r].landPrice / REGIONS[r].fx0) * s.regions[r].cpi * s.regions[r].fx * LAND_HA_PER_PATCH * (1 + 0.02 * bought));
+};
+const neighbours = (c: number) => { const cx = c % CHUNKS_X, cy = Math.floor(c / CHUNKS_X); return [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dy]) => [cx + dx, cy + dy]).filter(([x, y]) => x >= 0 && y >= 0 && x < CHUNKS_X && y < CHUNKS_Y).map(([x, y]) => y * CHUNKS_X + x); };
+/** Patches for sale next to the farm's land, nearest the yard first. */
+export function landFrontier(s: GameState, r: RegionId, n: number) {
+  const w = worldOf(s, r), owned = ownedSet(w), [hx, hy] = w.pos[r === 'heartland' ? 'farmhouse' : 'shed'] ?? [1, 1], home = chunkAt(hx, hy);
+  const out: [number, number][] = [];
+  for (let c = 0; c < CHUNKS_X * CHUNKS_Y; c++) if (!owned.has(c) && neighbours(c).some((x) => owned.has(x))) out.push([c, ((c % CHUNKS_X) - (home % CHUNKS_X)) ** 2 + (Math.floor(c / CHUNKS_X) - Math.floor(home / CHUNKS_X)) ** 2]);
+  return out.sort((a, b) => a[1] - b[1] || a[0] - b[0]).slice(0, n).map((x) => x[0]);
+}
+/** Which of these patches can be bought together: each must join land already owned (or another patch in the same deal). */
+export function buyable(w: RegionWorld, chunks: number[]) {
+  const owned = new Set(w.owned), want = new Set(chunks.filter((c) => c >= 0 && c < CHUNKS_X * CHUNKS_Y && !owned.has(c))), out: number[] = [];
+  for (let grew = true; grew;) { grew = false; for (const c of want) if (neighbours(c).some((x) => owned.has(x))) { owned.add(c); want.delete(c); out.push(c); grew = true; } }
+  return out;
 }
 export const isRoad = (y: number) => y >= ROAD_Y && y < ROAD_Y + ROAD_H;
 
@@ -66,10 +94,11 @@ export function placedIn(s: GameState, r: RegionId): Placed[] {
 
 /** Occupancy grid with a summed-area table: O(1) rectangle checks for placement and free-spot search. */
 function occupancy(s: GameState, r: RegionId, ignore?: string, allowForest = false) {
-  const W = MAP.w, H = MAP.h, grid = new Uint8Array(W * H), w = worldOf(s, r), cleared = clearedSet(w);
+  const W = MAP.w, H = MAP.h, grid = new Uint8Array(W * H), w = worldOf(s, r), cleared = clearedSet(w), owned = ownedSet(w);
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const wx = x + MAP.x0, wy = y + MAP.y0;
-    if (isRoad(wy) || (!allowForest && !cleared.has(chunkAt(wx, wy)))) grid[y * W + x] = 1;
+    const c = chunkAt(wx, wy);
+    if (isRoad(wy) || !owned.has(c) || (!allowForest && !cleared.has(c))) grid[y * W + x] = 1;
   }
   for (const p of placedIn(s, r)) {
     if (p.key === ignore) continue;
@@ -88,19 +117,20 @@ function occupancy(s: GameState, r: RegionId, ignore?: string, allowForest = fal
     return d - b - c + a === 0;
   };
 }
-export type PlaceProblem = 'forest' | 'occupied' | 'road' | 'outside' | null;
+export type PlaceProblem = 'unowned' | 'forest' | 'occupied' | 'road' | 'outside' | null;
 /** Why a footprint cannot stand at (x, y), or null when it can. */
 export function placeProblem(s: GameState, r: RegionId, x: number, y: number, fp: Footprint, ignore?: string): PlaceProblem {
   if (!Number.isInteger(x) || !Number.isInteger(y)) return 'outside';
   if (x < MAP.x0 || y < MAP.y0 || x + fp.w > MAP.x0 + MAP.w || y + fp.d > MAP.y0 + MAP.h) return 'outside';
   for (let yy = y; yy < y + fp.d; yy++) if (isRoad(yy)) return 'road';
-  const cleared = clearedSet(worldOf(s, r));
+  const cleared = clearedSet(worldOf(s, r)), owned = ownedSet(worldOf(s, r));
+  for (let yy = y; yy < y + fp.d; yy++) for (let xx = x; xx < x + fp.w; xx++) if (!owned.has(chunkAt(xx, yy))) return 'unowned';
   for (let yy = y; yy < y + fp.d; yy++) for (let xx = x; xx < x + fp.w; xx++) if (!cleared.has(chunkAt(xx, yy))) return 'forest';
   if (!occupancy(s, r, ignore)(x, y, fp.w, fp.d)) return 'occupied';
   return null;
 }
 export const PROBLEM_TEXT: Record<Exclude<PlaceProblem, null>, string> = {
-  forest: 'That spot is forest. Clear it first.', occupied: 'Something already stands there.', road: 'You cannot build on the road.', outside: 'That is off the map.',
+  unowned: 'You do not own that land. Buy it first.', forest: 'That spot is forest. Clear it first.', occupied: 'Something already stands there.', road: 'You cannot build on the road.', outside: 'That is off the map.',
 };
 /** First free cleared spot, searched outward from the farmhouse. */
 export function findSpot(s: GameState, r: RegionId, fp: Footprint, allowForest = false): [number, number] | null {
@@ -128,14 +158,14 @@ export function placeNew(s: GameState, r: RegionId, key: string, at?: [number, n
   if (!fp) return 'Nothing to place.';
   if (at) { const p = placeProblem(s, r, at[0], at[1], fp); if (p) return PROBLEM_TEXT[p]; worldOf(s, r).pos[key] = [at[0], at[1]]; return null; }
   const spot = findSpot(s, r, fp);
-  if (!spot) return 'No cleared land is free. Clear forest to make room.';
+  if (!spot) return 'No free cleared land of yours. Clear forest or buy more land.';
   worldOf(s, r).pos[key] = spot;
   return null;
 }
 /** Check before money changes hands; the caller places after creating the object. */
 export function canPlaceNew(s: GameState, r: RegionId, fp: Footprint, at?: [number, number]): string | null {
   if (at) { const p = placeProblem(s, r, at[0], at[1], fp); return p ? PROBLEM_TEXT[p] : null; }
-  return findSpot(s, r, fp) ? null : 'No cleared land is free. Clear forest to make room.';
+  return findSpot(s, r, fp) ? null : 'No free cleared land of yours. Clear forest or buy more land.';
 }
 export const forget = (s: GameState, r: RegionId, key: string) => { delete worldOf(s, r).pos[key]; };
 
@@ -178,8 +208,9 @@ export function seedWorld(s: GameState, r: RegionId, wanted: Wanted = NONE) {
   }
   // Second and later buildings of a type used to share one picture; give each its own spot nearby.
   for (const b of extra) { const fp = footprintOf(s, `b:${b.id}`)!; const spot = findSpot(s, r, fp, true); if (spot) { w.pos[`b:${b.id}`] = spot; clearRect(w, spot[0], spot[1], fp.w, fp.d, 1); } }
-  // A new farm starts with room for the first chapter.
-  if (r === 'heartland' && s.fields.length <= 1) clearRect(w, -8, -8, 40, 32);
+  // A new farm owns its valley, cleared and ready; a new region starts with the same block around its shed.
+  if (s.fields.filter((f) => f.region === r).length <= 1) { const L = START_LAND; own(w, chunksIn(L.x, L.y, L.w, L.h)); clearRect(w, L.x, L.y, L.w, L.h); }
+  own(w, w.cleared); // a farm laid out before land ownership owns everything it had cleared
 }
 
 // ---------------------------------------------------------------- clearing work
@@ -191,17 +222,27 @@ export function forestNextToClearing(w: RegionWorld, c: number) {
 }
 /** Patches in a size×size block around a tile that are still forest. */
 export function patchesAround(s: GameState, r: RegionId, x: number, y: number, size: number) {
-  const w = worldOf(s, r), set = clearedSet(w), queued = new Set(w.queue.map((j) => j.chunk)), c0 = chunkAt(x, y), out: number[] = [];
+  const w = worldOf(s, r), set = clearedSet(w), owned = ownedSet(w), queued = new Set(w.queue.map((j) => j.chunk)), c0 = chunkAt(x, y), out: number[] = [];
   if (c0 < 0) return out;
   const cx = c0 % CHUNKS_X, cy = Math.floor(c0 / CHUNKS_X), half = Math.floor(size / 2);
   for (let dy = -half; dy < size - half; dy++) for (let dx = -half; dx < size - half; dx++) {
     const xx = cx + dx, yy = cy + dy;
     if (xx < 0 || yy < 0 || xx >= CHUNKS_X || yy >= CHUNKS_Y) continue;
     const c = yy * CHUNKS_X + xx;
-    if (!set.has(c) && !queued.has(c)) out.push(c);
+    if (owned.has(c) && !set.has(c) && !queued.has(c)) out.push(c);
   }
   return out;
 }
+
+/** Patches in a size×size block around a tile that are for sale and join the farm's land. */
+export function forSaleAround(s: GameState, r: RegionId, x: number, y: number, size: number) {
+  const c0 = chunkAt(x, y), out: number[] = [];
+  if (c0 < 0) return out;
+  const cx = c0 % CHUNKS_X, cy = Math.floor(c0 / CHUNKS_X), half = Math.floor(size / 2);
+  for (let dy = -half; dy < size - half; dy++) for (let dx = -half; dx < size - half; dx++) { const xx = cx + dx, yy = cy + dy; if (xx >= 0 && yy >= 0 && xx < CHUNKS_X && yy < CHUNKS_Y) out.push(yy * CHUNKS_X + xx); }
+  return buyable(worldOf(s, r), out);
+}
+export const landCost = (s: GameState, r: RegionId, n: number) => Array.from({ length: n }, (_, i) => landPrice(s, r, i)).reduce((a, b) => a + b, 0);
 
 // ---------------------------------------------------------------- reconcile
 
@@ -237,11 +278,11 @@ export function reconcileWorld(s: GameState, wanted: Wanted) {
 
 /** Forest patches on the edge of the clearing, nearest the farmhouse first: where a player would clear next. */
 export function frontierPatches(s: GameState, r: RegionId, n: number) {
-  const w = worldOf(s, r), set = clearedSet(w), queued = new Set(w.queue.map((j) => j.chunk));
+  const w = worldOf(s, r), set = clearedSet(w), owned = ownedSet(w), queued = new Set(w.queue.map((j) => j.chunk));
   const [hx, hy] = w.pos[r === 'heartland' ? 'farmhouse' : 'shed'] ?? [1, 1], home = chunkAt(hx, hy);
   const hcx = home % CHUNKS_X, hcy = Math.floor(home / CHUNKS_X), out: [number, number][] = [];
   for (let c = 0; c < CHUNKS_X * CHUNKS_Y; c++) {
-    if (set.has(c) || queued.has(c) || !forestNextToClearing(w, c)) continue;
+    if (!owned.has(c) || set.has(c) || queued.has(c) || !forestNextToClearing(w, c)) continue;
     const cx = c % CHUNKS_X, cy = Math.floor(c / CHUNKS_X);
     out.push([c, (cx - hcx) ** 2 + (cy - hcy) ** 2]);
   }

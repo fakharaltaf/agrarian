@@ -15,7 +15,7 @@ import { stageAtLeast } from '../../simulation/stages';
 import { preloadArt, artRevision } from './art';
 import { money, num, pct0 } from '../format';
 import { layoutRegion, type Layout, type Lot, type Plot } from './layout';
-import { CHUNK, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, MAP, ROAD_H, ROAD_Y, chunkAt, chunkOrigin, clearCost, clearedSet, isRoad, patchesAround, placeProblem, worldOf } from '../../simulation/world';
+import { CHUNK, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, LAND_HA_PER_PATCH, MAP, forSaleAround, landCost, ownedSet, ROAD_H, ROAD_Y, chunkAt, chunkOrigin, clearCost, clearedSet, isRoad, patchesAround, placeProblem, worldOf } from '../../simulation/world';
 import { animal, buildCivic, buildCommunityHome, buildLot, box, cached, cyl, mat, mesh, PAL, person, tree, vehicle, type Model } from './models';
 
 /** Graphics quality chosen in Settings (per browser). Low turns off shadows and high-DPI rendering. */
@@ -58,7 +58,7 @@ interface Rig {
   felling?: { chunk: number; trees: THREE.Group[]; fallAt: number[]; extras: THREE.Group };
 }
 
-export type WorldAction = 'harvest' | 'plant' | 'inspect' | 'plan' | 'place' | 'fertilise' | 'irrigate' | 'move' | 'movelot' | 'placeok' | 'placecancel' | 'clear1' | 'clear9';
+export type WorldAction = 'harvest' | 'plant' | 'inspect' | 'plan' | 'place' | 'fertilise' | 'irrigate' | 'move' | 'movelot' | 'placeok' | 'placecancel' | 'clear1' | 'clear9' | 'buy1' | 'buy9';
 
 export function Scene3D({ region, selected, onPick, plantLabel, onAction, selectedLot, placing, forestAt, placeCost }: { region: RegionId; selected: number[]; onPick: (p: WorldPick) => void; plantLabel?: string; selectedLot?: string; onAction?: (kind: WorldAction, fieldId: number) => void; placing?: Placement | null; forestAt?: [number, number] | null; placeCost?: number }) {
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -628,7 +628,7 @@ function syncDeco(R: Rig, L: Layout, s: GameState) {
   const reach = Math.min(150, 9 / R.zoom * 3 + 12), step = Math.max(6, reach / 4);
   const cx = Math.round(R.target.x / step) * step, cz = Math.round(R.target.z / step) * step, rb = Math.ceil(reach / 6) * 6;
   const bare = seasonOf(s) === 'Winter' && R.region !== 'tropics';
-  const sig = `${R.region}:${w.cleared.length}:${w.queue.map((j) => j.chunk).join(',')}:${cx},${cz},${rb}:${R.zoom < 0.5}:${bare}`;
+  const sig = `${R.region}:${w.cleared.length}:${w.owned.length}:${w.queue.map((j) => j.chunk).join(',')}:${cx},${cz},${rb}:${R.zoom < 0.5}:${bare}`;
   if (sig === R.sig.deco) return;
   R.sig.deco = sig;
   clear(R.deco);
@@ -662,6 +662,22 @@ function syncDeco(R: Rig, L: Layout, s: GameState) {
       ribbons.push(new THREE.Matrix4().makeTranslation(ox + CHUNK / 2 + Math.cos(r) * 1.4, 0, oy + CHUNK / 2 + Math.sin(r) * 1.4));
     }
   }
+  // the farm's boundary: low posts and a rail wherever land you own meets land you don't
+  const owned = ownedSet(w), rails: THREE.Matrix4[] = [], posts: THREE.Matrix4[] = [], turn = new THREE.Quaternion().setFromAxisAngle(up, Math.PI / 2), flat = new THREE.Quaternion(), one = new THREE.Vector3(1, 1, 1);
+  for (let gy = Math.max(0, gy0); gy <= Math.min(CHUNKS_Y - 1, gy1); gy++) for (let gxx = Math.max(0, gx0); gxx <= Math.min(CHUNKS_X - 1, gx1); gxx++) {
+    const c = gy * CHUNKS_X + gxx;
+    if (!owned.has(c)) continue;
+    const ox = MAP.x0 + gxx * CHUNK, oy = MAP.y0 + gy * CHUNK;
+    const edge = (nx: number, ny: number) => nx < 0 || ny < 0 || nx >= CHUNKS_X || ny >= CHUNKS_Y || !owned.has(ny * CHUNKS_X + nx);
+    const side = (x: number, z: number, along: boolean) => {
+      rails.push(new THREE.Matrix4().compose(new THREE.Vector3(x, 0.24, z), along ? flat : turn, one));
+      for (let i = 0; i < CHUNK; i += 2) posts.push(new THREE.Matrix4().makeTranslation(along ? x - CHUNK / 2 + i : x, 0, along ? z : z - CHUNK / 2 + i));
+    };
+    if (edge(gxx, gy - 1)) side(ox + CHUNK / 2, oy, true);
+    if (edge(gxx, gy + 1)) side(ox + CHUNK / 2, oy + CHUNK, true);
+    if (edge(gxx - 1, gy)) side(ox, oy + CHUNK / 2, false);
+    if (edge(gxx + 1, gy)) side(ox + CHUNK, oy + CHUNK / 2, false);
+  }
   const inst = (geo: THREE.BufferGeometry, material: THREE.Material, list: THREE.Matrix4[], cols?: THREE.Color[]) => {
     const im = new THREE.InstancedMesh(geo, material, Math.max(1, list.length));
     list.forEach((m, i) => { im.setMatrixAt(i, m); if (cols) im.setColorAt(i, cols[i]); });
@@ -677,6 +693,8 @@ function syncDeco(R: Rig, L: Layout, s: GameState) {
     inst(cached('forest-birch', () => merged(new THREE.IcosahedronGeometry(0.32, 0).scale(1, 1.5, 1).translate(0, 1.15, 0), new THREE.IcosahedronGeometry(0.22, 0).scale(1, 1.4, 1).translate(0.12, 0.85, 0.05))), R.crownMat, birches, birchCol);
   }
   inst(far ? cached('forest-pine-far', () => merged(new THREE.ConeGeometry(0.42, 0.75, 6).translate(0, 0.62, 0), new THREE.ConeGeometry(0.26, 0.55, 6).translate(0, 1.05, 0))) : cached('forest-pine', () => merged(new THREE.ConeGeometry(0.42, 0.55, 7).translate(0, 0.55, 0), new THREE.ConeGeometry(0.33, 0.48, 7).translate(0, 0.85, 0), new THREE.ConeGeometry(0.22, 0.4, 7).translate(0, 1.12, 0))), mat(0xffffff, { rough: 0.95 }), pines, pineCol.map((c) => c.clone().multiply(new THREE.Color(0x3f6b45))));
+  inst(cached('bound-rail', () => new THREE.BoxGeometry(CHUNK, 0.04, 0.04)), mat(0xc9a46a), rails);
+  inst(cached('bound-post', () => new THREE.BoxGeometry(0.07, 0.36, 0.07).translate(0, 0.18, 0)), mat(PAL.wood), posts);
   inst(cached('ribbon', () => merged(new THREE.CylinderGeometry(0.03, 0.03, 0.9, 5).translate(0, 0.45, 0), new THREE.BoxGeometry(0.28, 0.14, 0.02).translate(0.15, 0.8, 0))), mat(0xd23c2c), ribbons);
   void L;
 }
@@ -930,9 +948,15 @@ function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el
   if (placing) {
     // placement controls live in a fixed bar (Hud), so they never chase the ghost
   } else if (forestAt) {
-    const one = patchesAround(s, R.region, forestAt[0], forestAt[1], 1).length, nine = patchesAround(s, R.region, forestAt[0], forestAt[1], 3).length;
-    const [px, py] = project(forestAt[0] + 0.5, 1.6, forestAt[1] + 0.5);
-    want.push({ key: 'forest', x: Math.max(150, Math.min(W - 150, px)), y: Math.max(80, Math.min(H - 30, py)), cls: 'wl-radial', html: one || nine ? (one ? button('clear1:0', `🪓 Clear patch · $${num(clearCost(s))}`) : '') + (nine > 1 ? button('clear9:0', `🪓 Clear ${nine} · $${num(clearCost(s) * nine)}`) : '') + button('placecancel:0', '✕') : `<span class="wl-grow">Already being cleared</span>${button('placecancel:0', '✕')}` });
+    const [px, py] = project(forestAt[0] + 0.5, 1.6, forestAt[1] + 0.5), at = { key: 'forest', x: Math.max(150, Math.min(W - 150, px)), y: Math.max(80, Math.min(H - 30, py)), cls: 'wl-radial' };
+    if (ownedSet(worldOf(s, R.region)).has(chunkAt(forestAt[0], forestAt[1]))) {
+      const one = patchesAround(s, R.region, forestAt[0], forestAt[1], 1).length, nine = patchesAround(s, R.region, forestAt[0], forestAt[1], 3).length;
+      want.push({ ...at, html: one || nine ? (one ? button('clear1:0', `🪓 Clear patch · $${num(clearCost(s))}`) : '') + (nine > 1 ? button('clear9:0', `🪓 Clear ${nine} · $${num(clearCost(s) * nine)}`) : '') + button('placecancel:0', '✕') : `<span class="wl-grow">Already being cleared</span>${button('placecancel:0', '✕')}` });
+    } else {
+      // land beyond the farm's boundary: buy it first (it must join land you own)
+      const one = forSaleAround(s, R.region, forestAt[0], forestAt[1], 1).length, nine = forSaleAround(s, R.region, forestAt[0], forestAt[1], 3).length;
+      want.push({ ...at, html: one || nine ? (one ? button('buy1:0', `🏷 Buy ${LAND_HA_PER_PATCH} ha · $${num(landCost(s, R.region, 1))}`) : '') + (nine > 1 ? button('buy9:0', `🏷 Buy ${nine * LAND_HA_PER_PATCH} ha · $${num(landCost(s, R.region, nine))}`) : '') + button('placecancel:0', '✕') : `<span class="wl-grow">Not for sale yet: buy the land next to yours first</span>${button('placecancel:0', '✕')}` });
+    }
   }
   const queue = worldOf(s, R.region).queue;
   if (queue.length) {

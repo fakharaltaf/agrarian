@@ -8,7 +8,7 @@ import { CONFIG, CROPS, REGION_IDS, type BuildingType, type CropId, type GoodId,
 import { avg30, dispatch, homePlotPrice, isManual, isReady, parcelPrice, totalHa } from '../simulation/engine';
 import { seasonOf, stored } from '../simulation/core';
 import { communityOf, population, homeCapacity, availableResidents } from '../simulation/community-state';
-import { clearCost, findSpot, frontierPatches, worldOf } from '../simulation/world';
+import { CHUNK, chunkAt, chunkOrigin, clearCost, findSpot, forSaleAround, frontierPatches, landCost, landFrontier, ownedSet, worldOf } from '../simulation/world';
 import { canStartSettlement, larderReserve } from '../simulation/stages/settlement';
 import type { GameState } from '../simulation/types';
 
@@ -53,7 +53,18 @@ export function botAct(s: GameState, strategy: Strategy = 'balanced', civicPrior
   // Keep room to grow: clear forest at the edge of the farm when a big field no longer fits.
   for (const r of REGION_IDS) {
     if (!s.regions[r].unlocked || worldOf(s, r).queue.length) continue;
-    if (!findSpot(s, r, { w: 10, d: 10 }) && s.cash > clearCost(s) * 9 * 3) dispatch(s, { type: 'clearForest', region: r, chunks: frontierPatches(s, r, 9) });
+    if (!findSpot(s, r, { w: 10, d: 10 }) && s.cash > clearCost(s) * 9 * 3) {
+      // out of room: clear forest the farm owns, buying the next patches first when there is none left
+      if (frontierPatches(s, r, 9).length < 9 && s.cash > landCost(s, r, 9) * 2) {
+        // a compact 3×3 block pushing out from the boundary, so a big field fits in it
+        const owned = ownedSet(worldOf(s, r)), edge = landFrontier(s, r, 1)[0];
+        if (edge !== undefined) {
+          const [ex, ey] = chunkOrigin(edge), inward = [[CHUNK, 0], [-CHUNK, 0], [0, CHUNK], [0, -CHUNK]].find(([dx, dy]) => owned.has(chunkAt(ex + dx, ey + dy))) ?? [0, 0];
+          dispatch(s, { type: 'buyLand', region: r, chunks: forSaleAround(s, r, ex - inward[0], ey - inward[1], 3) });
+        }
+      }
+      dispatch(s, { type: 'clearForest', region: r, chunks: frontierPatches(s, r, 9) });
+    }
   }
 
   for (const r of REGION_IDS) {

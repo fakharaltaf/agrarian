@@ -9,7 +9,7 @@ import { buildingMargin } from '../../simulation/processing';
 import { DISCOVERIES, ERA_UNLOCK_TEXT, dailyGoals, dailyPrize, forecast, herdOf, homePlotPrice, housing, isManual, isReady, objective, chapterGate, gateProgress, type GateRow, PAGES, seedShortfall, upgradeCost } from '../../simulation/engine';
 import type { GameState } from '../../simulation/types';
 import { act, cancelPlacement, confirmPlacement, go, startPlacement, useGame, usePageState, useStore, type Placement } from '../../stores/game';
-import { footprintOf, patchesAround, placeProblem, plotSide, PROBLEM_TEXT } from '../../simulation/world';
+import { footprintOf, forSaleAround, patchesAround, placeProblem, plotSide, PROBLEM_TEXT } from '../../simulation/world';
 import { buildingPrice, moveFee, parcelPrice } from '../../simulation/engine';
 import { homePrice } from '../../simulation/community-state';
 import { servicePrice } from '../../simulation/town-state';
@@ -241,6 +241,7 @@ export function Hud() {
         selectedLot={lot?.key} onAction={(kind, id) => {
           if(kind==='placeok'){ if(confirmPlacement()) { setSel([]); setLot(null); } }
           else if(kind==='placecancel'){ cancelPlacement(); setForest(null); }
+          else if(kind==='buy1'||kind==='buy9'){ if(forest)act({type:'buyLand',region,chunks:forSaleAround(s,region,forest[0],forest[1],kind==='buy1'?1:3)}); } // the bubble stays open so the new land can be cleared next
           else if(kind==='clear1'||kind==='clear9'){ if(forest&&act({type:'clearForest',region,chunks:patchesAround(s,region,forest[0],forest[1],kind==='clear1'?1:3)}))setForest(null); }
           else if(kind==='move'){ const f=s.fields.find(x=>x.id===id); if(f){ const side=plotSide(f.ha); startPlacement({kind:'move',key:`field:${id}`,region:f.region,w:side,d:side,label:`Field ${id}`,action:{type:'seeTip',tip:''}}); setSel([]); } }
           else if(kind==='movelot'&&lot){ const fp=footprintOf(s,lot.place); if(fp){ startPlacement({kind:'move',key:lot.place,region,w:fp.w,d:fp.d,label:'Move',action:{type:'seeTip',tip:''}}); setLot(null); } }
