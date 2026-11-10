@@ -10,14 +10,15 @@ import { fieldMovable, timingFactor, fertility, growth, isMature, isReady } from
 import { priceUsd, stored } from '../../simulation/core';
 import { spreadNeed } from '../../simulation/agriculture';
 import type { GameState } from '../../simulation/types';
-import { getGame, getSpeed, moveGhost, roadHover, roadTap, startRoads, stopRoads, type Placement, type Roading } from '../../stores/game';
-import { stageAtLeast } from '../../simulation/stages';
+import { getGame, getSpeed, moveGhost, prospectHover, prospectTap, roadHover, roadTap, startProspect, startRoads, stopProspect, stopRoads, type Placement, type Roading } from '../../stores/game';
+import { featureEra, stageAtLeast } from '../../simulation/stages';
 import { preloadArt, artRevision } from './art';
 import { money, num, pct0 } from '../format';
 import { layoutRegion, type Layout, type Lot, type Plot } from './layout';
 import { CHUNK, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, LAND_HA_PER_PATCH, MAP, hasAccess, riverTiles, tileId, roadRoute, roadStretch, tileAt, forSaleAround, landCost, ownedSet, ROAD_H, ROAD_Y, chunkAt, chunkOrigin, clearCost, clearedSet, isRoad, patchesAround, placeProblem, worldOf } from '../../simulation/world';
 import { animal, buildCivic, buildCommunityHome, buildLot, box, cached, cyl, hauler, mat, mesh, PAL, person, tree, vehicle, type Model } from './models';
 import { haulOf, MARKET_X, marketRoute } from '../../simulation/hauling';
+import { oilChance, oilOf, surveyed } from '../../simulation/oil';
 
 /** Graphics quality chosen in Settings (per browser). Low turns off shadows and high-DPI rendering. */
 export const graphicsQuality = (): 'high' | 'low' => {
@@ -58,17 +59,18 @@ interface Rig {
   rain: THREE.Points; smoke: THREE.Sprite[]; pops: { key: string; text: string; x: number; z: number; t0: number; tone?: string }[]; seenHarvest: Map<number, object>; popsReady: boolean; crownMat: THREE.MeshStandardMaterial; lastHaul: number; layout: Layout | null; region: RegionId; animT?: number;
   roadsG: THREE.Group; roadSig: string; roadPrev: THREE.Group; roadPrevSig: string;
   haulers: Map<string, THREE.Group>; tickSeen: number; tickAt: number;
+  oilG: THREE.Group; oilSig: string;
   felling?: { chunk: number; trees: THREE.Group[]; fallAt: number[]; extras: THREE.Group };
 }
 
 export type WorldAction = 'harvest' | 'plant' | 'inspect' | 'plan' | 'place' | 'fertilise' | 'irrigate' | 'move' | 'movelot' | 'placeok' | 'placecancel' | 'clear1' | 'clear9' | 'buy1' | 'buy9';
 
-export function Scene3D({ region, selected, onPick, plantLabel, onAction, selectedLot, placing, forestAt, placeCost, roading }: { region: RegionId; selected: number[]; onPick: (p: WorldPick) => void; plantLabel?: string; selectedLot?: string; onAction?: (kind: WorldAction, fieldId: number) => void; placing?: Placement | null; forestAt?: [number, number] | null; placeCost?: number; roading?: Roading | null }) {
+export function Scene3D({ region, selected, onPick, plantLabel, onAction, selectedLot, placing, forestAt, placeCost, roading, prospect }: { region: RegionId; selected: number[]; onPick: (p: WorldPick) => void; plantLabel?: string; selectedLot?: string; onAction?: (kind: WorldAction, fieldId: number) => void; placing?: Placement | null; forestAt?: [number, number] | null; placeCost?: number; roading?: Roading | null; prospect?: { region: RegionId; hover?: [number, number] } | null }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const overlay = useRef<HTMLDivElement>(null);
   const rig = useRef<Rig | null>(null);
-  const live = useRef({ region, selected, onPick, plantLabel, onAction, selectedLot, placing, forestAt, placeCost, roading });
-  live.current = { region, selected, onPick, plantLabel, onAction, selectedLot, placing, forestAt, placeCost, roading };
+  const live = useRef({ region, selected, onPick, plantLabel, onAction, selectedLot, placing, forestAt, placeCost, roading, prospect });
+  live.current = { region, selected, onPick, plantLabel, onAction, selectedLot, placing, forestAt, placeCost, roading, prospect };
   const [hover, setHover] = useState<{ x: number; y: number; text: string[] } | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -113,7 +115,7 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
       lots: g(), fields: g(), units: g(), deco: g(), fx: g(), sel: g(), ghost: g(), ghostSig: '', models: [], pick: [], crops: {}, sig: { lots: '', fields: '', crops: '', sel: '', deco: '' },
       storageProps: g(), lastStockTick:-1, lastCash:getGame().cash, lastCoin:0,
       neighbours: [], people: new Map(), machines: new Map(), trucks: [], herds: new Map(), rain, smoke: [], pops: [], seenHarvest: new Map(), popsReady: false, crownMat: mat(CROWN.Spring).clone(), lastHaul: -1, layout: null, region,
-      roadsG: g(), roadSig: '', roadPrev: g(), roadPrevSig: '', haulers: new Map(), tickSeen: -1, tickAt: 0,
+      roadsG: g(), roadSig: '', roadPrev: g(), roadPrevSig: '', haulers: new Map(), tickSeen: -1, tickAt: 0, oilG: g(), oilSig: '',
     };
     rig.current = R;
     let raf = 0, framed = false, lastCrops = 0, viewSize = '', artVersion = artRevision();
@@ -143,6 +145,7 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
       syncDeco(R, L, s);
       syncRoads(R, s);
       syncRoadPreview(R, s, live.current.roading ?? null);
+      syncOil(R, s, live.current.prospect ?? null);
       syncStorage(R,L,s);
       animateUnits(R, L, s, now / 1000);
       animateFelling(R, s, now / 1000);
@@ -207,6 +210,7 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
         lastHover = performance.now();
         if (live.current.placing && e.pointerType === 'mouse') { ghostTo(e.clientX - r.left, e.clientY - r.top); return; }
         if (live.current.roading) { roadHover(groundAt(e.clientX - r.left, e.clientY - r.top)); return; }
+        if (live.current.prospect) { prospectHover(groundAt(e.clientX - r.left, e.clientY - r.top)); return; }
         const u = pickAt(e.clientX - r.left, e.clientY - r.top);
         const s = getGame();
         const L = rig.current?.layout;
@@ -230,6 +234,7 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
     };
     const up = (e: PointerEvent) => {
       const r = c.getBoundingClientRect();
+      if (pts.size === 1 && moved <= 4 && live.current.prospect) { const g = groundAt(e.clientX - r.left, e.clientY - r.top); if (e.pointerType === 'mouse' || (live.current.prospect.hover?.[0] === g?.[0] && live.current.prospect.hover?.[1] === g?.[1])) prospectTap(g); else prospectHover(g); pts.delete(e.pointerId); return; } // on touch: first tap shows the odds, second drills
       if (pts.size === 1 && moved <= 4 && live.current.roading) { const g = groundAt(e.clientX - r.left, e.clientY - r.top); roadHover(g); roadTap(g); pts.delete(e.pointerId); return; }
       if (pts.size === 1 && moved <= 4 && live.current.placing) {
         ghostTo(e.clientX - r.left, e.clientY - r.top);
@@ -312,6 +317,7 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
         <button className="icon-btn" aria-label="Zoom out" onClick={() => ctl().zoom(0.8)}>−</button>
         <button className="icon-btn" aria-label="Rotate left (Q)" title="Rotate (Q)" onClick={() => ctl().rotate(1)}>⟲</button>
         <button className="icon-btn" aria-label="Rotate right (E)" title="Rotate (E)" onClick={() => ctl().rotate(-1)}>⟳</button>
+        {featureEra(getGame(), 4) && <button className={`icon-btn${prospect ? ' on' : ''}`} aria-label="Oil" title="Oil: survey and drill" onClick={() => prospect ? stopProspect() : startProspect(region)}>🛢</button>}
         <button className={`icon-btn${roading ? ' on' : ''}`} aria-label="Roads" title="Roads: draw, upgrade or remove" onClick={() => roading ? stopRoads() : startRoads(region)}>🛤</button>
       </div>
     </div>
@@ -836,6 +842,31 @@ function animateHaul(R: Rig, s: GameState, t: number) {
     for (const [dx, i] of [[-3, 0], [0, 1], [3, 2]] as const) { const st = buildLot('shed', 2, 2, 'market').group; st.position.set(MARKET_X + dx - 1, 0, ROAD_Y - 3.2 - (i % 2) * 0.4); m.add(st); }
     m.add(box(0.1, 1.4, 0.1, PAL.woodDark, MARKET_X - 5, 0, ROAD_Y - 0.6), box(1.2, 0.4, 0.06, PAL.roofGreen, MARKET_X - 5, 1.1, ROAD_Y - 0.6));
     R.units.add(m);
+  }
+}
+
+/** Oil: dry holes always show; in oil mode, the survey's heat map and the spot under the cursor with its odds. */
+function syncOil(R: Rig, s: GameState, P: { region: RegionId; hover?: [number, number] } | null) {
+  const O = oilOf(s), dry = O.dry[R.region] ?? [], known = surveyed(s, R.region);
+  const sig = `${R.region}:${dry.length}:${!!P}:${known}:${P?.hover}:${s.buildings.length}`;
+  if (sig === R.oilSig) return;
+  R.oilSig = sig;
+  clear(R.oilG);
+  for (const [x, y] of dry) { const m = mesh(cached('dryhole', () => new THREE.CylinderGeometry(0.12, 0.2, 0.25, 8)), mat(0x6b6b6b), x + 1, 0.12, y + 1); R.oilG.add(m); }
+  if (!P) return;
+  if (known) { // heat map: darker, warmer patches are likelier to strike
+    const list: THREE.Matrix4[] = [], cols: THREE.Color[] = [];
+    for (let y = MAP.y0; y < MAP.y0 + MAP.h; y += CHUNK) for (let x = MAP.x0; x < MAP.x0 + MAP.w; x += CHUNK) {
+      const c = oilChance(R.region, x + 2, y + 2);
+      if (c < 0.12) continue;
+      list.push(new THREE.Matrix4().makeTranslation(x + 2, 0.06, y + 2)); cols.push(new THREE.Color().setHSL(0.08 - c * 0.08, 0.7, 0.55 - c * 0.35));
+    }
+    const im = new THREE.InstancedMesh(cached('oilheat', () => new THREE.BoxGeometry(CHUNK * 0.96, 0.02, CHUNK * 0.96)), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.45, depthWrite: false }), Math.max(1, list.length));
+    list.forEach((m, i) => { im.setMatrixAt(i, m); im.setColorAt(i, cols[i]); }); im.count = list.length; im.frustumCulled = false; R.oilG.add(im);
+  }
+  if (P.hover) {
+    const [hx, hy] = P.hover, ok = !placeProblem(s, R.region, hx - 1, hy - 1, { w: 2, d: 2 });
+    R.oilG.add(mesh(cached('oilspot', () => new THREE.BoxGeometry(2, 0.05, 2)), new THREE.MeshBasicMaterial({ color: ok ? 0xffc94d : 0xd04a3a, transparent: true, opacity: 0.6, depthWrite: false }), hx, 0.08, hy, false));
   }
 }
 

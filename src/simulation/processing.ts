@@ -12,6 +12,13 @@ import type { Building, GameState } from './types';
 
 export const EMA = 0.05;
 
+/** How windy each region is (1 = average); the coast is windiest, the tropics calmest. */
+export const WIND: Record<RegionId, number> = { heartland: 0.9, river: 0.8, arid: 1.2, coastal: 1.45, tropics: 0.7 };
+/** Wind this hour, 0.3–1.5× the regional average: gusty days and still ones, a little stronger in storms. */
+export function windOutput(s: GameState, r: RegionId) {
+  const d = Math.floor(s.tick / 24);
+  return WIND[r] * (0.3 + 0.7 * (0.5 + 0.5 * Math.sin(s.tick * 0.11 + d * 1.7))) * (1 + 0.3 * Math.min(1, s.regions[r].rainToday));
+}
 export function solarOutput(s: GameState, r: RegionId) {
   const h = hour(s);
   if (h < SUNRISE || h >= SUNSET) return 0;
@@ -45,7 +52,7 @@ export function buildingsTick(s: GameState) {
         if (r === 'heartland' && townOf(s).active) payHouseholds(s, staff * townOf(s).factoryShare);
       }
       if (def.coldKwh) reg.powerUse += def.coldKwh * (has(s, 'coldChain') ? 1.3 : 1);
-      const solar=def.solarKw?solarCapacity(b)*solarOutput(s,r):0;
+      const solar=(def.solarKw?solarCapacity(b)*solarOutput(s,r):0)+(def.windKw?def.windKw*levelMult(b.level)*windOutput(s,r):0);
       gen+=solar;
       if(solar>0)energySources.push({b,kwh:solar});
       if(!def.recipe&&(def.category==='energy'||def.category==='commerce')) {

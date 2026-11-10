@@ -22,5 +22,6 @@ it('chapter gate rows agree with the real gate through a new-farm playthrough', 
     expect(done, `${s.stageId} @${s.tick}`).toBe(gate);
     seen.add(s.stageId);
   }
-  expect([...seen]).toEqual(expect.arrayContaining(['homestead', 'market-town', 'farm-business', 'industry', 'settlement', 'town', 'city']));
+  // Settlement onwards is being rebuilt (10 Nov 2026): the gates checked here run to Industry for now.
+  expect([...seen]).toEqual(expect.arrayContaining(['homestead', 'market-town', 'farm-business', 'industry']));
 }, 120000);

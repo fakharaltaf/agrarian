@@ -366,6 +366,7 @@ export interface GameState {
   books: DayBook[];
   overdraftDays: number;
   haul?: import('./hauling').HaulState;
+  oil?: import('./oil').OilState;
   bankrupt: { reason: string } | null;
   era: number;
   /** Stable content-stage identity; the legacy era remains for save compatibility and existing rules. */
@@ -467,6 +468,8 @@ export type Action =
   | { type: 'repayLoan'; loanId: number; amount: number }
   | { type: 'buyLand'; region: RegionId; chunks: number[] }
   | { type: 'buyHorseCart' }
+  | { type: 'surveyOil'; region: RegionId }
+  | { type: 'drillOil'; region: RegionId; at: [number, number] }
   | { type: 'buildRoad'; region: RegionId; from: [number, number]; to: [number, number] }
   | { type: 'removeRoad'; region: RegionId; at: [number, number] }
   | { type: 'upgradeRoad'; region: RegionId; at: [number, number] }

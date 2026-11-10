@@ -1,4 +1,5 @@
 import { bestRetailCentre } from './facility-levels';
+import { DRILL_PRICE, oilChance, oilOf, SURVEY_PRICE, surveyed } from './oil';
 import { haulDaily, haulOf, haulTick, usesCarts, VEHICLES } from './hauling';
 import { emptyProductionReport } from './production-report';
 import { payHouseholds } from './town-state';
@@ -7,7 +8,7 @@ import { idleMachine, machineSaleValue } from './operations';
 import {
   BUILDINGS, CONFIG, CROPS, GOODS, GOOD_IDS, MACHINES, PERKS, REGIONS, REGION_IDS, TECH, TICKS_PER_DAY, type CropId, type GoodId, type RegionId,
 } from './config';
-import { buildingDivision, clamp, debt, factoryCrop, equity, freeSpace, has, known, log, marketWage, nextId, post, round2, todayBook } from './core';
+import { buildingDivision, clamp, debt, factoryCrop, equity, freeSpace, has, known, log, marketWage, nextId, post, random, round2, todayBook } from './core';
 import { addGoods, canGrow, clearField, fertilizeField, fieldsTick, frostNight, harvestField, isManual, isReady, newField, plantField, spoilageDaily } from './agriculture';
 import { reconcileWorld, buyable, connect, touch, IRRIGATION_CHANNEL_PRICE, waterRoute, isRoad, MAP, ROAD_GRADES, ROAD_H, roadRoute, roadStretch, roadTilePrice, tileId, canPlaceNew, LAND_HA_PER_PATCH, landCost, own, ownedSet, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, clearCost, clearedSet, FOOTPRINT, footprintOf, forget, MOVE_DOWNTIME, placeNew, placeProblem, plotSide, PROBLEM_TEXT, seedWorld, TIMBER_PER_PATCH, worldOf } from './world';
 import { buyAnimals, livestockDaily, sellAnimals } from './livestock';
@@ -472,6 +473,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       if (!featureEra(s, d.minEra)) return fail('Not available yet.');
       if (d.research && !has(s, d.research)) return fail(`Requires research: ${TECH[d.research].name}.`);
       if (!s.regions[a.region].unlocked) return fail('Expand into this region first.');
+      if (a.building === 'oilWell') return fail('Oil wells are found by drilling: use the oil survey on the map.');
       const gate = BUILDING_GATE[a.building];
       if (gate && !known(s, gate)) return fail('Not available yet.');
       if (a.building === 'cowshed' && !(s.legacyProgression ? s.era >= 3 : stageAtLeast(s, 'farm-business'))) return fail('Cowsheds arrive with the Farm Business chapter.');
@@ -515,6 +517,33 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       const b = kind === 'b' ? s.buildings.find((x) => x.id === +id) : undefined;
       if (b) b.movedUntil = s.tick + MOVE_DOWNTIME;
       return ok(b ? `Moved. It restarts in ${MOVE_DOWNTIME} hours.` : 'Moved.');
+    }
+    case 'surveyOil': {
+      if (!featureEra(s, 4)) return fail('Oil exploration opens with Industry.');
+      if (!s.regions[a.region]?.unlocked) return fail('You have no operations there.');
+      if (surveyed(s, a.region)) return fail('This region is already surveyed.');
+      const cost = Math.round(SURVEY_PRICE * s.macro.cpi);
+      if (cost > s.cash) return fail(`A geological survey costs $${cost.toLocaleString()}.`);
+      post(s, 'research', -cost, `Geological survey: ${REGIONS[a.region].name}`, a.region, 'energy');
+      oilOf(s).surveyed.push(a.region);
+      return ok('The survey is in: darker ground on the map is likelier to hold oil.');
+    }
+    case 'drillOil': {
+      if (!featureEra(s, 4)) return fail('Oil exploration opens with Industry.');
+      const at = a.at, problem = placeProblem(s, a.region, at[0], at[1], { w: 2, d: 2 });
+      if (problem) return fail(PROBLEM_TEXT[problem]);
+      const cost = Math.round(DRILL_PRICE * s.macro.cpi);
+      if (cost > s.cash) return fail(`Drilling costs $${cost.toLocaleString()}.`);
+      post(s, 'building', -cost, 'Exploration well', a.region, 'energy');
+      if (random(s) < oilChance(a.region, at[0] + 1, at[1] + 1)) {
+        const id = nextId(s);
+        s.buildings.push({ id, type: 'oilWell', region: a.region, active: true, level: 1, cost, depreciated: 0, util: 0, reserved: 0, reason: '', productionReport: emptyProductionReport(), stats: { out: 0, inCost: 0, outValue: 0, opCost: 0 } });
+        placeNew(s, a.region, `b:${id}`, at);
+        log(s, 'opportunity', 'Oil! The exploration well struck crude. It now pumps oil you can sell at the market.', 'production');
+        return ok('🛢 Strike! The well is pumping crude oil.');
+      }
+      ((oilOf(s).dry[a.region] ??= [])).push([at[0], at[1]]);
+      return ok('Dry hole: no oil here. Darker ground on the survey is a better bet.');
     }
     case 'buyHorseCart': {
       if (!usesCarts(s, 'heartland')) return fail('Carts carry goods to the market from Market Town on.');

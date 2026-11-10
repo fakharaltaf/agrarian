@@ -1,4 +1,5 @@
 import { bestCrop } from '../crops';
+import { DRILL_PRICE, oilChance, SURVEY_PRICE, surveyed } from '../../simulation/oil';
 import {cityActive} from '../../simulation/city-state';
 import { townOf } from '../../simulation/town-state';
 // Everything that floats over the world: objective, selection panel, market, land, region switcher.
@@ -8,7 +9,7 @@ import { known } from '../../simulation/core';
 import { buildingMargin } from '../../simulation/processing';
 import { DISCOVERIES, ERA_UNLOCK_TEXT, dailyGoals, dailyPrize, forecast, herdOf, homePlotPrice, housing, isManual, isReady, objective, chapterGate, gateProgress, type GateRow, PAGES, seedShortfall, upgradeCost } from '../../simulation/engine';
 import type { GameState } from '../../simulation/types';
-import { act, cancelPlacement, confirmPlacement, go, setRoadTool, startPlacement, stopRoads, useGame, usePageState, useStore, type Placement, type Roading } from '../../stores/game';
+import { act, cancelPlacement, confirmPlacement, go, setRoadTool, startPlacement, stopProspect, stopRoads, useGame, usePageState, useStore, type Placement, type Roading } from '../../stores/game';
 import { footprintOf, forSaleAround, ROAD_GRADES, roadTilePrice, worldOf, patchesAround, placeProblem, plotSide, PROBLEM_TEXT } from '../../simulation/world';
 import { buildingPrice, moveFee, parcelPrice } from '../../simulation/engine';
 import { homePrice } from '../../simulation/community-state';
@@ -151,7 +152,7 @@ export function Hud() {
   const [lot, setLot] = useState<Lot | null>(null);
   const [chosen, setCrop] = useState<CropId | null>(null);
   const [forest, setForest] = useState<[number, number] | null>(null);
-  const placing = useStore((x) => x.placing), roading = useStore((x) => x.roading);
+  const placing = useStore((x) => x.placing), roading = useStore((x) => x.roading), prospect = useStore((x) => x.prospect);
   const [panel, setPanel] = useState(false);
   const [journal, setJournal] = useState(false);
   const dragStart = useRef<number | null>(null);
@@ -237,7 +238,7 @@ export function Hud() {
     <div className="hud">
       <DiscoveryCard s={s} />
       <Scene3D region={region} selected={lot ? [] : sel} onPick={onPick} plantLabel={plantLabel(s, crop, one)}
-        placing={placing} forestAt={forest} placeCost={placing ? placementCost(s, placing) : 0} roading={roading}
+        placing={placing} forestAt={forest} placeCost={placing ? placementCost(s, placing) : 0} roading={roading} prospect={prospect}
         selectedLot={lot?.key} onAction={(kind, id) => {
           if(kind==='placeok'){ if(confirmPlacement()) { setSel([]); setLot(null); } }
           else if(kind==='placecancel'){ cancelPlacement(); setForest(null); }
@@ -260,6 +261,7 @@ export function Hud() {
         }} />
       {placing && <PlacementBar s={s} p={placing} />}
       {roading && <RoadBar s={s} r={roading} />}
+      {prospect && <OilBar s={s} p={prospect} />}
       <div className={`hud-left${journal ? ' journal-open' : ''}`} hidden={page !== 'farm'}>
         <ObjectiveCard s={s} />
         <div id="coach-slot" className="coach-slot" />
@@ -298,6 +300,18 @@ export function Hud() {
 }
 
 /** Fixed controls while placing: they never move with the ghost. With a mouse, clicking the map places it. */
+function OilBar({ s, p }: { s: GameState; p: { region: RegionId; hover?: [number, number] } }) {
+  const known = surveyed(s, p.region), drill = Math.round(DRILL_PRICE * s.macro.cpi), survey = Math.round(SURVEY_PRICE * s.macro.cpi);
+  const odds = p.hover && known ? oilChance(p.region, p.hover[0], p.hover[1]) : null;
+  const touch = !matchMedia('(pointer: fine)').matches;
+  const hint = !known ? 'Drilling blind rarely strikes. A survey maps where the oil lies.' : odds !== null ? `Here: about ${Math.round(odds * 100)}% chance of oil · ${touch ? 'tap again to drill' : 'click to drill'} · ${money(drill)}` : `Darker ground is likelier · ${touch ? 'tap a spot to see the odds' : 'click a spot to drill'} · ${money(drill)}`;
+  return <div className="placement-bar road-bar" role="dialog" aria-label="Oil">
+    <div className="placement-info"><b>🛢 Oil</b><span className="muted">{hint}</span></div>
+    {!known && <button className="btn primary" disabled={survey > s.cash} onClick={() => act({ type: 'surveyOil', region: p.region })}>Survey · {money(survey)}</button>}
+    <button className="btn ghost" onClick={() => stopProspect()}>Done</button>
+  </div>;
+}
+
 function RoadBar({ s, r }: { s: GameState; r: Roading }) {
   const w = worldOf(s, r.region), price = roadTilePrice(s, 1);
   const hint = r.tool === 'draw' ? (r.from ? `Tap where it goes next · ${money(price)} a tile` : 'Tap where the road starts') : r.tool === 'upgrade' ? `Tap a road to upgrade that stretch (main road: ${ROAD_GRADES[w.main].toLowerCase()})` : 'Tap a stretch of road to remove it';

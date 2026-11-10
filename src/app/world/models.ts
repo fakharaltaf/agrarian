@@ -330,6 +330,29 @@ export function buildLot(type: Lot['type'], w: number, d: number, variant = ''):
         g.add(box(0.05, 0.45, 0.05, PAL.metalDark, 0.7 + c * 1.15, 0, 0.5 + r * 0.9));
       }
       break;
+    case 'windTurbine': {
+      g.add(box(1.2, 0.1, 1.2, PAL.stone, 1, 0, 1)); // foundation
+      g.add(cyl(0.14, 3.6, PAL.white, 1, 0.1, 1, 12, 0.08)); // tapering tower
+      g.add(box(0.5, 0.22, 0.24, PAL.white, 1, 3.65, 0.95)); // nacelle
+      const rotor = new THREE.Group(); rotor.position.set(1, 3.76, 1.12);
+      rotor.add(sphere(0.08, PAL.white, 0, 0, 0));
+      for (let i = 0; i < 3; i++) { const blade = new THREE.Group(); blade.rotation.z = (i * Math.PI * 2) / 3; blade.add(mesh(cached('turbineBlade', () => new THREE.BoxGeometry(0.1, 1.5, 0.03)), mat(PAL.white), 0, 0.78, 0)); rotor.add(blade); }
+      g.add(rotor); sails = rotor;
+      break;
+    }
+    case 'oilWell': {
+      g.add(box(w - 0.2, 0.08, d - 0.2, 0x3a3a3a, w / 2, 0, d / 2, { rough: 1 }));
+      for (const z of [0.7, 1.3]) { const leg = box(0.08, 1.3, 0.08, 0x2f3b46, 0.9, 0, z); leg.rotation.x = z < 1 ? 0.18 : -0.18; g.add(leg); } // A-frame
+      g.add(box(1.7, 0.12, 0.12, 0x2f3b46, 0.9, 1.25, 1)); // walking beam
+      g.add(box(0.2, 0.4, 0.2, 0x2f3b46, 1.75, 1.0, 1)); // horse head over the well
+      g.add(cyl(0.06, 0.9, PAL.metalDark, 1.78, 0.08, 1, 8)); // polished rod down to the well
+      const crank = new THREE.Group(); crank.position.set(0.25, 0.45, 1);
+      crank.add(box(0.5, 0.12, 0.1, 0xc0392b, 0.2, 0, 0)); // counterweight arm, turns while it pumps
+      g.add(crank); sails = crank;
+      g.add(box(0.4, 0.3, 0.3, 0x2f3b46, 0.25, 0.08, 1.45)); // motor
+      for (let i = 0; i < 2; i++) g.add(cyl(0.18, 0.5, 0x2b2b2b, 0.4 + i * 0.45, 0.08, 0.35, 10)); // barrels of crude
+      break;
+    }
     case 'verticalFarm':
       g.add(box(1.6, 3.4, 1.6, PAL.glass, 1, 0, 1, { opacity: 0.55, rough: 0.2 }));
       for (let i = 0; i < 6; i++) g.add(box(1.5, 0.08, 1.5, 0x6faf5a, 1, 0.3 + i * 0.52, 1));

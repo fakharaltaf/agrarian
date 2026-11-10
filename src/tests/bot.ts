@@ -58,7 +58,7 @@ export function botAct(s: GameState, strategy: Strategy = 'balanced', civicPrior
     if (r === 'heartland' && usesCarts(s, r) && backlogHours(s) > 24 && s.cash > VEHICLES.horse.price * s.macro.cpi * 2 && haulOf(s).horses < 12) dispatch(s, { type: 'buyHorseCart' });
     if (!findSpot(s, r, { w: 10, d: 10 }) && s.cash > clearCost(s) * 9 * 3) {
       // out of room: clear forest the farm owns, buying the next patches first when there is none left
-      if (frontierPatches(s, r, 9).length < 9 && s.cash > landCost(s, r, 9) * 2) {
+      if (frontierPatches(s, r, 9).length < 9 && s.cash > landCost(s, r, 9) + 10000) {
         // a compact 3×3 block pushing out from the boundary, so a big field fits in it
         const owned = ownedSet(worldOf(s, r)), edge = landFrontier(s, r, 1)[0];
         if (edge !== undefined) {

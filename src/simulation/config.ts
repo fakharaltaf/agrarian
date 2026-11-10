@@ -16,7 +16,7 @@ export const WORK_HOURS = WORK_END - WORK_START;
 // ---------------------------------------------------------------- goods
 
 export type CropId = 'wheat' | 'corn' | 'potatoes' | 'soybeans' | 'rice' | 'sugarcane' | 'cotton' | 'coffee' | 'apples' | 'grapes';
-export type ProcessedId = 'flour' | 'bread' | 'feed' | 'meat' | 'milk' | 'cheese' | 'butter' | 'soyoil' | 'soymeal' | 'sugar' | 'greens' | 'eggs' | 'wool' | 'wine' | 'timber';
+export type ProcessedId = 'flour' | 'bread' | 'feed' | 'meat' | 'milk' | 'cheese' | 'butter' | 'soyoil' | 'soymeal' | 'sugar' | 'greens' | 'eggs' | 'wool' | 'wine' | 'timber' | 'oil';
 export type InputId = 'fertilizer' | 'fuel' | 'manure';
 export type GoodId = CropId | ProcessedId | InputId;
 export type StorageClass = 'dry' | 'cold';
@@ -64,6 +64,7 @@ export const GOODS: Record<GoodId, GoodDef> = {
   sugar: G('sugar', 'Sugar', 'processed', 14, 'dry', 0, 0, 0.4, 0.3, 40, 3900, '#F7F4EE', { inputs: { sugarcane: 5 } }),
   greens: G('greens', 'Fresh greens', 'processed', 6, 'cold', 0.03, 0.3, 0.9, 1.1, 40, 200, '#6FAF5A'),
   timber: G('timber', 'Timber', 'processed', 3, 'dry', 0, 0, 0.6, 0.8, 30, 0, '#A07850'),
+  oil: G('oil', 'Crude oil', 'processed', 60, 'dry', 0, 0, 0.35, 0.5, 120, 0, '#2B2B2B'),
   eggs: G('eggs', 'Eggs (trays)', 'processed', 3.5, 'cold', 0.01, 0.04, 0.4, 0.3, 120, 2100, '#F1E3C6'),
   wool: G('wool', 'Wool', 'processed', 9, 'dry', 0, 0, 0.6, 0.7, 20, 0, '#E9E4D8'),
   wine: G('wine', 'Wine', 'processed', 9, 'dry', 0, 0, 0.9, 1.2, 30, 850, '#7A2A3A', { inputs: { grapes: 1.7 } }),
@@ -238,7 +239,7 @@ export const MACHINES: Record<MachineType, MachineDef> = {
 export type BuildingType =
   | 'barn' | 'silo' | 'coldStore' | 'warehouse' | 'coop' | 'pigsty' | 'cowshed' | 'sheepfold' | 'winery'
   | 'flourMill' | 'bakery' | 'feedMill' | 'ranch' | 'dairy' | 'creamery' | 'oilPress' | 'sugarMill'
-  | 'biogas' | 'solar' | 'verticalFarm' | 'distribution' | 'lab' | 'lab2';
+  | 'biogas' | 'solar' | 'windTurbine' | 'oilWell' | 'verticalFarm' | 'distribution' | 'lab' | 'lab2';
 
 export interface Recipe {
   inputs: Partial<Record<GoodId, number>>;
@@ -256,6 +257,7 @@ export interface BuildingDef {
   coldKwh?: number; // kWh per hour for refrigeration
   recipe?: Recipe;
   solarKw?: number; // kWh per daylight hour at solar index 1
+  windKw?: number; // kWh per hour in an average wind
   research?: string;
   minEra: number;
   blurb: string;
@@ -274,6 +276,8 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
   oilPress: { type: 'oilPress', name: 'Oilseed press', category: 'processing', price: 35000, staffPerHour: 35, recipe: { inputs: { soybeans: 10 }, outputs: { soyoil: 2, soymeal: 7.5 }, kwh: 20, batchesPerHour: 5 }, minEra: 4, blurb: 'Soybeans → oil and meal.' },
   sugarMill: { type: 'sugarMill', name: 'Sugar mill', category: 'processing', price: 30000, staffPerHour: 55, recipe: { inputs: { sugarcane: 10 }, outputs: { sugar: 2 }, kwh: 25, batchesPerHour: 5 }, minEra: 4, blurb: 'Cane → sugar. Cut cane spoils in days.' },
   biogas: { type: 'biogas', name: 'Biogas plant', category: 'energy', price: 28000, staffPerHour: 4, recipe: { inputs: { manure: 10 }, outputs: {}, kwh: -100, batchesPerHour: 4 }, research: 'biogas', minEra: 4, blurb: 'Manure → electricity for your region.' },
+  windTurbine: { type: 'windTurbine', name: 'Wind turbine', category: 'energy', price: 45000, staffPerHour: 2, windKw: 90, minEra: 4, blurb: 'Clean power day and night whenever the wind blows; windier regions make more. Surplus sells to the grid at half price.' },
+  oilWell: { type: 'oilWell', name: 'Oil well', category: 'processing', price: 40000, staffPerHour: 40, recipe: { inputs: {}, outputs: { oil: 3 }, kwh: 20, batchesPerHour: 1 }, minEra: 4, blurb: 'Pumps crude oil. Only found by drilling where the survey says oil lies.' },
   solar: { type: 'solar', name: 'Solar farm', category: 'energy', price: 50000, staffPerHour: 2, solarKw: 120, research: 'solar', minEra: 4, blurb: 'Free daytime electricity; surplus sells to the grid at half price.' },
   verticalFarm: { type: 'verticalFarm', name: 'Vertical farm', category: 'processing', price: 250000, staffPerHour: 80, recipe: { inputs: {}, outputs: { greens: 20 }, kwh: 200, batchesPerHour: 4 }, research: 'verticalFarming', minEra: 7, blurb: 'Weatherproof greens grown on electricity.' },
   coop: { type: 'coop', name: 'Chicken coop', category: 'livestock', price: 2500, staffPerHour: 0, minEra: 2, blurb: 'Houses 100 hens per level. Hens lay a tray of eggs a day when fed and healthy.' },

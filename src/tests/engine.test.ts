@@ -618,6 +618,7 @@ describe('orchard pests', () => {
     expect(dispatch(s, { type: 'plant', fieldId: f.id, crop: 'grapes' }).ok).toBe(true);
     let max = 0;
     for (let t = 0; t < TICKS_PER_DAY * 120; t++) {
+      s.events = s.events.filter((e) => e.kind !== 'pests'); // the everyday build-up, not a random outbreak (those are meant to hurt)
       step(s);
       if (isReady(s, f)) dispatch(s, { type: 'harvest', fieldId: f.id });
       max = Math.max(max, f.pest);

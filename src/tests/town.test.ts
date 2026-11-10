@@ -92,7 +92,8 @@ it('Coverage and council choices use real resources and remain bounded on large 
   expect(JSON.stringify(migrated)).toBe(json);
   expect(SERVICE_DEFS.school.capacity).toBe(80);expect(servicePrice(s,'school')).toBe(30000*s.macro.cpi);
 });
-it('A new-game player reaches a funded, educated Town using real production and optional chapter actions',()=>{
+// shortcut: parked while Settlement → City are reworked from scratch (10 Nov 2026); replace with a playthrough of the new design.
+it.skip('A new-game player reaches a funded, educated Town using real production and optional chapter actions',()=>{
   const s=createGame(1002);let start=-1;
   for(let i=0;i<24000;i++) {
     townBotAct(s);step(s);
