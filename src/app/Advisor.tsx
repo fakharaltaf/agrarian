@@ -10,7 +10,7 @@ import { Card, Modal } from './ui';
 // Re-read once per game day, or straight away when the player changes something the advice is about.
 let cache: { key: string; d: Diagnosis } | null = null;
 export function advice(s: GameState) {
-  const key = [day(s), s.advisor, s.taxBill?.amount ?? 0, s.taxBill && s.taxBill.amount > s.cash, s.workers.map((w) => w.id).join('.'), s.fields.map((f) => `${f.id}${f.spreading ? 's' : ''}`).join('.'), s.buildings.length, s.machines.length].join('|');
+  const key = [day(s), s.advisor, s.workers.map((w) => w.id).join('.'), s.fields.map((f) => `${f.id}${f.spreading ? 's' : ''}`).join('.'), s.buildings.length, s.machines.length].join('|');
   if (cache?.key !== key) cache = { key, d: diagnose(s) };
   return cache.d;
 }

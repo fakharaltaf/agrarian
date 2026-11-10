@@ -4,7 +4,7 @@ import { townIndustryFactor } from './town-state';
 // Production-line economics for the UI: one source of truth for what a group of same-type
 // facilities in a region earns per day, what pausing it really saves, the prices it needs
 // to break even, and whether upgrading would pay. Everything is valued at today's prices.
-import { BUILDINGS, CONFIG, COWS_PER_DAIRY_BATCH, REGIONS, type BuildingType, type GoodId, type RegionId } from './config';
+import { BUILDINGS, CONFIG, COWS_PER_DAIRY_BATCH, REGIONS, SUNRISE, SUNSET, type BuildingType, type GoodId, type RegionId } from './config';
 import { buildingDivision, electricityPrice, execOn, has, levelMult, priceUsd } from './core';
 import { upgradeCost } from './engine';
 import type { Building, GameState } from './types';
@@ -136,7 +136,7 @@ export function facilityUpgrade(s: GameState, list: Building[]): FacilityUpgrade
   if(!candidates.length)return null;
   const extraStaff=candidates.reduce((n,b)=>n+staffDay(s,type,b.level+1)-staffDay(s,type,b.level),0);
   const cost=candidates.reduce((n,b)=>n+upgradeCost(s,b),0),level=Math.min(...candidates.map(b=>b.level+1));
-  const sunHours=Array.from({length:12},(_,h)=>Math.sin((h+.5)/12*Math.PI)).reduce((n,x)=>n+x,0);
+  const sunHours=Array.from({length:SUNSET-SUNRISE},(_,h)=>Math.sin((h+.5)/(SUNSET-SUNRISE)*Math.PI)).reduce((n,x)=>n+x,0);
   const extraKwh=candidates.reduce((n,b)=>n+solarCapacity({...b,level:b.level+1})-solarCapacity(b),0)*sunHours*REGIONS[r].solar*(1-.3*Math.min(1,s.regions[r].rainToday));
   const rateBefore=type==='distribution'?retailChannel(s,r):0;
   const rateAfter=type==='distribution'?Math.max(rateBefore,retailRate(best!.level+1)):0;

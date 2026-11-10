@@ -8,7 +8,6 @@ import { CONFIG, CROPS, REGION_IDS, type BuildingType, type CropId, type GoodId,
 import { avg30, dispatch, homePlotPrice, isManual, isReady, parcelPrice, totalHa } from '../simulation/engine';
 import { seasonOf, stored } from '../simulation/core';
 import { communityOf, population, homeCapacity, availableResidents } from '../simulation/community-state';
-import { accruedTax } from '../simulation/finance';
 import { clearCost, findSpot, frontierPatches, worldOf } from '../simulation/world';
 import { canStartSettlement, larderReserve } from '../simulation/stages/settlement';
 import type { GameState } from '../simulation/types';
@@ -20,7 +19,7 @@ const haIn = (s: GameState, r: RegionId) => s.fields.reduce((a, f) => a + (f.reg
 const hasB = (s: GameState, r: RegionId, t: BuildingType) => s.buildings.some((b) => b.region === r && b.type === t);
 
 /** A sensible player keeps this year's profit tax in hand (the game warns 14 days ahead). */
-const taxDue = (s: GameState) => accruedTax(s) * 1.1 + (s.taxBill?.amount ?? 0);
+const taxDue = (_s: GameState) => 0; // no profit tax any more
 
 export function botAct(s: GameState, strategy: Strategy = 'balanced', civicPriority = false) {
   if (strategy === 'idle') return;

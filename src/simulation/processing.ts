@@ -4,7 +4,7 @@ import { payHouseholds, townOf, townIndustryFactor } from './town-state';
 import { larderReserve } from './stages/settlement';
 // Factories, energy and building upkeep. One production model for every industry:
 // batches = min(capacity, scarcest input, output room, power) — Leontief, like a real line.
-import { BUILDINGS, COWS_PER_DAIRY_BATCH, GOODS, REGIONS, REGION_IDS, WORK_START, type GoodId, type RegionId } from './config';
+import { BUILDINGS, COWS_PER_DAIRY_BATCH, GOODS, REGIONS, REGION_IDS, SUNRISE, SUNSET, type GoodId, type RegionId } from './config';
 import { buildingDivision, clamp, electricityPrice, execOn, freeSpace, has, hour, levelMult, post, priceUsd, round2, reserveCap, reservedStock, severity } from './core';
 import { addGoods } from './agriculture';
 import type { Building, GameState } from './types';
@@ -13,8 +13,8 @@ export const EMA = 0.05;
 
 export function solarOutput(s: GameState, r: RegionId) {
   const h = hour(s);
-  if (h < WORK_START || h >= 18) return 0;
-  return Math.sin(((h - WORK_START + 0.5) / 12) * Math.PI) * REGIONS[r].solar * (1 - 0.3 * Math.min(1, s.regions[r].rainToday));
+  if (h < SUNRISE || h >= SUNSET) return 0;
+  return Math.sin(((h - SUNRISE + 0.5) / (SUNSET - SUNRISE)) * Math.PI) * REGIONS[r].solar * (1 - 0.3 * Math.min(1, s.regions[r].rainToday));
 }
 
 export function buildingsTick(s: GameState) {

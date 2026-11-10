@@ -6,8 +6,12 @@ export const DAYS_PER_SEASON = 30;
 export const DAYS_PER_YEAR = 120;
 export const TICKS_PER_YEAR = TICKS_PER_DAY * DAYS_PER_YEAR;
 export const SEASONS = ['Spring', 'Summer', 'Autumn', 'Winter'] as const;
+// Long days, short nights: the sun is up 05:00–21:00 and the crew works 06:00–19:59.
+export const SUNRISE = 5;
+export const SUNSET = 21;
 export const WORK_START = 6;
-export const WORK_END = 18; // workers supply labour 06:00–17:59
+export const WORK_END = 20;
+export const WORK_HOURS = WORK_END - WORK_START;
 
 // ---------------------------------------------------------------- goods
 

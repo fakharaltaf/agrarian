@@ -33,8 +33,6 @@ export const pick = <T>(s: GameState, xs: readonly T[]): T => xs[Math.floor(rand
 
 const NON_CASH: LedgerKind[] = ['depreciation'];
 const TAXABLE = new Set<LedgerKind>([...REVENUE_KINDS, ...OPEX_KINDS, 'interest', 'futures', 'insurancePayout', 'prize', 'depreciation']);
-// Tax base: farm investment is deducted the year it is paid (so selling it later is taxed), in place of depreciation.
-const TAX_BASE = new Set<LedgerKind>([...REVENUE_KINDS, ...OPEX_KINDS, 'interest', 'futures', 'insurancePayout', 'prize', 'land', 'machine', 'building', 'acquisition', 'irrigation', 'assetSale']);
 
 export function post(s: GameState, kind: LedgerKind, amount: number, memo: string, region: RegionId = 'heartland', division: Division = divisionOf(kind), account: 'company' | 'town' = 'company') {
   amount = round2(amount);
@@ -47,7 +45,6 @@ export function post(s: GameState, kind: LedgerKind, amount: number, memo: strin
   b.regions[region] = round2((b.regions[region] ?? 0) + amount);
   b.divisions[division] = round2((b.divisions[division] ?? 0) + amount);
   if (TAXABLE.has(kind) || (account === 'town' && (kind === 'residentTax' || kind === 'civic' || kind === 'tolls'))) b.op[region] = round2((b.op[region] ?? 0) + amount);
-  if (account === 'company' && TAX_BASE.has(kind)) (b.tx ??= {})[region] = round2((b.tx[region] ?? 0) + amount);
   // Merge repeated charges (wages, fuel, power...) into one line per kind/region/memo/day so the ledger stays readable.
   const d = Math.floor(s.tick / 24);
   let merged = false;
@@ -80,7 +77,7 @@ function accountBook(s: GameState, wallet: Pick<GameState, 'books' | 'cash'>) {
   const d = day(s);
   let b = wallet.books[wallet.books.length - 1];
   if (!b || b.day !== d) {
-    b = { day: d, kinds: {}, regions: {}, divisions: {}, op: {}, tx: {}, cash: wallet.cash, debt: 0, equity: 0, produced: 0 };
+    b = { day: d, kinds: {}, regions: {}, divisions: {}, op: {}, cash: wallet.cash, debt: 0, equity: 0, produced: 0 };
     wallet.books.push(b);
     if (wallet.books.length > CONFIG.booksDays) wallet.books.shift();
   }

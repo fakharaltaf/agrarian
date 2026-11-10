@@ -1,6 +1,5 @@
 import { Component, lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
 import { equity, sumBooks } from '../simulation/core';
-import { taxDaysLeft } from '../simulation/finance';
 import { ACHIEVEMENTS, PAGES } from '../simulation/engine';
 import {
   act, deleteSlot, getGame, offlineOn, dismissAway, toast, exportSave, go, importSave, loadFrom, newGame, saveTo, setSpeed, slotInfo, slotLabel, SLOTS, SPEEDS, useGame, useStore, type Slot, type Speed,
@@ -168,21 +167,6 @@ function Trophies() {
 }
 
 /** Cash with a little celebration: it pulses and shows "+$X" whenever sales come in. */
-/** Last year's tax bill: one fixed figure from year end, 30 days to pay. Tap to pay early. */
-function TaxChip() {
-  const s = useGame(), bill = s.taxBill;
-  if (!bill) return null;
-  const tax = bill.amount, days = taxDaysLeft(s), short = tax > s.cash;
-  const due = days === 0 ? 'today' : `${days}d`;
-  return (
-    <button type="button" className={`tax-chip${short ? ' short' : ''}`} disabled={short}
-      title={`Profit tax for last year: ${money(tax)}. ${short ? `You need ${money(tax - s.cash)} more cash; it is taken automatically in ${days} day${days === 1 ? '' : 's'}.` : `Tap to pay now, or it is taken automatically in ${days} day${days === 1 ? '' : 's'}.`}`}
-      onClick={() => act({ type: 'payTax' }, `Tax of ${money(tax)} paid.`)}>
-      🧾<span className="tax-word"> Tax</span> {money(tax)} · {due}{short ? '' : <span className="tax-word"> · Pay</span>}
-    </button>
-  );
-}
-
 function CashCounter() {
   const s = useGame();
   const earned = (s.lifetime.sale ?? 0) + (s.lifetime.contract ?? 0) + (s.lifetime.prize ?? 0);
@@ -249,7 +233,7 @@ function TopBar({ onLog, onSettings, onHelp, onLedger, warnings, bare }: { onLog
   const [menu, setMenu] = useState(false);
   const c = clock(s.tick);
   return <header className="topbar game-strip">
-    <LogoMark size={28}/><div className="cash-wrap"><CashCounter /><TaxChip /></div>
+    <LogoMark size={28}/><div className="cash-wrap"><CashCounter /></div>
     <button className="icon-btn" aria-label={speed ? 'Pause simulation' : 'Resume simulation'} onClick={()=>setSpeed(speed?0:1)}>{speed?'❚❚':'▶'}</button>
     <button className="btn time-toggle" data-coach="speed" aria-label="Time controls" aria-expanded={time} onClick={()=>{setTime(!time);setMenu(false);}}>{speed || 0}× ▾</button>
     {!bare && <button className="btn ledger-btn" aria-label="Ledger" data-coach="ledger" onClick={onLedger} title="All pages: fields, markets, finance and more">📚 Ledger</button>}

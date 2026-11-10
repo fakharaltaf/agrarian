@@ -5,7 +5,7 @@ import { communityOf, population, residentWorkers } from '../../simulation/commu
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { ANIMALS, BUILDINGS, CROPS, GOODS, REGIONS, SEASONS, type AnimalId, type CropId, type RegionId } from '../../simulation/config';
+import { ANIMALS, BUILDINGS, CROPS, GOODS, REGIONS, SEASONS, SUNRISE, SUNSET, type AnimalId, type CropId, type RegionId } from '../../simulation/config';
 import { fieldMovable, timingFactor, fertility, growth, isMature, isReady } from '../../simulation/engine';
 import { priceUsd, stored } from '../../simulation/core';
 import { spreadNeed } from '../../simulation/agriculture';
@@ -845,10 +845,10 @@ function atmosphere(R: Rig, s: GameState, t: number) {
   const dayIdx = Math.floor(s.tick / 24);
   const season = SEASONS[Math.floor((((dayIdx % 120) + 120) % 120) / 30)];
   const r = R.region;
-  // sun arc: rises at 6, sets at 18
-  const k = Math.sin(((hour - 6) / 12) * Math.PI);
+  // sun arc: rises at SUNRISE, sets at SUNSET
+  const k = Math.sin(((hour - SUNRISE) / (SUNSET - SUNRISE)) * Math.PI);
   const elev = Math.max(-0.2, k);
-  const az = ((hour - 6) / 12) * Math.PI;
+  const az = ((hour - SUNRISE) / (SUNSET - SUNRISE)) * Math.PI;
   R.sun.position.set(R.target.x + Math.cos(az) * 40, 18 + Math.max(0.25, Math.abs(elev)) * 45, R.target.z - 25 + Math.sin(az) * 10);
   R.sun.target.position.copy(R.target);
   const day = Math.max(0, Math.min(1, elev * 2.5 + 0.2));

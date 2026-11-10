@@ -3,6 +3,7 @@
 import type {GameState} from './types';
 import {cityActive,cityOf} from './city-state';
 import {marketWage,round2} from './core';
+import {WORK_HOURS} from './config';
 import {payHouseholds} from './town-state';
 export function allocateNeighbourJobs(s:GameState,available:number) {
   if(!cityActive(s))return;
@@ -10,7 +11,7 @@ export function allocateNeighbourJobs(s:GameState,available:number) {
   if(v.employmentDay===day)return;
   v.employmentDay=day;v.neighbourJobs=0;v.neighbourPayroll=0;v.employers=[];
   let adults=Math.max(0,Math.floor(available));
-  const dailyPay=round2(12*marketWage(s,'heartland'));
+  const dailyPay=round2(WORK_HOURS*marketWage(s,'heartland'));
   if(dailyPay<=0)return;
   for(const employer of s.competitors) {
     if(!adults)break;

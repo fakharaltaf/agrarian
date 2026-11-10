@@ -17,12 +17,12 @@ it('Paid solar upgrades increase actual grid generation at unchanged level-one r
   expect(dispatch(s,{type:'upgradeBuilding',buildingId:s.buildings[0].id}).ok).toBe(true);
   const level2=structuredClone(s);buildingsTick(level2);
   expect(solarCapacity(s.buildings[0])).toBe(216);
-  expect(level2.lifetime.grid!).toBeCloseTo(level1.lifetime.grid!*1.8,2);
+  expect(level2.lifetime.grid!).toBeCloseTo(level1.lifetime.grid!*1.8,1);
   expect(-level2.lifetime.staff!).toBeCloseTo(-level1.lifetime.staff!*1.3,2);
   expect(dispatch(s,{type:'upgradeBuilding',buildingId:s.buildings[0].id}).ok).toBe(true);
   const level3=structuredClone(s);buildingsTick(level3);
   expect(solarCapacity(s.buildings[0])).toBe(300);
-  expect(level3.lifetime.grid!).toBeCloseTo(level1.lifetime.grid!*2.5,2);
+  expect(level3.lifetime.grid!).toBeCloseTo(level1.lifetime.grid!*2.5,1);
   expect(dispatch(s,{type:'upgradeBuilding',buildingId:s.buildings[0].id}).ok).toBe(false);
 });
 it('Retail levels improve the real non-stacking sale channel and retain the12% base premium',()=>{

@@ -1,6 +1,6 @@
 // Farm advisor: reads the last two weeks of books and the farm, and names the few changes worth the most money.
 // Rates use whole finished days only, so the advice holds steady through the day. Pure and deterministic.
-import { BUILDINGS, CONFIG, CROPS, GOODS, LEDGER_KINDS, MACHINES, OPEX_KINDS, REVENUE_KINDS, REGION_IDS, type GoodId, type LedgerKind } from './config';
+import { BUILDINGS, CONFIG, CROPS, GOODS, LEDGER_KINDS, MACHINES, OPEX_KINDS, REVENUE_KINDS, REGION_IDS, WORK_HOURS, type GoodId, type LedgerKind } from './config';
 import { day, refPrice, seedCost, stored } from './core';
 import { buildingMargin } from './processing';
 import { cropScore } from './automation';
@@ -68,12 +68,12 @@ export function diagnose(s: GameState): Diagnosis {
   // hands with nothing to do: labour the planned fields need vs what the crew supplies
   const planned = s.fields.filter((f) => !isManual(f) || f.plan);
   const needHours = planned.reduce((a, f) => { const c = CROPS[f.plan ?? f.crop ?? 'wheat']; return a + (f.ha * (c.harvestHours + 1) * 24) / c.growthTicks; }, 0);
-  if (hands > 0 && hands * 12 > needHours * 2.5 + 12) {
-    const spare = Math.floor((hands * 12 - needHours * 1.5) / 12);
+  if (hands > 0 && hands * WORK_HOURS > needHours * 2.5 + WORK_HOURS) {
+    const spare = Math.floor((hands * WORK_HOURS - needHours * 1.5) / WORK_HOURS);
     const hand = s.workers.filter((w) => w.role === 'hand').pop()!;
     if (spare > 0) add({ id: 'idleHands', icon: '😴', page: planned.length ? 'workers' : 'fields', gain: rate(['wages']) * (spare / hands),
       title: planned.length ? `${plural(spare, 'hand')} with little to do` : 'Hands have no crop plans to follow',
-      proof: planned.length ? `Fields need ~${Math.round(needHours)} work-hours a day, ${hands} hands give ${hands * 12}` : 'Hands only replant fields that have a crop plan',
+      proof: planned.length ? `Fields need ~${Math.round(needHours)} work-hours a day, ${hands} hands give ${hands * WORK_HOURS}` : 'Hands only replant fields that have a crop plan',
       act: planned.length ? { label: 'Let one go', action: { type: 'fire', workerId: hand.id } } : undefined });
   }
 
@@ -93,7 +93,7 @@ export function diagnose(s: GameState): Diagnosis {
   // machines without drivers, or planned land the crew can't keep up with
   const drivable = s.machines.filter((m) => MACHINES[m.type].haPerHour && !MACHINES[m.type].autonomous && !m.broken).length;
   const waiting = s.fields.filter((f) => f.plan && !f.crop).length;
-  if (hands > 0 && (drivable > hands || (waiting > 1 && drivable < hands && needHours > hands * 12 * 1.2))) {
+  if (hands > 0 && (drivable > hands || (waiting > 1 && drivable < hands && needHours > hands * WORK_HOURS * 1.2))) {
     const lost = s.fields.filter((f) => f.plan && !f.crop).reduce((a, f) => a + Math.max(0, cropScore(s, f, f.plan!)) * 24 * f.ha, 0);
     const spare = drivable - hands, wage = hands ? rate(['wages']) / hands : 0;
     // only worth saying when the crop a hand brings in beats the hand's wage
@@ -167,14 +167,6 @@ export function diagnose(s: GameState): Diagnosis {
   const town = rate(['townTransfer']);
   if (town > Math.max(200, profit * 0.25)) add({ id: 'townDrain', icon: '🏛', page: 'town', gain: town,
     title: `The town costs you ${r0(town)}/day`, proof: `${profit > 0 ? `${pct(town / profit)} of what the farm makes` : 'on top of a loss'} · raise the town tax or pause services it doesn't need` });
-
-  // the tax bill is the one cost that lands all at once: flag it before it empties the bank
-  if (s.taxBill && s.taxBill.amount > s.cash) {
-    const left = Math.max(0, s.taxBill.dueDay - today);
-    add({ id: 'taxShort', icon: '🧾', page: 'finance', gain: 0, weight: 1e12,
-      title: `Tax ${r0(s.taxBill.amount)} due ${left ? `in ${plural(left, 'day')}` : 'today'}: ${r0(s.taxBill.amount - s.cash)} short`,
-      proof: 'It is taken on the due day; sell stock or hold off on buying land so it does not go on the overdraft' });
-  }
 
   advice.sort((a, b) => (b.gain || b.weight || 0) - (a.gain || a.weight || 0));
   const top = advice.slice(0, 3);

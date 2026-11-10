@@ -2,7 +2,7 @@ import { retailAllowance, retailChannel, solarCapacity } from '../../simulation/
 import { productionReport, productionPriceRails } from '../../simulation/production-report';
 import { townIndustryFactor } from '../../simulation/town-state';
 import { useState, type ReactNode } from 'react';
-import { ANIMALS, BUILDINGS, COWS_PER_DAIRY_BATCH, CROPS, GOODS, REGIONS, type BuildingType, type GoodId, type RegionId, TECH } from '../../simulation/config';
+import { ANIMALS, BUILDINGS, COWS_PER_DAIRY_BATCH, CROPS, GOODS, REGIONS, SUNRISE, SUNSET, type BuildingType, type GoodId, type RegionId, TECH } from '../../simulation/config';
 import { electricityPrice, factoryCrop, has, levelMult, priceUsd, sumBooks } from '../../simulation/core';
 import { buildingPrice, expectedYield } from '../../simulation/engine';
 import { buildingMargin, solarOutput } from '../../simulation/processing';
@@ -22,7 +22,7 @@ const isFactory = (t: BuildingType) => FACTORY_CATS.includes(BUILDINGS[t].catego
 const ins = (t: BuildingType) => Object.entries(BUILDINGS[t].recipe?.inputs ?? {}) as [GoodId, number][];
 const outs = (t: BuildingType) => Object.entries(BUILDINGS[t].recipe?.outputs ?? {}) as [GoodId, number][];
 // Midpoint sum of the engine's daylight sine curve over 06:00–17:59 ≈ full-sun hours per day.
-const SUN_HOURS = Array.from({ length: 12 }, (_, k) => Math.sin(((k + 0.5) / 12) * Math.PI)).reduce((a, x) => a + x, 0);
+const SUN_HOURS = Array.from({ length: SUNSET - SUNRISE }, (_, k) => Math.sin(((k + 0.5) / (SUNSET - SUNRISE)) * Math.PI)).reduce((a, x) => a + x, 0);
 
 /** Hourly economics of one building running at full capacity, at today's regional prices. */
 function fullEcon(s: GameState, t: BuildingType, r: RegionId) {

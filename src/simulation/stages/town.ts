@@ -6,7 +6,7 @@ import { cityActive, cityOf } from '../city-state';
 import type { StageModule } from './types';
 import type { Action, ActionResult, DistrictId, GameState, SchoolCharter, ServiceType } from '../types';
 import { DISTRICT_IDS } from '../types';
-import { GOODS } from '../config';
+import { GOODS, WORK_HOURS } from '../config';
 import { clamp, electricityPrice, log, marketWage, nextId, post, priceUsd, random, reservedStock, round2 } from '../core';
 import { communityOf, population, workingAdults, children, residentWorkers } from '../community-state';
 import { createTownState, districtPopulation, factoryJobs, localEmployment, payHouseholds, schoolChangeCost, SERVICE_DEFS, servicePrice, serviceJobs, townOf, townWorkforce } from '../town-state';
@@ -26,7 +26,7 @@ export function serviceAvailable(s: GameState, type: ServiceType): boolean {
 /** Taxes/maintenance never borrow automatically: the town cannot spend company cash. */
 export function serviceDailyCost(s: GameState, type: ServiceType, jobs=serviceJobs(s,type)) {
   const d=SERVICE_DEFS[type];
-  return round2(jobs*12*marketWage(s,'heartland') + d.cost*.0005*s.macro.cpi + d.kwh*electricityPrice(s,'heartland') + (type==='park'?20*s.macro.cpi:0));
+  return round2(jobs*WORK_HOURS*marketWage(s,'heartland') + d.cost*.0005*s.macro.cpi + d.kwh*electricityPrice(s,'heartland') + (type==='park'?20*s.macro.cpi:0));
 }
 export const plannedServiceCost = (s: GameState) => townOf(s).services.filter(b=>b.active).reduce((n,b)=>n+serviceDailyCost(s,b.type)*b.count,0);
 export type TownDecision = {kind:'homes';staff:boolean} | {kind:'fund';amount:number;upkeep:boolean} | {kind:'resume';serviceId:number;service:ServiceType} | {kind:'build';service:ServiceType;cost:number};
@@ -98,7 +98,7 @@ export function townDaily(s: GameState) {
     const cost=round2(serviceDailyCost(s,b.type,jobs/b.count)*b.count);
     if(t.cash+1e-6<cost) continue;
     post(s,'civic',-cost,`${d.name} services`,'heartland','corporate','town'); t.lastCost=round2(t.lastCost+cost);
-    const wages=round2(jobs*12*marketWage(s,'heartland'));
+    const wages=round2(jobs*WORK_HOURS*marketWage(s,'heartland'));
     if(wages>0) payHouseholds(s,wages);
     b.staffed=jobs; b.funded=true; adults-=jobs; t.publicJobs+=jobs;
     const cover=t.coverage[b.district], ratio=needed ? jobs/needed : 1;
