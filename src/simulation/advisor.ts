@@ -6,6 +6,7 @@ import { buildingMargin } from './processing';
 import { cropScore } from './automation';
 import { expectedYield, fertility, isManual, isReady, readyAt, spoilValue, spreadNeed } from './agriculture';
 import type { Action, GameState } from './types';
+import { backlogHours, onTheWay, VEHICLES } from './hauling';
 import { parcelPrice } from './engine';
 import { stageAtLeast } from './stages';
 
@@ -121,6 +122,15 @@ export function diagnose(s: GameState): Diagnosis {
     add({ id: 'soil', icon: '🪨', page: 'fields', gain: 0, weight: 20 * tired.length,
       title: `${plural(tired.length, 'field')} with worn-out soil`, proof: `Soil at ${pct(avg)}${feedable.length ? ` · you have manure for ${feedable.length}` : ' · rotate in soybeans or fertilise'}`,
       act: feedable.length ? { label: 'Spread manure', action: { type: 'fertilize', fieldIds: feedable.map((f) => f.id), source: 'manure' } } : undefined });
+  }
+
+  // goods stuck at the gate waiting for a cart to the market
+  const wait = backlogHours(s);
+  if (wait > 24) {
+    const cart = Math.round(VEHICLES.horse.price * s.macro.cpi), waiting = onTheWay(s).waiting;
+    add({ id: 'haulBacklog', icon: '🛒', page: 'farm', gain: 0, weight: waiting / 3,
+      title: `Sales wait ${Math.ceil(wait / 24)} days for a cart`, proof: `${r0(waiting)} of goods at the gate · a horse cart carries ${VEHICLES.horse.cap} a trip`,
+      act: s.cash >= cart ? { label: `Buy horse cart ${r0(cart)}`, action: { type: 'buyHorseCart' } } : undefined });
   }
 
   // interest

@@ -365,6 +365,7 @@ export interface GameState {
   lifetime: Partial<Record<LedgerKind, number>>;
   books: DayBook[];
   overdraftDays: number;
+  haul?: import('./hauling').HaulState;
   bankrupt: { reason: string } | null;
   era: number;
   /** Stable content-stage identity; the legacy era remains for save compatibility and existing rules. */
@@ -465,6 +466,7 @@ export type Action =
   | { type: 'takeLoan'; amount: number; termDays: number }
   | { type: 'repayLoan'; loanId: number; amount: number }
   | { type: 'buyLand'; region: RegionId; chunks: number[] }
+  | { type: 'buyHorseCart' }
   | { type: 'buildRoad'; region: RegionId; from: [number, number]; to: [number, number] }
   | { type: 'removeRoad'; region: RegionId; at: [number, number] }
   | { type: 'upgradeRoad'; region: RegionId; at: [number, number] }

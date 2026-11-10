@@ -1,4 +1,5 @@
 import { retailAllowance, retailChannel } from './facility-levels';
+import { queueSale, usesCarts } from './hauling';
 import { recordRetailPremium } from './production-report';
 import { townOf } from './town-state';
 import type { Division } from './types';
@@ -372,7 +373,8 @@ function useHaul(s: GameState, r: RegionId, qty: number) {
 }
 
 /** Executes a sale; caller has validated inventory. Returns USD received net of haulage. */
-export function executeSell(s: GameState, r: RegionId, g: GoodId, qty: number, memo?: string, kind: 'sale' | 'contract' = 'sale') {
+/** direct: the buyer pays on the spot (timber at the clearing, liquidation); otherwise market sales travel by cart from Market Town on. */
+export function executeSell(s: GameState, r: RegionId, g: GoodId, qty: number, memo?: string, kind: 'sale' | 'contract' = 'sale', direct = false) {
   const q = quoteSell(s, r, g, qty);
   if (q.qty <= 0) return q;
   const m = s.markets[r][g]!;
@@ -381,9 +383,12 @@ export function executeSell(s: GameState, r: RegionId, g: GoodId, qty: number, m
   m.impact = Math.min(MAX_IMPACT, m.impact + q.qty / depth(m));
   m.playerSold += q.qty;
   m.price = priceFromInv(s, g, m);
-  post(s, kind, q.gross, memo ?? `Sold ${Math.round(q.qty)} ${GOODS[g].name} @ $${q.avgPrice.toFixed(2)}`, r, g === 'meat' || g === 'milk' ? 'livestock' : GOODS[g].kind === 'processed' ? 'processing' : 'crops');
+  const label = memo ?? `Sold ${Math.round(q.qty)} ${GOODS[g].name} @ $${q.avgPrice.toFixed(2)}`, division = g === 'meat' || g === 'milk' ? 'livestock' : GOODS[g].kind === 'processed' ? 'processing' : 'crops';
+  const carted = !direct && usesCarts(s, r);
+  if (carted) queueSale(s, { good: g, qty: q.qty, value: q.gross, kind, memo: label, division }); // paid when the cart reaches the market
+  else post(s, kind, q.gross, label, r, division);
   if((q.retailQty??0)>0){s.regions[r].retailToday[g]=(s.regions[r].retailToday[g]??0)+q.retailQty!;recordRetailPremium(s,r,q.retailValue??0);}
-  useHaul(s, r, q.qty);
+  if (!carted) useHaul(s, r, q.qty); // your own vehicles replace hired haulage
   s.stats.sales++;
   s.stats.peopleFed += (q.qty * GOODS[g].kcal) / (2000 * 365);
   return q;

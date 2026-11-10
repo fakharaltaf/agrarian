@@ -1,4 +1,5 @@
 import {canStartCity} from '../simulation/stages/city';
+import { backlogHours, haulOf, usesCarts, VEHICLES } from '../simulation/hauling';
 import {cityActive,cityOf} from '../simulation/city-state';
 import { canStartTown, serviceAvailable, serviceDailyCost, plannedServiceCost } from '../simulation/stages/town';
 import { districtPopulation, SERVICE_DEFS, servicePrice, townOf } from '../simulation/town-state';
@@ -53,6 +54,8 @@ export function botAct(s: GameState, strategy: Strategy = 'balanced', civicPrior
   // Keep room to grow: clear forest at the edge of the farm when a big field no longer fits.
   for (const r of REGION_IDS) {
     if (!s.regions[r].unlocked || worldOf(s, r).queue.length) continue;
+    // goods piling up at the gate: another horse cart (a player sees the backlog chip)
+    if (r === 'heartland' && usesCarts(s, r) && backlogHours(s) > 24 && s.cash > VEHICLES.horse.price * s.macro.cpi * 2 && haulOf(s).horses < 12) dispatch(s, { type: 'buyHorseCart' });
     if (!findSpot(s, r, { w: 10, d: 10 }) && s.cash > clearCost(s) * 9 * 3) {
       // out of room: clear forest the farm owns, buying the next patches first when there is none left
       if (frontierPatches(s, r, 9).length < 9 && s.cash > landCost(s, r, 9) * 2) {

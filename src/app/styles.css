@@ -804,3 +804,9 @@ body:has(.modal-bg) .shell .coach { display: none !important; }
 .road-bar .seg .btn { padding: 6px 10px; }
 .world-zoom .icon-btn.on { background: var(--sun); color: #2a2216; }
 @media (max-width: 480px) { .road-bar { flex-wrap: wrap; } .road-bar .seg { order: 3; width: 100%; } .road-bar .seg .btn { flex: 1; } }
+.haul-chip { margin-left: 8px; padding: 4px 10px; border-radius: 999px; font: 800 13px var(--font); white-space: nowrap; cursor: pointer; background: color-mix(in srgb, var(--up) 14%, var(--surface)); color: var(--text); border: 1px solid color-mix(in srgb, var(--up) 45%, var(--line)); }
+.haul-chip.slow { background: color-mix(in srgb, var(--warn) 22%, var(--surface)); border-color: var(--warn); }
+.haul-fleet { display: flex; flex-direction: column; gap: 6px; }
+.haul-row { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; padding: 8px; border: 1px solid var(--line); border-radius: 10px; }
+.haul-row b { grid-column: 1 / -1; }
+@media (max-width: 480px) { .haul-chip { margin-left: 0; padding: 1px 6px; font-size: 11px; } .haul-chip .haul-word { display: none; } }

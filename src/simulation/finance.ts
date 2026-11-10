@@ -211,7 +211,7 @@ export function restructure(s: GameState) {
   for (const p of [...s.futures]) closeFutures(s, p);
   for (const r of REGION_IDS) for (const g in s.regions[r].inventory) {
     const q = s.regions[r].inventory[g as GoodId];
-    if (q > 1 && s.markets[r][g as GoodId]) executeSell(s, r, g as GoodId, q, 'Liquidation sale');
+    if (q > 1 && s.markets[r][g as GoodId]) executeSell(s, r, g as GoodId, q, 'Liquidation sale', 'sale', true);
   }
   const owed = () => s.loans.reduce((a, l) => a + l.balance, 0) - s.cash; // positive cash counts against debt
   const lendable = () => { const fa = fixedAssets(s); return 0.6 * fa.land + 0.5 * fa.machines + 0.4 * fa.buildings; };

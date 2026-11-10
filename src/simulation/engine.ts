@@ -1,4 +1,5 @@
 import { bestRetailCentre } from './facility-levels';
+import { haulDaily, haulOf, haulTick, usesCarts, VEHICLES } from './hauling';
 import { emptyProductionReport } from './production-report';
 import { payHouseholds } from './town-state';
 import { idleMachine, machineSaleValue } from './operations';
@@ -108,6 +109,7 @@ export function step(s: GameState) {
   execTick(s);
   marketsTick(s);
   shipmentsTick(s);
+  haulTick(s);
   prepareLarder(s);
   rulesTick(s);
   policiesTick(s);
@@ -126,6 +128,7 @@ function daily(s: GameState) {
   spoilageDaily(s);
   buildingsDaily(s);
   financeDaily(s);
+  haulDaily(s);
   researchDaily(s);
   eventsDaily(s);
   expireChoices(s);
@@ -197,7 +200,7 @@ function worldTick(s: GameState) {
     if (!clearedSet(w).has(job.chunk)) { clearedSet(w).add(job.chunk); w.cleared.push(job.chunk); }
     // The crew sells the felled timber straight to the local market, so it never crowds storage.
     s.regions[r].inventory.timber += TIMBER_PER_PATCH;
-    const sold = executeSell(s, r, 'timber', TIMBER_PER_PATCH, 'Timber from forest clearing');
+    const sold = executeSell(s, r, 'timber', TIMBER_PER_PATCH, 'Timber from forest clearing', 'sale', true);
     s.regions[r].inventory.timber -= TIMBER_PER_PATCH - sold.qty;
     if (!w.queue.length) log(s, 'info', `Forest cleared in ${REGIONS[r].name}. The crew sold the timber at the local market.`, 'farm');
   }
@@ -503,6 +506,14 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       const b = kind === 'b' ? s.buildings.find((x) => x.id === +id) : undefined;
       if (b) b.movedUntil = s.tick + MOVE_DOWNTIME;
       return ok(b ? `Moved. It restarts in ${MOVE_DOWNTIME} hours.` : 'Moved.');
+    }
+    case 'buyHorseCart': {
+      if (!usesCarts(s, 'heartland')) return fail('Carts carry goods to the market from Market Town on.');
+      const price = Math.round(VEHICLES.horse.price * s.macro.cpi);
+      if (price > s.cash) return fail(`A horse cart costs $${price.toLocaleString()}.`);
+      post(s, 'machine', -price, 'Horse cart', 'heartland', 'logistics');
+      haulOf(s).horses++;
+      return ok(`A horse cart joins the dog cart: ${VEHICLES.horse.cap} units a trip, half again as fast.`);
     }
     case 'buildRoad': {
       if (!s.regions[a.region]?.unlocked) return fail('You have no operations there.');

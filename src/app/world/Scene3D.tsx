@@ -16,7 +16,8 @@ import { preloadArt, artRevision } from './art';
 import { money, num, pct0 } from '../format';
 import { layoutRegion, type Layout, type Lot, type Plot } from './layout';
 import { CHUNK, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, LAND_HA_PER_PATCH, MAP, hasAccess, roadRoute, roadStretch, tileAt, forSaleAround, landCost, ownedSet, ROAD_H, ROAD_Y, chunkAt, chunkOrigin, clearCost, clearedSet, isRoad, patchesAround, placeProblem, worldOf } from '../../simulation/world';
-import { animal, buildCivic, buildCommunityHome, buildLot, box, cached, cyl, mat, mesh, PAL, person, tree, vehicle, type Model } from './models';
+import { animal, buildCivic, buildCommunityHome, buildLot, box, cached, cyl, hauler, mat, mesh, PAL, person, tree, vehicle, type Model } from './models';
+import { haulOf, MARKET_X, marketRoute } from '../../simulation/hauling';
 
 /** Graphics quality chosen in Settings (per browser). Low turns off shadows and high-DPI rendering. */
 export const graphicsQuality = (): 'high' | 'low' => {
@@ -56,6 +57,7 @@ interface Rig {
   storageProps: THREE.Group; lastStockTick: number; lastCash: number; lastCoin: number;
   rain: THREE.Points; smoke: THREE.Sprite[]; pops: { key: string; text: string; x: number; z: number; t0: number; tone?: string }[]; seenHarvest: Map<number, object>; popsReady: boolean; crownMat: THREE.MeshStandardMaterial; lastHaul: number; layout: Layout | null; region: RegionId; animT?: number;
   roadsG: THREE.Group; roadSig: string; roadPrev: THREE.Group; roadPrevSig: string;
+  haulers: Map<string, THREE.Group>; tickSeen: number; tickAt: number;
   felling?: { chunk: number; trees: THREE.Group[]; fallAt: number[]; extras: THREE.Group };
 }
 
@@ -111,7 +113,7 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
       lots: g(), fields: g(), units: g(), deco: g(), fx: g(), sel: g(), ghost: g(), ghostSig: '', models: [], pick: [], crops: {}, sig: { lots: '', fields: '', crops: '', sel: '', deco: '' },
       storageProps: g(), lastStockTick:-1, lastCash:getGame().cash, lastCoin:0,
       neighbours: [], people: new Map(), machines: new Map(), trucks: [], herds: new Map(), rain, smoke: [], pops: [], seenHarvest: new Map(), popsReady: false, crownMat: mat(CROWN.Spring).clone(), lastHaul: -1, layout: null, region,
-      roadsG: g(), roadSig: '', roadPrev: g(), roadPrevSig: '',
+      roadsG: g(), roadSig: '', roadPrev: g(), roadPrevSig: '', haulers: new Map(), tickSeen: -1, tickAt: 0,
     };
     rig.current = R;
     let raf = 0, framed = false, lastCrops = 0, viewSize = '', artVersion = artRevision();
@@ -144,6 +146,7 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
       syncStorage(R,L,s);
       animateUnits(R, L, s, now / 1000);
       animateFelling(R, s, now / 1000);
+      animateHaul(R, s, now / 1000);
       animateNeighbours(R, L, s, now / 1000);
       atmosphere(R, s, now / 1000);
       updateCamera(R, W, H);
@@ -653,6 +656,7 @@ function syncDeco(R: Rig, L: Layout, s: GameState) {
     const c = inside ? gy * CHUNKS_X + gxx : 100000 + (gy + 500) * 2000 + (gxx + 500); // stable id for scenery patches
     if (inside && (cleared.has(c) || c === felling)) continue; // the patch being felled is drawn tree by tree
     const ox = MAP.x0 + gxx * CHUNK, oy = MAP.y0 + gy * CHUNK;
+    if (ox + CHUNK > MARKET_X - 6 && ox < MARKET_X + 4 && oy + CHUNK > ROAD_Y - 6 && oy < ROAD_Y) continue; // the village market's clearing
     const dense = hash(c * 0.37 + 5), n = Math.round(sparse ? 3 + dense * 3 : 6 + dense * 6);
     for (const p of patchTrees(c, ox, oy, n)) {
       q.setFromAxisAngle(up, p.rot);
@@ -793,6 +797,36 @@ function syncRoadPreview(R: Rig, s: GameState, Rd: Roading | null) {
   const col = !ok ? 0xd04a3a : Rd.tool === 'remove' ? 0xd04a3a : Rd.tool === 'upgrade' ? 0x4aa0d0 : 0xffc94d;
   const geo = cached('road-prev', () => new THREE.BoxGeometry(0.96, 0.05, 0.96)), m = new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.55, depthWrite: false });
   for (const [x, y] of tiles) R.roadPrev.add(mesh(geo, m, x + 0.5, 0.03, y + 0.5, false));
+}
+
+/** Carts and trucks on their way to the village market and back, and the market itself. */
+function animateHaul(R: Rig, s: GameState, t: number) {
+  if (R.region !== 'heartland') return;
+  if (s.tick !== R.tickSeen) { R.tickSeen = s.tick; R.tickAt = t; }
+  const part = Math.min(0.999, (t - R.tickAt) * Math.max(0, getSpeed())); // smooth motion between game hours
+  const H = haulOf(s), route = H.trips.length ? marketRoute(s) : [], seen = new Set<string>();
+  for (const trip of H.trips) {
+    const key = `${trip.vehicle}@${trip.depart}`;
+    seen.add(key);
+    let o = R.haulers.get(key);
+    if (!o) { o = hauler(trip.kind); R.units.add(o); R.haulers.set(key, o); }
+    const now = s.tick + part, out = now < trip.arrive;
+    const f = out ? (now - trip.depart) / Math.max(1, trip.arrive - trip.depart) : 1 - (now - trip.arrive) / Math.max(1, trip.back - trip.arrive);
+    const k = Math.max(0, Math.min(route.length - 1, f * (route.length - 1))), i = Math.floor(k), j = Math.min(route.length - 1, i + 1), u = k - i;
+    if (!route.length) continue;
+    const [x0, z0] = route[i], [x1, z1] = route[j];
+    o.position.set(x0 + 0.5 + (x1 - x0) * u, 0.02, z0 + 0.5 + (z1 - z0) * u + (out ? -0.25 : 0.25)); // keep to their side of the road
+    const dx = (x1 - x0) * (out ? 1 : -1), dz = (z1 - z0) * (out ? 1 : -1);
+    if (dx || dz) o.rotation.y = Math.atan2(-dz, dx);
+    (o.children[0] as THREE.Object3D | undefined) && (o.position.y = 0.02 + Math.abs(Math.sin(t * 9)) * 0.01);
+  }
+  for (const [k, o] of R.haulers) if (!seen.has(k)) { R.units.remove(o); R.haulers.delete(k); }
+  if (!R.units.getObjectByName('village-market')) { // the market: a few stalls and a sign by the road
+    const m = new THREE.Group(); m.name = 'village-market';
+    for (const [dx, i] of [[-3, 0], [0, 1], [3, 2]] as const) { const st = buildLot('shed', 2, 2, 'market').group; st.position.set(MARKET_X + dx - 1, 0, ROAD_Y - 3.2 - (i % 2) * 0.4); m.add(st); }
+    m.add(box(0.1, 1.4, 0.1, PAL.woodDark, MARKET_X - 5, 0, ROAD_Y - 0.6), box(1.2, 0.4, 0.06, PAL.roofGreen, MARKET_X - 5, 1.1, ROAD_Y - 0.6));
+    R.units.add(m);
+  }
 }
 
 // ---------------------------------------------------------------- live things

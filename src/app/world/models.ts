@@ -475,6 +475,28 @@ export function vehicle(type: MachineType | 'truck') {
   return g;
 }
 
+/** Market hauling: a dog cart, a horse cart, or (from the Equipment page) a truck. Faces +x. */
+export function hauler(kind: 'cart' | 'horse' | 'truck') {
+  if (kind === 'truck') return vehicle('truck');
+  const g = new THREE.Group(), big = kind === 'horse';
+  const wheel = (z: number) => { const w = mesh(cached(`cartwheel${big}`, () => new THREE.CylinderGeometry(big ? 0.14 : 0.1, big ? 0.14 : 0.1, 0.03, 10)), mat(PAL.woodDark), -0.05, big ? 0.14 : 0.1, z); w.rotation.x = Math.PI / 2; g.add(w); };
+  const bw = big ? 0.42 : 0.3, bd = big ? 0.3 : 0.22;
+  g.add(box(bw, 0.12, bd, PAL.wood, -0.05, big ? 0.16 : 0.12, 0)); // cart bed
+  g.add(box(bw * 0.8, 0.1, bd * 0.8, PAL.hay, -0.05, big ? 0.28 : 0.24, 0)); // the load
+  wheel(-bd / 2 - 0.02); wheel(bd / 2 + 0.02);
+  g.add(box(0.3, 0.02, 0.02, PAL.woodDark, 0.25, big ? 0.22 : 0.16, -0.06), box(0.3, 0.02, 0.02, PAL.woodDark, 0.25, big ? 0.22 : 0.16, 0.06)); // shafts
+  if (big) { // horse
+    const brown = 0x7a4f2e;
+    g.add(box(0.34, 0.16, 0.12, brown, 0.5, 0.26, 0)); g.add(box(0.1, 0.18, 0.08, brown, 0.7, 0.36, 0)); g.add(box(0.12, 0.06, 0.07, brown, 0.76, 0.46, 0));
+    for (const [x, z] of [[0.38, -0.04], [0.38, 0.04], [0.62, -0.04], [0.62, 0.04]]) g.add(box(0.035, 0.26, 0.035, 0x3b2a1a, x, 0, z));
+  } else { // dog in harness
+    const fur = 0xc9a26b;
+    g.add(box(0.18, 0.07, 0.07, fur, 0.42, 0.1, 0)); g.add(box(0.07, 0.07, 0.07, fur, 0.53, 0.15, 0)); g.add(box(0.03, 0.04, 0.03, 0x3b2a1a, 0.56, 0.2, 0.025));
+    for (const [x, z] of [[0.35, -0.025], [0.35, 0.025], [0.48, -0.025], [0.48, 0.025]]) g.add(box(0.025, 0.08, 0.025, fur, x, 0, z));
+  }
+  return g;
+}
+
 export function animal(a: AnimalId) {
   // the imported cow and sheep are modelled nose-to-tail along z: fit them lengthwise, then turn them to face +x like the rest
   const imported=a==='cows'?artModel('cow',.32,.7,true):a==='sheep'?artModel('sheep',.28,.45,true):null;
