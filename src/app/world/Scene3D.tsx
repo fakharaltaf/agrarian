@@ -15,7 +15,7 @@ import { stageAtLeast } from '../../simulation/stages';
 import { preloadArt, artRevision } from './art';
 import { money, num, pct0 } from '../format';
 import { layoutRegion, type Layout, type Lot, type Plot } from './layout';
-import { CHUNK, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, LAND_HA_PER_PATCH, MAP, hasAccess, roadRoute, roadStretch, tileAt, forSaleAround, landCost, ownedSet, ROAD_H, ROAD_Y, chunkAt, chunkOrigin, clearCost, clearedSet, isRoad, patchesAround, placeProblem, worldOf } from '../../simulation/world';
+import { CHUNK, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, LAND_HA_PER_PATCH, MAP, hasAccess, riverTiles, tileId, roadRoute, roadStretch, tileAt, forSaleAround, landCost, ownedSet, ROAD_H, ROAD_Y, chunkAt, chunkOrigin, clearCost, clearedSet, isRoad, patchesAround, placeProblem, worldOf } from '../../simulation/world';
 import { animal, buildCivic, buildCommunityHome, buildLot, box, cached, cyl, hauler, mat, mesh, PAL, person, tree, vehicle, type Model } from './models';
 import { haulOf, MARKET_X, marketRoute } from '../../simulation/hauling';
 
@@ -658,7 +658,9 @@ function syncDeco(R: Rig, L: Layout, s: GameState) {
     const ox = MAP.x0 + gxx * CHUNK, oy = MAP.y0 + gy * CHUNK;
     if (ox + CHUNK > MARKET_X - 6 && ox < MARKET_X + 4 && oy + CHUNK > ROAD_Y - 6 && oy < ROAD_Y) continue; // the village market's clearing
     const dense = hash(c * 0.37 + 5), n = Math.round(sparse ? 3 + dense * 3 : 6 + dense * 6);
+    const river = riverTiles(R.region);
     for (const p of patchTrees(c, ox, oy, n)) {
+      if (inside && river.has(tileId(Math.floor(p.x), Math.floor(p.z)))) continue;
       q.setFromAxisAngle(up, p.rot);
       const m = new THREE.Matrix4().compose(new THREE.Vector3(p.x, 0, p.z), q, new THREE.Vector3(p.k, p.ky, p.k));
       const shade = 0.82 + hash(p.x * 3.1 + p.z) * 0.3;
@@ -761,13 +763,21 @@ const ROAD_COL = [0, 0xa98b5d, 0xbab2a0, 0x5b5d61];
 /** Roads: the main road and every track, coloured by grade (dirt, gravel, paved). */
 function syncRoads(R: Rig, s: GameState) {
   const w = worldOf(s, R.region), ids = Object.keys(w.roads);
-  const sig = `${R.region}:${w.main}:${ids.length}:${ids.reduce((a, k) => a + ((Number(k) * 31) % 1000003) * w.roads[Number(k)], 0)}`;
+  const cids = Object.keys(w.canals);
+  const sig = `${R.region}:${w.main}:${ids.length}:${ids.reduce((a, k) => a + ((Number(k) * 31) % 1000003) * w.roads[Number(k)], 0)}:${cids.length}`;
   if (sig === R.roadSig) return;
   R.roadSig = sig;
   clear(R.roadsG);
   const main = mesh(cached('road-main', () => new THREE.BoxGeometry(MAP.w + 600, 0.04, ROAD_H - 0.2)), mat(ROAD_COL[w.main], { rough: 1 }), MAP.x0 + MAP.w / 2, 0, ROAD_Y + ROAD_H / 2, false);
   main.receiveShadow = true; R.roadsG.add(main);
   if (w.main === 3) { const dash: THREE.Matrix4[] = []; for (let x = MAP.x0; x < MAP.x0 + MAP.w; x += 2) dash.push(new THREE.Matrix4().makeTranslation(x + 0.5, 0.045, ROAD_Y + ROAD_H / 2)); const im = new THREE.InstancedMesh(cached('dash', () => new THREE.BoxGeometry(0.8, 0.01, 0.08)), mat(0xf2e6b8), dash.length); dash.forEach((m, i) => im.setMatrixAt(i, m)); R.roadsG.add(im); }
+  // the river (with a timber bridge where the main road crosses) and irrigation channels
+  const water: THREE.Matrix4[] = [], bridge: THREE.Matrix4[] = [];
+  for (const id of riverTiles(R.region)) { const [x, y] = tileAt(id); if (isRoad(y)) bridge.push(new THREE.Matrix4().makeTranslation(x + 0.5, 0.05, y + 0.5)); else water.push(new THREE.Matrix4().makeTranslation(x + 0.5, -0.01, y + 0.5)); }
+  const flat = (key: string, geo: () => THREE.BufferGeometry, m: THREE.Material, list: THREE.Matrix4[]) => { if (!list.length) return; const im = new THREE.InstancedMesh(cached(key, geo), m, list.length); list.forEach((x, i) => im.setMatrixAt(i, x)); im.frustumCulled = false; im.receiveShadow = true; R.roadsG.add(im); };
+  flat('river', () => new THREE.BoxGeometry(1, 0.04, 1), mat(0x4f8fbf, { rough: 0.25, metal: 0.1 }), water);
+  flat('bridge', () => new THREE.BoxGeometry(1.02, 0.08, 1.02), mat(PAL.wood), bridge);
+  flat('canal', () => new THREE.BoxGeometry(1, 0.03, 1), mat(0x4a86b4, { rough: 0.3 }), cids.map((k) => { const [x, y] = tileAt(Number(k)); return new THREE.Matrix4().makeTranslation(x + 0.5, 0.005, y + 0.5); }));
   const byGrade: THREE.Matrix4[][] = [[], [], [], []];
   for (const k of ids) { const id = Number(k), [x, y] = tileAt(id); byGrade[w.roads[id]]?.push(new THREE.Matrix4().makeTranslation(x + 0.5, 0.012, y + 0.5)); }
   for (let gr = 1; gr <= 3; gr++) {

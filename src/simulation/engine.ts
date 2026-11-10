@@ -9,7 +9,7 @@ import {
 } from './config';
 import { buildingDivision, clamp, debt, factoryCrop, equity, freeSpace, has, known, log, marketWage, nextId, post, round2, todayBook } from './core';
 import { addGoods, canGrow, clearField, fertilizeField, fieldsTick, frostNight, harvestField, isManual, isReady, newField, plantField, spoilageDaily } from './agriculture';
-import { reconcileWorld, buyable, connect, touch, isRoad, MAP, ROAD_GRADES, ROAD_H, roadRoute, roadStretch, roadTilePrice, tileId, canPlaceNew, LAND_HA_PER_PATCH, landCost, own, ownedSet, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, clearCost, clearedSet, FOOTPRINT, footprintOf, forget, MOVE_DOWNTIME, placeNew, placeProblem, plotSide, PROBLEM_TEXT, seedWorld, TIMBER_PER_PATCH, worldOf } from './world';
+import { reconcileWorld, buyable, connect, touch, IRRIGATION_CHANNEL_PRICE, waterRoute, isRoad, MAP, ROAD_GRADES, ROAD_H, roadRoute, roadStretch, roadTilePrice, tileId, canPlaceNew, LAND_HA_PER_PATCH, landCost, own, ownedSet, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, clearCost, clearedSet, FOOTPRINT, footprintOf, forget, MOVE_DOWNTIME, placeNew, placeProblem, plotSide, PROBLEM_TEXT, seedWorld, TIMBER_PER_PATCH, worldOf } from './world';
 import { buyAnimals, livestockDaily, sellAnimals } from './livestock';
 import { claimDaily, startDay } from './daily';
 import { createMarkets, drawWeather, executeBuy, executeSell, quoteBuy, macroDaily, marketsDaily, marketsTick, priceFromInv } from './markets';
@@ -296,9 +296,18 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       const fs = a.fieldIds.map((id) => field(s, id)).filter((f) => f && !f.irrigated) as NonNullable<ReturnType<typeof field>>[];
       const ha = fs.reduce((x, f) => x + f.ha, 0);
       if (!ha) return fail('Those fields are already irrigated.');
-      const cost = irrigationPrice(s, ha);
-      if (cost > s.cash) return fail(`Irrigation for ${ha} ha costs $${cost.toLocaleString()}.`);
-      post(s, 'irrigation', -cost, `Irrigation for ${ha} ha`, fs[0].region);
+      // from the new game on, water comes from the river along a channel you dig
+      const channels: [number, number][] = [];
+      if (!s.legacyProgression) for (const f of fs) {
+        const route = waterRoute(s, f.region, `field:${f.id}`);
+        if (!route) return fail('The river is out of reach: buy and clear land down to the river first.');
+        channels.push(...route);
+      }
+      const dig = Math.round(IRRIGATION_CHANNEL_PRICE * s.macro.cpi * channels.length);
+      const cost = irrigationPrice(s, ha) + dig;
+      if (cost > s.cash) return fail(`Irrigation for ${ha} ha costs $${cost.toLocaleString()}${dig ? ` (including ${channels.length} tiles of channel)` : ''}.`);
+      post(s, 'irrigation', -cost, `Irrigation for ${ha} ha${dig ? ` · ${channels.length} tiles of channel` : ''}`, fs[0].region);
+      for (const [x, y] of channels) worldOf(s, fs[0].region).canals[tileId(x, y)] = 1;
       fs.forEach((f) => (f.irrigated = true));
       // equipment is part of the land's book value
       fs.forEach((f) => (f.cost += cost * (f.ha / ha)));

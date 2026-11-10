@@ -16,7 +16,7 @@ export type Footprint = { w: number; d: number };
 export interface ClearJob { chunk: number; hours: number }
 /** owned: patches the farm has bought (you can only clear, farm and build on your own land). */
 /** roads: grade (1 dirt, 2 gravel, 3 paved) by tile id; main: grade of the main road through the map. */
-export interface RegionWorld { cleared: number[]; owned: number[]; pos: Record<string, [number, number]>; queue: ClearJob[]; roads: Record<number, number>; main: number }
+export interface RegionWorld { cleared: number[]; owned: number[]; pos: Record<string, [number, number]>; queue: ClearJob[]; roads: Record<number, number>; main: number; canals: Record<number, number> }
 export type WorldState = Partial<Record<RegionId, RegionWorld>>;
 
 /** Tiles each building occupies (x × y). */
@@ -32,7 +32,7 @@ export const HOME_BLOCKS = (h: CommunityHome) => Math.min(h.count, 8);
 export const homeFootprint = (h: CommunityHome): Footprint => { const n = HOME_BLOCKS(h); return { w: Math.min(n, 4) * 4 - 1, d: Math.ceil(n / 4) * 4 - 1 }; };
 export const SERVICE_FOOTPRINT: Footprint = { w: 3, d: 3 };
 
-export const worldOf = (s: GameState, r: RegionId): RegionWorld => { const w = ((s.world ??= {})[r] ??= { cleared: [], owned: [], pos: {}, queue: [], roads: {}, main: 1 }); w.owned ??= []; w.roads ??= {}; w.main ??= 1; return w; };
+export const worldOf = (s: GameState, r: RegionId): RegionWorld => { const w = ((s.world ??= {})[r] ??= { cleared: [], owned: [], pos: {}, queue: [], roads: {}, main: 1, canals: {} }); w.owned ??= []; w.roads ??= {}; w.main ??= 1; w.canals ??= {}; return w; };
 export const chunkAt = (x: number, y: number) => {
   const cx = Math.floor((x - MAP.x0) / CHUNK), cy = Math.floor((y - MAP.y0) / CHUNK);
   return cx < 0 || cy < 0 || cx >= CHUNKS_X || cy >= CHUNKS_Y ? -1 : cy * CHUNKS_X + cx;
@@ -97,11 +97,11 @@ export function placedIn(s: GameState, r: RegionId): Placed[] {
 
 /** Occupancy grid with a summed-area table: O(1) rectangle checks for placement and free-spot search. */
 function occupancy(s: GameState, r: RegionId, ignore?: string, allowForest = false) {
-  const W = MAP.w, H = MAP.h, grid = new Uint8Array(W * H), w = worldOf(s, r), cleared = clearedSet(w), owned = ownedSet(w);
+  const W = MAP.w, H = MAP.h, grid = new Uint8Array(W * H), w = worldOf(s, r), cleared = clearedSet(w), owned = ownedSet(w), river = riverTiles(r);
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const wx = x + MAP.x0, wy = y + MAP.y0;
     const c = chunkAt(wx, wy);
-    if (isRoad(wy) || w.roads[y * W + x] || !owned.has(c) || (!allowForest && !cleared.has(c))) grid[y * W + x] = 1;
+    if (isRoad(wy) || w.roads[y * W + x] || w.canals[y * W + x] || river.has(y * W + x) || !owned.has(c) || (!allowForest && !cleared.has(c))) grid[y * W + x] = 1;
   }
   for (const p of placedIn(s, r)) {
     if (p.key === ignore) continue;
@@ -120,12 +120,14 @@ function occupancy(s: GameState, r: RegionId, ignore?: string, allowForest = fal
     return d - b - c + a === 0;
   };
 }
-export type PlaceProblem = 'unowned' | 'forest' | 'occupied' | 'road' | 'outside' | null;
+export type PlaceProblem = 'unowned' | 'forest' | 'occupied' | 'road' | 'water' | 'outside' | null;
 /** Why a footprint cannot stand at (x, y), or null when it can. */
 export function placeProblem(s: GameState, r: RegionId, x: number, y: number, fp: Footprint, ignore?: string): PlaceProblem {
   if (!Number.isInteger(x) || !Number.isInteger(y)) return 'outside';
   if (x < MAP.x0 || y < MAP.y0 || x + fp.w > MAP.x0 + MAP.w || y + fp.d > MAP.y0 + MAP.h) return 'outside';
   const roads = worldOf(s, r).roads;
+  const river = riverTiles(r), canals = worldOf(s, r).canals;
+  for (let yy = y; yy < y + fp.d; yy++) for (let xx = x; xx < x + fp.w; xx++) if (river.has(tileId(xx, yy)) || canals[tileId(xx, yy)]) return 'water';
   for (let yy = y; yy < y + fp.d; yy++) { if (isRoad(yy)) return 'road'; for (let xx = x; xx < x + fp.w; xx++) if (roads[tileId(xx, yy)]) return 'road'; }
   const cleared = clearedSet(worldOf(s, r)), owned = ownedSet(worldOf(s, r));
   for (let yy = y; yy < y + fp.d; yy++) for (let xx = x; xx < x + fp.w; xx++) if (!owned.has(chunkAt(xx, yy))) return 'unowned';
@@ -134,7 +136,7 @@ export function placeProblem(s: GameState, r: RegionId, x: number, y: number, fp
   return null;
 }
 export const PROBLEM_TEXT: Record<Exclude<PlaceProblem, null>, string> = {
-  unowned: 'You do not own that land. Buy it first.', forest: 'That spot is forest. Clear it first.', occupied: 'Something already stands there.', road: 'You cannot build on the road.', outside: 'That is off the map.',
+  unowned: 'You do not own that land. Buy it first.', water: 'That is water: the river or an irrigation channel.', forest: 'That spot is forest. Clear it first.', occupied: 'Something already stands there.', road: 'You cannot build on the road.', outside: 'That is off the map.',
 };
 /** First free cleared spot, searched outward from the farmhouse. */
 export function findSpot(s: GameState, r: RegionId, fp: Footprint, allowForest = false): [number, number] | null {
@@ -314,7 +316,8 @@ const STEPS: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 function openGround(s: GameState, r: RegionId) {
   const w = worldOf(s, r), cleared = clearedSet(w), owned = ownedSet(w), blocked = new Uint8Array(MAP.w * MAP.h);
   for (const p of placedIn(s, r)) for (let y = p.y; y < p.y + p.d; y++) for (let x = p.x; x < p.x + p.w; x++) if (inMap(x, y)) blocked[tileId(x, y)] = 1;
-  return (x: number, y: number) => { if (!inMap(x, y) || blocked[tileId(x, y)]) return false; const c = chunkAt(x, y); return owned.has(c) && cleared.has(c); };
+  const river = riverTiles(r);
+  return (x: number, y: number) => { if (!inMap(x, y) || blocked[tileId(x, y)] || river.has(tileId(x, y))) return false; const c = chunkAt(x, y); return owned.has(c) && cleared.has(c); };
 }
 /** Tiles just outside a footprint, where a road would give it access. */
 function doorstep(x: number, y: number, fp: Footprint): [number, number][] {
@@ -396,4 +399,37 @@ export function roadStretch(w: RegionWorld, x: number, y: number): number[] {
     for (const [dx, dy] of STEPS) { const nid = tileId(a + dx, b + dy); if (inMap(a + dx, b + dy) && w.roads[nid] && !seen.has(nid)) { seen.add(nid); out.push(nid); } }
   }
   return out.filter((id, i) => i === 0 || degree(id) < 3);
+}
+
+// ---------------------------------------------------------------- the river and irrigation channels
+
+const rivers = new Map<RegionId, Set<number>>();
+/** Each region's river: two tiles wide, winding north to south. In Heartland it runs just west of the starting valley. */
+export function riverTiles(r: RegionId): Set<number> {
+  const hit = rivers.get(r);
+  if (hit) return hit;
+  const set = new Set<number>(), k = [...r].reduce((a, ch) => a + ch.charCodeAt(0), 0);
+  const base = r === 'heartland' ? -27 : -27 + ((k * 37) % 21) - 10;
+  let prev: number | null = null;
+  for (let y = MAP.y0; y < MAP.y0 + MAP.h; y++) {
+    const x = Math.round(base + 5 * Math.sin(y * 0.06 + k) + 2 * Math.sin(y * 0.17 + 1));
+    const from = prev === null ? x : Math.min(prev, x), to = prev === null ? x : Math.max(prev, x);
+    for (let xx = from; xx <= to; xx++) for (const dx of [0, 1]) if (inMap(xx + dx, y)) set.add(tileId(xx + dx, y)); // no gaps where it bends
+    prev = x;
+  }
+  rivers.set(r, set);
+  return set;
+}
+export const IRRIGATION_CHANNEL_PRICE = 15;
+/** Dig a channel from the river to a field (irrigating does this). Returns the new channel tiles, [] if it already has water, or null if the river is out of reach. */
+export function waterRoute(s: GameState, r: RegionId, key: string): [number, number][] | null {
+  const w = worldOf(s, r), p = w.pos[key], fp = footprintOf(s, key);
+  if (!p || !fp) return null;
+  const river = riverTiles(r), open = openGround(s, r);
+  const door = doorstep(p[0], p[1], fp);
+  if (door.some(([x, y]) => inMap(x, y) && (river.has(tileId(x, y)) || w.canals[tileId(x, y)]))) return [];
+  // channels run over your own open land, under roads (culverts) and along existing channels
+  const owned = ownedSet(w);
+  const can = (x: number, y: number) => open(x, y) || (inMap(x, y) && owned.has(chunkAt(x, y)) && (isRoad(y) || !!w.roads[tileId(x, y)] || !!w.canals[tileId(x, y)]));
+  return route(can, door, (x, y) => inMap(x, y) && river.has(tileId(x, y)));
 }
