@@ -8,7 +8,7 @@ import {
 } from './config';
 import { buildingDivision, clamp, debt, factoryCrop, equity, freeSpace, has, known, log, marketWage, nextId, post, round2, todayBook } from './core';
 import { addGoods, canGrow, clearField, fertilizeField, fieldsTick, frostNight, harvestField, isManual, isReady, newField, plantField, spoilageDaily } from './agriculture';
-import { reconcileWorld, buyable, canPlaceNew, LAND_HA_PER_PATCH, landCost, own, ownedSet, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, clearCost, clearedSet, FOOTPRINT, footprintOf, forget, MOVE_DOWNTIME, placeNew, placeProblem, plotSide, PROBLEM_TEXT, seedWorld, TIMBER_PER_PATCH, worldOf } from './world';
+import { reconcileWorld, buyable, connect, touch, isRoad, MAP, ROAD_GRADES, ROAD_H, roadRoute, roadStretch, roadTilePrice, tileId, canPlaceNew, LAND_HA_PER_PATCH, landCost, own, ownedSet, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, clearCost, clearedSet, FOOTPRINT, footprintOf, forget, MOVE_DOWNTIME, placeNew, placeProblem, plotSide, PROBLEM_TEXT, seedWorld, TIMBER_PER_PATCH, worldOf } from './world';
 import { buyAnimals, livestockDaily, sellAnimals } from './livestock';
 import { claimDaily, startDay } from './daily';
 import { createMarkets, drawWeather, executeBuy, executeSell, quoteBuy, macroDaily, marketsDaily, marketsTick, priceFromInv } from './markets';
@@ -498,9 +498,51 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       if (fee > s.cash) return fail(`Moving costs $${fee.toLocaleString()}.`);
       post(s, 'maintenance', -fee, 'Moving on the farm', a.region);
       w.pos[a.key] = [a.at[0], a.at[1]];
+      touch(w);
+      connect(s, a.region, a.key);
       const b = kind === 'b' ? s.buildings.find((x) => x.id === +id) : undefined;
       if (b) b.movedUntil = s.tick + MOVE_DOWNTIME;
       return ok(b ? `Moved. It restarts in ${MOVE_DOWNTIME} hours.` : 'Moved.');
+    }
+    case 'buildRoad': {
+      if (!s.regions[a.region]?.unlocked) return fail('You have no operations there.');
+      const tiles = roadRoute(s, a.region, a.from, a.to);
+      if (!tiles) return fail('A road cannot get there: keep to your own cleared land and go around buildings.');
+      if (!tiles.length) return fail('There is already a road all the way.');
+      const cost = roadTilePrice(s, 1) * tiles.length;
+      if (cost > s.cash) return fail(`That road costs $${cost.toLocaleString()}.`);
+      post(s, 'building', -cost, `Dirt track (${tiles.length} tiles)`, a.region);
+      const w = worldOf(s, a.region);
+      for (const [x, y] of tiles) w.roads[tileId(x, y)] = 1;
+      touch(w);
+      return ok();
+    }
+    case 'removeRoad': {
+      const w = worldOf(s, a.region), stretch = roadStretch(w, a.at[0], a.at[1]);
+      if (!stretch.length) return fail(isRoad(a.at[1]) ? 'The main road stays.' : 'There is no road there.');
+      for (const id of stretch) delete w.roads[id];
+      touch(w);
+      return ok(`Removed ${stretch.length} tiles of road.`);
+    }
+    case 'upgradeRoad': {
+      const w = worldOf(s, a.region);
+      if (isRoad(a.at[1])) {
+        if (w.main >= 3) return fail('The main road is already paved.');
+        const cost = roadTilePrice(s, w.main + 1) * MAP.w * ROAD_H;
+        if (cost > s.cash) return fail(`Upgrading the main road costs $${cost.toLocaleString()}.`);
+        post(s, 'building', -cost, `Main road: ${ROAD_GRADES[w.main + 1].toLowerCase()}`, a.region);
+        w.main++;
+        return ok(`The main road is now a ${ROAD_GRADES[w.main].toLowerCase()}.`);
+      }
+      const stretch = roadStretch(w, a.at[0], a.at[1]);
+      if (!stretch.length) return fail('There is no road there.');
+      const grade = Math.min(3, Math.min(...stretch.map((id) => w.roads[id])) + 1), todo = stretch.filter((id) => w.roads[id] < grade);
+      if (!todo.length) return fail('This road is already paved.');
+      const cost = roadTilePrice(s, grade) * todo.length;
+      if (cost > s.cash) return fail(`Upgrading costs $${cost.toLocaleString()}.`);
+      post(s, 'building', -cost, `${ROAD_GRADES[grade]} (${todo.length} tiles)`, a.region);
+      for (const id of todo) w.roads[id] = grade;
+      return ok(`Upgraded ${todo.length} tiles to ${ROAD_GRADES[grade].toLowerCase()}.`);
     }
     case 'buyLand': {
       if (!s.regions[a.region]?.unlocked) return fail('You have no operations there.');

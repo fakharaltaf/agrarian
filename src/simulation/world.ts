@@ -15,7 +15,8 @@ export const MOVE_DOWNTIME = 6; // hours a moved building stands idle
 export type Footprint = { w: number; d: number };
 export interface ClearJob { chunk: number; hours: number }
 /** owned: patches the farm has bought (you can only clear, farm and build on your own land). */
-export interface RegionWorld { cleared: number[]; owned: number[]; pos: Record<string, [number, number]>; queue: ClearJob[] }
+/** roads: grade (1 dirt, 2 gravel, 3 paved) by tile id; main: grade of the main road through the map. */
+export interface RegionWorld { cleared: number[]; owned: number[]; pos: Record<string, [number, number]>; queue: ClearJob[]; roads: Record<number, number>; main: number }
 export type WorldState = Partial<Record<RegionId, RegionWorld>>;
 
 /** Tiles each building occupies (x × y). */
@@ -31,7 +32,7 @@ export const HOME_BLOCKS = (h: CommunityHome) => Math.min(h.count, 8);
 export const homeFootprint = (h: CommunityHome): Footprint => { const n = HOME_BLOCKS(h); return { w: Math.min(n, 4) * 4 - 1, d: Math.ceil(n / 4) * 4 - 1 }; };
 export const SERVICE_FOOTPRINT: Footprint = { w: 3, d: 3 };
 
-export const worldOf = (s: GameState, r: RegionId): RegionWorld => { const w = ((s.world ??= {})[r] ??= { cleared: [], owned: [], pos: {}, queue: [] }); w.owned ??= []; return w; };
+export const worldOf = (s: GameState, r: RegionId): RegionWorld => { const w = ((s.world ??= {})[r] ??= { cleared: [], owned: [], pos: {}, queue: [], roads: {}, main: 1 }); w.owned ??= []; w.roads ??= {}; w.main ??= 1; return w; };
 export const chunkAt = (x: number, y: number) => {
   const cx = Math.floor((x - MAP.x0) / CHUNK), cy = Math.floor((y - MAP.y0) / CHUNK);
   return cx < 0 || cy < 0 || cx >= CHUNKS_X || cy >= CHUNKS_Y ? -1 : cy * CHUNKS_X + cx;
@@ -71,6 +72,8 @@ export function buyable(w: RegionWorld, chunks: number[]) {
   return out;
 }
 export const isRoad = (y: number) => y >= ROAD_Y && y < ROAD_Y + ROAD_H;
+export const tileId = (x: number, y: number) => (y - MAP.y0) * MAP.w + (x - MAP.x0);
+export const tileAt = (id: number): [number, number] => [MAP.x0 + (id % MAP.w), MAP.y0 + Math.floor(id / MAP.w)];
 
 /** Everything that stands on the map, with the key its position is saved under. */
 export interface Placed { key: string; x: number; y: number; w: number; d: number }
@@ -98,7 +101,7 @@ function occupancy(s: GameState, r: RegionId, ignore?: string, allowForest = fal
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const wx = x + MAP.x0, wy = y + MAP.y0;
     const c = chunkAt(wx, wy);
-    if (isRoad(wy) || !owned.has(c) || (!allowForest && !cleared.has(c))) grid[y * W + x] = 1;
+    if (isRoad(wy) || w.roads[y * W + x] || !owned.has(c) || (!allowForest && !cleared.has(c))) grid[y * W + x] = 1;
   }
   for (const p of placedIn(s, r)) {
     if (p.key === ignore) continue;
@@ -122,7 +125,8 @@ export type PlaceProblem = 'unowned' | 'forest' | 'occupied' | 'road' | 'outside
 export function placeProblem(s: GameState, r: RegionId, x: number, y: number, fp: Footprint, ignore?: string): PlaceProblem {
   if (!Number.isInteger(x) || !Number.isInteger(y)) return 'outside';
   if (x < MAP.x0 || y < MAP.y0 || x + fp.w > MAP.x0 + MAP.w || y + fp.d > MAP.y0 + MAP.h) return 'outside';
-  for (let yy = y; yy < y + fp.d; yy++) if (isRoad(yy)) return 'road';
+  const roads = worldOf(s, r).roads;
+  for (let yy = y; yy < y + fp.d; yy++) { if (isRoad(yy)) return 'road'; for (let xx = x; xx < x + fp.w; xx++) if (roads[tileId(xx, yy)]) return 'road'; }
   const cleared = clearedSet(worldOf(s, r)), owned = ownedSet(worldOf(s, r));
   for (let yy = y; yy < y + fp.d; yy++) for (let xx = x; xx < x + fp.w; xx++) if (!owned.has(chunkAt(xx, yy))) return 'unowned';
   for (let yy = y; yy < y + fp.d; yy++) for (let xx = x; xx < x + fp.w; xx++) if (!cleared.has(chunkAt(xx, yy))) return 'forest';
@@ -134,9 +138,12 @@ export const PROBLEM_TEXT: Record<Exclude<PlaceProblem, null>, string> = {
 };
 /** First free cleared spot, searched outward from the farmhouse. */
 export function findSpot(s: GameState, r: RegionId, fp: Footprint, allowForest = false): [number, number] | null {
-  const fits = occupancy(s, r, undefined, allowForest);
-  const [cx, cy] = worldOf(s, r).pos[r === 'heartland' ? 'farmhouse' : 'shed'] ?? [1, 1];
-  for (let ring = 0; ring < Math.max(MAP.w, MAP.h); ring++) {
+  const fits = occupancy(s, r, undefined, allowForest), w = worldOf(s, r);
+  const [cx, cy] = w.pos[r === 'heartland' ? 'farmhouse' : 'shed'] ?? [1, 1];
+  // nothing can stand off the farm's own land, so search no further than the far corner of what it owns
+  let far = 0;
+  for (const c of w.owned) { const [ox, oy] = chunkOrigin(c); far = Math.max(far, Math.abs(ox - cx), Math.abs(ox + CHUNK - cx), Math.abs(oy - cy), Math.abs(oy + CHUNK - cy)); }
+  for (let ring = 0; ring <= far; ring++) {
     for (let dy = -ring; dy <= ring; dy++) for (let dx = -ring; dx <= ring; dx++) {
       if (Math.max(Math.abs(dx), Math.abs(dy)) !== ring) continue;
       const x = cx + dx, y = cy + dy;
@@ -156,10 +163,12 @@ export function clearRect(w: RegionWorld, x: number, y: number, fw: number, fd: 
 export function placeNew(s: GameState, r: RegionId, key: string, at?: [number, number]): string | null {
   const fp = footprintOf(s, key);
   if (!fp) return 'Nothing to place.';
-  if (at) { const p = placeProblem(s, r, at[0], at[1], fp); if (p) return PROBLEM_TEXT[p]; worldOf(s, r).pos[key] = [at[0], at[1]]; return null; }
+  if (at) { const p = placeProblem(s, r, at[0], at[1], fp); if (p) return PROBLEM_TEXT[p]; worldOf(s, r).pos[key] = [at[0], at[1]]; touch(worldOf(s, r)); connect(s, r, key); return null; }
   const spot = findSpot(s, r, fp);
   if (!spot) return 'No free cleared land of yours. Clear forest or buy more land.';
   worldOf(s, r).pos[key] = spot;
+  touch(worldOf(s, r));
+  connect(s, r, key); // a dirt track to the nearest road comes with every building
   return null;
 }
 /** Check before money changes hands; the caller places after creating the object. */
@@ -167,7 +176,7 @@ export function canPlaceNew(s: GameState, r: RegionId, fp: Footprint, at?: [numb
   if (at) { const p = placeProblem(s, r, at[0], at[1], fp); return p ? PROBLEM_TEXT[p] : null; }
   return findSpot(s, r, fp) ? null : 'No free cleared land of yours. Clear forest or buy more land.';
 }
-export const forget = (s: GameState, r: RegionId, key: string) => { delete worldOf(s, r).pos[key]; };
+export const forget = (s: GameState, r: RegionId, key: string) => { delete worldOf(s, r).pos[key]; touch(worldOf(s, r)); };
 
 // ---------------------------------------------------------------- legacy layout (positions for saves made before the map)
 
@@ -211,6 +220,7 @@ export function seedWorld(s: GameState, r: RegionId, wanted: Wanted = NONE) {
   // A new farm owns its valley, cleared and ready; a new region starts with the same block around its shed.
   if (s.fields.filter((f) => f.region === r).length <= 1) { const L = START_LAND; own(w, chunksIn(L.x, L.y, L.w, L.h)); clearRect(w, L.x, L.y, L.w, L.h); }
   own(w, w.cleared); // a farm laid out before land ownership owns everything it had cleared
+  for (const k of Object.keys(w.pos)) connect(s, r, k);
 }
 
 // ---------------------------------------------------------------- clearing work
@@ -271,7 +281,7 @@ export function reconcileWorld(s: GameState, wanted: Wanted) {
       const fp = footprintOf(s, k);
       if (!fp) continue;
       const spot = findSpot(s, r, fp) ?? findSpot(s, r, fp, true);
-      if (spot) { w.pos[k] = spot; clearRect(w, spot[0], spot[1], fp.w, fp.d); }
+      if (spot) { w.pos[k] = spot; clearRect(w, spot[0], spot[1], fp.w, fp.d); connect(s, r, k); }
     }
   }
 }
@@ -287,4 +297,103 @@ export function frontierPatches(s: GameState, r: RegionId, n: number) {
     out.push([c, (cx - hcx) ** 2 + (cy - hcy) ** 2]);
   }
   return out.sort((a, b) => a[1] - b[1] || a[0] - b[0]).slice(0, n).map((x) => x[0]);
+}
+
+// ---------------------------------------------------------------- roads
+
+export const ROAD_GRADES = ['', 'Dirt track', 'Gravel road', 'Paved road'] as const;
+/** Cost per tile to build (dirt) or bring a tile up to a grade. */
+export const roadTilePrice = (s: GameState, grade: number) => Math.round([0, 5, 40, 150][grade] * s.macro.cpi * 100) / 100;
+const BUILT = /^(b:|home:|svc:|farmhouse$|shed$|market$|crew$|office$|hall$)/;
+/** Things that need a road to work (fields don't). */
+export const needsRoad = (key: string) => BUILT.test(key);
+const inMap = (x: number, y: number) => x >= MAP.x0 && y >= MAP.y0 && x < MAP.x0 + MAP.w && y < MAP.y0 + MAP.h;
+const isRoadTile = (w: RegionWorld, x: number, y: number) => inMap(x, y) && (isRoad(y) || !!w.roads[tileId(x, y)]);
+const STEPS: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+/** Tiles a road may be laid on: your own cleared land that nothing stands on. */
+function openGround(s: GameState, r: RegionId) {
+  const w = worldOf(s, r), cleared = clearedSet(w), owned = ownedSet(w), blocked = new Uint8Array(MAP.w * MAP.h);
+  for (const p of placedIn(s, r)) for (let y = p.y; y < p.y + p.d; y++) for (let x = p.x; x < p.x + p.w; x++) if (inMap(x, y)) blocked[tileId(x, y)] = 1;
+  return (x: number, y: number) => { if (!inMap(x, y) || blocked[tileId(x, y)]) return false; const c = chunkAt(x, y); return owned.has(c) && cleared.has(c); };
+}
+/** Tiles just outside a footprint, where a road would give it access. */
+function doorstep(x: number, y: number, fp: Footprint): [number, number][] {
+  const out: [number, number][] = [];
+  for (let i = 0; i < fp.w; i++) out.push([x + i, y - 1], [x + i, y + fp.d]);
+  for (let j = 0; j < fp.d; j++) out.push([x - 1, y + j], [x + fp.w, y + j]);
+  return out;
+}
+/** Shortest route over open ground from any start tile to a tile where done() is true (that tile is not included). */
+function route(open: (x: number, y: number) => boolean, starts: [number, number][], done: (x: number, y: number) => boolean, limit = 4000): [number, number][] | null {
+  const prev = new Map<number, number>(), q: number[] = [];
+  for (const [x, y] of starts) { if (!inMap(x, y)) continue; if (done(x, y)) return []; if (!open(x, y)) continue; const id = tileId(x, y); if (!prev.has(id)) { prev.set(id, -1); q.push(id); } }
+  for (let h = 0; h < q.length && h < limit * 8; h++) {
+    const id = q[h], [x, y] = tileAt(id);
+    for (const [dx, dy] of STEPS) {
+      const nx = x + dx, ny = y + dy;
+      if (!inMap(nx, ny)) continue;
+      const nid = tileId(nx, ny);
+      if (prev.has(nid)) continue;
+      if (done(nx, ny)) { const path: [number, number][] = []; for (let c = id; c !== -1; c = prev.get(c)!) path.push(tileAt(c)); return path.reverse(); }
+      if (!open(nx, ny)) continue;
+      prev.set(nid, id); q.push(nid);
+    }
+  }
+  return null;
+}
+/** Lay a free dirt track from a building to the nearest road (placing a building does this). Returns false if no route exists. */
+export function connect(s: GameState, r: RegionId, key: string) {
+  if (!needsRoad(key)) return true;
+  const w = worldOf(s, r), p = w.pos[key], fp = footprintOf(s, key);
+  if (!p || !fp) return false;
+  const path = route(openGround(s, r), doorstep(p[0], p[1], fp), (x, y) => isRoadTile(w, x, y));
+  if (!path) return false;
+  for (const [x, y] of path) w.roads[tileId(x, y)] ||= 1;
+  touch(w);
+  return true;
+}
+/** Road access is cached per region: recomputed every game hour and straight away when roads or buildings change (touch). */
+const revs = new WeakMap<RegionWorld, number>();
+export const touch = (w: RegionWorld) => { revs.set(w, (revs.get(w) ?? 0) + 1); };
+const access = new WeakMap<RegionWorld, { sig: string; net: Set<number>; seen: Map<string, boolean> }>();
+function accessCache(s: GameState, w: RegionWorld) {
+  const sig = `${s.tick}|${revs.get(w) ?? 0}`, hit = access.get(w);
+  if (hit && hit.sig === sig) return hit;
+  const net = new Set<number>(), q: number[] = [];
+  for (const k of Object.keys(w.roads)) { const id = Number(k), [x, y] = tileAt(id); if (STEPS.some(([dx, dy]) => isRoad(y + dy) && inMap(x + dx, y + dy))) { net.add(id); q.push(id); } }
+  for (let h = 0; h < q.length; h++) { const [x, y] = tileAt(q[h]); for (const [dx, dy] of STEPS) { const nid = tileId(x + dx, y + dy); if (inMap(x + dx, y + dy) && w.roads[nid] && !net.has(nid)) { net.add(nid); q.push(nid); } } }
+  const fresh = { sig, net, seen: new Map<string, boolean>() };
+  access.set(w, fresh);
+  return fresh;
+}
+/** Does this building touch a road that leads to the main road? */
+export function hasAccess(s: GameState, r: RegionId, key: string) {
+  if (!needsRoad(key)) return true;
+  const w = worldOf(s, r), c = accessCache(s, w), known = c.seen.get(key);
+  if (known !== undefined) return known;
+  const p = w.pos[key], fp = footprintOf(s, key);
+  const ok = !p || !fp || doorstep(p[0], p[1], fp).some(([x, y]) => inMap(x, y) && (isRoad(y) || c.net.has(tileId(x, y)))); // not on the map yet: nothing to cut off
+  c.seen.set(key, ok);
+  return ok;
+}
+/** Route for a player-drawn road between two tiles, over open ground and existing roads. */
+export function roadRoute(s: GameState, r: RegionId, from: [number, number], to: [number, number]) {
+  const w = worldOf(s, r), open = openGround(s, r);
+  const can = (x: number, y: number) => open(x, y) || isRoadTile(w, x, y);
+  if (!can(from[0], from[1]) || !can(to[0], to[1])) return null;
+  const path = route(can, [from], (x, y) => x === to[0] && y === to[1]);
+  return path ? [...path, to].filter(([x, y]) => !isRoadTile(w, x, y)) : null;
+}
+/** The stretch of road at a tile: runs along the track until a junction or the main road. */
+export function roadStretch(w: RegionWorld, x: number, y: number): number[] {
+  const start = tileId(x, y);
+  if (!inMap(x, y) || !w.roads[start]) return [];
+  const degree = (id: number) => { const [a, b] = tileAt(id); return STEPS.filter(([dx, dy]) => isRoadTile(w, a + dx, b + dy)).length; };
+  const out = [start], seen = new Set(out);
+  for (let h = 0; h < out.length; h++) {
+    if (h > 0 && degree(out[h]) >= 3) continue; // stop at junctions (the junction tile itself stays)
+    const [a, b] = tileAt(out[h]);
+    for (const [dx, dy] of STEPS) { const nid = tileId(a + dx, b + dy); if (inMap(a + dx, b + dy) && w.roads[nid] && !seen.has(nid)) { seen.add(nid); out.push(nid); } }
+  }
+  return out.filter((id, i) => i === 0 || degree(id) < 3);
 }

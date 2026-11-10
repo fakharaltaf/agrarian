@@ -28,10 +28,13 @@ interface Store {
   ready: boolean;
   /** Placing something new or moving something: a ghost footprint the player positions on the map. */
   placing: Placement | null;
+  roading: Roading | null;
 }
+/** Road mode: draw from the last tapped tile, or upgrade/remove the stretch tapped. */
+export type Roading = { tool: 'draw' | 'upgrade' | 'remove'; region: RegionId; from?: [number, number]; hover?: [number, number] };
 export type Placement = { kind: 'new' | 'move'; action: Action; region: RegionId; w: number; d: number; label: string; key?: string; at: [number, number]; /** placing one of several: how many are left, of how many */ left?: number; total?: number };
 
-let store: Store = { game: createGame(), v: 0, speed: 1, toasts: [], away: null, catchUp: null, page: 'farm', ready: false, placing: null };
+let store: Store = { game: createGame(), v: 0, speed: 1, toasts: [], away: null, catchUp: null, page: 'farm', ready: false, placing: null, roading: null };
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((l) => l());
 const set = (patch: Partial<Store>) => {
@@ -240,7 +243,21 @@ function placementFor(a: Action): { region: RegionId; w: number; d: number; labe
 }
 export function startPlacement(p: Omit<Placement, 'at'>) {
   const g = store.game, at = findSpot(g, p.region, { w: p.w, d: p.d }) ?? (worldOf(g, p.region).pos[p.region === 'heartland' ? 'farmhouse' : 'shed'] ?? [1, 1]);
-  set({ placing: { ...p, at: [at[0], at[1]] }, page: 'farm' });
+  set({ placing: { ...p, at: [at[0], at[1]] }, roading: null, page: 'farm' });
+}
+export const startRoads = (region: RegionId) => set({ roading: { tool: 'draw', region }, placing: null, page: 'farm' });
+export const setRoadTool = (tool: Roading['tool']) => store.roading && set({ roading: { ...store.roading, tool, from: undefined } });
+export const stopRoads = () => set({ roading: null });
+export const roadHover = (at: [number, number] | null) => { const R = store.roading; if (R && at && (R.hover?.[0] !== at[0] || R.hover?.[1] !== at[1])) set({ roading: { ...R, hover: at } }); };
+export function roadTap(at: [number, number] | null) {
+  const R = store.roading;
+  if (!R || !at) return;
+  if (R.tool === 'draw') {
+    if (!R.from) return set({ roading: { ...R, from: at } });
+    if (act({ type: 'buildRoad', region: R.region, from: R.from, to: at })) set({ roading: { ...store.roading!, from: at } }); // keep drawing from here
+    return;
+  }
+  act({ type: R.tool === 'upgrade' ? 'upgradeRoad' : 'removeRoad', region: R.region, at });
 }
 export const moveGhost = (at: [number, number]) => store.placing && set({ placing: { ...store.placing, at } });
 export const cancelPlacement = () => set({ placing: null });

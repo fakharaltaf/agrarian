@@ -3,6 +3,7 @@ import {
   BUILDINGS, CONFIG, CROPS, DAYS_PER_YEAR, GOODS, OPEX_KINDS, REGIONS, REVENUE_KINDS, SEASONS, TICKS_PER_DAY, type BuildingType, type CropId, type GoodId, type LedgerKind, type RegionId,
 } from './config';
 import { townOf } from './town-state';
+import { hasAccess } from './world';
 import { housingAssets } from './community-state';
 import type { Building, Division, EventKind, GameEvent, GameState, LogLevel, Market } from './types';
 
@@ -118,6 +119,7 @@ export function capacity(s: GameState, r: RegionId) {
   let dry = r === 'heartland' ? CONFIG.baseDryStorage : 0;
   let cold = 0;
   for (const b of buildingsIn(s, r)) {
+    if (!hasAccess(s, r, `b:${b.id}`)) continue; // a store nobody can drive to holds nothing
     dry += (BUILDINGS[b.type].dry ?? 0) * levelMult(b.level);
     cold += (BUILDINGS[b.type].cold ?? 0) * levelMult(b.level);
   }

@@ -10,12 +10,12 @@ import { fieldMovable, timingFactor, fertility, growth, isMature, isReady } from
 import { priceUsd, stored } from '../../simulation/core';
 import { spreadNeed } from '../../simulation/agriculture';
 import type { GameState } from '../../simulation/types';
-import { getGame, getSpeed, moveGhost, type Placement } from '../../stores/game';
+import { getGame, getSpeed, moveGhost, roadHover, roadTap, startRoads, stopRoads, type Placement, type Roading } from '../../stores/game';
 import { stageAtLeast } from '../../simulation/stages';
 import { preloadArt, artRevision } from './art';
 import { money, num, pct0 } from '../format';
 import { layoutRegion, type Layout, type Lot, type Plot } from './layout';
-import { CHUNK, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, LAND_HA_PER_PATCH, MAP, forSaleAround, landCost, ownedSet, ROAD_H, ROAD_Y, chunkAt, chunkOrigin, clearCost, clearedSet, isRoad, patchesAround, placeProblem, worldOf } from '../../simulation/world';
+import { CHUNK, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, LAND_HA_PER_PATCH, MAP, hasAccess, roadRoute, roadStretch, tileAt, forSaleAround, landCost, ownedSet, ROAD_H, ROAD_Y, chunkAt, chunkOrigin, clearCost, clearedSet, isRoad, patchesAround, placeProblem, worldOf } from '../../simulation/world';
 import { animal, buildCivic, buildCommunityHome, buildLot, box, cached, cyl, mat, mesh, PAL, person, tree, vehicle, type Model } from './models';
 
 /** Graphics quality chosen in Settings (per browser). Low turns off shadows and high-DPI rendering. */
@@ -55,17 +55,18 @@ interface Rig {
   neighbours: THREE.Group[]; people: Map<number, THREE.Group>; machines: Map<number, THREE.Group>; trucks: { obj: THREE.Group; t0: number }[]; herds: Map<string, THREE.Group[]>;
   storageProps: THREE.Group; lastStockTick: number; lastCash: number; lastCoin: number;
   rain: THREE.Points; smoke: THREE.Sprite[]; pops: { key: string; text: string; x: number; z: number; t0: number; tone?: string }[]; seenHarvest: Map<number, object>; popsReady: boolean; crownMat: THREE.MeshStandardMaterial; lastHaul: number; layout: Layout | null; region: RegionId; animT?: number;
+  roadsG: THREE.Group; roadSig: string; roadPrev: THREE.Group; roadPrevSig: string;
   felling?: { chunk: number; trees: THREE.Group[]; fallAt: number[]; extras: THREE.Group };
 }
 
 export type WorldAction = 'harvest' | 'plant' | 'inspect' | 'plan' | 'place' | 'fertilise' | 'irrigate' | 'move' | 'movelot' | 'placeok' | 'placecancel' | 'clear1' | 'clear9' | 'buy1' | 'buy9';
 
-export function Scene3D({ region, selected, onPick, plantLabel, onAction, selectedLot, placing, forestAt, placeCost }: { region: RegionId; selected: number[]; onPick: (p: WorldPick) => void; plantLabel?: string; selectedLot?: string; onAction?: (kind: WorldAction, fieldId: number) => void; placing?: Placement | null; forestAt?: [number, number] | null; placeCost?: number }) {
+export function Scene3D({ region, selected, onPick, plantLabel, onAction, selectedLot, placing, forestAt, placeCost, roading }: { region: RegionId; selected: number[]; onPick: (p: WorldPick) => void; plantLabel?: string; selectedLot?: string; onAction?: (kind: WorldAction, fieldId: number) => void; placing?: Placement | null; forestAt?: [number, number] | null; placeCost?: number; roading?: Roading | null }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const overlay = useRef<HTMLDivElement>(null);
   const rig = useRef<Rig | null>(null);
-  const live = useRef({ region, selected, onPick, plantLabel, onAction, selectedLot, placing, forestAt, placeCost });
-  live.current = { region, selected, onPick, plantLabel, onAction, selectedLot, placing, forestAt, placeCost };
+  const live = useRef({ region, selected, onPick, plantLabel, onAction, selectedLot, placing, forestAt, placeCost, roading });
+  live.current = { region, selected, onPick, plantLabel, onAction, selectedLot, placing, forestAt, placeCost, roading };
   const [hover, setHover] = useState<{ x: number; y: number; text: string[] } | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -110,6 +111,7 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
       lots: g(), fields: g(), units: g(), deco: g(), fx: g(), sel: g(), ghost: g(), ghostSig: '', models: [], pick: [], crops: {}, sig: { lots: '', fields: '', crops: '', sel: '', deco: '' },
       storageProps: g(), lastStockTick:-1, lastCash:getGame().cash, lastCoin:0,
       neighbours: [], people: new Map(), machines: new Map(), trucks: [], herds: new Map(), rain, smoke: [], pops: [], seenHarvest: new Map(), popsReady: false, crownMat: mat(CROWN.Spring).clone(), lastHaul: -1, layout: null, region,
+      roadsG: g(), roadSig: '', roadPrev: g(), roadPrevSig: '',
     };
     rig.current = R;
     let raf = 0, framed = false, lastCrops = 0, viewSize = '', artVersion = artRevision();
@@ -127,7 +129,7 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
       if(size!==viewSize){viewSize=size;framed=false;}
       if (c.width !== Math.round(W * renderer.getPixelRatio()) || c.height !== Math.round(H * renderer.getPixelRatio())) renderer.setSize(W, H, false);
       const s = getGame();
-      if (R.region !== live.current.region) { R.region = live.current.region; R.sig = { lots: '', fields: '', crops: '', sel: '', deco: '' }; framed = false; R.lastHaul = -1; }
+      if (R.region !== live.current.region) { R.region = live.current.region; R.sig = { lots: '', fields: '', crops: '', sel: '', deco: '' }; R.roadSig = ''; framed = false; R.lastHaul = -1; }
       const L = layoutRegion(s, R.region);
       R.layout = L;
       if (!framed) { frameCamera(R, L, live.current.selected, live.current.selectedLot); framed = true; }
@@ -137,6 +139,8 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
       syncSelection(R, L, live.current.selected);
       syncGhost(R, s, live.current.placing ?? null, live.current.forestAt ?? null);
       syncDeco(R, L, s);
+      syncRoads(R, s);
+      syncRoadPreview(R, s, live.current.roading ?? null);
       syncStorage(R,L,s);
       animateUnits(R, L, s, now / 1000);
       animateFelling(R, s, now / 1000);
@@ -199,6 +203,7 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
         if (performance.now() - lastHover < 70) return;
         lastHover = performance.now();
         if (live.current.placing && e.pointerType === 'mouse') { ghostTo(e.clientX - r.left, e.clientY - r.top); return; }
+        if (live.current.roading) { roadHover(groundAt(e.clientX - r.left, e.clientY - r.top)); return; }
         const u = pickAt(e.clientX - r.left, e.clientY - r.top);
         const s = getGame();
         const L = rig.current?.layout;
@@ -222,6 +227,7 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
     };
     const up = (e: PointerEvent) => {
       const r = c.getBoundingClientRect();
+      if (pts.size === 1 && moved <= 4 && live.current.roading) { const g = groundAt(e.clientX - r.left, e.clientY - r.top); roadHover(g); roadTap(g); pts.delete(e.pointerId); return; }
       if (pts.size === 1 && moved <= 4 && live.current.placing) {
         ghostTo(e.clientX - r.left, e.clientY - r.top);
         // with a mouse, a click on a valid spot places it; on touch the tap only positions the ghost
@@ -303,6 +309,7 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
         <button className="icon-btn" aria-label="Zoom out" onClick={() => ctl().zoom(0.8)}>−</button>
         <button className="icon-btn" aria-label="Rotate left (Q)" title="Rotate (Q)" onClick={() => ctl().rotate(1)}>⟲</button>
         <button className="icon-btn" aria-label="Rotate right (E)" title="Rotate (E)" onClick={() => ctl().rotate(-1)}>⟳</button>
+        <button className={`icon-btn${roading ? ' on' : ''}`} aria-label="Roads" title="Roads: draw, upgrade or remove" onClick={() => roading ? stopRoads() : startRoads(region)}>🛤</button>
       </div>
     </div>
   );
@@ -632,7 +639,6 @@ function syncDeco(R: Rig, L: Layout, s: GameState) {
   if (sig === R.sig.deco) return;
   R.sig.deco = sig;
   clear(R.deco);
-  R.deco.add(mesh(cached('road-far', () => new THREE.BoxGeometry(MAP.w + 600, 0.04, ROAD_H - 0.4)), mat(0xb9a37c, { rough: 1 }), MAP.x0 + MAP.w / 2, 0, ROAD_Y + ROAD_H / 2, false));
   const cleared = clearedSet(w), felling = w.queue[0]?.chunk, waiting = new Set(w.queue.slice(1).map((j) => j.chunk));
   const trunks: THREE.Matrix4[] = [], trunkCol: THREE.Color[] = [], oaks: THREE.Matrix4[] = [], oakCol: THREE.Color[] = [], birches: THREE.Matrix4[] = [], birchCol: THREE.Color[] = [], pines: THREE.Matrix4[] = [], pineCol: THREE.Color[] = [], ribbons: THREE.Matrix4[] = [];
   const q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0);
@@ -745,6 +751,48 @@ function animateFelling(R: Rig, s: GameState, t: number) {
     log.rotation.z = Math.PI / 2; log.position.set(0, 0.07 + Math.floor(i / 3) * 0.12, (i % 3) * 0.15 - (Math.floor(i / 3) % 2) * 0.07);
     pile.add(log);
   }
+}
+
+const ROAD_COL = [0, 0xa98b5d, 0xbab2a0, 0x5b5d61];
+/** Roads: the main road and every track, coloured by grade (dirt, gravel, paved). */
+function syncRoads(R: Rig, s: GameState) {
+  const w = worldOf(s, R.region), ids = Object.keys(w.roads);
+  const sig = `${R.region}:${w.main}:${ids.length}:${ids.reduce((a, k) => a + ((Number(k) * 31) % 1000003) * w.roads[Number(k)], 0)}`;
+  if (sig === R.roadSig) return;
+  R.roadSig = sig;
+  clear(R.roadsG);
+  const main = mesh(cached('road-main', () => new THREE.BoxGeometry(MAP.w + 600, 0.04, ROAD_H - 0.2)), mat(ROAD_COL[w.main], { rough: 1 }), MAP.x0 + MAP.w / 2, 0, ROAD_Y + ROAD_H / 2, false);
+  main.receiveShadow = true; R.roadsG.add(main);
+  if (w.main === 3) { const dash: THREE.Matrix4[] = []; for (let x = MAP.x0; x < MAP.x0 + MAP.w; x += 2) dash.push(new THREE.Matrix4().makeTranslation(x + 0.5, 0.045, ROAD_Y + ROAD_H / 2)); const im = new THREE.InstancedMesh(cached('dash', () => new THREE.BoxGeometry(0.8, 0.01, 0.08)), mat(0xf2e6b8), dash.length); dash.forEach((m, i) => im.setMatrixAt(i, m)); R.roadsG.add(im); }
+  const byGrade: THREE.Matrix4[][] = [[], [], [], []];
+  for (const k of ids) { const id = Number(k), [x, y] = tileAt(id); byGrade[w.roads[id]]?.push(new THREE.Matrix4().makeTranslation(x + 0.5, 0.012, y + 0.5)); }
+  for (let gr = 1; gr <= 3; gr++) {
+    if (!byGrade[gr].length) continue;
+    const im = new THREE.InstancedMesh(cached('road-tile', () => new THREE.BoxGeometry(1, 0.025, 1)), mat(ROAD_COL[gr], { rough: 1 }), byGrade[gr].length);
+    byGrade[gr].forEach((m, i) => im.setMatrixAt(i, m)); im.receiveShadow = true; im.frustumCulled = false;
+    R.roadsG.add(im);
+  }
+}
+/** Road mode: the route a new road would take, or the stretch that would be upgraded or removed. */
+function syncRoadPreview(R: Rig, s: GameState, Rd: Roading | null) {
+  const sig = Rd ? `${Rd.tool}:${Rd.from}:${Rd.hover}:${R.roadSig}` : '';
+  if (sig === R.roadPrevSig) return;
+  R.roadPrevSig = sig;
+  clear(R.roadPrev);
+  if (!Rd) return;
+  const w = worldOf(s, R.region);
+  let tiles: [number, number][] = [], ok = true;
+  if (Rd.tool === 'draw') {
+    if (Rd.from && Rd.hover) { const r = roadRoute(s, R.region, Rd.from, Rd.hover); ok = !!r; tiles = r ?? [Rd.hover]; }
+    else if (Rd.hover) tiles = [Rd.hover];
+    if (Rd.from) { const m = mesh(cached('road-start', () => new THREE.CylinderGeometry(0.3, 0.3, 0.6, 12)), mat(0xffc94d, { emissive: 0x403000 }), Rd.from[0] + 0.5, 0.3, Rd.from[1] + 0.5, false); R.roadPrev.add(m); }
+  } else if (Rd.hover) {
+    tiles = isRoad(Rd.hover[1]) ? Array.from({ length: 40 }, (_, i) => [Rd.hover![0] - 20 + i, ROAD_Y] as [number, number]).concat(Array.from({ length: 40 }, (_, i) => [Rd.hover![0] - 20 + i, ROAD_Y + 1] as [number, number])) : roadStretch(w, Rd.hover[0], Rd.hover[1]).map(tileAt);
+    ok = tiles.length > 0;
+  }
+  const col = !ok ? 0xd04a3a : Rd.tool === 'remove' ? 0xd04a3a : Rd.tool === 'upgrade' ? 0x4aa0d0 : 0xffc94d;
+  const geo = cached('road-prev', () => new THREE.BoxGeometry(0.96, 0.05, 0.96)), m = new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.55, depthWrite: false });
+  for (const [x, y] of tiles) R.roadPrev.add(mesh(geo, m, x + 0.5, 0.03, y + 0.5, false));
 }
 
 // ---------------------------------------------------------------- live things
@@ -1009,8 +1057,9 @@ function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el
     if (x < -60 || y < -20 || x > W + 60 || y > H + 20) continue;
     const name = lot.key.startsWith('civic:') ? (lot.key==='civic:hall'?'Town hall':SERVICE_DEFS[lot.key.split(':')[1] as ServiceType].name) : lot.key.startsWith('community:') ? ({cottage:'Cottage',terrace:'Terrace',apartment:'Apartments'}[lot.key.split(':')[1]] ?? 'Neighbourhood') : lot.key === 'crew' ? 'Bunkhouse' : lot.key === 'office' ? 'Farm office' : lot.key === 'market' ? 'Village trader' : lot.type === 'house' ? 'Farmhouse' : lot.type === 'shed' ? 'Office' : BUILDINGS[lot.type].name;
     const lvl = Math.max(1, ...lot.buildings.map((b) => b.level));
-    const warn = !!(lot.service?.active && !lot.service.funded) || lot.buildings.some((b) => b.active && /Not enough|full|Disease/.test(b.reason));
-    want.push({ key: `l${lot.key}`, x, y, html: `${warn ? '⚠ ' : lot.service && !lot.service.active ? '○ ' : ''}${name}${lot.service && lot.service.count>1?` ×${lot.service.count}`:''}${lot.buildings.length > 1 ? ` ×${lot.buildings.length}` : ''}${lvl > 1 ? ` · L${lvl}` : ''}`, cls: 'wl-name' });
+    const noRoad = !hasAccess(s, R.region, lot.place);
+    const warn = noRoad || !!(lot.service?.active && !lot.service.funded) || lot.buildings.some((b) => b.active && /Not enough|full|Disease/.test(b.reason));
+    want.push({ key: `l${lot.key}`, x, y, html: `${warn ? '⚠ ' : lot.service && !lot.service.active ? '○ ' : ''}${noRoad ? 'No road · ' : ''}${name}${lot.service && lot.service.count>1?` ×${lot.service.count}`:''}${lot.buildings.length > 1 ? ` ×${lot.buildings.length}` : ''}${lvl > 1 ? ` · L${lvl}` : ''}`, cls: 'wl-name' });
   }
   if (L.buy) {
     const [x, y] = project(L.buy.x + 1, 0.9, L.buy.y + 1);

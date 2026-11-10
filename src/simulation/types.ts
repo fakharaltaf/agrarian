@@ -465,6 +465,9 @@ export type Action =
   | { type: 'takeLoan'; amount: number; termDays: number }
   | { type: 'repayLoan'; loanId: number; amount: number }
   | { type: 'buyLand'; region: RegionId; chunks: number[] }
+  | { type: 'buildRoad'; region: RegionId; from: [number, number]; to: [number, number] }
+  | { type: 'removeRoad'; region: RegionId; at: [number, number] }
+  | { type: 'upgradeRoad'; region: RegionId; at: [number, number] }
   | { type: 'openFutures'; good: GoodId; contracts: number; days: number }
   | { type: 'closeFutures'; positionId: number }
   | { type: 'acceptContract'; contractId: number }

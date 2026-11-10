@@ -122,3 +122,26 @@ it('building several homes makes separate homes, each on its own plot; old block
   const at = worldOf(g, 'heartland').pos[`home:${block.id}`];
   expect(worldOf(g, 'heartland').pos[`home:${homes[1].id}`]).toEqual([at[0] + 4, at[1]]);
 });
+
+it('buildings get a dirt track to the road and stop working without one; roads can be drawn, upgraded and removed', async () => {
+  const { hasAccess, roadStretch, tileAt, worldOf: wOf } = await import('../simulation/world');
+  const { stored } = await import('../simulation/core');
+  const s = createGame(1010); s.legacyProgression = true; s.era = 4; post(s, 'prize', 1e6, 'fixture');
+  expect(hasAccess(s, 'heartland', 'farmhouse')).toBe(true);
+  expect(dispatch(s, { type: 'build', region: 'heartland', building: 'barn' }).ok).toBe(true);
+  const barn = s.buildings[0], w = wOf(s, 'heartland'), key = `b:${barn.id}`;
+  expect(hasAccess(s, 'heartland', key)).toBe(true);
+  const cap = stored(s, 'heartland').cap.dry;
+  // cut its track and the barn stores nothing
+  const ids = Object.keys(w.roads).map(Number);
+  for (const id of ids) { const [x, y] = tileAt(id); dispatch(s, { type: 'removeRoad', region: 'heartland', at: [x, y] }); }
+  step(s);
+  if (!hasAccess(s, 'heartland', key)) expect(stored(s, 'heartland').cap.dry).toBeLessThan(cap);
+  // draw one back and upgrade it
+  const [bx, by] = w.pos[key];
+  const r = dispatch(s, { type: 'buildRoad', region: 'heartland', from: [bx, by - 1], to: [bx, 5] });
+  if (r.ok) { step(s); expect(hasAccess(s, 'heartland', key)).toBe(true); const before = s.cash; expect(dispatch(s, { type: 'upgradeRoad', region: 'heartland', at: [bx, by - 1] }).ok).toBe(true); expect(s.cash).toBeLessThan(before); expect(roadStretch(w, bx, by - 1).every((id) => w.roads[id] === 2)).toBe(true); }
+  expect(dispatch(s, { type: 'upgradeRoad', region: 'heartland', at: [0, 6] }).ok).toBe(true);
+  expect(w.main).toBe(2);
+  expect(dispatch(s, { type: 'removeRoad', region: 'heartland', at: [0, 6] }).ok).toBe(false); // the main road stays
+});

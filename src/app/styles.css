@@ -800,3 +800,7 @@ body:has(.modal-bg) .shell .coach { display: none !important; }
 @media (max-width: 480px) { .adv-tip { grid-template-columns: 24px 1fr; } .adv-tip .btn { grid-column: 2; justify-self: start; } }
 .adv-cash { margin-top: -4px; }
 .adv-sep { margin-top: 8px; padding-top: 6px; border-top: 1px dashed var(--line); }
+.road-bar .seg { display: flex; gap: 4px; }
+.road-bar .seg .btn { padding: 6px 10px; }
+.world-zoom .icon-btn.on { background: var(--sun); color: #2a2216; }
+@media (max-width: 480px) { .road-bar { flex-wrap: wrap; } .road-bar .seg { order: 3; width: 100%; } .road-bar .seg .btn { flex: 1; } }

@@ -1,4 +1,5 @@
 import { solarCapacity } from './facility-levels';
+import { hasAccess } from './world';
 import { recordProductionHour } from './production-report';
 import { payHouseholds, townOf, townIndustryFactor } from './town-state';
 import { larderReserve } from './stages/settlement';
@@ -33,7 +34,11 @@ export function buildingsTick(s: GameState) {
         b.stats = { out: 0, inCost: 0, outValue: 0, opCost: 0 }; // a paused factory pays no staff and makes nothing
         continue;
       }
-      if (b.reason === 'Moving' || b.reason === 'Paused') b.reason = ''; // back at work (barns and stores have no recipe to reset it)
+      if (!hasAccess(s, r, `b:${b.id}`)) { // no road, no work: nothing gets in or out
+        b.util *= 1 - EMA; b.reason = 'No road access'; recordProductionHour(s,b,0,0,0,0,0); b.stats = { out: 0, inCost: 0, outValue: 0, opCost: 0 };
+        continue;
+      }
+      if (b.reason === 'Moving' || b.reason === 'Paused' || b.reason === 'No road access') b.reason = ''; // back at work (barns and stores have no recipe to reset it)
       const staff = def.staffPerHour * s.macro.cpi * (execOn(s, buildingDivision(b.type)) ? 0.92 : 1) * (1 + 0.3 * ((b.level || 1) - 1));
       if (staff) {
         post(s, 'staff', -staff, `${def.name} staff`, r, buildingDivision(b.type));
