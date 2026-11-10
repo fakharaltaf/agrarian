@@ -20,10 +20,14 @@ export default function CityPage(){
   const pop=districtPopulation(s),d=v.districts[district],upkeep=plannedServiceCost(s);
   const shortage=t.services.some(b=>b.active&&b.staffed<serviceJobs(s,b.type)*b.count)&&townWorkforce(s)<=t.publicJobs;
   const service=SERVICES.find(type=>type!=='police'&&(d[type]<.9))??(v.crime>.1&&d.police<.9?'police':null);
-  const existing=service?t.services.find(b=>b.type===service&&b.district===district):undefined;
+  // Low coverage with enough buildings means they aren't running (no money or no staff): building more only deepens the hole.
+  const built=service?t.services.filter(b=>b.type===service&&b.district===district&&b.active).reduce((n,b)=>n+SERVICE_DEFS[b.type].capacity*b.count,0):0;
+  const starved=!!service&&built>=pop[district]*.9;
+  const unfunded=t.services.some(b=>b.active&&!b.funded);
+  const existing=service?t.services.find(b=>b.type===service&&b.district===district&&(starved||!b.active||!b.funded||b.staffed<serviceJobs(s,b.type)*b.count))??t.services.find(b=>b.type===service&&b.district===district):undefined;
   const project=service&&!existing?servicePrice(s,service):0;
   const target=project+(upkeep+(service&&!existing?serviceDailyCost(s,service):0))*7;
-  const next=pop[district]===0?'homes':t.cash<target?'fund':shortage?'homes':existing&&!existing.active?'resume':existing&&(!existing.funded||existing.staffed<serviceJobs(s,existing.type)*existing.count)?'wait':service?'build':'grow';
+  const next=pop[district]===0?'homes':starved?(unfunded&&t.cash<upkeep*7?'fund':existing&&!existing.active?'resume':'homes'):t.cash<target?'fund':shortage?'homes':existing&&!existing.active?'resume':existing&&(!existing.funded||existing.staffed<serviceJobs(s,existing.type)*existing.count)?'wait':service?'build':'grow';
   const amount=Math.ceil(Math.max(0,target-t.cash)/100)*100;
   const primary=()=>{if(next==='fund'&&amount>s.cash){go(s.corp.incorporated?'corporation':'finance');return;}if(next==='fund')act({type:'fundTown',amount,direction:'toTown'});else if(next==='homes'||next==='grow')go('community');else if(next==='resume'&&existing)act({type:'toggleService',serviceId:existing.id});else if(service)act({type:'buildService',service,district});};
   const label=next==='fund'?(amount>s.cash?'🪙 Review project funding':'🪙 Fund planned services'):next==='homes'?'🏘️ Homes for civic staff':next==='wait'?'⏱ Opens next morning':next==='resume'?`Resume ${SERVICE_DEFS[service!].name}`:next==='build'?`Build ${SERVICE_DEFS[service!].name}`:'🏘️ Grow the neighbourhood';
