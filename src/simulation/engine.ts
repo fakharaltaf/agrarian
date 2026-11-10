@@ -10,7 +10,7 @@ import {
 } from './config';
 import { buildingDivision, clamp, debt, factoryCrop, equity, freeSpace, has, known, log, marketWage, nextId, post, random, round2, todayBook, lean } from './core';
 import { addGoods, canGrow, clearField, fertilizeField, fieldsTick, frostNight, harvestField, isManual, isReady, newField, plantField, spoilageDaily } from './agriculture';
-import { reconcileWorld, buyable, connect, touch, IRRIGATION_CHANNEL_PRICE, waterRoute, isRoad, MAP, ROAD_GRADES, ROAD_H, roadRoute, roadStretch, roadTilePrice, tileId, canPlaceNew, LAND_HA_PER_PATCH, landCost, own, ownedSet, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, clearCost, clearedSet, FOOTPRINT, footprintOf, forget, MOVE_DOWNTIME, placeNew, placeProblem, plotSide, PROBLEM_TEXT, seedWorld, TIMBER_PER_PATCH, worldOf } from './world';
+import { reconcileWorld, buyable, chunksIn, connect, placedIn, touch, useOf, IRRIGATION_CHANNEL_PRICE, waterRoute, isRoad, MAP, ROAD_GRADES, ROAD_H, roadRoute, roadStretch, roadTilePrice, tileId, canPlaceNew, LAND_HA_PER_PATCH, landCost, own, ownedSet, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, clearCost, clearedSet, FOOTPRINT, footprintOf, forget, MOVE_DOWNTIME, placeNew, placeProblem, plotSide, PROBLEM_TEXT, seedWorld, TIMBER_PER_PATCH, worldOf } from './world';
 import { buyAnimals, livestockDaily, sellAnimals } from './livestock';
 import { claimDaily, startDay } from './daily';
 import { createMarkets, drawWeather, executeBuy, executeSell, quoteBuy, macroDaily, marketsDaily, marketsTick, priceFromInv } from './markets';
@@ -345,7 +345,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       if (n >= CONFIG.homePlots) return fail('No more small plots for sale — buy larger parcels instead.');
       const price = homePlotPrice(s);
       if (price > s.cash) return fail(`Need $${price.toLocaleString()} to buy another hectare.`);
-      const room = canPlaceNew(s, 'heartland', { w: plotSide(1), d: plotSide(1) }, a.at);
+      const room = canPlaceNew(s, 'heartland', { w: plotSide(1), d: plotSide(1) }, a.at, 'field');
       if (room) return fail(room);
       post(s, 'land', -price, `Field plot (1 ha)`);
       const f = newField(s, 'heartland', 1, price);
@@ -361,7 +361,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       if (!CONFIG.parcelSizes.includes(a.ha)) return fail('Invalid parcel size.');
       const price = parcelPrice(s, a.region, a.ha);
       if (price > s.cash) return fail(`A ${a.ha} ha parcel costs $${price.toLocaleString()}.`);
-      const room = canPlaceNew(s, a.region, { w: plotSide(a.ha), d: plotSide(a.ha) }, a.at);
+      const room = canPlaceNew(s, a.region, { w: plotSide(a.ha), d: plotSide(a.ha) }, a.at, 'field');
       if (room) return fail(room);
       post(s, 'land', -price, `${a.ha} ha parcel`, a.region);
       const f = newField(s, a.region, a.ha, price);
@@ -484,7 +484,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       if (price * n > s.cash) return fail(`Costs $${(price * n).toLocaleString()}.`);
       if (a.at && n > 1) return fail('Place buildings one at a time.');
       const [fw, fd] = FOOTPRINT[a.building];
-      const room = canPlaceNew(s, a.region, { w: fw, d: fd }, a.at);
+      const room = canPlaceNew(s, a.region, { w: fw, d: fd }, a.at, 'building');
       if (room) return fail(room);
       let built = 0;
       for (let i = 0; i < n; i++) {
@@ -595,6 +595,17 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       post(s, 'building', -cost, `${ROAD_GRADES[grade]} (${todo.length} tiles)`, a.region);
       for (const id of todo) w.roads[id] = grade;
       return ok(`Upgraded ${todo.length} tiles to ${ROAD_GRADES[grade].toLowerCase()}.`);
+    }
+    case 'zoneLand': {
+      if (!s.regions[a.region]?.unlocked) return fail('You have no operations there.');
+      const w = worldOf(s, a.region), owned = ownedSet(w), chunks = [...new Set(a.chunks)].filter((c) => Number.isInteger(c) && owned.has(c));
+      if (!chunks.length) return fail('You can only zone land you own.');
+      // nothing may be left standing in the wrong zone
+      const stuck = placedIn(s, a.region).find((p) => { const use = useOf(p.key); if (!use) return false; return chunksIn(p.x, p.y, p.w, p.d).some((c) => chunks.includes(c)) && !(a.zone === 'res' ? use === 'home' : a.zone === 'ind' ? use === 'building' : use !== 'home'); });
+      if (stuck) return fail(a.zone === 'res' ? 'Fields and farm buildings stand there: residential land is for homes only.' : a.zone === 'farm' ? 'Homes stand there: move them before turning the land back to farmland.' : 'Fields or homes stand there: industrial land is for plants and stores.');
+      for (const c of chunks) { if (a.zone === 'farm') delete w.zones[c]; else w.zones[c] = a.zone; }
+      touch(w);
+      return ok();
     }
     case 'buyLand': {
       if (!s.regions[a.region]?.unlocked) return fail('You have no operations there.');
@@ -911,7 +922,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
     case 'startRegion': case 'setBorder': case 'setRoute': case 'giftNeighbour': case 'signTreaty': case 'resolveRaid': case 'answerDemand':
     case 'setCityFunding': case 'startCity': case 'changePolice': case 'setZone': case 'trainPolice': case 'setJustice': case 'resolveCityCase':
     case 'startTown': case 'fundTown': case 'setTownTax': case 'buildService': case 'toggleService': case 'changeSchools': case 'answerPetition':
-    case 'startSettlement': case 'buildHomes': case 'setLarder': case 'settleWorker':
+    case 'startSettlement': case 'buildHomes': case 'setLarder': case 'settleWorker': case 'setSettlementPay':
       return fail('Community actions are not available here.');
   }
 }

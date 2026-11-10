@@ -6,12 +6,12 @@ import { applySpread, harvestField, isReady, plantField, seedShortfall, warnOnce
 import { overdraftLimit } from './finance';
 import type { Field, GameState, Machine, Worker } from './types';
 import { payHouseholds, townWorkerFactor } from './town-state';
-import { communityOf, residentPayFactor } from './community-state';
+import { communityOf } from './community-state';
 
 const FIRST = ['Ana', 'Ben', 'Chen', 'Dara', 'Eli', 'Femi', 'Gus', 'Hana', 'Ivo', 'Jo', 'Kai', 'Lena', 'Mo', 'Nia', 'Omar', 'Pia', 'Quinn', 'Ravi', 'Sol', 'Tess', 'Uma', 'Vic', 'Wren', 'Yara', 'Zed'];
 const LAST = ['Alvarez', 'Brook', 'Costa', 'Dlamini', 'Evans', 'Fischer', 'Grant', 'Haddad', 'Ito', 'Jensen', 'Kowal', 'Lopez', 'Moreau', 'Nakamura', 'Okafor', 'Park', 'Reyes', 'Silva', 'Tan', 'Varga'];
 
-export const wageOf = (s: GameState, w: Worker) => (w.role === 'manager' ? CONFIG.managerWage * s.macro.cpi : marketWage(s, w.region)) * w.wageFactor * (w.resident ? residentPayFactor(s) : 1);
+export const wageOf = (s: GameState, w: Worker) => (w.role === 'manager' ? CONFIG.managerWage * s.macro.cpi : marketWage(s, w.region)) * w.wageFactor * (w.resident ? 1 - (communityOf(s).payCut ?? 0) : 1); // a worker whose family lives here takes the settlement pay cut
 export const productivity = (s: GameState, w: Worker) => w.skill * (0.6 + 0.4 * w.morale) * spanPenalty(s, w.region) * (w.resident ? (0.6 + communityOf(s).happiness * 0.4) * townWorkerFactor(s) : 1);
 
 /** Management overhead: each manager coordinates 20 hands; beyond that everyone slows down. */
@@ -212,7 +212,10 @@ export function workforceDaily(s: GameState) {
   const quit: Worker[] = [];
   for (const w of s.workers) {
     const backlog = s.regions[w.region].backlog / (WORK_END - WORK_START);
-    const target = clamp(0.62 + (w.wageFactor - 1) * 1.3 - 0.2 * Math.min(1, backlog) + 0.15 * (s.corp.reputation - 50) / 50, 0, 1);
+    const c = communityOf(s), home = w.resident && c.active;
+    // a home and food for the family lift morale; the pay cut and housing tax that fund them weigh on it; hands apart from their families miss them
+    const settled = home ? 0.12 + 0.1 * (c.fed - 0.5) - 0.8 * (c.payCut ?? 0) - 0.7 * (c.housingTax ?? 0) : c.active && w.region === 'heartland' ? -0.05 : 0;
+    const target = clamp(0.62 + (w.wageFactor - 1) * 1.3 - 0.2 * Math.min(1, backlog) + 0.15 * (s.corp.reputation - 50) / 50 + settled, 0, 1);
     w.morale = clamp(w.morale + (target - w.morale) * 0.2, 0, 1);
     w.lowDays = w.morale < 0.25 ? w.lowDays + 1 : 0;
     if (w.lowDays >= 5) quit.push(w);

@@ -1,4 +1,5 @@
 // Eras, unlocks, objectives and milestones. Progress comes from measurable business results.
+import { worldOf } from './world';
 import { CHAPTER_SALES, BUILDINGS, CROPS, CROP_IDS, ERAS, GOODS, REGION_IDS, type CropId } from './config';
 import { equity, has, log, stored } from './core';
 import { fertility, growth, isReady } from './agriculture';
@@ -6,7 +7,7 @@ import { topShare } from './corporate';
 import { eraUnlockAvailable, stageIdForEra, tickActiveStage, NEXT_STAGE, stageAtLeast, STAGES } from './stages';
 import { refreshHomestead } from './stages/homestead';
 import { PLAYABLE_CHAPTERS, frontierTick, atFrontier } from './stages/frontier';
-import { communityOf, population, homeCapacity, availableResidents } from './community-state';
+import { communityOf, population, homeCapacity, familiesHere, homeFamilies } from './community-state';
 import { settlementTick, canStartSettlement } from './stages/settlement';
 import { canStartTown, townDaily } from './stages/town';
 import { canStartCity, cityDaily } from './stages/city';
@@ -226,7 +227,7 @@ export function chapterGate(s: GameState): GateRow[] | null {
     case 'market-town': return [{ ...row('Fields', s.fields.length, 12), either: true }, { ...row('Sales', sales, CHAPTER_SALES['market-town'], 'money'), either: true }];
     case 'farm-business': return [row('Farm hands', hands, 2), row('Sales', sales, CHAPTER_SALES['farm-business'], 'money')];
     case 'industry': return [row('Sales', sales, CHAPTER_SALES.industry, 'money'), row('Tractor or factory', s.machines.some((m) => m.type !== 'truck') || s.buildings.some((b) => BUILDINGS[b.type].category === 'processing') ? 1 : 0, 1), row('Farm hands', hands, 2)];
-    case 'settlement': return [row('Residents', population(s), 80), row('Happiness', c.happiness, .65, 'pct'), row('Fed', c.fed, .9, 'pct')];
+    case 'settlement': return [row('Families settled', familiesHere(s), 6), row('Happiness', c.happiness, .6, 'pct'), row('Fed', c.fed, .9, 'pct')];
     case 'town': return [row('Residents', population(s), 400), row('Schooling', t.education, .6, 'pct'), row('Health', t.health, .7, 'pct'), row('Fed', c.fed, .9, 'pct')];
     case 'city': {
       if (cityOf(s).threatAt >= 0) return [row('Caravans have arrived', 1, 1)];
@@ -369,14 +370,16 @@ export function civicObjective(s: GameState): { title: string; hint: string; pag
   }
   if ((town || city) && t.services.some((b) => b.active && !b.funded && t.cash >= serviceDailyCost(s, b.type) * b.count)) return { title: 'Services need resident staff', hint: hint('Public jobs are filled by your own families. Build homes so more adults move in.'), page: 'community' };
   if (c.fed < .9) return { title: `Families are going hungry · fed ${pctTxt(c.fed)}`, hint: hint('Keep food in storage and turn on the larder policy.'), page: 'community' };
-  if (c.happiness < .65) {
+  if (c.happiness < (s.stageId === 'settlement' ? .6 : .65)) {
     const w = wellbeing(s), weakest = (Object.entries({ food: w.fed, homes: w.housed, warmth: w.warm, jobs: w.jobs }) as [string, number][]).sort((a, b) => a[1] - b[1])[0][0];
     return { title: `Families have stopped coming · happiness ${pctTxt(c.happiness)}/65%`, hint: hint(`Weakest: ${weakest}. Happy towns grow; unhappy ones stall.`), page: 'community' };
   }
-  if (homeCapacity(s) - pop < 4) return { title: pop >= 200 && !c.homes.some((h) => h.tier === 'apartment') ? 'Open the Heights: build apartments' : 'Families are waiting for homes', hint: hint('New families arrive only when there is room for them.'), page: 'community' };
+  if (s.stageId !== 'settlement' && homeCapacity(s) - pop < 4) return { title: pop >= 200 && !c.homes.some((h) => h.tier === 'apartment') ? 'Open the Heights: build apartments' : 'Families are waiting for homes', hint: hint('New families arrive only when there is room for them.'), page: 'community' };
   if (s.stageId === 'settlement') {
-    if (availableResidents(s) > 0 && s.workers.some((w) => w.region === 'heartland' && !w.resident)) return { title: 'Hire from your own families', hint: hint('Residents earn local wages and spend them here. Move commuters into homes or hire locally.'), page: 'workers' };
-    if (pop >= 40 && !c.homes.some((h) => h.tier === 'terrace')) return { title: 'Terraces are available', hint: hint('Terraces house four times as many families on the same street.'), page: 'community' };
+    const waiting = s.workers.filter((w) => w.region === 'heartland' && (c.families ?? {})[w.id] === undefined).length;
+    if (!Object.values(worldOf(s, 'heartland').zones).includes('res')) return { title: 'Zone land for homes', hint: hint('Tap 🏘 on the map and mark some of your cleared land residential. Homes go there; fields can’t.'), page: 'farm' };
+    if (waiting > 0 && homeFamilies(s) <= familiesHere(s)) return { title: `${waiting} famil${waiting === 1 ? 'y is' : 'ies are'} waiting for a home`, hint: hint('One family per cottage, three per terrace. Build them in your residential zone.'), page: 'community' };
+    if (familiesHere(s) < 6) return { title: `Settle 6 families · ${familiesHere(s)}/6`, hint: hint('Each worker you hire brings a family once there is a home for them.'), page: 'workers' };
   }
   if (town && t.education < .6) return { title: `A school place for every child · ${pctTxt(t.education)}/60%`, hint: hint('Build schools in the districts where children live.'), page: 'town' };
   if (town && t.health < .7) return { title: `Health for every district · ${pctTxt(t.health)}/70%`, hint: hint('Wells, clinics and food keep families healthy.'), page: 'town' };

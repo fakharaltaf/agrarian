@@ -103,6 +103,8 @@ it('building several homes makes separate homes, each on its own plot; old block
   const { communityOf } = await import('../simulation/community-state');
   const s = createGame(1009); s.legacyProgression = true; s.era = 5; post(s, 'prize', 1e7, 'fixture');
   const c = communityOf(s); c.active = true;
+  const { chunksIn } = await import('../simulation/world');
+  expect(dispatch(s, { type: 'zoneLand', region: 'heartland', chunks: chunksIn(-12, -8, 12, 12), zone: 'res' }).ok).toBe(true); // homes need a residential zone
   const before = c.homes.length;
   expect(dispatch(s, { type: 'buildHomes', tier: 'cottage', count: 3 }).ok).toBe(true);
   const made = c.homes.slice(before);

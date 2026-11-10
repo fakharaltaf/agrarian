@@ -10,7 +10,7 @@ import { fieldMovable, timingFactor, fertility, growth, isMature, isReady } from
 import { priceUsd, stored } from '../../simulation/core';
 import { spreadNeed } from '../../simulation/agriculture';
 import type { GameState } from '../../simulation/types';
-import { getGame, getSpeed, moveGhost, prospectHover, prospectTap, roadHover, roadTap, startProspect, startRoads, stopProspect, stopRoads, type Placement, type Roading } from '../../stores/game';
+import { getGame, getSpeed, moveGhost, placementUse, startZoning, stopZoning, zoneHover, zoneTap, type Zoning, prospectHover, prospectTap, roadHover, roadTap, startProspect, startRoads, stopProspect, stopRoads, type Placement, type Roading } from '../../stores/game';
 import { featureEra, stageAtLeast } from '../../simulation/stages';
 import { preloadArt, artRevision } from './art';
 import { money, num, pct0 } from '../format';
@@ -59,18 +59,18 @@ interface Rig {
   rain: THREE.Points; smoke: THREE.Sprite[]; pops: { key: string; text: string; x: number; z: number; t0: number; tone?: string }[]; seenHarvest: Map<number, object>; popsReady: boolean; crownMat: THREE.MeshStandardMaterial; lastHaul: number; layout: Layout | null; region: RegionId; animT?: number;
   roadsG: THREE.Group; roadSig: string; roadPrev: THREE.Group; roadPrevSig: string;
   haulers: Map<string, THREE.Group>; tickSeen: number; tickAt: number;
-  oilG: THREE.Group; oilSig: string;
+  oilG: THREE.Group; oilSig: string; zoneG: THREE.Group; zoneSig: string;
   felling?: { chunk: number; trees: THREE.Group[]; fallAt: number[]; extras: THREE.Group };
 }
 
 export type WorldAction = 'harvest' | 'plant' | 'inspect' | 'plan' | 'place' | 'fertilise' | 'irrigate' | 'move' | 'movelot' | 'placeok' | 'placecancel' | 'clear1' | 'clear9' | 'buy1' | 'buy9';
 
-export function Scene3D({ region, selected, onPick, plantLabel, onAction, selectedLot, placing, forestAt, placeCost, roading, prospect }: { region: RegionId; selected: number[]; onPick: (p: WorldPick) => void; plantLabel?: string; selectedLot?: string; onAction?: (kind: WorldAction, fieldId: number) => void; placing?: Placement | null; forestAt?: [number, number] | null; placeCost?: number; roading?: Roading | null; prospect?: { region: RegionId; hover?: [number, number] } | null }) {
+export function Scene3D({ region, selected, onPick, plantLabel, onAction, selectedLot, placing, forestAt, placeCost, roading, prospect, zoning }: { region: RegionId; selected: number[]; onPick: (p: WorldPick) => void; plantLabel?: string; selectedLot?: string; onAction?: (kind: WorldAction, fieldId: number) => void; placing?: Placement | null; forestAt?: [number, number] | null; placeCost?: number; roading?: Roading | null; prospect?: { region: RegionId; hover?: [number, number] } | null; zoning?: Zoning | null }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const overlay = useRef<HTMLDivElement>(null);
   const rig = useRef<Rig | null>(null);
-  const live = useRef({ region, selected, onPick, plantLabel, onAction, selectedLot, placing, forestAt, placeCost, roading, prospect });
-  live.current = { region, selected, onPick, plantLabel, onAction, selectedLot, placing, forestAt, placeCost, roading, prospect };
+  const live = useRef({ region, selected, onPick, plantLabel, onAction, selectedLot, placing, forestAt, placeCost, roading, prospect, zoning });
+  live.current = { region, selected, onPick, plantLabel, onAction, selectedLot, placing, forestAt, placeCost, roading, prospect, zoning };
   const [hover, setHover] = useState<{ x: number; y: number; text: string[] } | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -115,7 +115,7 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
       lots: g(), fields: g(), units: g(), deco: g(), fx: g(), sel: g(), ghost: g(), ghostSig: '', models: [], pick: [], crops: {}, sig: { lots: '', fields: '', crops: '', sel: '', deco: '' },
       storageProps: g(), lastStockTick:-1, lastCash:getGame().cash, lastCoin:0,
       neighbours: [], people: new Map(), machines: new Map(), trucks: [], herds: new Map(), rain, smoke: [], pops: [], seenHarvest: new Map(), popsReady: false, crownMat: mat(CROWN.Spring).clone(), lastHaul: -1, layout: null, region,
-      roadsG: g(), roadSig: '', roadPrev: g(), roadPrevSig: '', haulers: new Map(), tickSeen: -1, tickAt: 0, oilG: g(), oilSig: '',
+      roadsG: g(), roadSig: '', roadPrev: g(), roadPrevSig: '', haulers: new Map(), tickSeen: -1, tickAt: 0, oilG: g(), oilSig: '', zoneG: g(), zoneSig: '',
     };
     rig.current = R;
     let raf = 0, framed = false, lastCrops = 0, viewSize = '', artVersion = artRevision();
@@ -146,6 +146,7 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
       syncRoads(R, s);
       syncRoadPreview(R, s, live.current.roading ?? null);
       syncOil(R, s, live.current.prospect ?? null);
+      syncZones(R, s, live.current.zoning ?? null);
       syncStorage(R,L,s);
       animateUnits(R, L, s, now / 1000);
       animateFelling(R, s, now / 1000);
@@ -211,6 +212,7 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
         if (live.current.placing && e.pointerType === 'mouse') { ghostTo(e.clientX - r.left, e.clientY - r.top); return; }
         if (live.current.roading) { roadHover(groundAt(e.clientX - r.left, e.clientY - r.top)); return; }
         if (live.current.prospect) { prospectHover(groundAt(e.clientX - r.left, e.clientY - r.top)); return; }
+        if (live.current.zoning) { zoneHover(groundAt(e.clientX - r.left, e.clientY - r.top)); return; }
         const u = pickAt(e.clientX - r.left, e.clientY - r.top);
         const s = getGame();
         const L = rig.current?.layout;
@@ -234,6 +236,7 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
     };
     const up = (e: PointerEvent) => {
       const r = c.getBoundingClientRect();
+      if (pts.size === 1 && moved <= 4 && live.current.zoning) { const g = groundAt(e.clientX - r.left, e.clientY - r.top); zoneHover(g); zoneTap(g); pts.delete(e.pointerId); return; }
       if (pts.size === 1 && moved <= 4 && live.current.prospect) { const g = groundAt(e.clientX - r.left, e.clientY - r.top); if (e.pointerType === 'mouse' || (live.current.prospect.hover?.[0] === g?.[0] && live.current.prospect.hover?.[1] === g?.[1])) prospectTap(g); else prospectHover(g); pts.delete(e.pointerId); return; } // on touch: first tap shows the odds, second drills
       if (pts.size === 1 && moved <= 4 && live.current.roading) { const g = groundAt(e.clientX - r.left, e.clientY - r.top); roadHover(g); roadTap(g); pts.delete(e.pointerId); return; }
       if (pts.size === 1 && moved <= 4 && live.current.placing) {
@@ -317,6 +320,7 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
         <button className="icon-btn" aria-label="Zoom out" onClick={() => ctl().zoom(0.8)}>−</button>
         <button className="icon-btn" aria-label="Rotate left (Q)" title="Rotate (Q)" onClick={() => ctl().rotate(1)}>⟲</button>
         <button className="icon-btn" aria-label="Rotate right (E)" title="Rotate (E)" onClick={() => ctl().rotate(-1)}>⟳</button>
+        {featureEra(getGame(), 4) && <button className={`icon-btn${zoning ? ' on' : ''}`} aria-label="Zones" title="Zones: residential and industrial land" onClick={() => zoning ? stopZoning() : startZoning(region)}>🏘</button>}
         {featureEra(getGame(), 4) && <button className={`icon-btn${prospect ? ' on' : ''}`} aria-label="Oil" title="Oil: survey and drill" onClick={() => prospect ? stopProspect() : startProspect(region)}>🛢</button>}
         <button className={`icon-btn${roading ? ' on' : ''}`} aria-label="Roads" title="Roads: draw, upgrade or remove" onClick={() => roading ? stopRoads() : startRoads(region)}>🛤</button>
       </div>
@@ -590,7 +594,7 @@ function syncGhost(R: Rig, s: GameState, P: Placement | null, forest: [number, n
   R.ghostSig = sig;
   clear(R.ghost);
   if (P) {
-    const ok = !placeProblem(s, P.region, P.at[0], P.at[1], { w: P.w, d: P.d }, P.key);
+    const ok = !placeProblem(s, P.region, P.at[0], P.at[1], { w: P.w, d: P.d }, P.key, P.kind === 'move' ? undefined : placementUse(P));
     const box = mesh(new THREE.BoxGeometry(P.w, 0.25, P.d), new THREE.MeshBasicMaterial({ color: ok ? 0x6fd36a : 0xe0533d, transparent: true, opacity: 0.45, depthWrite: false }), P.at[0] + P.w / 2, 0.13, P.at[1] + P.d / 2, false);
     R.ghost.add(box);
     const edge = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(P.w, 0.25, P.d)), new THREE.LineBasicMaterial({ color: ok ? 0x2f8f3a : 0xa02a1a }));
@@ -867,6 +871,26 @@ function syncOil(R: Rig, s: GameState, P: { region: RegionId; hover?: [number, n
   if (P.hover) {
     const [hx, hy] = P.hover, ok = !placeProblem(s, R.region, hx - 1, hy - 1, { w: 2, d: 2 });
     R.oilG.add(mesh(cached('oilspot', () => new THREE.BoxGeometry(2, 0.05, 2)), new THREE.MeshBasicMaterial({ color: ok ? 0xffc94d : 0xd04a3a, transparent: true, opacity: 0.6, depthWrite: false }), hx, 0.08, hy, false));
+  }
+}
+
+const ZONE_COL = { res: 0xf2c94c, ind: 0x8f86c9 } as const;
+/** Zoned land is tinted: residential gold, industrial violet; brighter in zone mode, with the patch under the cursor outlined. */
+function syncZones(R: Rig, s: GameState, Z: Zoning | null) {
+  const w = worldOf(s, R.region), keys = Object.keys(w.zones);
+  const sig = `${R.region}:${keys.map((k) => k + w.zones[Number(k)]).join(',')}:${!!Z}:${Z?.zone}:${Z?.hover}`;
+  if (sig === R.zoneSig) return;
+  R.zoneSig = sig;
+  clear(R.zoneG);
+  for (const z of ['res', 'ind'] as const) {
+    const list = keys.filter((k) => w.zones[Number(k)] === z).map((k) => { const [x, y] = chunkOrigin(Number(k)); return new THREE.Matrix4().makeTranslation(x + CHUNK / 2, 0.02, y + CHUNK / 2); });
+    if (!list.length) continue;
+    const im = new THREE.InstancedMesh(cached('zonetile', () => new THREE.BoxGeometry(CHUNK - 0.1, 0.01, CHUNK - 0.1)), new THREE.MeshBasicMaterial({ color: ZONE_COL[z], transparent: true, opacity: Z ? 0.38 : 0.16, depthWrite: false }), list.length);
+    list.forEach((m, i) => im.setMatrixAt(i, m)); im.frustumCulled = false; R.zoneG.add(im);
+  }
+  if (Z?.hover) {
+    const c = chunkAt(Z.hover[0], Z.hover[1]);
+    if (c >= 0) { const [x, y] = chunkOrigin(c), mine = ownedSet(w).has(c); R.zoneG.add(mesh(cached('zonehover', () => new THREE.BoxGeometry(CHUNK, 0.03, CHUNK)), new THREE.MeshBasicMaterial({ color: !mine ? 0xd04a3a : Z.zone === 'farm' ? 0x7fb26a : ZONE_COL[Z.zone], transparent: true, opacity: 0.55, depthWrite: false }), x + CHUNK / 2, 0.03, y + CHUNK / 2, false)); }
   }
 }
 

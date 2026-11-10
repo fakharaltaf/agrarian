@@ -1,50 +1,70 @@
-import { useState } from 'react';
 import { act, go, useGame } from '../../stores/game';
-import { communityOf, HOME_DEFS, homePrice, homeCapacity, households, population, availableResidents } from '../../simulation/community-state';
+import { communityOf, familiesHere, HOME_DEFS, homeFamilies, homePrice, population } from '../../simulation/community-state';
 import { canStartTown } from '../../simulation/stages/town';
 import { townOf } from '../../simulation/town-state';
 import { foodDays } from '../../simulation/stages/settlement';
-import type { HomeTier } from '../../simulation/types';
-import { Card, PageHead, Bar, Seg, Info, Modal } from '../ui';
+import { CONFIG, GOODS, WORK_HOURS } from '../../simulation/config';
+import { marketWage } from '../../simulation/core';
+import type { GameState, HomeTier } from '../../simulation/types';
+import { Card, PageHead, Bar, Seg, Modal } from '../ui';
 import { money, num, pct0 } from '../format';
-import { portrait } from '../world/portrait';
+
+const STEPS = [0, 0.05, 0.1, 0.15, 0.2];
+
+/** What the settlement costs each day and what the pay cut and housing tax bring back. */
+function budget(s: GameState) {
+  const c = communityOf(s), fam = c.families ?? {};
+  const residents = s.workers.filter((w) => w.resident && fam[w.id] !== undefined);
+  const base = residents.reduce((n, w) => n + (w.role === 'manager' ? CONFIG.managerWage * s.macro.cpi : marketWage(s, 'heartland')) * w.wageFactor * WORK_HOURS, 0);
+  const cut = base * (c.payCut ?? 0), tax = base * (1 - (c.payCut ?? 0)) * (c.housingTax ?? 0);
+  const upkeep = c.homes.reduce((n, h) => n + HOME_DEFS[h.tier].families * h.count * 0.5, 0) * s.macro.cpi;
+  const food = (population(s) * 2000 / GOODS.wheat.kcal) * (s.markets.heartland.wheat?.price ?? GOODS.wheat.basePrice);
+  return { cost: upkeep + food, back: cut + tax };
+}
 
 export default function CommunityPage() {
   const s = useGame(), c = communityOf(s);
-  const [count, setCount] = useState(1);
-  if (!c.active) return <div className="community-page"><Modal title="A place for families" onClose={() => go('farm')} actions={<button className="btn ghost" onClick={() => go('farm')}>Not yet</button>}>
-    <p>Your workers want to build a life here.</p>
-    <div className="charter-heading"><b>Choose your settlement charter</b><span>Permanent · existing staff keep their jobs</span></div>
-    <div className="charter-grid">
-      <article className="charter-tile"><div className="charter-crest">🏘️</div><h3>Company town</h3><p>You own the homes.</p><strong>Rent income · full building cost</strong><span>Happiness −4 points; rent uses residents’ earned savings.</span><button className="btn primary" onClick={() => act({ type: 'startSettlement', charter: 'company' })}>Found company town</button></article>
-      <article className="charter-tile"><div className="charter-crest">🌳</div><h3>Free settlement</h3><p>Families put down roots.</p><strong>40% lower housing cost · no rent</strong><span>Happiness +4 points; you fund common land and services.</span><button className="btn gold" onClick={() => act({ type: 'startSettlement', charter: 'free' })}>Found free settlement</button></article>
-    </div>
+  if (!c.active) return <div className="community-page"><Modal title="Your hands miss their families" onClose={() => go('farm')} actions={<button className="btn ghost" onClick={() => go('farm')}>Not yet</button>}>
+    <p>Your workers have been away from home for a long time. If you build them a place to live, their families will come and settle on your land.</p>
+    <ul className="small">
+      <li>Buy and clear land, then zone it <b>residential</b> (🏘 on the map). Homes go there, not fields.</li>
+      <li>Each family is one of your workers plus 2–4 relatives. One family per cottage.</li>
+      <li>You feed them from your stores. A small pay cut or housing tax can cover the cost.</li>
+    </ul>
+    <button className="btn primary" onClick={() => act({ type: 'startSettlement' })}>Bring the families</button>
   </Modal></div>;
-  const image = portrait('house');
-  const nextTier: HomeTier = population(s) >= 200 ? 'apartment' : population(s) >= 40 ? 'terrace' : 'cottage';
-  const nextHome = HOME_DEFS[nextTier];
-  const nextPrice = homePrice(s, nextTier);
+  const here = familiesHere(s), room = homeFamilies(s), waiting = s.workers.filter((w) => w.region === 'heartland' && (c.families ?? {})[w.id] === undefined).length;
+  const b = budget(s), net = b.back - b.cost;
+  const tiers: HomeTier[] = ['cottage', 'terrace'];
   return <div className="stack l community-page">
-    <PageHead title="Your settlement" sub={c.charter === 'company' ? 'Company town' : 'Free settlement'} />
-    {(canStartTown(s)||townOf(s).active) && <button className="btn gold community-next" onClick={()=>go('town')}>📚 {townOf(s).active?'Town hall · services & budget':'Children need a school · preview Town'}</button>}
-    {homeCapacity(s) - population(s) < 4 && <button className="btn primary community-next" disabled={nextPrice > s.cash} onClick={() => act({ type: 'buildHomes', tier: nextTier, count: 1 })}><span>🏠 Build 1 {nextHome.name.toLowerCase()} · +{nextHome.families * 4} places</span><b>{money(nextPrice)}</b></button>}
-    {population(s) > 0 && <div className="community-strip"><span><b>🏘️ {population(s) >= 100000 ? `${num(population(s) / 1000)}k` : num(population(s))}</b><small>people</small></span><span><b>☺ {pct0(c.happiness)}</b><small>happiness</small></span><span><b>🍞 {foodDays(s) >= 99 ? '99+' : num(foodDays(s), 1)}</b><small>food days</small></span></div>}
-    {c.homes.length > 0 && <Card title="Room to belong" coach="community-build" info="Each arriving family brings four people and two working adults. Existing employees remain commuters; new Heartland hires come from residents.">
-      {population(s) > 0 && <div className="community-home-summary">{image ? <img src={image} alt="A cottage in your community" /> : <span>🏠</span>}<div><strong>{num(population(s))} / {num(homeCapacity(s))} places</strong><span>{num(availableResidents(s))} adults ready for work</span></div></div>}
-      {c.homes.length > 0 && <Seg label="Homes to build" value={count} onChange={setCount} options={[1, 5, 10].map(v => ({ v, label: `×${v}` }))} />}
-      <div className="community-homes">{(Object.keys(HOME_DEFS) as HomeTier[]).filter(t => t === 'cottage' || (t === 'terrace' ? population(s) >= 40 : population(s) >= 200)).map(tier => {
-        const d = HOME_DEFS[tier], price = homePrice(s, tier) * count;
-        return <article key={tier} className="community-home"><span>{tier === 'cottage' ? '🏠' : tier === 'terrace' ? '🏘️' : '🏢'}</span><b>{d.name}</b><span>{d.families * 4 * count} places · {money(price)}</span><button className="btn primary" disabled={price > s.cash} onClick={() => act({ type: 'buildHomes', tier, count })}>Build {count > 1 ? count : ''}</button></article>;
+    <PageHead title="Your settlement" sub={`${here} famil${here === 1 ? 'y' : 'ies'} · ${num(population(s))} people`} />
+    {(canStartTown(s) || townOf(s).active) && <button className="btn gold community-next" onClick={() => go('town')}>📚 {townOf(s).active ? 'Town hall · services & budget' : 'Newcomers want to settle too · preview Town'}</button>}
+    <div className="community-strip">
+      <span><b>🏠 {here}/{room}</b><small>families housed</small></span>
+      <span><b>⏳ {waiting}</b><small>still waiting</small></span>
+      <span><b>🍞 {foodDays(s) >= 99 ? '99+' : num(foodDays(s), 1)}</b><small>food days</small></span>
+    </div>
+    <Card title="Homes" info="Homes only stand on land zoned residential. Use 🏘 on the map to zone land you own.">
+      {waiting > room - here && <p className="small">{waiting - Math.max(0, room - here)} famil{waiting - Math.max(0, room - here) === 1 ? 'y is' : 'ies are'} waiting for a home.</p>}
+      <div className="community-homes">{tiers.map((tier) => {
+        const d = HOME_DEFS[tier], price = homePrice(s, tier);
+        return <article key={tier} className="community-home"><span>{tier === 'cottage' ? '🏠' : '🏘️'}</span><b>{d.name}</b><span>{d.families} famil{d.families === 1 ? 'y' : 'ies'} · {money(price)}</span><button className="btn primary" disabled={price > s.cash} onClick={() => act({ type: 'buildHomes', tier, count: 1 })}>Build</button></article>;
       })}</div>
-    </Card>}
-    {population(s) > 0 && <Card title="Keep the table set" coach="community-larder" info="Families eat 2,000 kcal per person each day. The larder policy protects three days of food against automated sales and buys affordable food or winter fuel when needed.">
+    </Card>
+    <Card title="Paying for it" info="Homes and food cost you money. A pay cut on the workers whose families live here, or a housing tax on them, brings it back. Both cost morale, which a home and a full larder make up.">
+      <Seg label="Pay cut" value={c.payCut ?? 0} onChange={(v) => act({ type: 'setSettlementPay', payCut: v })} options={STEPS.map((v) => ({ v, label: pct0(v) }))} />
+      <Seg label="Housing tax" value={c.housingTax ?? 0} onChange={(v) => act({ type: 'setSettlementPay', housingTax: v })} options={STEPS.map((v) => ({ v, label: pct0(v) }))} />
+      <div className="adv-bars small">
+        <span>Costs</span><i className="down" style={{ width: `${(b.cost / Math.max(1, b.cost, b.back)) * 100}%` }} /><b>{money(Math.round(b.cost))}/day</b>
+        <span>Recovered</span><i style={{ width: `${(b.back / Math.max(1, b.cost, b.back)) * 100}%` }} /><b>{money(Math.round(b.back))}/day</b>
+      </div>
+      <p className="small">{Math.abs(net) < Math.max(20, b.cost * 0.1) ? '⚖️ About break-even.' : net < 0 ? `The settlement costs you about ${money(Math.round(-net))} a day.` : `The settlement brings in about ${money(Math.round(net))} a day, at a cost in morale.`}</p>
+      <p className="small muted">Morale of settled workers: home +12 · food up to +5 · pay cut −{Math.round((c.payCut ?? 0) * 80)} · housing tax −{Math.round((c.housingTax ?? 0) * 70)}</p>
+    </Card>
+    {population(s) > 0 && <Card title="Keep the table set" info="Families eat 2,000 kcal per person each day from your stores. Keeping three days of food set aside stops managers selling it.">
       <div className="community-needs">{[['🍞 Food', c.fed], ['🔥 Warmth', c.warm], ['☺ Happiness', c.happiness]].map(([name, value]) => <div key={String(name)}><div className="row between"><b>{name}</b><span>{pct0(Number(value))}</span></div><Bar value={Number(value)} label={String(name)} /></div>)}</div>
       <button className={`btn ${c.autoLarder ? 'primary' : 'ghost'}`} aria-pressed={c.autoLarder} onClick={() => act({ type: 'setLarder', enabled: !c.autoLarder })}>{c.autoLarder ? '✓' : '○'} Keep 3 days of food</button>
     </Card>}
-    {population(s) > 0 && <Card title={<>Your neighbours · {num(households(s))} families <Info text="The first 50 families are named. Later arrivals are grouped so large towns stay responsive." /></>}>
-      <details className="field-details"><summary>Meet the families</summary><div className="community-families">{c.cohorts.slice(0, 50).map(group => <span key={group.id}>🏠 {group.name}{group.households > 1 ? ` · ${num(group.households)} families` : ''}</span>)}</div></details>
-      {!c.cohorts.length && <p className="muted">Build the first cottage. A family will arrive if there is room and life is good.</p>}
-      {c.cohorts.length > 50 && <p className="muted">+ {num(c.cohorts.slice(50).reduce((n,g)=>n+g.households,0))} families in the growing neighbourhood</p>}
-    </Card>}
+    {c.cohorts.length > 0 && <Card title="Who lives here"><div className="community-families">{c.cohorts.map((g) => <span key={g.id}>🏠 {g.name} · {g.adults + g.children}</span>)}</div></Card>}
   </div>;
 }

@@ -8,10 +8,10 @@ import type { Action, ActionResult, DistrictId, GameState, SchoolCharter, Servic
 import { DISTRICT_IDS } from '../types';
 import { GOODS, WORK_HOURS } from '../config';
 import { clamp, electricityPrice, log, marketWage, nextId, post, priceUsd, random, reservedStock, round2 } from '../core';
-import { communityOf, population, workingAdults, children, residentWorkers } from '../community-state';
+import { communityOf, familiesHere, population, workingAdults, children, residentWorkers } from '../community-state';
 import { createTownState, districtPopulation, factoryJobs, localEmployment, payHouseholds, schoolChangeCost, SERVICE_DEFS, servicePrice, serviceJobs, townOf, townWorkforce } from '../town-state';
 
-export const canStartTown = (s: GameState) => communityOf(s).active && !townOf(s).active && population(s)>=80 && communityOf(s).happiness>=.65 && communityOf(s).fed>=.9;
+export const canStartTown = (s: GameState) => communityOf(s).active && !townOf(s).active && familiesHere(s)>=6 && communityOf(s).happiness>=.6 && communityOf(s).fed>=.9;
 export function serviceAvailable(s: GameState, type: ServiceType): boolean {
   const t=townOf(s);
   if(type==='sanitation'||type==='lighting'||type==='police')return cityActive(s);

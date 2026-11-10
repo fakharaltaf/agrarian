@@ -305,6 +305,10 @@ export interface CommunityHome { id: number; tier: HomeTier; count: number; cost
 export interface HouseholdCohort { id: number; name: string; households: number; adults: number; children: number }
 export interface SettlementState {
   active: boolean;
+  /** Settlement pay policy (0–0.2 each): a pay cut for workers whose families live here, and a housing tax on them. */
+  payCut?: number; housingTax?: number;
+  /** Worker id → their family's cohort id. Only employees' families live in the settlement. */
+  families?: Record<number, number>;
   charter: SettlementCharter | null;
   homes: CommunityHome[];
   cohorts: HouseholdCohort[];
@@ -411,7 +415,7 @@ export type Action =
   | { type: 'barter'; offerId: string }
   | { type: 'haggle'; offerId: string }
   | { type: 'chooseCharter'; charter: TraderCharter }
-  | { type: 'startSettlement'; charter: SettlementCharter }
+  | { type: 'startSettlement'; charter?: SettlementCharter }
   | { type: 'buildHomes'; tier: HomeTier; count: number; at?: [number, number] }
   | { type: 'setLarder'; enabled: boolean }
   | { type: 'settleWorker'; workerId: number }
@@ -469,6 +473,8 @@ export type Action =
   | { type: 'repayLoan'; loanId: number; amount: number }
   | { type: 'buyLand'; region: RegionId; chunks: number[] }
   | { type: 'buyHorseCart' }
+  | { type: 'setSettlementPay'; payCut?: number; housingTax?: number }
+  | { type: 'zoneLand'; region: RegionId; chunks: number[]; zone: 'res' | 'ind' | 'farm' }
   | { type: 'surveyOil'; region: RegionId }
   | { type: 'drillOil'; region: RegionId; at: [number, number] }
   | { type: 'buildRoad'; region: RegionId; from: [number, number]; to: [number, number] }

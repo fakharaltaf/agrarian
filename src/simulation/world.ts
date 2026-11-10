@@ -16,7 +16,13 @@ export type Footprint = { w: number; d: number };
 export interface ClearJob { chunk: number; hours: number }
 /** owned: patches the farm has bought (you can only clear, farm and build on your own land). */
 /** roads: grade (1 dirt, 2 gravel, 3 paved) by tile id; main: grade of the main road through the map. */
-export interface RegionWorld { cleared: number[]; owned: number[]; pos: Record<string, [number, number]>; queue: ClearJob[]; roads: Record<number, number>; main: number; canals: Record<number, number> }
+export interface RegionWorld { cleared: number[]; owned: number[]; pos: Record<string, [number, number]>; queue: ClearJob[]; roads: Record<number, number>; main: number; canals: Record<number, number>; zones: Record<number, Zone> }
+/** res: homes only (no farming); ind: industrial plants. Unzoned land is farmland. */
+export type Zone = 'res' | 'ind';
+/** What a placement is, for zoning: homes need a residential zone; fields stay out of zones; farm buildings stay out of residential. */
+export type Use = 'home' | 'field' | 'building';
+export const useOf = (key?: string): Use | undefined => !key ? undefined : key.startsWith('home:') ? 'home' : key.startsWith('field:') ? 'field' : key.startsWith('b:') ? 'building' : undefined;
+const zoneOk = (use: Use | undefined, z: Zone | undefined) => !use || (use === 'home' ? z === 'res' : use === 'field' ? !z : z !== 'res');
 export type WorldState = Partial<Record<RegionId, RegionWorld>>;
 
 /** Tiles each building occupies (x × y). */
@@ -32,7 +38,7 @@ export const HOME_BLOCKS = (h: CommunityHome) => Math.min(h.count, 8);
 export const homeFootprint = (h: CommunityHome): Footprint => { const n = HOME_BLOCKS(h); return { w: Math.min(n, 4) * 4 - 1, d: Math.ceil(n / 4) * 4 - 1 }; };
 export const SERVICE_FOOTPRINT: Footprint = { w: 3, d: 3 };
 
-export const worldOf = (s: GameState, r: RegionId): RegionWorld => { const w = ((s.world ??= {})[r] ??= { cleared: [], owned: [], pos: {}, queue: [], roads: {}, main: 1, canals: {} }); w.owned ??= []; w.roads ??= {}; w.main ??= 1; w.canals ??= {}; return w; };
+export const worldOf = (s: GameState, r: RegionId): RegionWorld => { const w = ((s.world ??= {})[r] ??= { cleared: [], owned: [], pos: {}, queue: [], roads: {}, main: 1, canals: {}, zones: {} }); w.owned ??= []; w.roads ??= {}; w.main ??= 1; w.canals ??= {}; w.zones ??= {}; return w; };
 export const chunkAt = (x: number, y: number) => {
   const cx = Math.floor((x - MAP.x0) / CHUNK), cy = Math.floor((y - MAP.y0) / CHUNK);
   return cx < 0 || cy < 0 || cx >= CHUNKS_X || cy >= CHUNKS_Y ? -1 : cy * CHUNKS_X + cx;
@@ -96,12 +102,12 @@ export function placedIn(s: GameState, r: RegionId): Placed[] {
 }
 
 /** Occupancy grid with a summed-area table: O(1) rectangle checks for placement and free-spot search. */
-function occupancy(s: GameState, r: RegionId, ignore?: string, allowForest = false) {
+function occupancy(s: GameState, r: RegionId, ignore?: string, allowForest = false, use?: Use) {
   const W = MAP.w, H = MAP.h, grid = new Uint8Array(W * H), w = worldOf(s, r), cleared = clearedSet(w), owned = ownedSet(w), river = riverTiles(r);
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const wx = x + MAP.x0, wy = y + MAP.y0;
     const c = chunkAt(wx, wy);
-    if (isRoad(wy) || w.roads[y * W + x] || w.canals[y * W + x] || river.has(y * W + x) || !owned.has(c) || (!allowForest && !cleared.has(c))) grid[y * W + x] = 1;
+    if (isRoad(wy) || w.roads[y * W + x] || w.canals[y * W + x] || river.has(y * W + x) || !owned.has(c) || (!allowForest && !cleared.has(c)) || !zoneOk(use, w.zones[c])) grid[y * W + x] = 1;
   }
   for (const p of placedIn(s, r)) {
     if (p.key === ignore) continue;
@@ -120,9 +126,9 @@ function occupancy(s: GameState, r: RegionId, ignore?: string, allowForest = fal
     return d - b - c + a === 0;
   };
 }
-export type PlaceProblem = 'unowned' | 'forest' | 'occupied' | 'road' | 'water' | 'outside' | null;
+export type PlaceProblem = 'unowned' | 'forest' | 'occupied' | 'road' | 'water' | 'zone' | 'outside' | null;
 /** Why a footprint cannot stand at (x, y), or null when it can. */
-export function placeProblem(s: GameState, r: RegionId, x: number, y: number, fp: Footprint, ignore?: string): PlaceProblem {
+export function placeProblem(s: GameState, r: RegionId, x: number, y: number, fp: Footprint, ignore?: string, use: Use | undefined = useOf(ignore)): PlaceProblem {
   if (!Number.isInteger(x) || !Number.isInteger(y)) return 'outside';
   if (x < MAP.x0 || y < MAP.y0 || x + fp.w > MAP.x0 + MAP.w || y + fp.d > MAP.y0 + MAP.h) return 'outside';
   const roads = worldOf(s, r).roads;
@@ -132,15 +138,17 @@ export function placeProblem(s: GameState, r: RegionId, x: number, y: number, fp
   const cleared = clearedSet(worldOf(s, r)), owned = ownedSet(worldOf(s, r));
   for (let yy = y; yy < y + fp.d; yy++) for (let xx = x; xx < x + fp.w; xx++) if (!owned.has(chunkAt(xx, yy))) return 'unowned';
   for (let yy = y; yy < y + fp.d; yy++) for (let xx = x; xx < x + fp.w; xx++) if (!cleared.has(chunkAt(xx, yy))) return 'forest';
-  if (!occupancy(s, r, ignore)(x, y, fp.w, fp.d)) return 'occupied';
+  const zones = worldOf(s, r).zones;
+  for (let yy = y; yy < y + fp.d; yy++) for (let xx = x; xx < x + fp.w; xx++) if (!zoneOk(use, zones[chunkAt(xx, yy)])) return 'zone';
+  if (!occupancy(s, r, ignore, false, use)(x, y, fp.w, fp.d)) return 'occupied';
   return null;
 }
 export const PROBLEM_TEXT: Record<Exclude<PlaceProblem, null>, string> = {
-  unowned: 'You do not own that land. Buy it first.', water: 'That is water: the river or an irrigation channel.', forest: 'That spot is forest. Clear it first.', occupied: 'Something already stands there.', road: 'You cannot build on the road.', outside: 'That is off the map.',
+  unowned: 'You do not own that land. Buy it first.', zone: 'Wrong zone: homes go in a residential zone; fields and farm buildings stay out of it.', water: 'That is water: the river or an irrigation channel.', forest: 'That spot is forest. Clear it first.', occupied: 'Something already stands there.', road: 'You cannot build on the road.', outside: 'That is off the map.',
 };
 /** First free cleared spot, searched outward from the farmhouse. */
-export function findSpot(s: GameState, r: RegionId, fp: Footprint, allowForest = false): [number, number] | null {
-  const fits = occupancy(s, r, undefined, allowForest), w = worldOf(s, r);
+export function findSpot(s: GameState, r: RegionId, fp: Footprint, allowForest = false, use?: Use): [number, number] | null {
+  const fits = occupancy(s, r, undefined, allowForest, use), w = worldOf(s, r);
   const [cx, cy] = w.pos[r === 'heartland' ? 'farmhouse' : 'shed'] ?? [1, 1];
   // nothing can stand off the farm's own land, so search no further than the far corner of what it owns
   let far = 0;
@@ -165,8 +173,9 @@ export function clearRect(w: RegionWorld, x: number, y: number, fw: number, fd: 
 export function placeNew(s: GameState, r: RegionId, key: string, at?: [number, number]): string | null {
   const fp = footprintOf(s, key);
   if (!fp) return 'Nothing to place.';
-  if (at) { const p = placeProblem(s, r, at[0], at[1], fp); if (p) return PROBLEM_TEXT[p]; worldOf(s, r).pos[key] = [at[0], at[1]]; touch(worldOf(s, r)); connect(s, r, key); return null; }
-  const spot = findSpot(s, r, fp);
+  const use = useOf(key);
+  if (at) { const p = placeProblem(s, r, at[0], at[1], fp, undefined, use); if (p) return PROBLEM_TEXT[p]; worldOf(s, r).pos[key] = [at[0], at[1]]; touch(worldOf(s, r)); connect(s, r, key); return null; }
+  const spot = findSpot(s, r, fp, false, use);
   if (!spot) return 'No free cleared land of yours. Clear forest or buy more land.';
   worldOf(s, r).pos[key] = spot;
   touch(worldOf(s, r));
@@ -174,9 +183,9 @@ export function placeNew(s: GameState, r: RegionId, key: string, at?: [number, n
   return null;
 }
 /** Check before money changes hands; the caller places after creating the object. */
-export function canPlaceNew(s: GameState, r: RegionId, fp: Footprint, at?: [number, number]): string | null {
-  if (at) { const p = placeProblem(s, r, at[0], at[1], fp); return p ? PROBLEM_TEXT[p] : null; }
-  return findSpot(s, r, fp) ? null : 'No free cleared land of yours. Clear forest or buy more land.';
+export function canPlaceNew(s: GameState, r: RegionId, fp: Footprint, at?: [number, number], use?: Use): string | null {
+  if (at) { const p = placeProblem(s, r, at[0], at[1], fp, undefined, use); return p ? PROBLEM_TEXT[p] : null; }
+  return findSpot(s, r, fp, false, use) ? null : use === 'home' ? 'No free residential land: zone more of your cleared land as residential.' : 'No free cleared land of yours. Clear forest or buy more land.';
 }
 export const forget = (s: GameState, r: RegionId, key: string) => { delete worldOf(s, r).pos[key]; touch(worldOf(s, r)); };
 

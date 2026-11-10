@@ -9,7 +9,7 @@ import { known } from '../../simulation/core';
 import { buildingMargin } from '../../simulation/processing';
 import { DISCOVERIES, ERA_UNLOCK_TEXT, dailyGoals, dailyPrize, forecast, herdOf, homePlotPrice, housing, isManual, isReady, objective, chapterGate, gateProgress, type GateRow, PAGES, seedShortfall, upgradeCost } from '../../simulation/engine';
 import type { GameState } from '../../simulation/types';
-import { act, cancelPlacement, confirmPlacement, go, setRoadTool, startPlacement, stopProspect, stopRoads, useGame, usePageState, useStore, type Placement, type Roading } from '../../stores/game';
+import { act, cancelPlacement, confirmPlacement, go, placementUse, setRoadTool, setZoneTool, startPlacement, stopProspect, stopRoads, stopZoning, type Zoning, useGame, usePageState, useStore, type Placement, type Roading } from '../../stores/game';
 import { footprintOf, forSaleAround, ROAD_GRADES, roadTilePrice, worldOf, patchesAround, placeProblem, plotSide, PROBLEM_TEXT } from '../../simulation/world';
 import { buildingPrice, moveFee, parcelPrice } from '../../simulation/engine';
 import { homePrice } from '../../simulation/community-state';
@@ -152,7 +152,7 @@ export function Hud() {
   const [lot, setLot] = useState<Lot | null>(null);
   const [chosen, setCrop] = useState<CropId | null>(null);
   const [forest, setForest] = useState<[number, number] | null>(null);
-  const placing = useStore((x) => x.placing), roading = useStore((x) => x.roading), prospect = useStore((x) => x.prospect);
+  const placing = useStore((x) => x.placing), roading = useStore((x) => x.roading), prospect = useStore((x) => x.prospect), zoning = useStore((x) => x.zoning);
   const [panel, setPanel] = useState(false);
   const [journal, setJournal] = useState(false);
   const dragStart = useRef<number | null>(null);
@@ -238,7 +238,7 @@ export function Hud() {
     <div className="hud">
       <DiscoveryCard s={s} />
       <Scene3D region={region} selected={lot ? [] : sel} onPick={onPick} plantLabel={plantLabel(s, crop, one)}
-        placing={placing} forestAt={forest} placeCost={placing ? placementCost(s, placing) : 0} roading={roading} prospect={prospect}
+        placing={placing} forestAt={forest} placeCost={placing ? placementCost(s, placing) : 0} roading={roading} prospect={prospect} zoning={zoning}
         selectedLot={lot?.key} onAction={(kind, id) => {
           if(kind==='placeok'){ if(confirmPlacement()) { setSel([]); setLot(null); } }
           else if(kind==='placecancel'){ cancelPlacement(); setForest(null); }
@@ -262,6 +262,7 @@ export function Hud() {
       {placing && <PlacementBar s={s} p={placing} />}
       {roading && <RoadBar s={s} r={roading} />}
       {prospect && <OilBar s={s} p={prospect} />}
+      {zoning && <ZoneBar z={zoning} />}
       <div className={`hud-left${journal ? ' journal-open' : ''}`} hidden={page !== 'farm'}>
         <ObjectiveCard s={s} />
         <div id="coach-slot" className="coach-slot" />
@@ -300,6 +301,16 @@ export function Hud() {
 }
 
 /** Fixed controls while placing: they never move with the ghost. With a mouse, clicking the map places it. */
+function ZoneBar({ z }: { z: Zoning }) {
+  return <div className="placement-bar road-bar" role="dialog" aria-label="Zones">
+    <div className="placement-info"><b>🏘 Zones</b><span className="muted">{z.zone === 'res' ? 'Tap your land: homes for workers\' families go here (no fields)' : z.zone === 'ind' ? 'Tap your land: for industrial-scale plants' : 'Tap a zoned patch to make it farmland again'}</span></div>
+    <div className="seg" role="group" aria-label="Zone">
+      {(['res', 'ind', 'farm'] as const).map((t) => <button key={t} className={`btn ${z.zone === t ? 'primary' : 'ghost'}`} aria-pressed={z.zone === t} onClick={() => setZoneTool(t)}>{t === 'res' ? '🏠 Residential' : t === 'ind' ? '🏭 Industrial' : '🌾 Farmland'}</button>)}
+    </div>
+    <button className="btn ghost" onClick={() => stopZoning()}>Done</button>
+  </div>;
+}
+
 function OilBar({ s, p }: { s: GameState; p: { region: RegionId; hover?: [number, number] } }) {
   const known = surveyed(s, p.region), drill = Math.round(DRILL_PRICE * s.macro.cpi), survey = Math.round(SURVEY_PRICE * s.macro.cpi);
   const odds = p.hover && known ? oilChance(p.region, p.hover[0], p.hover[1]) : null;
@@ -325,7 +336,7 @@ function RoadBar({ s, r }: { s: GameState; r: Roading }) {
 }
 
 function PlacementBar({ s, p }: { s: GameState; p: Placement }) {
-  const problem = placeProblem(s, p.region, p.at[0], p.at[1], { w: p.w, d: p.d }, p.key), cost = placementCost(s, p);
+  const problem = placeProblem(s, p.region, p.at[0], p.at[1], { w: p.w, d: p.d }, p.key, p.kind === 'move' ? undefined : placementUse(p)), cost = placementCost(s, p);
   return <div className="placement-bar" role="dialog" aria-label={`Placing ${p.label}`}>
     <div className="placement-info"><b>{p.kind === 'move' ? '✥ Moving' : '📍 Placing'} {p.label}{p.total ? ` ${p.total - p.left! + 1} of ${p.total}` : ''}{cost > 0 ? ` · ${money(cost)}` : ''}</b>
       <span className={problem ? 'bad' : 'muted'}>{problem ? PROBLEM_TEXT[problem] : matchMedia('(pointer: fine)').matches ? 'Click a green spot to place it.' : 'Tap where it goes, then confirm.'}</span></div>

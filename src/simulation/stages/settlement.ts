@@ -3,10 +3,11 @@ import {releaseNeighbourJob} from '../employment';
 import type { StageModule } from './types';
 import type { Action, ActionResult, GameState } from '../types';
 import { CHAPTER_SALES, BUILDINGS, GOODS, type GoodId } from '../config';
-import { clamp, freeSpace, log, nextId, pick, post, reservedStock, round2 } from '../core';
+import { clamp, freeSpace, log, marketWage, nextId, post, reservedStock, round2 } from '../core';
 import { localEmployment } from '../town-state';
 import { executeBuy, quoteBuy } from '../markets';
-import { communityOf, createSettlementState, HOME_DEFS, homePrice, homeCapacity, households, population, residentWorkers, availableResidents, recruitableResidents, workingAdults } from '../community-state';
+import { communityOf, createSettlementState, familiesHere, familySize, HOME_DEFS, homeFamilies, homePrice, homeCapacity, households, population, availableResidents, recruitableResidents } from '../community-state';
+import { CONFIG, WORK_HOURS } from '../config';
 
 export const COMMUNITY_FOOD: GoodId[] = ['bread', 'wheat', 'corn', 'rice', 'potatoes', 'apples', 'grapes', 'milk', 'eggs', 'meat', 'cheese', 'flour'];
 /** Happiness ingredients (food, homes, warmth, jobs), each 0..1. */
@@ -63,15 +64,6 @@ function eat(s: GameState, desired: number) {
   }
   return desired > 0 ? clamp(1 - need / desired, 0, 1) : 1;
 }
-function addFamily(s: GameState) {
-  const c = communityOf(s), named = c.cohorts.filter(x => x.households === 1 && !x.name.startsWith('Newcomer')).length;
-  if (named < 50) { const id = nextId(s); c.cohorts.push({ id, name: `${pick(s, ['Silva', 'Patel', 'Brook', 'Okafor', 'Tan', 'Reyes', 'Ito', 'Costa', 'Haddad', 'Varga'])} family #${id}`, households: 1, adults: 2, children: 2 }); }
-  else {
-    let group = c.cohorts.find(x => x.name === 'Newcomer families');
-    if (!group) { group = { id: nextId(s), name: 'Newcomer families', households: 0, adults: 0, children: 0 }; c.cohorts.push(group); }
-    group.households++;group.adults+=2;group.children+=2;
-  }
-}
 export function settlementTick(s: GameState) {
   const c = communityOf(s), day = Math.floor(s.tick / 24);
   if (!c.active || s.tick % 24 !== 0 || c.lastDay === day) return;
@@ -85,45 +77,52 @@ export function settlementTick(s: GameState) {
   const fuel = Math.min(fuelNeed, s.regions.heartland.inventory.fuel);
   s.regions.heartland.inventory.fuel -= fuel;
   c.warm = fuelNeed ? fuel / fuelNeed : 1;
-  const { housed, jobs } = wellbeing(s);
-  const target = clamp(0.45 * c.fed + 0.2 * housed + 0.15 * c.warm + 0.2 * jobs + (c.charter === 'free' ? 0.04 : -0.04), 0, 1);
+  const { housed } = wellbeing(s);
+  const target = clamp(0.55 * c.fed + 0.25 * housed + 0.2 * c.warm, 0, 1);
   c.happiness += (target - c.happiness) * 0.2;
   if (c.homes.length) post(s, 'maintenance', -c.homes.reduce((n, h) => n + HOME_DEFS[h.tier].families * h.count * 0.5, 0) * s.macro.cpi, 'Community homes', 'heartland', 'corporate');
-  if (c.charter === 'company') {
-    const rent = Math.floor(Math.min(c.householdCash, people * 2 * s.macro.cpi) * 100) / 100;
-    if (rent > 0) { c.householdCash = Math.max(0, round2(c.householdCash - rent)); post(s, 'rent', rent, 'Resident housing rent', 'heartland', 'corporate'); }
+  // the housing tax: a share of the pay of every worker whose family lives here
+  const fam = (c.families ??= {}), tax = c.housingTax ?? 0;
+  if (tax > 0) {
+    // a day's pay (after any pay cut); computed here rather than imported, to keep the chapter modules free of cycles
+    const pay = s.workers.filter((w) => w.resident && fam[w.id] !== undefined).reduce((n, w) => n + (w.role === 'manager' ? CONFIG.managerWage * s.macro.cpi : marketWage(s, 'heartland')) * w.wageFactor * (1 - (c.payCut ?? 0)) * WORK_HOURS, 0);
+    if (pay > 0) post(s, 'rent', round2(pay * tax), 'Settlement housing tax', 'heartland', 'corporate');
   }
-  if (c.happiness >= 0.65 && homeCapacity(s) - people >= 4) {
-    const arrivals = Math.min(Math.floor((homeCapacity(s) - people) / 4), dailyArrivals(s));
-    for (let i = 0; i < arrivals; i++) addFamily(s);
-    if (!people) log(s, 'opportunity', 'The first family has arrived. Keep the larder stocked.', 'community');
+  // a family leaves with its worker
+  for (const [id, cohort] of Object.entries(fam)) if (!s.workers.some((w) => w.id === Number(id))) { c.cohorts = c.cohorts.filter((g) => g.id !== cohort); delete fam[Number(id)]; }
+  // families of your employees move in while there are free homes (two a day)
+  let free = homeFamilies(s) - familiesHere(s), moved = 0;
+  for (const w of s.workers) {
+    if (free <= 0 || moved >= 2) break;
+    if (w.region !== 'heartland' || fam[w.id] !== undefined) continue;
+    const id = nextId(s), size = familySize(w.id), surname = w.name.split(' ').slice(-1)[0];
+    c.cohorts.push({ id, name: `The ${surname} family`, households: 1, adults: 2, children: size - 2 });
+    fam[w.id] = id; w.resident = true; free--; moved++;
+    log(s, 'opportunity', `${w.name}'s family has moved into the settlement (${size} people).`, 'community');
   }
   c.hardshipDays = c.happiness < 0.35 ? c.hardshipDays + 1 : 0;
-  if (c.hardshipDays >= 3 && c.cohorts.length) {
-    const old = households(s), group = c.cohorts[c.cohorts.length - 1];
-    group.households--;group.adults=Math.max(0,group.adults-2);group.children=Math.max(0,group.children-2); if (!group.households) c.cohorts.pop();
-    c.householdCash = round2(c.householdCash * Math.max(0, (old - 1) / old));
-    while (residentWorkers(s) > workingAdults(s)) {
-      const w = [...s.workers].reverse().find(x => x.resident && x.region === 'heartland')!;
-      s.workers.splice(s.workers.indexOf(w), 1);
-      for (const m of s.machines) if (m.driver === w.id) m.driver = null;
+  if (c.hardshipDays >= 3) { // a family gives up and moves back; the worker stays on, unhappier
+    const last = Object.entries(fam).pop();
+    if (last) {
+      const [wid, cohort] = last, w = s.workers.find((x) => x.id === Number(wid));
+      c.cohorts = c.cohorts.filter((g) => g.id !== cohort); delete fam[Number(wid)];
+      if (w) { w.resident = false; w.morale = clamp(w.morale - 0.2, 0, 1); }
+      log(s, 'warning', 'A family moved away after days of hardship. Check food and warmth.', 'community');
     }
-    log(s, 'warning', 'A family left after prolonged hardship. Check food, warmth and jobs.', 'community');
+    c.hardshipDays = 0;
   }
 }
 function action(s: GameState, a: Action): ActionResult | null {
   const c = communityOf(s), fail = (error: string): ActionResult => ({ ok: false, error });
   if (a.type === 'startSettlement') {
     if (!canStartSettlement(s)) return fail(`Mechanise or process your harvest, employ two hands and reach $${CHAPTER_SALES.industry.toLocaleString()} in sales first.`);
-    c.active = true; c.charter = a.charter; c.enteredAt = s.tick;
+    c.active = true; c.charter = null; c.enteredAt = s.tick;
     s.stageId = 'settlement'; if (!s.legacyProgression) s.era = 5;
     s.eraReady = false;
-    s.values.prosperityFairness = clamp(s.values.prosperityFairness + (a.charter === 'free' ? 8 : -8), 0, 100);
-    s.values.orderFreedom = clamp(s.values.orderFreedom + (a.charter === 'free' ? 8 : -8), 0, 100);
-    log(s, 'opportunity', 'Your workers can bring their families. Build their first home.', 'community');
+    log(s, 'opportunity', 'Your hands miss their families. Zone some land as residential and build homes, and the families will move in.', 'community');
     return { ok: true };
   }
-  if (a.type !== 'buildHomes' && a.type !== 'setLarder' && a.type !== 'settleWorker') return null;
+  if (a.type !== 'buildHomes' && a.type !== 'setLarder' && a.type !== 'settleWorker' && a.type !== 'setSettlementPay') return null;
   if (!c.active) return fail('Begin the Settlement chapter first.');
   if (a.type === 'settleWorker') {
     const w=s.workers.find(w=>w.id===a.workerId&&w.region==='heartland');
@@ -132,6 +131,13 @@ function action(s: GameState, a: Action): ActionResult | null {
     const cost=round2(150*s.macro.cpi);if(s.cash<cost)return fail('The company cannot afford relocation.');
     if(availableResidents(s)<1&&!releaseNeighbourJob(s))return fail('No employed resident can move into this job.');
     post(s,'training',-cost,'Resident staff relocation','heartland','corporate');w.resident=true;return {ok:true};
+  }
+  if (a.type === 'setSettlementPay') {
+    const ok = (v: number | undefined) => v === undefined || [0, 0.05, 0.1, 0.15, 0.2].includes(v);
+    if (!ok(a.payCut) || !ok(a.housingTax)) return fail('Choose 0% to 20% in steps of 5.');
+    if (a.payCut !== undefined) c.payCut = a.payCut;
+    if (a.housingTax !== undefined) c.housingTax = a.housingTax;
+    return { ok: true };
   }
   if (a.type === 'setLarder') { c.autoLarder = a.enabled; prepareLarder(s); return { ok: true }; }
   if (!HOME_DEFS[a.tier] || !Number.isInteger(a.count) || a.count < 1 || a.count > 50) return fail('Choose 1–50 homes.');
@@ -144,7 +150,7 @@ function action(s: GameState, a: Action): ActionResult | null {
   let built = 0;
   for (let i = 0; i < a.count; i++) {
     const home = { id: nextId(s), tier: a.tier, count: 1, cost };
-    const room = canPlaceNew(s, 'heartland', homeFootprint(home), a.at);
+    const room = canPlaceNew(s, 'heartland', homeFootprint(home), a.at, 'home');
     if (room) { if (!i) return fail(room); log(s, 'warning', `Only ${i} homes fitted. Clear forest to make room for more.`, 'community'); break; }
     c.homes.push(home);
     placeNew(s, 'heartland', `home:${home.id}`, a.at);
@@ -155,6 +161,6 @@ function action(s: GameState, a: Action): ActionResult | null {
 }
 export const settlement: StageModule = {
   id: 'settlement', title: 'Settlement', legacyEras: [], eraUnlocks: {},
-  actionTypes: ['startSettlement', 'buildHomes', 'setLarder', 'settleWorker'], tips: [], discoveries: [],
+  actionTypes: ['startSettlement', 'buildHomes', 'setLarder', 'settleWorker', 'setSettlementPay'], tips: [], discoveries: [],
   tick: settlementTick, handleAction: action, createState: () => createSettlementState() as unknown as Record<string, unknown>,
 };

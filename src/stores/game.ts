@@ -4,7 +4,7 @@ import { useSyncExternalStore } from 'react';
 import { CONFIG } from '../simulation/config';
 import { advance, createGame, dispatch as engineDispatch } from '../simulation/engine';
 import { BUILDINGS, type RegionId } from '../simulation/config';
-import { FOOTPRINT, SERVICE_FOOTPRINT, findSpot, homeFootprint, plotSide, worldOf } from '../simulation/world';
+import { FOOTPRINT, SERVICE_FOOTPRINT, findSpot, homeFootprint, plotSide, worldOf, chunkAt } from '../simulation/world';
 import { SERVICE_DEFS } from '../simulation/town-state';
 import { parseSave, SAVE_VERSION, type SaveFile } from '../simulation/persistence';
 export { parseSave, SAVE_VERSION } from '../simulation/persistence';
@@ -30,12 +30,17 @@ interface Store {
   placing: Placement | null;
   roading: Roading | null;
   prospect: { region: RegionId; hover?: [number, number] } | null;
+  zoning: Zoning | null;
 }
 /** Road mode: draw from the last tapped tile, or upgrade/remove the stretch tapped. */
 export type Roading = { tool: 'draw' | 'upgrade' | 'remove'; region: RegionId; from?: [number, number]; hover?: [number, number] };
+/** Zone mode: tap patches of your land to make them residential, industrial or farmland again. */
+export type Zoning = { region: RegionId; zone: 'res' | 'ind' | 'farm'; hover?: [number, number] };
+/** What a placement is, for zoning checks in the preview. */
+export const placementUse = (p: Pick<Placement, 'action' | 'key' | 'kind'>) => p.kind === 'move' ? undefined : p.action.type === 'buildHomes' ? 'home' as const : p.action.type === 'buyPlot' || p.action.type === 'buyParcel' ? 'field' as const : p.action.type === 'build' ? 'building' as const : undefined;
 export type Placement = { kind: 'new' | 'move'; action: Action; region: RegionId; w: number; d: number; label: string; key?: string; at: [number, number]; /** placing one of several: how many are left, of how many */ left?: number; total?: number };
 
-let store: Store = { game: createGame(), v: 0, speed: 1, toasts: [], away: null, catchUp: null, page: 'farm', ready: false, placing: null, roading: null, prospect: null };
+let store: Store = { game: createGame(), v: 0, speed: 1, toasts: [], away: null, catchUp: null, page: 'farm', ready: false, placing: null, roading: null, prospect: null, zoning: null };
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((l) => l());
 const set = (patch: Partial<Store>) => {
@@ -243,13 +248,18 @@ function placementFor(a: Action): { region: RegionId; w: number; d: number; labe
   return null;
 }
 export function startPlacement(p: Omit<Placement, 'at'>) {
-  const g = store.game, at = findSpot(g, p.region, { w: p.w, d: p.d }) ?? (worldOf(g, p.region).pos[p.region === 'heartland' ? 'farmhouse' : 'shed'] ?? [1, 1]);
+  const g = store.game, at = findSpot(g, p.region, { w: p.w, d: p.d }, false, placementUse(p)) ?? (worldOf(g, p.region).pos[p.region === 'heartland' ? 'farmhouse' : 'shed'] ?? [1, 1]);
   set({ placing: { ...p, at: [at[0], at[1]] }, roading: null, page: 'farm' });
 }
 export const startRoads = (region: RegionId) => set({ roading: { tool: 'draw', region }, placing: null, prospect: null, page: 'farm' });
 /** Oil mode: see the survey, pick a 2×2 spot, drill. */
 export const startProspect = (region: RegionId) => set({ prospect: { region }, placing: null, roading: null, page: 'farm' });
 export const stopProspect = () => set({ prospect: null });
+export const startZoning = (region: RegionId) => set({ zoning: { region, zone: 'res' }, placing: null, roading: null, prospect: null, page: 'farm' });
+export const stopZoning = () => set({ zoning: null });
+export const setZoneTool = (zone: Zoning['zone']) => store.zoning && set({ zoning: { ...store.zoning, zone } });
+export const zoneHover = (at: [number, number] | null) => { const Z = store.zoning; if (Z && at && (Z.hover?.[0] !== at[0] || Z.hover?.[1] !== at[1])) set({ zoning: { ...Z, hover: at } }); };
+export const zoneTap = (at: [number, number] | null) => { const Z = store.zoning; if (Z && at) act({ type: 'zoneLand', region: Z.region, chunks: [chunkAt(at[0], at[1])], zone: Z.zone }); };
 export const prospectHover = (at: [number, number] | null) => { const P = store.prospect; if (P && at && (P.hover?.[0] !== at[0] || P.hover?.[1] !== at[1])) set({ prospect: { ...P, hover: at } }); };
 export const prospectTap = (at: [number, number] | null) => { const P = store.prospect; if (P && at) act({ type: 'drillOil', region: P.region, at: [at[0] - 1, at[1] - 1] }); };
 export const setRoadTool = (tool: Roading['tool']) => store.roading && set({ roading: { ...store.roading, tool, from: undefined } });
