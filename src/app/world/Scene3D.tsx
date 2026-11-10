@@ -636,7 +636,8 @@ function syncDeco(R: Rig, L: Layout, s: GameState) {
   const cleared = clearedSet(w), felling = w.queue[0]?.chunk, waiting = new Set(w.queue.slice(1).map((j) => j.chunk));
   const trunks: THREE.Matrix4[] = [], trunkCol: THREE.Color[] = [], oaks: THREE.Matrix4[] = [], oakCol: THREE.Color[] = [], birches: THREE.Matrix4[] = [], birchCol: THREE.Color[] = [], pines: THREE.Matrix4[] = [], pineCol: THREE.Color[] = [], ribbons: THREE.Matrix4[] = [];
   const q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0);
-  const sparse = graphicsQuality() === 'low' || R.zoom < 0.5;
+  // the woods stay just as thick at every zoom; far out each tree is drawn with fewer faces instead (low graphics thins them)
+  const sparse = graphicsQuality() === 'low', far = R.zoom < 0.5;
   const BARK = new THREE.Color(PAL.woodDark), BIRCH = new THREE.Color(0xe8e4da);
   // Walk the patches around the view; beyond the map edge the woods simply continue (scenery, never cleared).
   const gx0 = Math.floor((cx - rb - MAP.x0) / CHUNK) - 1, gx1 = Math.ceil((cx + rb - MAP.x0) / CHUNK) + 1;
@@ -672,10 +673,10 @@ function syncDeco(R: Rig, L: Layout, s: GameState) {
     // winter: broadleaf trees stand bare
     inst(cached('forest-bare', () => merged(...[0, 1, 2, 3].map((n) => new THREE.CylinderGeometry(0.015, 0.035, 0.55, 4).translate(0, 0.27, 0).rotateZ(0.55).rotateY(n * 1.6 + 0.3).translate(0, 0.55, 0)))), mat(PAL.woodDark), [...oaks, ...birches]);
   } else {
-    inst(cached('forest-leafy', () => merged(new THREE.IcosahedronGeometry(0.42, 0).translate(0, 0.85, 0), new THREE.IcosahedronGeometry(0.3, 0).translate(0.24, 0.72, 0.1), new THREE.IcosahedronGeometry(0.28, 0).translate(-0.2, 0.75, -0.12))), R.crownMat, oaks, oakCol);
+    inst(far ? cached('forest-leafy-far', () => new THREE.IcosahedronGeometry(0.5, 0).scale(1.1, 0.9, 1.1).translate(0, 0.82, 0).toNonIndexed()) : cached('forest-leafy', () => merged(new THREE.IcosahedronGeometry(0.42, 0).translate(0, 0.85, 0), new THREE.IcosahedronGeometry(0.3, 0).translate(0.24, 0.72, 0.1), new THREE.IcosahedronGeometry(0.28, 0).translate(-0.2, 0.75, -0.12))), R.crownMat, oaks, oakCol);
     inst(cached('forest-birch', () => merged(new THREE.IcosahedronGeometry(0.32, 0).scale(1, 1.5, 1).translate(0, 1.15, 0), new THREE.IcosahedronGeometry(0.22, 0).scale(1, 1.4, 1).translate(0.12, 0.85, 0.05))), R.crownMat, birches, birchCol);
   }
-  inst(cached('forest-pine', () => merged(new THREE.ConeGeometry(0.42, 0.55, 7).translate(0, 0.55, 0), new THREE.ConeGeometry(0.33, 0.48, 7).translate(0, 0.85, 0), new THREE.ConeGeometry(0.22, 0.4, 7).translate(0, 1.12, 0))), mat(0xffffff, { rough: 0.95 }), pines, pineCol.map((c) => c.clone().multiply(new THREE.Color(0x3f6b45))));
+  inst(far ? cached('forest-pine-far', () => merged(new THREE.ConeGeometry(0.42, 0.75, 6).translate(0, 0.62, 0), new THREE.ConeGeometry(0.26, 0.55, 6).translate(0, 1.05, 0))) : cached('forest-pine', () => merged(new THREE.ConeGeometry(0.42, 0.55, 7).translate(0, 0.55, 0), new THREE.ConeGeometry(0.33, 0.48, 7).translate(0, 0.85, 0), new THREE.ConeGeometry(0.22, 0.4, 7).translate(0, 1.12, 0))), mat(0xffffff, { rough: 0.95 }), pines, pineCol.map((c) => c.clone().multiply(new THREE.Color(0x3f6b45))));
   inst(cached('ribbon', () => merged(new THREE.CylinderGeometry(0.03, 0.03, 0.9, 5).translate(0, 0.45, 0), new THREE.BoxGeometry(0.28, 0.14, 0.02).translate(0.15, 0.8, 0))), mat(0xd23c2c), ribbons);
   void L;
 }
