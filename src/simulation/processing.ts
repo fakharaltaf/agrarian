@@ -33,6 +33,7 @@ export function buildingsTick(s: GameState) {
         b.stats = { out: 0, inCost: 0, outValue: 0, opCost: 0 }; // a paused factory pays no staff and makes nothing
         continue;
       }
+      if (b.reason === 'Moving' || b.reason === 'Paused') b.reason = ''; // back at work (barns and stores have no recipe to reset it)
       const staff = def.staffPerHour * s.macro.cpi * (execOn(s, buildingDivision(b.type)) ? 0.92 : 1) * (1 + 0.3 * ((b.level || 1) - 1));
       if (staff) {
         post(s, 'staff', -staff, `${def.name} staff`, r, buildingDivision(b.type));
