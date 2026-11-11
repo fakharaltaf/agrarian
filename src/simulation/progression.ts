@@ -381,8 +381,8 @@ export function civicObjective(s: GameState): { title: string; hint: string; pag
     if (waiting > 0 && homeFamilies(s) <= familiesHere(s)) return { title: `${waiting} famil${waiting === 1 ? 'y is' : 'ies are'} waiting for a home`, hint: hint('One family per cottage, three per terrace. Build them in your residential zone.'), page: 'community' };
     if (familiesHere(s) < 6) return { title: `Settle 6 families · ${familiesHere(s)}/6`, hint: hint('Each worker you hire brings a family once there is a home for them.'), page: 'workers' };
   }
-  if (town && t.education < .6) return { title: `A school place for every child · ${pctTxt(t.education)}/60%`, hint: hint('Build schools in the districts where children live.'), page: 'town' };
-  if (town && t.health < .7) return { title: `Health for every district · ${pctTxt(t.health)}/70%`, hint: hint('Wells, clinics and food keep families healthy.'), page: 'town' };
+  if (town && t.education < .6) return { title: `A school place for every child · ${pctTxt(t.education)}/60%`, hint: hint('Place schools near the homes: each one only teaches the children within its reach.'), page: 'town' };
+  if (town && t.health < .7) return { title: `Keep families healthy · ${pctTxt(t.health)}/70%`, hint: hint('Clean water, a clinic within reach and full larders keep families well.'), page: 'town' };
   if (city && cityOf(s).sanitation < .7) return { title: `City sanitation · ${pctTxt(cityOf(s).sanitation)}/70%`, hint: hint('Sanitation works in each district protect health.'), page: 'city' };
   if (city && cityOf(s).crime > .2) return { title: `Bring crime under 20% · now ${pctTxt(cityOf(s).crime)}`, hint: hint('Street lighting, jobs and schools lower crime; a watchhouse adds policing.'), page: 'city' };
   const target = s.stageId === 'settlement' ? 80 : town ? 400 : 1200;

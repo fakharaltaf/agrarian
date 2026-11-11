@@ -1263,6 +1263,27 @@ function animateUnits(R: Rig, L: Layout, s: GameState, t: number) {
       (o.userData.mixer as THREE.AnimationMixer | undefined)?.update(dt);
     });
   }
+  // cattle in the ranch and dairy yards: more of them the busier the place is, none when it stands idle
+  for (const m of R.models) {
+    if ((m.lot.type !== 'ranch' && m.lot.type !== 'dairy') || !m.model.pen) continue;
+    const running = m.lot.buildings.filter((b) => b.active), util = running.reduce((a, b) => a + b.util, 0) / Math.max(1, running.length);
+    const key = `yard:${m.lot.x},${m.lot.y}`, want = running.length ? Math.round(2 + 4 * util) : 0, pen = m.model.pen;
+    let list = R.herds.get(key) ?? [];
+    while (list.length < want) {
+      const o = animal('cows');
+      const clip = o.userData.clips && THREE.AnimationClip.findByName(o.userData.clips, o.userData.play);
+      if (clip) { const mixer = new THREE.AnimationMixer(o.userData.rig); const act = mixer.clipAction(clip); act.time = hash(list.length + 3) * clip.duration; act.play(); o.userData.mixer = mixer; }
+      R.units.add(o); list.push(o);
+    }
+    while (list.length > want) R.units.remove(list.pop()!);
+    if (list.length) { R.herds.set(key, list); seenH.add(key); }
+    list.forEach((o, i) => {
+      const a = t * 0.06 + i * 2.3 + hash(i + m.lot.x) * 6, b = t * 0.05 + i * 1.7 + hash(i + 7 + m.lot.y) * 3;
+      o.position.set(m.lot.x + pen.x0 + (pen.x1 - pen.x0) * (0.5 + 0.42 * Math.sin(a)), 0, m.lot.y + pen.z0 + (pen.z1 - pen.z0) * (0.5 + 0.42 * Math.cos(b)));
+      o.rotation.y = Math.atan2(0.8 * Math.sin(b) * (pen.z1 - pen.z0), Math.cos(a) * (pen.x1 - pen.x0));
+      (o.userData.mixer as THREE.AnimationMixer | undefined)?.update(dt);
+    });
+  }
   for (const [k, list] of R.herds) if (!seenH.has(k)) { list.forEach((o) => R.units.remove(o)); R.herds.delete(k); }
 }
 
