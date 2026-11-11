@@ -1094,14 +1094,14 @@ function syncRiver(R: Rig) {
   for (let d = 6; d <= 62; d += 1.5) ds.push(d);
   const H = (x: number, d: number) => mountainH(x, top - d, sx);
   const pos: number[] = [], col: number[] = [], c = new THREE.Color();
-  const ROCK = [C(0x7d776c), C(0x837d71), C(0x777166)], SNOW = C(0xeef1f4), SCRUB = C(0x56703f), MEADOW = C(0x7c8c58), FOOT = C(0x88ba5c);
+  const ROCK = [C(0x9a9283), C(0xa29a8a), C(0x938b7d)], SNOW = C(0xeef1f4), SCRUB = C(0x56703f), MEADOW = C(0x7c8c58), FOOT = C(0x88ba5c);
   const tri = (a: number[], b: number[], cc: number[]) => {
     const e1 = new THREE.Vector3(b[0] - a[0], b[1] - a[1], b[2] - a[2]), e2 = new THREE.Vector3(cc[0] - a[0], cc[1] - a[1], cc[2] - a[2]), n = e1.cross(e2).normalize();
     const ny = Math.abs(n.y), h = (a[1] + b[1] + cc[1]) / 3, r = vh(a[0] * 0.7, a[2] * 0.7);
     if (h > 13 + 3 * vnoise(a[0] * 0.1, a[2] * 0.1) && ny > 0.45) c.copy(SNOW);
-    else if (ny < 0.62 || h > 10) c.copy(ROCK[Math.floor(r * 3)]);
+    else if ((ny < 0.62 && h > 3.8) || ny < 0.4 || h > 10) c.copy(ROCK[Math.floor(r * 3)]); // the low bank at the foot stays grassy; rock starts higher up
     else if (h < 0.35) c.copy(FOOT);
-    else if (h < 6.5) c.copy(SCRUB).lerp(MEADOW, r * 0.4).lerp(ROCK[1], ny < 0.75 ? 0.45 : 0);
+    else if (h < 6.5) c.copy(SCRUB).lerp(MEADOW, r * 0.4).lerp(ROCK[1], ny < 0.75 && h > 3.8 ? 0.45 : 0);
     else c.copy(MEADOW).lerp(ROCK[0], r);
     for (const p of [a, b, cc]) { pos.push(p[0], p[1], p[2]); col.push(c.r, c.g, c.b); }
   };
