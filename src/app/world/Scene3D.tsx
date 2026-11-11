@@ -15,7 +15,7 @@ import { featureEra, stageAtLeast } from '../../simulation/stages';
 import { preloadArt, artRevision } from './art';
 import { money, num, pct0 } from '../format';
 import { layoutRegion, type Layout, type Lot, type Plot } from './layout';
-import { CHUNK, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, LAND_HA_PER_PATCH, MAP, hasAccess, riverTiles, tileId, roadRoute, roadStretch, tileAt, forSaleAround, landCost, ownedSet, ROAD_H, ROAD_Y, chunkAt, chunkOrigin, clearCost, clearedSet, isRoad, patchesAround, placeProblem, worldOf } from '../../simulation/world';
+import { CHUNK, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, LAND_HA_PER_PATCH, MAP, hasAccess, riverTiles, riverX, tileId, roadRoute, roadStretch, tileAt, forSaleAround, landCost, ownedSet, ROAD_H, ROAD_Y, chunkAt, chunkOrigin, clearCost, clearedSet, isRoad, patchesAround, placeProblem, worldOf } from '../../simulation/world';
 import { animal, buildCivic, buildCommunityHome, buildLot, box, cached, cyl, hauler, mat, mesh, PAL, person, tree, vehicle, type Model } from './models';
 import { haulOf, MARKET_X, marketRoute } from '../../simulation/hauling';
 import { oilChance, oilOf, surveyed } from '../../simulation/oil';
@@ -59,7 +59,7 @@ interface Rig {
   rain: THREE.Points; smoke: THREE.Sprite[]; pops: { key: string; text: string; x: number; z: number; t0: number; tone?: string }[]; seenHarvest: Map<number, object>; popsReady: boolean; crownMat: THREE.MeshStandardMaterial; lastHaul: number; layout: Layout | null; region: RegionId; animT?: number;
   roadsG: THREE.Group; roadSig: string; roadPrev: THREE.Group; roadPrevSig: string;
   haulers: Map<string, THREE.Group>; tickSeen: number; tickAt: number;
-  riverG: THREE.Group; riverSig: string; foam?: { im: THREE.InstancedMesh; pts: [number, number][]; phase: number[] }; fall?: THREE.Texture; flow?: THREE.Texture;
+  riverG: THREE.Group; riverSig: string; foam?: { im: THREE.InstancedMesh; pts: [number, number][]; phase: number[] }; fall?: THREE.Texture;
   oilG: THREE.Group; oilSig: string; zoneG: THREE.Group; zoneSig: string;
   felling?: { chunk: number; trees: THREE.Group[]; fallAt: number[]; extras: THREE.Group };
 }
@@ -694,6 +694,7 @@ function syncDeco(R: Rig, L: Layout, s: GameState) {
     const river = riverTiles(R.region);
     for (const p of patchTrees(c, ox, oy, n)) {
       if (inside && [-2, -1, 0, 1, 2].some((d) => river.has(tileId(Math.floor(p.x) + d, Math.floor(p.z))))) continue; // keep the banks clear
+      if (p.z >= MAP.y0 + MAP.h && Math.abs(p.x - riverX(R.region, Math.floor(p.z)) - 1) < 3.5) continue; // and where it flows on past the map
       let ty = 0;
       if (p.z < MAP.y0) { // on the mountains: trees thin out up the slopes, none on rock or in the gorge
         ty = mountainH(p.x, p.z, src);
@@ -961,16 +962,13 @@ function strip(path: [number, number, number][], profile: (i: number) => [number
   geo.setIndex(idx); geo.computeVertexNormals();
   return geo;
 }
-/** Soft streaks that scroll down the river and over the falls. */
-function waterTexture(falls: boolean) {
-  const c = document.createElement('canvas'); c.width = 64; c.height = 128; const g2 = c.getContext('2d')!;
-  g2.fillStyle = falls ? 'rgba(150,200,225,0.55)' : '#c9d6dc'; g2.fillRect(0, 0, 64, 128);
-  for (let i = 0; i < (falls ? 110 : 60); i++) {
-    const x = (i * 37) % 64, y = (i * 53) % 128, l = falls ? 12 + (i * 7) % 34 : 3 + (i * 7) % 9;
-    g2.fillStyle = `rgba(255,255,255,${(falls ? 0.4 : 0.25) + ((i * 13) % 40) / 100})`;
-    g2.fillRect(x, y, falls ? 2 + (i % 2) : 6 + (i % 5) * 3, falls ? l : 1);
-  }
-  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; return t;
+/** Bold stripes that scroll down the falls. */
+function fallsTexture() {
+  const c = document.createElement('canvas'); c.width = 16; c.height = 32; const g2 = c.getContext('2d')!;
+  g2.fillStyle = '#9fd3e0'; g2.fillRect(0, 0, 16, 32);
+  g2.fillStyle = '#eef8fb';
+  for (const [x, y, h] of [[1, 2, 10], [6, 14, 12], [11, 4, 9], [3, 20, 8], [13, 22, 7]]) g2.fillRect(x, y, 2, h);
+  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.magFilter = t.minFilter = THREE.NearestFilter; return t;
 }
 /** The river: a smooth channel with muddy, pebbly banks, flowing water, a timber bridge, and a waterfall where it leaves a gorge in the mountains along the top of the map. */
 function syncRiver(R: Rig) {
@@ -981,6 +979,7 @@ function syncRiver(R: Rig) {
   for (const id of riverTiles(R.region)) { const [x, y] = tileAt(id); (rows.get(y) ?? rows.set(y, []).get(y)!).push(x); }
   let line = [...rows.entries()].sort((a, b) => a[0] - b[0]).map(([y, xs]) => [(Math.min(...xs) + Math.max(...xs) + 1) / 2, y + 0.5] as [number, number]);
   if (line.length < 2) return;
+  for (let y = MAP.y0 + MAP.h; y < MAP.y0 + MAP.h + 90; y++) line.push([riverX(R.region, y) + 1, y + 0.5]); // on past the bottom edge, out of the farm
   for (let pass = 0; pass < 3; pass++) line = line.map(([, z], i) => { let sx = 0, n = 0; for (let k = -3; k <= 3; k++) { const p = line[i + k]; if (p) { sx += p[0]; n++; } } return [sx / n, z] as [number, number]; }); // ease the tile steps into curves
   const sx = riverSource(R.region), top = MAP.y0, C = (h: number) => new THREE.Color(h);
   // upstream in the gorge, then down the map
@@ -988,12 +987,11 @@ function syncRiver(R: Rig) {
   for (let d = 40; d >= 1.3; d -= 0.7) up.push([gorgeX(sx, d), gorgeFloor(d) + 0.06, top - d]);
   const down: [number, number, number][] = [[line[0][0], 0, top + 0.6], ...line.filter(([, z]) => z > top + 1).map(([x, z]) => [x, 0, z] as [number, number, number])];
   const W = (z: number) => 1.45 * (1 + 0.14 * Math.sin(z * 0.27) + 0.08 * Math.sin(z * 0.71));
-  const MUD = C(0x8a7a5a), SAND = C(0xc2ae80), GRASS = C(0x7aa956), SHALLOW = C(0x5f9ea3), MID = C(0x2f6c88), DEEP = C(0x204f6e);
+  const MUD = C(0x8a7a5a), SAND = C(0xc2ae80), GRASS = C(0x7aa956), SHALLOW = C(0x7cc4cc), DEEP = C(0x4a9bbd);
   const bankProfile = (pts: [number, number, number][]) => (i: number): [number, number, THREE.Color][] => { const w = W(pts[i][2]); return [[-w - 1.1, 0.004, GRASS], [-w - 0.45, 0.008, SAND], [-w + 0.1, 0.01, MUD], [w - 0.1, 0.01, MUD], [w + 0.45, 0.008, SAND], [w + 1.1, 0.004, GRASS]]; };
-  const waterProfile = (pts: [number, number, number][], scale: number) => (i: number): [number, number, THREE.Color][] => { const w = W(pts[i][2]) * scale; return [[-w, 0.02, SHALLOW], [-w * 0.5, 0.022, MID], [0, 0.024, DEEP], [w * 0.5, 0.022, MID], [w, 0.02, SHALLOW]]; };
+  const waterProfile = (pts: [number, number, number][], scale: number) => (i: number): [number, number, THREE.Color][] => { const w = W(pts[i][2]) * scale; return [[-w, 0.02, SHALLOW], [-w * 0.72, 0.022, SHALLOW], [-w * 0.6, 0.024, DEEP], [w * 0.6, 0.024, DEEP], [w * 0.72, 0.022, SHALLOW], [w, 0.02, SHALLOW]]; };
   const bankMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 });
-  const flow = waterTexture(false); flow.repeat.set(1, 1); R.flow = flow;
-  const waterMat = new THREE.MeshStandardMaterial({ vertexColors: true, map: flow, roughness: 0.18, metalness: 0.25 });
+  const waterMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, flatShading: true }); // flat colour bands, like the rest of the art
   const addStrip = (geo: THREE.BufferGeometry, m: THREE.Material) => { const o = new THREE.Mesh(geo, m); o.receiveShadow = true; R.riverG.add(o); };
   addStrip(strip(down, bankProfile(down)), bankMat); addStrip(strip(down, waterProfile(down, 1)), waterMat);
   addStrip(strip(up, waterProfile(up, 0.6)), waterMat);
@@ -1020,12 +1018,12 @@ function syncRiver(R: Rig) {
   }
   // the mountains: a heightfield along the whole top edge, flat-shaded rock, scrub and snow
   const xs: number[] = [];
-  for (let x = MAP.x0 - 60; x <= MAP.x0 + MAP.w + 60; x += Math.abs(x - sx) < 8 ? 0.4 : 1.5) xs.push(x);
+  for (let x = MAP.x0 - 60; x <= MAP.x0 + MAP.w + 60; x += Math.abs(x - sx) < 6 ? 0.75 : 1.5) xs.push(x);
   const ds = [0, 0.3, 0.6, 0.9, 1.0, 1.08, 1.3, 1.6, 2, 2.5, 3, 3.6, 4.3, 5];
   for (let d = 6; d <= 62; d += 1.5) ds.push(d);
   const H = (x: number, d: number) => mountainH(x, top - d, sx);
   const pos: number[] = [], col: number[] = [], c = new THREE.Color();
-  const ROCK = [C(0x7b756b), C(0x857f74), C(0x6c675f)], SNOW = C(0xeef1f4), SCRUB = C(0x56703f), MEADOW = C(0x7c8c58), FOOT = C(0x88ba5c);
+  const ROCK = [C(0x7d776c), C(0x837d71), C(0x777166)], SNOW = C(0xeef1f4), SCRUB = C(0x56703f), MEADOW = C(0x7c8c58), FOOT = C(0x88ba5c);
   const tri = (a: number[], b: number[], cc: number[]) => {
     const e1 = new THREE.Vector3(b[0] - a[0], b[1] - a[1], b[2] - a[2]), e2 = new THREE.Vector3(cc[0] - a[0], cc[1] - a[1], cc[2] - a[2]), n = e1.cross(e2).normalize();
     const ny = Math.abs(n.y), h = (a[1] + b[1] + cc[1]) / 3, r = vh(a[0] * 0.7, a[2] * 0.7);
@@ -1044,20 +1042,20 @@ function syncRiver(R: Rig) {
   const mg = new THREE.BufferGeometry(); mg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); mg.setAttribute('color', new THREE.Float32BufferAttribute(col, 3)); mg.computeVertexNormals();
   const mtn = new THREE.Mesh(mg, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, flatShading: true, side: THREE.DoubleSide })); mtn.receiveShadow = true; mtn.castShadow = true; R.riverG.add(mtn);
   // the falls: water pouring off the gorge's lip into a foaming pool
-  const fallTex = waterTexture(true); fallTex.repeat.set(1, 1.5); R.fall = fallTex;
+  const fallTex = fallsTexture(); fallTex.repeat.set(1, 1.5); R.fall = fallTex;
   const lip = gorgeFloor(1.3) + 0.06, fallPath: [number, number, number][] = [];
   for (let k = 0; k <= 8; k++) { const t = k / 8; fallPath.push([sx, lip * (1 - t * t) + 0.02, top - 1.3 + 0.5 * t + 0.6 * t * t]); }
   const t2 = (k: number) => k / 8;
   const fallGeo = new THREE.BufferGeometry(), fp: number[] = [], fu: number[] = [], fi: number[] = [];
   fallPath.forEach(([x, y, z], k) => { for (const [o, u] of [[-1.05, 0], [1.05, 1]]) { fp.push(x + o * (1 + t2(k) * 0.35), y, z); fu.push(u, k / 8); } if (k) fi.push((k - 1) * 2, k * 2, (k - 1) * 2 + 1, (k - 1) * 2 + 1, k * 2, k * 2 + 1); });
   fallGeo.setAttribute('position', new THREE.Float32BufferAttribute(fp, 3)); fallGeo.setAttribute('uv', new THREE.Float32BufferAttribute(fu, 2)); fallGeo.setIndex(fi);
-  R.riverG.add(new THREE.Mesh(fallGeo, new THREE.MeshBasicMaterial({ map: fallTex, transparent: true, depthWrite: false, side: THREE.DoubleSide })));
-  const pool = mesh(cached('pool', () => new THREE.CircleGeometry(2.2, 20)), new THREE.MeshStandardMaterial({ color: 0x2f6c88, roughness: 0.15, metalness: 0.2 }), sx, 0.018, top + 0.5, false); pool.rotation.x = -Math.PI / 2; R.riverG.add(pool);
+  R.riverG.add(new THREE.Mesh(fallGeo, new THREE.MeshBasicMaterial({ map: fallTex, side: THREE.DoubleSide })));
+  const pool = mesh(cached('pool', () => new THREE.CircleGeometry(2.2, 10)), new THREE.MeshStandardMaterial({ color: 0x4a9bbd, roughness: 0.7 }), sx, 0.018, top + 0.5, false); pool.rotation.x = -Math.PI / 2; R.riverG.add(pool);
   for (let i = 0; i < 7; i++) { const m = mesh(cached(`mist${i}`, () => new THREE.IcosahedronGeometry(0.4 + (i % 4) * 0.12, 1)), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.3, depthWrite: false }), sx - 1.1 + (i % 4) * 0.7, 0.25 + (i > 3 ? 0.4 : 0), top + 0.3 + (i > 3 ? 0.3 : 0), false); m.name = 'mist'; R.riverG.add(m); }
   for (let i = 0; i < 6; i++) { const rk = mesh(cached('boulder', () => new THREE.DodecahedronGeometry(1, 0)), mat(i % 2 ? 0x77716a : 0x8a847a, { rough: 1 }), sx + (i < 3 ? -1 : 1) * (1.9 + (i % 3) * 0.55), 0.15, top + 0.2 + (i % 3) * 0.6); rk.scale.set(0.5 + (i % 3) * 0.15, 0.4 + (i % 2) * 0.2, 0.45); rk.rotation.y = i; R.riverG.add(rk); }
   // foam flecks that drift downstream
   const n = Math.min(160, line.length * 1.2 | 0);
-  const im = new THREE.InstancedMesh(cached('foam', () => new THREE.BoxGeometry(0.2, 0.01, 0.05)), new THREE.MeshBasicMaterial({ color: 0xeaf4fb, transparent: true, opacity: 0.55 }), n);
+  const im = new THREE.InstancedMesh(cached('foam', () => new THREE.BoxGeometry(0.3, 0.01, 0.08)), new THREE.MeshBasicMaterial({ color: 0xeaf6f8 }), n);
   im.frustumCulled = false; R.riverG.add(im);
   R.foam = { im, pts: line, phase: Array.from({ length: n }, (_, i) => vh(i, 300)) };
 }
@@ -1072,7 +1070,6 @@ function animateRiver(R: Rig, t: number) {
   });
   im.instanceMatrix.needsUpdate = true;
   if (R.fall) R.fall.offset.y = t * 1.4; // the waterfall pours
-  if (R.flow) R.flow.offset.y = -t * 0.35; // and the river runs
   R.riverG.children.forEach((c) => { if (c.name === 'mist') { c.scale.setScalar(1 + 0.15 * Math.sin(t * 2 + c.position.x)); } });
 }
 

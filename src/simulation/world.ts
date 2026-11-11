@@ -429,15 +429,19 @@ export function roadStretch(w: RegionWorld, x: number, y: number): number[] {
 // ---------------------------------------------------------------- the river and irrigation channels
 
 const rivers = new Map<RegionId, Set<number>>();
+/** The river's west tile at row y; it keeps going past the map edges, where it is only scenery. */
+export function riverX(r: RegionId, y: number) {
+  const k = [...r].reduce((a, ch) => a + ch.charCodeAt(0), 0), base = r === 'heartland' ? -27 : -27 + ((k * 37) % 21) - 10;
+  return Math.round(base + 5 * Math.sin(y * 0.06 + k) + 2 * Math.sin(y * 0.17 + 1));
+}
 /** Each region's river: two tiles wide, winding north to south. In Heartland it runs just west of the starting valley. */
 export function riverTiles(r: RegionId): Set<number> {
   const hit = rivers.get(r);
   if (hit) return hit;
-  const set = new Set<number>(), k = [...r].reduce((a, ch) => a + ch.charCodeAt(0), 0);
-  const base = r === 'heartland' ? -27 : -27 + ((k * 37) % 21) - 10;
+  const set = new Set<number>();
   let prev: number | null = null;
   for (let y = MAP.y0; y < MAP.y0 + MAP.h; y++) {
-    const x = Math.round(base + 5 * Math.sin(y * 0.06 + k) + 2 * Math.sin(y * 0.17 + 1));
+    const x = riverX(r, y);
     const from = prev === null ? x : Math.min(prev, x), to = prev === null ? x : Math.max(prev, x);
     for (let xx = from; xx <= to; xx++) for (const dx of [0, 1]) if (inMap(xx + dx, y)) set.add(tileId(xx + dx, y)); // no gaps where it bends
     prev = x;
