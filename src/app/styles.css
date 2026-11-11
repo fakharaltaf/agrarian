@@ -774,7 +774,7 @@ body:has(.modal-bg) .shell .coach { display: none !important; }
 @media (max-width: 480px) { .ledger-btn { padding: 0 8px; } }
 .cash-counter { white-space: nowrap; }
 .cash-wrap { display: flex; align-items: center; min-width: 0; }
-@media (max-width: 480px) { .cash-wrap { flex-direction: column; align-items: flex-start; gap: 2px; } }
+@media (max-width: 480px) { .cash-wrap { gap: 6px; } .cash-wrap .haul-chip { padding: 3px 7px; font-size: 12px; } }
 .game-strip .cash-wrap { margin-right: auto; } .game-strip .cash-wrap .cash-counter { margin-right: 0; }
 .ln-today { display: block; font-weight: 800; } .ln-today.up { color: var(--up); } .ln-today.down { color: var(--down); }
 .wl-problem { color: var(--down); }

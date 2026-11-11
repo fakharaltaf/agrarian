@@ -48,8 +48,8 @@ export function layoutRegion(s: GameState, r: RegionId): Layout {
   // The "for sale" plot sits on the nearest free cleared spot; buying it lets the player choose where it goes.
   let buy: Layout['buy'] = null;
   if (r === 'heartland' && s.stats.sales > 0 && s.regions.heartland.homePlotsBought < CONFIG.homePlots) {
-    const spot = findSpot(s, r, { w: 2, d: 2 });
-    if (spot) buy = { x: spot[0], y: spot[1], s: 2 };
+    const spot = findSpot(s, r, { w: 4, d: 4 }); // a tile of space all round, so the sign never stands on a building's yard props
+    if (spot) buy = { x: spot[0] + 1, y: spot[1] + 1, s: 2 };
   }
   const xs = [...lots.map((l) => [l.x, l.x + l.w]), ...plots.map((p) => [p.x, p.x + p.s])].flat(), ys = [...lots.map((l) => [l.y, l.y + l.d]), ...plots.map((p) => [p.y, p.y + p.s])].flat();
   return { lots, plots, roadY: ROAD_Y, buy, maxX: Math.max(35, ...xs), maxY: Math.max(ROAD_Y + 4, ...ys), minX: Math.min(0, ...xs), minY: Math.min(0, ...ys) };

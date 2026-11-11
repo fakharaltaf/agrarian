@@ -653,10 +653,15 @@ function syncGhost(R: Rig, s: GameState, P: Placement | null, forest: [number, n
     }
     return;
   }
-  if (forest) for (const c of patchesAround(s, R.region, forest[0], forest[1], 3)) {
+  // owned forest: the patches the crew would clear; land beyond the fence: the patches for sale
+  if (forest) for (const c of ownedSet(worldOf(s, R.region)).has(chunkAt(forest[0], forest[1])) ? patchesAround(s, R.region, forest[0], forest[1], 3) : forSaleAround(s, R.region, forest[0], forest[1], 3)) {
     const [ox, oy] = chunkOrigin(c), center = c === chunkAt(forest[0], forest[1]);
-    const pts = [[ox, oy], [ox + CHUNK, oy], [ox + CHUNK, oy + CHUNK], [ox, oy + CHUNK]].map(([x, z]) => new THREE.Vector3(x, 0.15, z));
-    R.ghost.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: center ? 0xffc94d : 0xd8b46a, transparent: true, opacity: center ? 1 : 0.55 })));
+    // a glowing tile over the patch, drawn through the trees so the player sees exactly what they would buy or clear
+    const tile = mesh(cached('patch-hl', () => new THREE.PlaneGeometry(CHUNK - 0.15, CHUNK - 0.15).rotateX(-Math.PI / 2)), new THREE.MeshBasicMaterial({ color: center ? 0xffc94d : 0xf2dc9a, transparent: true, opacity: center ? 0.42 : 0.26, depthTest: false, depthWrite: false }), ox + CHUNK / 2, 0.2, oy + CHUNK / 2, false);
+    tile.renderOrder = 5; R.ghost.add(tile);
+    const pts = [[ox, oy], [ox + CHUNK, oy], [ox + CHUNK, oy + CHUNK], [ox, oy + CHUNK]].map(([x, z]) => new THREE.Vector3(x, 0.2, z));
+    const line = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: center ? 0xffc94d : 0xd8b46a, transparent: true, opacity: center ? 1 : 0.7, depthTest: false }));
+    line.renderOrder = 6; R.ghost.add(line);
   }
 }
 
