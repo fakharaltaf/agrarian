@@ -799,7 +799,7 @@ function animateFelling(R: Rig, s: GameState, t: number) {
   }
 }
 
-const ROAD_COL = [0, 0xa98b5d, 0xbab2a0, 0x5b5d61];
+const ROAD_COL = [0, 0xc19a64, 0xb9b3a6, 0x5f6266], RUT_COL = [0, 0xa27f50, 0x9d978b, 0], VERGE_COL = [0, 0xa9a465, 0xa3a477, 0x9da27a];
 /** Roads: the main road and every track, coloured by grade (dirt, gravel, paved). */
 function syncRoads(R: Rig, s: GameState) {
   const w = worldOf(s, R.region), ids = Object.keys(w.roads);
@@ -808,17 +808,26 @@ function syncRoads(R: Rig, s: GameState) {
   if (sig === R.roadSig) return;
   R.roadSig = sig;
   clear(R.roadsG);
-  const main = mesh(cached('road-main', () => new THREE.BoxGeometry(MAP.w + 600, 0.04, ROAD_H - 0.2)), mat(ROAD_COL[w.main], { rough: 1 }), MAP.x0 + MAP.w / 2, 0, ROAD_Y + ROAD_H / 2, false);
-  main.receiveShadow = true; R.roadsG.add(main);
-  if (w.main === 3) { const dash: THREE.Matrix4[] = []; for (let x = MAP.x0; x < MAP.x0 + MAP.w; x += 2) dash.push(new THREE.Matrix4().makeTranslation(x + 0.5, 0.045, ROAD_Y + ROAD_H / 2)); const im = new THREE.InstancedMesh(cached('dash', () => new THREE.BoxGeometry(0.8, 0.01, 0.08)), mat(0xf2e6b8), dash.length); dash.forEach((m, i) => im.setMatrixAt(i, m)); R.roadsG.add(im); }
+  // the main road: a worn verge, the surface, and wheel ruts (dirt, gravel) or painted lines (paved)
+  const L = MAP.w + 600, cx = MAP.x0 + MAP.w / 2, cz = ROAD_Y + ROAD_H / 2, g = w.main;
+  const band = (key: string, width: number, col: number, y: number, dz = 0) => { const m = mesh(cached(key, () => new THREE.BoxGeometry(L, 0.02, width)), mat(col, { rough: 1 }), cx, y, cz + dz, false); m.receiveShadow = true; R.roadsG.add(m); };
+  band('road-verge', ROAD_H + 0.5, VERGE_COL[g], -0.005);
+  band('road-main', ROAD_H - 0.2, ROAD_COL[g], 0.005);
+  if (g < 3) for (const dz of [-0.42, 0.42]) band('road-rut', 0.22, RUT_COL[g], 0.016, dz);
+  else {
+    for (const dz of [-(ROAD_H / 2 - 0.25), ROAD_H / 2 - 0.25]) band('road-edge', 0.06, 0xe9e4d6, 0.018, dz);
+    const dash: THREE.Matrix4[] = []; for (let x = MAP.x0 - 300; x < MAP.x0 + MAP.w + 300; x += 2) dash.push(new THREE.Matrix4().makeTranslation(x + 0.5, 0.02, cz));
+    const im = new THREE.InstancedMesh(cached('dash', () => new THREE.BoxGeometry(0.8, 0.01, 0.08)), mat(0xf2d77a), dash.length); dash.forEach((m, i) => im.setMatrixAt(i, m)); im.frustumCulled = false; R.roadsG.add(im);
+  }
   // the river (with a timber bridge where the main road crosses) and irrigation channels
-  const flat = (key: string, geo: () => THREE.BufferGeometry, m: THREE.Material, list: THREE.Matrix4[]) => { if (!list.length) return; const im = new THREE.InstancedMesh(cached(key, geo), m, list.length); list.forEach((x, i) => im.setMatrixAt(i, x)); im.frustumCulled = false; im.receiveShadow = true; R.roadsG.add(im); };
-  flat('canal', () => new THREE.BoxGeometry(1, 0.03, 1), mat(0x4a86b4, { rough: 0.3 }), cids.map((k) => { const [x, y] = tileAt(Number(k)); return new THREE.Matrix4().makeTranslation(x + 0.5, 0.005, y + 0.5); }));
+  // channels: one flat blue, like the river (no shadow on them: per-tile shadow edges drew a grid)
+  const canalTiles = cids.map((k) => { const [x, y] = tileAt(Number(k)); return new THREE.Matrix4().makeTranslation(x + 0.5, 0.014, y + 0.5); });
+  if (canalTiles.length) { const im = new THREE.InstancedMesh(cached('canal', () => new THREE.PlaneGeometry(1.02, 1.02).rotateX(-Math.PI / 2)), mat(0x5aa7c4, { rough: 0.7 }), canalTiles.length); canalTiles.forEach((m, i) => im.setMatrixAt(i, m)); im.frustumCulled = false; R.roadsG.add(im); }
   const byGrade: THREE.Matrix4[][] = [[], [], [], []];
   for (const k of ids) { const id = Number(k), [x, y] = tileAt(id); byGrade[w.roads[id]]?.push(new THREE.Matrix4().makeTranslation(x + 0.5, 0.012, y + 0.5)); }
   for (let gr = 1; gr <= 3; gr++) {
     if (!byGrade[gr].length) continue;
-    const im = new THREE.InstancedMesh(cached('road-tile', () => new THREE.BoxGeometry(1, 0.025, 1)), mat(ROAD_COL[gr], { rough: 1 }), byGrade[gr].length);
+    const im = new THREE.InstancedMesh(cached('road-tile', () => new THREE.BoxGeometry(1.03, 0.025, 1.03)), mat(ROAD_COL[gr], { rough: 1 }), byGrade[gr].length); // tiles overlap a hair so a track reads as one strip
     byGrade[gr].forEach((m, i) => im.setMatrixAt(i, m)); im.receiveShadow = true; im.frustumCulled = false;
     R.roadsG.add(im);
   }
