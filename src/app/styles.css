@@ -850,3 +850,4 @@ body:has(.modal-bg) .shell .coach { display: none !important; }
 .civ-steps{display:grid;gap:8px;margin:12px 0 0;padding-left:22px}.civ-steps li{line-height:1.4}
 @media(min-width:901px){.page-drawer:has(.community-page) .sheet-grip,.page-drawer:has(.town-page) .sheet-grip{display:none}}
 .shell:has(.placement-bar) .toasts{bottom:116px}@media(max-width:900px){.shell:has(.placement-bar) .toasts{bottom:170px}}
+.wl-pop.family{font-size:14px;color:#3b2a14;text-shadow:none;background:#fff8e6;border:2px solid #f2c94c;border-radius:99px;padding:4px 10px;white-space:nowrap;box-shadow:0 4px 12px rgb(60 40 10/.25);animation-duration:3.5s}

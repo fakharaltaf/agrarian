@@ -14,6 +14,8 @@ import { useElementRect } from './ui';
 import { useEffect, useState } from 'react';
 import { advice } from './Advisor';
 import { stageAtLeast } from '../simulation/stages';
+import { haulOf, usesCarts } from '../simulation/hauling';
+import { hasAccess, worldOf } from '../simulation/world';
 
 export interface CoachTip {
   id: string;
@@ -38,6 +40,13 @@ export const TIPS: CoachTip[] = [
   {id:'city-safety',page:'city',target:'city-safety',title:'Prosperity prevents crime',body:'Jobs, schools and happiness lower crime too. Your police charter changes its cost, effectiveness and effect on freedom.',when:s=>cityActive(s)&&townOf(s).services.some(b=>b.type==='sanitation'),done:s=>cityOf(s).police>0||cityOf(s).crime<.05},
   {id:'city-employment',page:'city',target:'city-decisions',title:'A town has more than one employer',body:'Tap District to see neighbouring jobs and real wages. A 1.1× offer can attract an employed neighbour to your crew; wages remain a recurring expense.',when:s=>cityActive(s)&&cityOf(s).neighbourJobs>0&&townOf(s).services.some(b=>b.type==='sanitation')},
   {id:'city-case',page:'city',target:'city-justice',title:'Choose a response',body:'Rehabilitation builds prevention; punishment acts immediately but reduces happiness. The selected default resolves future cases using real public money.',when:s=>cityActive(s)&&!!cityOf(s).case,done:s=>cityOf(s).solved>0},
+  // the chapters reworked in Nov 2026: roads, carts, zones, families and the town's reach
+  {id:'carts',page:'farm',target:'haul-chip',title:'Goods travel by cart',body:'Market sales ride a cart down the road to the village. You are paid when it arrives. A horse cart or better road makes every trip faster.',when:s=>usesCarts(s,'heartland')&&haulOf(s).trips.length>0,done:s=>haulOf(s).horses>0||s.machines.some(m=>m.type==='truck')},
+  {id:'noroad',page:'farm',target:'roads-btn',title:'Every building needs a road',body:'A building with no route to the main road stops working. Open 🛤 and draw a track from its door to any road.',when:s=>Object.keys(worldOf(s,'heartland').pos).some(k=>/^(b:|home:|svc:)/.test(k)&&!hasAccess(s,'heartland',k))},
+  {id:'zones',page:'farm',target:'zones-btn',title:'Zone land for homes',body:'Families only live on residential land. Open 🏘, choose Residential, and tap the cleared patches where the homes should go.',when:s=>communityOf(s).active&&!Object.values(worldOf(s,'heartland').zones).includes('res'),done:s=>Object.values(worldOf(s,'heartland').zones).includes('res')},
+  {id:'families',page:'community',target:'nav-community',title:'Families follow their workers',body:'Each hand you employ brings a family of 3–5 once there is a home for them. Feed them from your stores; they make your workers happier and steadier.',when:s=>communityOf(s).active&&Object.values(worldOf(s,'heartland').zones).includes('res'),done:s=>Object.keys(communityOf(s).families??{}).length>=2},
+  {id:'warmth',page:'community',target:'nav-community',title:'Cold homes',body:'Below 10°C every family burns diesel for heat. With stocking on it is bought for them; cold homes make families unhappy, and unhappy families leave.',when:s=>communityOf(s).active&&communityOf(s).warm<0.8&&s.regions.heartland.temp<10},
+  {id:'reach',page:'town',target:'nav-town',title:'Services serve their neighbours',body:'A school, clinic or water tower only serves the homes inside its circle. When you place one, homes turn green if they are covered and red if not.',when:s=>townOf(s).active,done:s=>townOf(s).services.filter(b=>b.type!=='waterTower').length>=2},
   { id: 'plant', page: 'farm', target: 'plant-btn', title: 'Plant your first crop', body: 'This is your one hectare. You own ten wheat seeds — exactly enough. Press Plant (or P).',
     when: () => true, done: (s) => anyField(s, (f) => !!f.crop) || s.stats.harvests > 0 },
   { id: 'time', page: 'farm', target: 'clock', title: 'Time runs by itself', body: 'Each real second is one in-game hour. Wheat needs 12 hours to ripen; the field turns gold when it is ready.',

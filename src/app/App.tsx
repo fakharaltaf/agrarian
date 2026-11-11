@@ -176,7 +176,7 @@ function HaulChip() {
   if (!H.trips.length && !H.pending.length && !open) return null;
   const total = o.waiting + o.moving, cut = marketCut(s), slow = cut || wait > 24;
   return <>
-    <button type="button" className={`haul-chip${slow ? ' slow' : ''}`} onClick={() => setOpen(true)} title="Goods on their way to the village market">
+    <button type="button" data-coach="haul-chip" className={`haul-chip${slow ? ' slow' : ''}`} onClick={() => setOpen(true)} title="Goods on their way to the village market">
       🛒<span className="haul-word"> {money(Math.round(total))}</span>{cut ? ' · no road!' : Number.isFinite(o.next) ? ` · ${o.next}h` : ''}
     </button>
     {open && <Modal title="Carts to market" onClose={() => setOpen(false)} actions={<button className="btn primary" onClick={() => setOpen(false)}>Close</button>}>

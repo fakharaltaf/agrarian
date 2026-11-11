@@ -49,7 +49,7 @@ const merged = (...parts: THREE.BufferGeometry[]) => mergeGeometries(parts.map(g
 const RIPE: Partial<Record<CropId, number>> = { wheat: 0xe0b23f, rice: 0xd9c46a, corn: 0xcfae4a, sugarcane: 0x8fbf55, potatoes: 0x8a9a3a, soybeans: 0xb6a24a, cotton: 0xf6f3ec, coffee: 0xb8392f, apples: 0xd2402f, grapes: 0x6b3a7e };
 
 interface Rig {
-  oilSeen?: string; glide?: { x: number; z: number; zoom: number }; page?: string;
+  cohortsSeen?: number; oilSeen?: string; glide?: { x: number; z: number; zoom: number }; page?: string;
   renderer: THREE.WebGLRenderer; scene: THREE.Scene; camera: THREE.OrthographicCamera; target: THREE.Vector3; yaw: number; yawTo: number; zoom: number;
   sun: THREE.DirectionalLight; hemi: THREE.HemisphereLight; ground: THREE.Mesh;
   lots: THREE.Group; fields: THREE.Group; units: THREE.Group; deco: THREE.Group; fx: THREE.Group; sel: THREE.Group; ghost: THREE.Group; ghostSig: string;
@@ -337,9 +337,9 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
         <button className="icon-btn" aria-label="Zoom out" onClick={() => ctl().zoom(0.8)}>−</button>
         <button className="icon-btn" aria-label="Rotate left (Q)" title="Rotate (Q)" onClick={() => ctl().rotate(1)}>⟲</button>
         <button className="icon-btn" aria-label="Rotate right (E)" title="Rotate (E)" onClick={() => ctl().rotate(-1)}>⟳</button>
-        {featureEra(getGame(), 4) && <button className={`icon-btn${zoning ? ' on' : ''}`} aria-label="Zones" title="Zones: residential and industrial land" onClick={() => zoning ? stopZoning() : startZoning(region)}>🏘</button>}
+        {featureEra(getGame(), 4) && <button data-coach="zones-btn" className={`icon-btn${zoning ? ' on' : ''}`} aria-label="Zones" title="Zones: residential and industrial land" onClick={() => zoning ? stopZoning() : startZoning(region)}>🏘</button>}
         {featureEra(getGame(), 4) && <button className={`icon-btn${prospect ? ' on' : ''}`} aria-label="Oil" title="Oil: survey and drill" onClick={() => prospect ? stopProspect() : startProspect(region)}>🛢</button>}
-        <button className={`icon-btn${roading ? ' on' : ''}`} aria-label="Roads" title="Roads: draw, upgrade or remove" onClick={() => roading ? stopRoads() : startRoads(region)}>🛤</button>
+        <button data-coach="roads-btn" className={`icon-btn${roading ? ' on' : ''}`} aria-label="Roads" title="Roads: draw, upgrade or remove" onClick={() => roading ? stopRoads() : startRoads(region)}>🛤</button>
       </div>
     </div>
   );
@@ -1412,10 +1412,18 @@ function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el
     if(Math.abs(delta)>=1){const at=L.lots.find(l=>l.key==='market')??L.lots[0];R.pops.push({key:`coin-${t}`,text:`${delta>0?'+':'−'}$${num(Math.abs(delta))}`,x:at.x,z:at.y,t0:t,tone:delta>0?'coin-in':'coin-out'});}
     R.lastCash=s.cash;R.lastCoin=t;
   }
+  // a family moving in: their name floats up over a home in the neighbourhood
+  const cohorts = communityOf(s).cohorts;
+  if (R.popsReady && cohorts.length > (R.cohortsSeen ?? cohorts.length)) {
+    const homes = L.lots.filter((l) => l.key.startsWith('community:'));
+    // the newest homes are the free ones
+    cohorts.slice(R.cohortsSeen).forEach((g, k, arr) => { const h = homes[Math.max(0, homes.length - arr.length + k)]; if (h) R.pops.push({ key: `fam${g.id}`, text: `🏠 ${g.name.replace(' (newcomers)', '')} moved in`, x: h.x + h.w / 2, z: h.y + h.d / 2, t0: t, tone: 'family' }); });
+  }
+  R.cohortsSeen = cohorts.length;
   R.popsReady = true; // harvests that existed when the farm loaded don't pop
-  R.pops = R.pops.filter((p) => t - p.t0 < 1.8);
+  R.pops = R.pops.filter((p) => t - p.t0 < (p.tone === 'family' ? 3.5 : 1.8));
   for (const p of R.pops) {
-    const [x, y] = project(p.x, 1.2 + (t - p.t0) * 0.9, p.z);
+    const [x, y] = project(p.x, (p.tone === 'family' ? 2.4 : 1.2) + (t - p.t0) * (p.tone === 'family' ? 0.35 : 0.9), p.z);
     want.push({ key: p.key, x, y, html: p.text, cls: `wl-pop ${p.tone ?? ''}` });
   }
   const button = (action: string, label: string) => `<button data-action="${action}" type="button"${label==='ⓘ'?' aria-label="Inspect selected item"':''}>${label}</button>`;
