@@ -11,7 +11,7 @@ import { createTownState } from './town-state';
 import { createRegionState, NEIGHBOUR_IDS, type RegionState } from './region-state';
 import { createNationState, type NationState } from './nation-state';
 import { createSettlementState } from './community-state';
-export const SAVE_VERSION = 14;
+export const SAVE_VERSION = 15;
 export interface SaveFile { version: number; savedAt: number; paused?: boolean; game: GameState }
 
 /** Trust boundary: stored or imported JSON may be stale, hand-edited or corrupt. */
@@ -88,8 +88,8 @@ export function parseSave(text: string): SaveFile {
 /** Upgrades older saves in place. Version 1 (the prototype) predates the full economy. */
 export function migrate(g: Omit<GameState, 'version'> & { version: number }): GameState {
   const fromVersion = g.version;
-  if (g.version === 1) throw new Error('This save is from the early prototype and cannot be upgraded. Please start a new game.');
-  if (g.version !== 2 && g.version !== 3 && g.version !== 4 && g.version !== 5 && g.version !== 6 && g.version !== 7 && g.version !== 8 && g.version !== 9 && g.version !== 10 && g.version !== 11 && g.version !== 12 && g.version !== 13 && g.version !== SAVE_VERSION) throw new Error(`Unsupported save version ${g.version}.`);
+  // preview: no save compatibility; saves from before the Settlement/Town rework are refused
+  if (g.version !== SAVE_VERSION) throw new Error('This save is from an older build of the game. Please start a new game.');
   g.warned ??= {};
   g.bench ??= {};
   g.discovered ??= [];

@@ -344,7 +344,7 @@ export interface TownState {
 }
 
 export interface GameState {
-  version: 14;
+  version: 15;
   seed: number;
   rng: number;
   tick: number;

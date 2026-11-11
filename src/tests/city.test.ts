@@ -19,15 +19,12 @@ function ready(){
  return s;
 }
 const flow=(x:Record<string,number|undefined>)=>Object.entries(x).reduce((n,[k,v])=>n+(k==='depreciation'?0:v??0),0);
-it('City is an optional, capability-preserving charter; old version10 city ids remain inactive',()=>{
- const s=ready(),cash=s.cash,people=population(s),old=structuredClone(s);
+it('City is an optional, capability-preserving charter',()=>{
+ const s=ready(),cash=s.cash,people=population(s);
  expect(canStartCity(s)).toBe(true);expect(cityActive(s)).toBe(false);
  expect(dispatch(s,{type:'startCity',charter:'watch'}).ok).toBe(true);
  expect(s.cash).toBe(cash);expect(population(s)).toBe(people);expect(s.era).toBe(8);expect(s.stageId).toBe('city');
  expect(dispatch(s,{type:'startCity',charter:'strict'}).ok).toBe(false);
- const raw=JSON.parse(JSON.stringify(old));raw.version=10;raw.stageState.city={};raw.stageId='city';
- const loaded=parseSave(JSON.stringify({game:raw})).game;
- expect(cityActive(loaded)).toBe(false);expect(loaded.cash).toBe(cash);expect(population(loaded)).toBe(people);
  const corrupt=structuredClone(s);cityOf(corrupt).crime='invalid' as unknown as number;
  expect(()=>parseSave(JSON.stringify({game:corrupt}))).toThrow(/safety/);
 });

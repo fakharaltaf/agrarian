@@ -98,7 +98,3 @@ it('Watchtowers are staffed civic jobs funded by the treasury and add protection
  expect(townOf(s).lifetime.tolls??0).toBeGreaterThan(0);
 });
 
-it('Old saves without region state load inactive with no economic change',()=>{
- const s=ready(),raw=JSON.parse(JSON.stringify(s));delete raw.stageState.region;raw.version=11;
- const g=parseSave(JSON.stringify({game:raw})).game;expect(regionActive(g)).toBe(false);expect(g.cash).toBe(s.cash);
-});

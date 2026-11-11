@@ -40,24 +40,6 @@ it('stage registry uses stable string ids and preserves the eight legacy-era ide
     expect(STAGES[id].createState()).toEqual(id === 'homestead' ? { day: -1, mood: 50, offers: [] } : id === 'market-town' ? { lastMarketDay: -1 } : id === 'settlement' ? createSettlementState() : id === 'town' ? createTownState() : id==='city'?createCityState():id==='region'?createRegionState():id==='nation'?createNationState():{});
   }
 });
-it('legacy saves migrate to their matching stage without advancing or changing their era', () => {
-  const s = createGame(45); s.era = 7; (s as unknown as { version: number }).version = 3; delete (s as Partial<GameState>).stageId;
-  const migrated = parseSave(JSON.stringify({ version: 3, savedAt: 1, game: s })).game;
-  expect(migrated.era).toBe(7);
-  expect(migrated.stageId).toBe('city');
-  expect(migrated.stageState.city).toEqual(createCityState());
-  expect(migrated.charters).toEqual({ trader: null });
-  expect(migrated.values).toMatchObject({ prosperityFairness: 50, orderFreedom: 50, peaceStrength: 50, traditionProgress: 50 });
-});
-it('version-5 roadmap saves gain neutral charter values without losing their chosen progression', () => {
-  const old = structuredClone(createGame(48)) as unknown as Record<string, unknown>;
-  old.version = 5; delete old.charters; delete old.values;
-  const migrated = parseSave(JSON.stringify({ version: 5, savedAt: 20, game: old })).game;
-  expect(migrated.legacyProgression).toBe(false);
-  expect(migrated.charters).toEqual({ trader: null });
-  expect(migrated.values).toMatchObject({ prosperityFairness: 50, orderFreedom: 50, peaceStrength: 50, traditionProgress: 50 });
-  expect(migrated.stageId).toBe('homestead');
-});
 it('player chapter advancement synchronizes the stable stage id', () => {
   const s = createGame(46);
   for (let i = 0; i < 3; i++) s.fields.push(newField(s, 'heartland', 1, 0));

@@ -45,11 +45,3 @@ it('Premium recruitment reassigns a real employed adult; rejected recruitment ch
  post(s,'dividends',-s.cash,'Fixture distribution');const noCash=JSON.stringify(s);
  expect(dispatch(s,{type:'hire',region:'heartland',role:'hand',wageFactor:1.1}).ok).toBe(false);expect(JSON.stringify(s)).toBe(noCash);
 });
-it('Version11 saves gain neutral payroll defaults, preserving their chosen City and resident count',()=>{
- const s=fixture(),old=JSON.parse(JSON.stringify(s));old.version=11;
- for(const c of old.competitors){delete c.payrollDay;delete c.payrollToday;}
- for(const k of ['neighbourJobs','neighbourPayroll','employmentDay','employers'])delete old.stageState.city[k];
- const restored=parseSave(JSON.stringify({game:old})).game;
- expect(workingAdults(restored)).toBe(200);expect(restored.cash).toBe(s.cash);expect(cityOf(restored).active).toBe(true);expect(cityOf(restored).neighbourJobs).toBe(0);
- const bad=structuredClone(restored);cityOf(bad).neighbourJobs=5;expect(()=>parseSave(JSON.stringify({game:bad}))).toThrow(/employment/);
-});

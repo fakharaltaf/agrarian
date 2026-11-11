@@ -75,10 +75,6 @@ it('A won siege makes the neighbour a tribute-paying vassal; state survives a sa
  const bad=JSON.parse(JSON.stringify({game:s}));bad.game.stageState.nation.drill=9;expect(()=>parseSave(JSON.stringify(bad))).toThrow();
 });
 
-it('Old saves without nation state load inactive',()=>{
- const s=ready(),raw=JSON.parse(JSON.stringify(s));delete raw.stageState.nation;raw.version=11;
- const g=parseSave(JSON.stringify({game:raw})).game;expect(nationActive(g)).toBe(false);expect(g.cash).toBe(s.cash);
-});
 
 import {allyCharterCost,pathGuard,closedTo} from '../simulation/stages/nation';
 import {raidRisk} from '../simulation/stages/region';

@@ -85,6 +85,4 @@ it('Retail markup has a conserved daily allowance, so same-tick buy/resell canno
   for(let i=0;i<100;i++){const buy=executeBuy(s,'heartland','flour',1);expect(quoteSell(s,'heartland','flour',buy.qty).retailValue).toBe(0);executeSell(s,'heartland','flour',buy.qty);}
   expect(s.cash).toBeLessThan(cash);expect(s.regions.heartland.inventory.flour).toBeCloseTo(0,6);
   s.tick=23;step(s);expect(retailAllowance(s,'heartland','flour').left).toBe(limit);
-  const old=JSON.parse(JSON.stringify(s));old.version=9;delete old.regions.heartland.retailToday;
-  expect(parseSave(JSON.stringify({game:old})).game.regions.heartland.retailToday).toEqual({});
 });

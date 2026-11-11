@@ -214,6 +214,7 @@ export async function boot() {
       const f = parseSave(t);
       startFrom(f.game, f.savedAt, f.paused);
     } catch (e) {
+      await del('auto');
       toast(`Your autosave could not be loaded (${(e as Error).message}). A new game was started.`);
     }
   }

@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { createGame, dispatch, step } from '../simulation/engine';
+import { createGame, dispatch } from '../simulation/engine';
 import { post } from '../simulation/core';
 import { productionReport, productionPriceRails, recordProductionHour, cowshedAlternative } from '../simulation/production-report';
 import { executeSell, quoteSell } from '../simulation/markets';
@@ -43,15 +43,6 @@ it('Retail reporting attributes the existing premium once to the supplying centr
   expect(s.cash-cash).toBeCloseTo(q.net,2);
   expect(centres.reduce((n,b)=>n+(b.productionReport.open?.earn??0),0)).toBe(q.retailValue);
   expect(centres[0].productionReport.open!.earn).toBeGreaterThan(0);expect(centres[1].productionReport.open?.earn??0).toBe(0);
-});
-it('Version8 gains empty reports; saved reporting continues exactly through JSON',()=>{
-  const s=fixture(),raw=JSON.parse(JSON.stringify(s));raw.version=8;for(const b of raw.buildings)delete b.productionReport;
-  const migrated=parseSave(JSON.stringify({game:raw})).game;
-  expect(productionReport(migrated.buildings).days).toBe(0);expect(migrated.cash).toBe(s.cash);
-  for(let i=0;i<96;i++)step(migrated);
-  const restored=parseSave(JSON.stringify({game:migrated})).game;
-  for(let i=0;i<72;i++){step(migrated);step(restored);}
-  expect(restored).toEqual(migrated);
 });
 it('Solar reports only avoided purchases and actual half-price exports, not a fictitious full-price sale',async()=>{
   const {buildingsTick}=await import('../simulation/processing');

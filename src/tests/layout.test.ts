@@ -1,7 +1,6 @@
 import { expect, it } from 'vitest';
 import { createGame, dispatch, step } from '../simulation/engine';
 import { post } from '../simulation/core';
-import { parseSave } from '../simulation/persistence';
 import { layoutRegion } from '../app/world/layout';
 import { chunkAt, chunkOrigin, clearedSet, findSpot, frontierPatches, landFrontier, placeProblem, worldOf } from '../simulation/world';
 
@@ -58,17 +57,6 @@ it('moving costs a fee, idles a building briefly, and fields must be empty', () 
   expect(dispatch(s, { type: 'moveObject', region: 'heartland', key: `field:${f.id}`, at: findSpot(s, 'heartland', { w: 2, d: 2 })! }).ok).toBe(false);
 });
 
-it('old saves keep their arrangement and start with their farm cleared; the map survives a save', () => {
-  const s = createGame(1006); s.legacyProgression = true; s.era = 4; post(s, 'prize', 1e6, 'fixture');
-  for (let i = 0; i < 3; i++) dispatch(s, { type: 'build', region: 'heartland', building: 'barn' });
-  const old = JSON.parse(JSON.stringify(s)); delete old.world; old.version = 12;
-  const g = parseSave(JSON.stringify({ game: old })).game;
-  const w = worldOf(g, 'heartland');
-  for (const b of g.buildings) expect(w.pos[`b:${b.id}`]).toBeDefined();
-  for (const f of g.fields) expect(w.pos[`field:${f.id}`]).toBeDefined();
-  for (const [k, [x, y]] of Object.entries(w.pos)) expect(clearedSet(w).has(Math.floor((y + 72) / 4) * 48 + Math.floor((x + 80) / 4)), k).toBe(true);
-  expect(parseSave(JSON.stringify({ game: g })).game.world).toEqual(g.world);
-});
 
 it('a new farm starts with just its farmhouse; landmarks appear with their chapter and then stay', () => {
   const s = createGame(1007), w = worldOf(s, 'heartland');
@@ -99,7 +87,8 @@ it('orchards, vineyards and greenhouse fields move with what stands on them, for
   }
 });
 
-it('building several homes makes separate homes, each on its own plot; old blocks are split where they stand', async () => {
+
+it('building several homes makes separate homes, each on its own plot', async () => {
   const { communityOf } = await import('../simulation/community-state');
   const s = createGame(1009); s.legacyProgression = true; s.era = 5; post(s, 'prize', 1e7, 'fixture');
   const c = communityOf(s); c.active = true;
@@ -112,17 +101,6 @@ it('building several homes makes separate homes, each on its own plot; old block
   const w = worldOf(s, 'heartland');
   expect(new Set(made.map((h) => String(w.pos[`home:${h.id}`]))).size).toBe(3);
   expect(dispatch(s, { type: 'buildHomes', tier: 'cottage', count: 2, at: [0, 0] }).ok).toBe(false); // placed one at a time
-
-  // an old save holding one ×5 block
-  const old = JSON.parse(JSON.stringify(s)); old.version = 13;
-  const block = old.stageState.settlement.homes[before];
-  block.count = 5; block.cost = 5 * made[0].cost;
-  old.stageState.settlement.homes = old.stageState.settlement.homes.slice(0, before + 1);
-  for (const h of made.slice(1)) delete old.world.heartland.pos[`home:${h.id}`];
-  const g = parseSave(JSON.stringify({ game: old })).game, homes = (g.stageState.settlement as any).homes.slice(before);
-  expect(homes.map((h: any) => h.count)).toEqual([1, 1, 1, 1, 1]);
-  const at = worldOf(g, 'heartland').pos[`home:${block.id}`];
-  expect(worldOf(g, 'heartland').pos[`home:${homes[1].id}`]).toEqual([at[0] + 4, at[1]]);
 });
 
 it('buildings get a dirt track to the road and stop working without one; roads can be drawn, upgraded and removed', async () => {
