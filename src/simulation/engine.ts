@@ -10,7 +10,7 @@ import {
 } from './config';
 import { buildingDivision, clamp, debt, factoryCrop, equity, freeSpace, has, known, log, marketWage, nextId, post, random, round2, todayBook, lean } from './core';
 import { addGoods, canGrow, clearField, fertilizeField, fieldsTick, frostNight, harvestField, isManual, isReady, newField, plantField, spoilageDaily } from './agriculture';
-import { reconcileWorld, buyable, chunksIn, connect, placedIn, touch, useOf, IRRIGATION_CHANNEL_PRICE, waterRoute, isRoad, MAP, ROAD_GRADES, ROAD_H, roadRoute, roadStretch, roadTilePrice, tileId, canPlaceNew, LAND_HA_PER_PATCH, landCost, own, ownedSet, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, clearCost, clearedSet, FOOTPRINT, footprintOf, forget, MOVE_DOWNTIME, placeNew, placeProblem, plotSide, PROBLEM_TEXT, seedWorld, TIMBER_PER_PATCH, worldOf } from './world';
+import { reconcileWorld, accessNote, cutsOff, buyable, chunksIn, connect, placedIn, touch, useOf, IRRIGATION_CHANNEL_PRICE, waterRoute, isRoad, MAP, ROAD_GRADES, ROAD_H, roadRoute, roadStretch, roadTilePrice, tileId, canPlaceNew, LAND_HA_PER_PATCH, landCost, own, ownedSet, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, clearCost, clearedSet, FOOTPRINT, footprintOf, forget, MOVE_DOWNTIME, placeNew, placeProblem, plotSide, PROBLEM_TEXT, seedWorld, TIMBER_PER_PATCH, worldOf } from './world';
 import { buyAnimals, livestockDaily, sellAnimals } from './livestock';
 import { claimDaily, startDay } from './daily';
 import { createMarkets, drawWeather, executeBuy, executeSell, quoteBuy, macroDaily, marketsDaily, marketsTick, priceFromInv } from './markets';
@@ -164,7 +164,7 @@ const finite = (n: number) => Number.isFinite(n);
 
 export const homePlotPrice = (s: GameState) => Math.round(CONFIG.homePlotBase * CONFIG.homePlotGrowth ** (s.regions.heartland.homePlotsBought - 1) * s.macro.cpi);
 export const parcelPrice = (s: GameState, r: RegionId, ha: number) => {
-  const per = (REGIONS[r].landPrice / REGIONS[r].fx0) * s.regions[r].cpi * s.regions[r].fx * (1 + 0.02 * s.regions[r].parcelsBought);
+  const per = (REGIONS[r].landPrice / REGIONS[r].fx0) * s.regions[r].cpi * s.regions[r].fx; // land itself already gets dearer by the patch
   return Math.round(per * ha * 0.3); // fencing, ploughing and drainage: the land itself is bought by the patch
 };
 export const hireCost = (s: GameState, r: RegionId) => Math.round(marketWage(s, r) * 8); // recruiting: one day's pay
@@ -497,7 +497,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       }
       log(s, 'info', `Built ${built > 1 ? `${built} ${d.name.toLowerCase()}s` : `a ${d.name.toLowerCase()}`} in ${REGIONS[a.region].name}.`, BUILDINGS[a.building].category === 'storage' ? 'storage' : 'production');
       if (greenBuild) lean(s, 'cleanIndustrial', -6 * built); // clean energy pulls the farm's character green
-      return ok();
+      return ok(s.buildings.slice(-built).map((b) => accessNote(s, a.region, `b:${b.id}`)).find(Boolean));
     }
     case 'moveObject': {
       if (!s.regions[a.region]?.unlocked) return fail('You have no operations there.');
@@ -518,7 +518,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       connect(s, a.region, a.key);
       const b = kind === 'b' ? s.buildings.find((x) => x.id === +id) : undefined;
       if (b) b.movedUntil = s.tick + MOVE_DOWNTIME;
-      return ok(b ? `Moved. It restarts in ${MOVE_DOWNTIME} hours.` : 'Moved.');
+      return ok(accessNote(s, a.region, a.key) ?? (b ? `Moved. It restarts in ${MOVE_DOWNTIME} hours.` : 'Moved.'));
     }
     case 'surveyOil': {
       if (!featureEra(s, 4)) return fail('Oil exploration opens with Industry.');
@@ -572,9 +572,10 @@ export function dispatch(s: GameState, a: Action): ActionResult {
     case 'removeRoad': {
       const w = worldOf(s, a.region), stretch = roadStretch(w, a.at[0], a.at[1]);
       if (!stretch.length) return fail(isRoad(a.at[1]) ? 'The main road stays.' : 'There is no road there.');
+      const lost = cutsOff(s, a.region, stretch);
       for (const id of stretch) delete w.roads[id];
       touch(w);
-      return ok(`Removed ${stretch.length} tiles of road.`);
+      return ok(`Removed ${stretch.length} tiles of road.${lost.length ? ` ${lost.length} building${lost.length === 1 ? '' : 's'} now ha${lost.length === 1 ? 's' : 've'} no road and will stop working.` : ''}`);
     }
     case 'upgradeRoad': {
       const w = worldOf(s, a.region);

@@ -1,6 +1,6 @@
 import { Component, lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
 import { equity, sumBooks } from '../simulation/core';
-import { backlogHours, fleet, haulOf, onTheWay, oneWay, usesCarts, VEHICLES } from '../simulation/hauling';
+import { backlogHours, fleet, haulOf, marketCut, onTheWay, oneWay, usesCarts, VEHICLES } from '../simulation/hauling';
 import { ACHIEVEMENTS, PAGES } from '../simulation/engine';
 import {
   act, deleteSlot, getGame, offlineOn, dismissAway, toast, exportSave, go, importSave, loadFrom, newGame, saveTo, setSpeed, slotInfo, slotLabel, SLOTS, SPEEDS, useGame, useStore, type Slot, type Speed,
@@ -174,13 +174,14 @@ function HaulChip() {
   if (!usesCarts(s, 'heartland')) return null;
   const o = onTheWay(s), H = haulOf(s), wait = backlogHours(s), price = Math.round(VEHICLES.horse.price * s.macro.cpi);
   if (!H.trips.length && !H.pending.length && !open) return null;
-  const total = o.waiting + o.moving, slow = wait > 24;
+  const total = o.waiting + o.moving, cut = marketCut(s), slow = cut || wait > 24;
   return <>
     <button type="button" className={`haul-chip${slow ? ' slow' : ''}`} onClick={() => setOpen(true)} title="Goods on their way to the village market">
-      🛒<span className="haul-word"> {money(Math.round(total))}</span>{Number.isFinite(o.next) ? ` · ${o.next}h` : ''}
+      🛒<span className="haul-word"> {money(Math.round(total))}</span>{cut ? ' · no road!' : Number.isFinite(o.next) ? ` · ${o.next}h` : ''}
     </button>
     {open && <Modal title="Carts to market" onClose={() => setOpen(false)} actions={<button className="btn primary" onClick={() => setOpen(false)}>Close</button>}>
       <div className="stack s">
+        {cut && <div className="callout bad small">No road leads from your store to the main road, so nothing can leave. Draw one with 🛤 on the map.</div>}
         <p className="small muted">Market sales travel to the village market by road. You're paid when the goods arrive. Better roads and faster vehicles shorten every trip.</p>
         <div className="haul-fleet">{fleet(s).map((v) => { const trip = H.trips.find((t) => t.vehicle === v.id); return <div key={v.id} className="haul-row"><span>{VEHICLES[v.kind].icon} {VEHICLES[v.kind].name}</span><span className="muted small">{VEHICLES[v.kind].cap} a trip · {oneWay(s, v.kind)}h each way</span><b className="small">{trip ? (trip.arrive > s.tick ? `to market · ${trip.arrive - s.tick}h` : `coming back · ${trip.back - s.tick}h`) : 'in the yard'}</b></div>; })}</div>
         <dl className="facts small"><dt>On the road</dt><dd>{money(Math.round(o.moving))}</dd><dt>Waiting at the gate</dt><dd className={slow ? 'down' : ''}>{money(Math.round(o.waiting))}{o.waitingQty ? ` · ${Math.round(o.waitingQty)} units` : ''}</dd>{wait > 0 && <><dt>Cleared in</dt><dd className={slow ? 'down' : ''}>about {wait < 48 ? `${Math.ceil(wait)} hours` : `${Math.ceil(wait / 24)} days`}</dd></>}</dl>

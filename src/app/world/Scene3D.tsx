@@ -823,8 +823,8 @@ function syncRoadPreview(R: Rig, s: GameState, Rd: Roading | null) {
     if (Rd.from && Rd.hover) { const r = roadRoute(s, R.region, Rd.from, Rd.hover); ok = !!r; tiles = r ?? [Rd.hover]; }
     else if (Rd.hover) tiles = [Rd.hover];
     if (Rd.from) { const m = mesh(cached('road-start', () => new THREE.CylinderGeometry(0.3, 0.3, 0.6, 12)), mat(0xffc94d, { emissive: 0x403000 }), Rd.from[0] + 0.5, 0.3, Rd.from[1] + 0.5, false); R.roadPrev.add(m); }
-  } else if (Rd.hover) {
-    tiles = isRoad(Rd.hover[1]) ? Array.from({ length: 40 }, (_, i) => [Rd.hover![0] - 20 + i, ROAD_Y] as [number, number]).concat(Array.from({ length: 40 }, (_, i) => [Rd.hover![0] - 20 + i, ROAD_Y + 1] as [number, number])) : roadStretch(w, Rd.hover[0], Rd.hover[1]).map(tileAt);
+  } else if (Rd.hover) { // on the main road: the whole road, since that is what an upgrade covers
+    tiles = isRoad(Rd.hover[1]) ? (Rd.tool === 'remove' ? [] : Array.from({ length: MAP.w * 2 }, (_, i) => [MAP.x0 + (i >> 1), ROAD_Y + (i & 1)] as [number, number])) : roadStretch(w, Rd.hover[0], Rd.hover[1]).map(tileAt);
     ok = tiles.length > 0;
   }
   const col = !ok ? 0xd04a3a : Rd.tool === 'remove' ? 0xd04a3a : Rd.tool === 'upgrade' ? 0x4aa0d0 : 0xffc94d;

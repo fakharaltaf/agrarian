@@ -10,7 +10,7 @@ import { buildingMargin } from '../../simulation/processing';
 import { DISCOVERIES, ERA_UNLOCK_TEXT, dailyGoals, dailyPrize, forecast, herdOf, homePlotPrice, housing, isManual, isReady, objective, chapterGate, gateProgress, type GateRow, PAGES, seedShortfall, upgradeCost } from '../../simulation/engine';
 import type { GameState } from '../../simulation/types';
 import { act, cancelPlacement, confirmPlacement, go, placementUse, setRoadTool, setZoneTool, startPlacement, stopProspect, stopRoads, stopZoning, type Zoning, useGame, usePageState, useStore, type Placement, type Roading } from '../../stores/game';
-import { footprintOf, forSaleAround, ROAD_GRADES, roadTilePrice, worldOf, patchesAround, placeProblem, plotSide, PROBLEM_TEXT } from '../../simulation/world';
+import { cutsOff, footprintOf, forSaleAround, isRoad, MAP, ROAD_GRADES, ROAD_H, roadRoute, roadStretch, roadTilePrice, worldOf, patchesAround, placeProblem, plotSide, PROBLEM_TEXT } from '../../simulation/world';
 import { buildingPrice, moveFee, parcelPrice } from '../../simulation/engine';
 import { homePrice } from '../../simulation/community-state';
 import { servicePrice } from '../../simulation/town-state';
@@ -324,8 +324,21 @@ function OilBar({ s, p }: { s: GameState; p: { region: RegionId; hover?: [number
 }
 
 function RoadBar({ s, r }: { s: GameState; r: Roading }) {
-  const w = worldOf(s, r.region), price = roadTilePrice(s, 1);
-  const hint = r.tool === 'draw' ? (r.from ? `Tap where it goes next · ${money(price)} a tile` : 'Tap where the road starts') : r.tool === 'upgrade' ? `Tap a road to upgrade that stretch (main road: ${ROAD_GRADES[w.main].toLowerCase()})` : 'Tap a stretch of road to remove it';
+  const w = worldOf(s, r.region), price = roadTilePrice(s, 1), h = r.hover;
+  // what the next tap would do, with its price, before you commit
+  let hint: string;
+  if (r.tool === 'draw') {
+    const route = r.from && h ? roadRoute(s, r.region, r.from, h) : null;
+    hint = !r.from ? 'Tap where the road starts' : !h ? `Tap where it goes next · ${money(price)} a tile` : route ? `${route.length} tiles · ${money(price * route.length)} · tap to build` : 'Can\'t get there: keep to your own cleared land';
+  } else if (h && isRoad(h[1])) {
+    hint = w.main >= 3 ? 'The main road is already paved' : `Whole main road → ${ROAD_GRADES[w.main + 1].toLowerCase()} · ${money(roadTilePrice(s, w.main + 1) * MAP.w * ROAD_H)}`;
+    if (r.tool === 'remove') hint = 'The main road stays';
+  } else {
+    const st = h ? roadStretch(w, h[0], h[1]) : [];
+    if (!st.length) hint = r.tool === 'upgrade' ? 'Tap a road to upgrade that stretch (or the main road)' : 'Tap a stretch of road to remove it';
+    else if (r.tool === 'upgrade') { const g = Math.min(3, Math.min(...st.map((id) => w.roads[id])) + 1), n = st.filter((id) => w.roads[id] < g).length; hint = n ? `${n} tiles → ${ROAD_GRADES[g].toLowerCase()} · ${money(roadTilePrice(s, g) * n)}` : 'Already paved'; }
+    else { const lost = cutsOff(s, r.region, st); hint = `Remove ${st.length} tiles${lost.length ? ` · cuts off ${lost.length} building${lost.length === 1 ? '' : 's'}` : ''}`; }
+  }
   return <div className="placement-bar road-bar" role="dialog" aria-label="Roads">
     <div className="placement-info"><b>🛤 Roads</b><span className="muted">{hint}</span></div>
     <div className="seg" role="group" aria-label="Road tool">

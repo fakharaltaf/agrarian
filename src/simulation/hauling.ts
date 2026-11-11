@@ -2,10 +2,10 @@
 // vehicles; the money arrives when the vehicle reaches the market. Buyers who come to the farm (the village trader,
 // the mill buyer, contracts) and the clearing crew's timber are paid on the spot.
 import { GOODS, type GoodId, type RegionId } from './config';
-import { post, round2 } from './core';
+import { log, post, round2 } from './core';
 import { STAGE_IDS } from './stages/types'; // not './stages': that index pulls in every chapter and makes an import cycle
 import type { Division, GameState } from './types';
-import { MAP, ROAD_Y, footprintOf, isRoad, tileAt, tileId, worldOf } from './world';
+import { MAP, ROAD_Y, footprintOf, hasAccess, isRoad, tileAt, tileId, worldOf } from './world';
 
 /** Where the village market stands: on the main road, east of the farm's valley. */
 export const MARKET_X = 36;
@@ -38,7 +38,8 @@ export function fleet(s: GameState): { id: string; kind: VehicleKind }[] {
 const routes = new WeakMap<object, { sig: string; tiles: [number, number, number][] }>();
 export function marketRoute(s: GameState): [number, number, number][] {
   const w = worldOf(s, 'heartland'), ids = Object.keys(w.roads);
-  const store = s.buildings.find((b) => b.region === 'heartland' && (b.type === 'barn' || b.type === 'silo' || b.type === 'warehouse' || b.type === 'coldStore'));
+  // carts load at a store that has a road (the farmhouse yard if none does)
+  const store = s.buildings.find((b) => b.region === 'heartland' && (b.type === 'barn' || b.type === 'silo' || b.type === 'warehouse' || b.type === 'coldStore') && hasAccess(s, 'heartland', `b:${b.id}`));
   const key = store ? `b:${store.id}` : 'farmhouse', p = w.pos[key], fp = footprintOf(s, key);
   const sig = `${key}:${p}:${w.main}:${ids.length}:${ids.reduce((a, k) => a + ((Number(k) * 31) % 1000003) * w.roads[Number(k)], 0)}`;
   const hit = routes.get(w);
@@ -69,7 +70,7 @@ export function marketRoute(s: GameState): [number, number, number][] {
       for (let x = mx + dir; x !== MARKET_X + dir; x += dir) tiles.push([x, ROAD_Y + 1, GRADE_SPEED[w.main]]);
     }
   }
-  if (!tiles.length) for (let x = 2; x <= MARKET_X; x++) tiles.push([x, ROAD_Y + 1, GRADE_SPEED[w.main]]); // no store on the map yet: from the yard gate
+  // no road from the store to the main road: the market is cut off (tiles stays empty)
   routes.set(w, { sig, tiles });
   return tiles;
 }
@@ -86,6 +87,10 @@ export function haulTick(s: GameState) {
   for (const t of H.trips) if (t.arrive === s.tick) for (const it of t.items) post(s, it.kind, it.value, it.memo, 'heartland', it.division);
   H.trips = H.trips.filter((t) => t.back > s.tick);
   const busy = new Set(H.trips.map((t) => t.vehicle));
+  if (H.pending.length && !marketRoute(s).length) { // nothing can leave: say so once a day
+    if (s.tick % 24 === 8) log(s, 'warning', 'No road leads from your store to the market, so goods wait at the gate. Draw a road (🛤) to the main road.', 'farm');
+    return;
+  }
   for (const v of fleet(s)) {
     if (!H.pending.length) break;
     if (busy.has(v.id)) continue;
@@ -108,6 +113,8 @@ export function haulDaily(s: GameState) {
   const H = haulOf(s);
   if (H.horses) post(s, 'maintenance', -round2(H.horses * 12 * s.macro.cpi), `Feed for ${H.horses} cart horse${H.horses === 1 ? '' : 's'}`, 'heartland');
 }
+/** True when goods are waiting but no road leads from the farm's store to the market. */
+export const marketCut = (s: GameState) => haulOf(s).pending.length > 0 && !marketRoute(s).length;
 export const onTheWay = (s: GameState) => {
   const H = haulOf(s);
   return { waiting: H.pending.reduce((a, x) => a + x.value, 0), waitingQty: H.pending.reduce((a, x) => a + x.qty, 0), moving: H.trips.filter((t) => t.arrive > s.tick).reduce((a, t) => a + t.items.reduce((b, x) => b + x.value, 0), 0), next: Math.min(...H.trips.filter((t) => t.arrive > s.tick).map((t) => t.arrive - s.tick)) };

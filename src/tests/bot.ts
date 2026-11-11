@@ -100,12 +100,13 @@ export function botAct(s: GameState, strategy: Strategy = 'balanced', civicPrior
     Object.assign(P, { autoRotate: true, autoFertilize: true, autoRepair: 0.45, sellDiscipline: 0, cashReserve: 0 });
     const parcel = strategy === 'volume' ? 25 : s.cash > 300000 ? 25 : 5;
     const cap = strategy === 'volume' ? 3000 : civic ? 600 : 1200;
-    const needsChain = !s.legacyProgression && s.stageId === 'industry' && (!hasB(s, 'heartland', 'lab') || (strategy !== 'volume' && !hasB(s, 'heartland', 'flourMill')));
+    // grow the land first; the lab and mill chain only once the farm is big enough to carry them
+    const needsChain = !s.legacyProgression && s.stageId === 'industry' && totalHa(s) >= 80 && (!hasB(s, 'heartland', 'lab') || (strategy !== 'volume' && !hasB(s, 'heartland', 'flourMill')));
     if (civicReady && !needsChain && s.cash > parcelPrice(s, 'heartland', parcel) * 1.5 + 15000 && totalHa(s) < cap) dispatch(s, { type: 'buyParcel', region: 'heartland', ha: parcel });
     for (const l of s.loans) if (s.cash > 100000) dispatch(s, { type: 'repayLoan', loanId: l.id, amount: Math.min(l.balance, s.cash - 80000) });
   }
   if (s.era >= 4 && civicReady) {
-    if (!hasB(s, 'heartland', 'lab') && s.cash > 45000) dispatch(s, { type: 'build', region: 'heartland', building: 'lab' });
+    if (!hasB(s, 'heartland', 'lab') && s.cash > 45000 && (s.legacyProgression || totalHa(s) >= 80)) dispatch(s, { type: 'build', region: 'heartland', building: 'lab' });
     if (!s.research.active) for (const t of ['farmSoftware', 'improvedSeeds', 'soilTesting', 'mech2', 'solar', 'processEfficiency', 'routeOptimization', 'dripIrrigation', 'predictiveMaintenance', 'coldChain', 'advancedLab'])
       if (dispatch(s, { type: 'research', tech: t }).ok) break;
     if (strategy !== 'volume') {

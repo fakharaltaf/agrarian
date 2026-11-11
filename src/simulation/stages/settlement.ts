@@ -1,4 +1,4 @@
-import { canPlaceNew, homeFootprint, placeNew } from '../world';
+import { accessNote, canPlaceNew, hasAccess, homeFootprint, placeNew } from '../world';
 import {releaseNeighbourJob} from '../employment';
 import type { StageModule } from './types';
 import type { Action, ActionResult, GameState } from '../types';
@@ -6,7 +6,7 @@ import { CHAPTER_SALES, BUILDINGS, GOODS, type GoodId } from '../config';
 import { clamp, freeSpace, log, marketWage, nextId, post, reservedStock, round2 } from '../core';
 import { localEmployment, townOf } from '../town-state';
 import { executeBuy, quoteBuy } from '../markets';
-import { communityOf, createSettlementState, familiesHere, familySize, HOME_DEFS, homeFamilies, homePrice, homeCapacity, households, population, availableResidents, recruitableResidents } from '../community-state';
+import { communityOf, createSettlementState, familiesHere, familySize, HOME_DEFS, homePrice, homeCapacity, households, population, availableResidents, recruitableResidents } from '../community-state';
 import { CONFIG, WORK_HOURS } from '../config';
 
 export const COMMUNITY_FOOD: GoodId[] = ['bread', 'wheat', 'corn', 'rice', 'potatoes', 'apples', 'grapes', 'milk', 'eggs', 'meat', 'cheese', 'flour'];
@@ -91,7 +91,9 @@ export function settlementTick(s: GameState) {
   // a family leaves with its worker
   for (const [id, cohort] of Object.entries(fam)) if (!s.workers.some((w) => w.id === Number(id))) { c.cohorts = c.cohorts.filter((g) => g.id !== cohort); delete fam[Number(id)]; }
   // families of your employees move in while there are free homes (two a day)
-  let free = homeFamilies(s) - familiesHere(s), moved = 0;
+  // a home nobody can reach by road takes no family
+  const reachable = c.homes.filter((h) => hasAccess(s, 'heartland', `home:${h.id}`)).reduce((n, h) => n + HOME_DEFS[h.tier].families * h.count, 0);
+  let free = reachable - familiesHere(s), moved = 0;
   for (const w of s.workers) {
     if (free <= 0 || moved >= 2) break;
     if (w.region !== 'heartland' || fam[w.id] !== undefined) continue;
@@ -165,8 +167,9 @@ function action(s: GameState, a: Action): ActionResult | null {
     placeNew(s, 'heartland', `home:${home.id}`, a.at);
     built++;
   }
+  const cut = c.homes.slice(-built).map((h) => accessNote(s, 'heartland', `home:${h.id}`)).find(Boolean);
   post(s, 'building', -cost * built, `${built} community ${a.tier} home${built === 1 ? '' : 's'}`, 'heartland', 'corporate');
-  return { ok: true };
+  return { ok: true, note: cut };
 }
 export const settlement: StageModule = {
   id: 'settlement', title: 'Settlement', legacyEras: [], eraUnlocks: {},

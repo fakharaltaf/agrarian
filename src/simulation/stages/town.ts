@@ -11,7 +11,7 @@ import { clamp, electricityPrice, log, marketWage, nextId, post, priceUsd, rando
 import { communityOf, familiesHere, population, workingAdults, children, residentWorkers } from '../community-state';
 import { createTownState, districtPopulation, factoryJobs, localEmployment, payHouseholds, schoolChangeCost, SERVICE_DEFS, SERVICE_GROUPS, SERVICE_RADIUS, servicePrice, serviceJobs, townOf, townWorkforce } from '../town-state';
 import { HOME_DEFS } from '../community-state';
-import { worldOf } from '../world';
+import { hasAccess, worldOf } from '../world';
 
 export const canStartTown = (s: GameState) => communityOf(s).active && !townOf(s).active && familiesHere(s)>=6 && communityOf(s).happiness>=.6 && communityOf(s).fed>=.9;
 export function serviceAvailable(s: GameState, type: ServiceType): boolean {
@@ -115,7 +115,7 @@ export function townDaily(s: GameState) {
   const total=homes.reduce((n,h)=>n+h.families,0);
   const reach=(types:readonly ServiceType[])=>{
     if(!total)return 0;
-    const live=t.services.filter(b=>types.includes(b.type)&&b.active&&b.funded&&(SERVICE_DEFS[b.type].jobs===0||b.staffed>0)).map(b=>{const p=w.pos[`svc:${b.id}`];return p?{x:p[0]+1.5,y:p[1]+1.5,r:SERVICE_RADIUS[b.type]??10}:null;}).filter(Boolean) as {x:number;y:number;r:number}[];
+    const live=t.services.filter(b=>types.includes(b.type)&&b.active&&b.funded&&(SERVICE_DEFS[b.type].jobs===0||b.staffed>0)&&hasAccess(s,'heartland',`svc:${b.id}`)).map(b=>{const p=w.pos[`svc:${b.id}`];return p?{x:p[0]+1.5,y:p[1]+1.5,r:SERVICE_RADIUS[b.type]??10}:null;}).filter(Boolean) as {x:number;y:number;r:number}[];
     return homes.reduce((n,h)=>n+(live.some(v=>(v.x-h.x)**2+(v.y-h.y)**2<=v.r*v.r)?h.families:0),0)/total;
   };
   const cover={school:reach(SERVICE_GROUPS.school),water:reach(SERVICE_GROUPS.water),medical:reach(SERVICE_GROUPS.medical),sanitation:reach(SERVICE_GROUPS.sanitation),power:reach(SERVICE_GROUPS.power)};

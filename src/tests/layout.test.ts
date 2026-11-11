@@ -126,24 +126,44 @@ it('building several homes makes separate homes, each on its own plot; old block
 });
 
 it('buildings get a dirt track to the road and stop working without one; roads can be drawn, upgraded and removed', async () => {
-  const { hasAccess, roadStretch, tileAt, worldOf: wOf } = await import('../simulation/world');
+  const W = await import('../simulation/world');
   const { stored } = await import('../simulation/core');
+  const { marketCut, marketRoute } = await import('../simulation/hauling');
   const s = createGame(1010); s.legacyProgression = true; s.era = 4; post(s, 'prize', 1e6, 'fixture');
-  expect(hasAccess(s, 'heartland', 'farmhouse')).toBe(true);
-  expect(dispatch(s, { type: 'build', region: 'heartland', building: 'barn' }).ok).toBe(true);
-  const barn = s.buildings[0], w = wOf(s, 'heartland'), key = `b:${barn.id}`;
-  expect(hasAccess(s, 'heartland', key)).toBe(true);
+  const w = W.worldOf(s, 'heartland');
+  expect(W.hasAccess(s, 'heartland', 'b:999')).toBe(true); // nothing placed: nothing to cut off
+  // a dead-end stub must not count as a road: the barn's track has to reach the main road
+  w.roads[W.tileId(-6, -6)] = 1; w.roads[W.tileId(-5, -6)] = 1; W.touch(w);
+  expect(dispatch(s, { type: 'build', region: 'heartland', building: 'barn', at: [-6, -5] }).ok).toBe(true);
+  const barn = s.buildings[0], key = `b:${barn.id}`;
+  expect(W.hasAccess(s, 'heartland', key)).toBe(true);
   const cap = stored(s, 'heartland').cap.dry;
-  // cut its track and the barn stores nothing
-  const ids = Object.keys(w.roads).map(Number);
-  for (const id of ids) { const [x, y] = tileAt(id); dispatch(s, { type: 'removeRoad', region: 'heartland', at: [x, y] }); }
-  step(s);
-  if (!hasAccess(s, 'heartland', key)) expect(stored(s, 'heartland').cap.dry).toBeLessThan(cap);
-  // draw one back and upgrade it
-  const [bx, by] = w.pos[key];
-  const r = dispatch(s, { type: 'buildRoad', region: 'heartland', from: [bx, by - 1], to: [bx, 5] });
-  if (r.ok) { step(s); expect(hasAccess(s, 'heartland', key)).toBe(true); const before = s.cash; expect(dispatch(s, { type: 'upgradeRoad', region: 'heartland', at: [bx, by - 1] }).ok).toBe(true); expect(s.cash).toBeLessThan(before); expect(roadStretch(w, bx, by - 1).every((id) => w.roads[id] === 2)).toBe(true); }
+  // removing the barn's track cuts it off: the result says so, and the barn stores nothing
+  const track = Object.keys(w.roads).map(Number).filter((id) => { const [x, y] = W.tileAt(id); return y > -6 && y < 6 && x >= -7 && x <= -3; });
+  expect(track.length).toBeGreaterThan(0);
+  const [tx, ty] = W.tileAt(track[0]);
+  const removed = dispatch(s, { type: 'removeRoad', region: 'heartland', at: [tx, ty] });
+  expect(removed.ok && removed.note).toMatch(/no road/);
+  expect(W.hasAccess(s, 'heartland', key)).toBe(false);
+  expect(stored(s, 'heartland').cap.dry).toBeLessThan(cap);
+  // with the only store cut off, the carts load at the farmhouse yard; draw the barn a road back
+  expect(dispatch(s, { type: 'buildRoad', region: 'heartland', from: [-6, -3], to: [-6, 5] }).ok).toBe(true); // from the barn's doorstep down to the main road
+  W.touch(w);
+  expect(W.hasAccess(s, 'heartland', key)).toBe(true);
+  expect(marketRoute(s).length).toBeGreaterThan(0);
+  expect(marketCut(s)).toBe(false);
+  // upgrades: a stretch to gravel, then the whole main road at its real price
+  const before = s.cash;
+  expect(dispatch(s, { type: 'upgradeRoad', region: 'heartland', at: [-6, 0] }).ok).toBe(true);
+  expect(s.cash).toBeLessThan(before);
+  expect(W.roadStretch(w, -6, 0).every((id) => w.roads[id] === 2)).toBe(true);
+  const cash = s.cash;
   expect(dispatch(s, { type: 'upgradeRoad', region: 'heartland', at: [0, 6] }).ok).toBe(true);
+  expect(cash - s.cash).toBeCloseTo(W.roadTilePrice(s, 2) * W.MAP.w * W.ROAD_H, 0);
   expect(w.main).toBe(2);
   expect(dispatch(s, { type: 'removeRoad', region: 'heartland', at: [0, 6] }).ok).toBe(false); // the main road stays
+  // at a junction, Remove takes only that tile
+  for (const [x, y] of [[20, -6], [21, -6], [22, -6], [21, -7], [21, -5]]) w.roads[W.tileId(x, y)] = 1;
+  W.touch(w);
+  expect(W.roadStretch(w, 21, -6)).toEqual([W.tileId(21, -6)]);
 });

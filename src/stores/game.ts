@@ -4,7 +4,7 @@ import { useSyncExternalStore } from 'react';
 import { CONFIG } from '../simulation/config';
 import { advance, createGame, dispatch as engineDispatch } from '../simulation/engine';
 import { BUILDINGS, type RegionId } from '../simulation/config';
-import { FOOTPRINT, SERVICE_FOOTPRINT, findSpot, homeFootprint, plotSide, worldOf, chunkAt } from '../simulation/world';
+import { FOOTPRINT, SERVICE_FOOTPRINT, findSpot, homeFootprint, plotSide, worldOf, chunkAt, roadRoute } from '../simulation/world';
 import { SERVICE_DEFS } from '../simulation/town-state';
 import { parseSave, SAVE_VERSION, type SaveFile } from '../simulation/persistence';
 export { parseSave, SAVE_VERSION } from '../simulation/persistence';
@@ -269,7 +269,7 @@ export function roadTap(at: [number, number] | null) {
   const R = store.roading;
   if (!R || !at) return;
   if (R.tool === 'draw') {
-    if (!R.from) return set({ roading: { ...R, from: at } });
+    if (!R.from) { if (!roadRoute(store.game, R.region, at, at)) { toast('Start a road on your own cleared land or on an existing road.'); return; } return set({ roading: { ...R, from: at } }); }
     if (act({ type: 'buildRoad', region: R.region, from: R.from, to: at })) set({ roading: { ...store.roading!, from: at } }); // keep drawing from here
     return;
   }

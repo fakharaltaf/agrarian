@@ -291,7 +291,7 @@ export function reconcileWorld(s: GameState, wanted: Wanted) {
       if (w.pos[k]) continue;
       const fp = footprintOf(s, k);
       if (!fp) continue;
-      const spot = findSpot(s, r, fp) ?? findSpot(s, r, fp, true);
+      const spot = findSpot(s, r, fp, false, useOf(k)) ?? findSpot(s, r, fp, true, useOf(k));
       if (spot) { w.pos[k] = spot; clearRect(w, spot[0], spot[1], fp.w, fp.d); connect(s, r, k); }
     }
   }
@@ -315,7 +315,9 @@ export function frontierPatches(s: GameState, r: RegionId, n: number) {
 export const ROAD_GRADES = ['', 'Dirt track', 'Gravel road', 'Paved road'] as const;
 /** Cost per tile to build (dirt) or bring a tile up to a grade. */
 export const roadTilePrice = (s: GameState, grade: number) => Math.round([0, 5, 40, 150][grade] * s.macro.cpi * 100) / 100;
-const BUILT = /^(b:|home:|svc:|farmhouse$|shed$|market$|crew$|office$|hall$)/;
+const BUILT = /^(b:|home:|svc:)/;
+/** Everything built gets a track, landmarks too (the farmhouse's is where carts load); only BUILT things stop working without one. */
+const TRACKED = /^(b:|home:|svc:|farmhouse$|shed$|market$|crew$|office$|hall$)/;
 /** Things that need a road to work (fields don't). */
 export const needsRoad = (key: string) => BUILT.test(key);
 const inMap = (x: number, y: number) => x >= MAP.x0 && y >= MAP.y0 && x < MAP.x0 + MAP.w && y < MAP.y0 + MAP.h;
@@ -355,10 +357,11 @@ function route(open: (x: number, y: number) => boolean, starts: [number, number]
 }
 /** Lay a free dirt track from a building to the nearest road (placing a building does this). Returns false if no route exists. */
 export function connect(s: GameState, r: RegionId, key: string) {
-  if (!needsRoad(key)) return true;
+  if (!TRACKED.test(key)) return true;
   const w = worldOf(s, r), p = w.pos[key], fp = footprintOf(s, key);
   if (!p || !fp) return false;
-  const path = route(openGround(s, r), doorstep(p[0], p[1], fp), (x, y) => isRoadTile(w, x, y));
+  const net = accessCache(s, w).net; // a stub that goes nowhere does not count
+  const path = route(openGround(s, r), doorstep(p[0], p[1], fp), (x, y) => inMap(x, y) && (isRoad(y) || net.has(tileId(x, y))));
   if (!path) return false;
   for (const [x, y] of path) w.roads[tileId(x, y)] ||= 1;
   touch(w);
@@ -388,6 +391,8 @@ export function hasAccess(s: GameState, r: RegionId, key: string) {
   c.seen.set(key, ok);
   return ok;
 }
+/** Said when something was placed but could not be given a track: the player must draw one. */
+export const accessNote = (s: GameState, r: RegionId, key: string) => hasAccess(s, r, key) ? undefined : 'No route to a road from there: draw one with 🛤, or it won\'t work.';
 /** Route for a player-drawn road between two tiles, over open ground and existing roads. */
 export function roadRoute(s: GameState, r: RegionId, from: [number, number], to: [number, number]) {
   const w = worldOf(s, r), open = openGround(s, r);
@@ -396,11 +401,22 @@ export function roadRoute(s: GameState, r: RegionId, from: [number, number], to:
   const path = route(can, [from], (x, y) => x === to[0] && y === to[1]);
   return path ? [...path, to].filter(([x, y]) => !isRoadTile(w, x, y)) : null;
 }
+/** Names of the things that would lose their road if these road tiles went. */
+export function cutsOff(s: GameState, r: RegionId, ids: number[]): string[] {
+  const w = worldOf(s, r), keep = ids.map((id) => [id, w.roads[id]] as const), before = new Set(Object.keys(w.pos).filter((k) => hasAccess(s, r, k)));
+  for (const id of ids) delete w.roads[id];
+  touch(w);
+  const lost = [...before].filter((k) => !hasAccess(s, r, k));
+  for (const [id, g] of keep) w.roads[id] = g;
+  touch(w);
+  return lost;
+}
 /** The stretch of road at a tile: runs along the track until a junction or the main road. */
 export function roadStretch(w: RegionWorld, x: number, y: number): number[] {
   const start = tileId(x, y);
   if (!inMap(x, y) || !w.roads[start]) return [];
   const degree = (id: number) => { const [a, b] = tileAt(id); return STEPS.filter(([dx, dy]) => isRoadTile(w, a + dx, b + dy)).length; };
+  if (STEPS.filter(([dx, dy]) => isRoadTile(w, x + dx, y + dy)).length >= 3) return [start]; // a junction: just this tile
   const out = [start], seen = new Set(out);
   for (let h = 0; h < out.length; h++) {
     if (h > 0 && degree(out[h]) >= 3) continue; // stop at junctions (the junction tile itself stays)
