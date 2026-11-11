@@ -968,7 +968,7 @@ function fallsTexture() {
   g2.fillStyle = '#9fd3e0'; g2.fillRect(0, 0, 16, 32);
   g2.fillStyle = '#eef8fb';
   for (const [x, y, h] of [[1, 2, 10], [6, 14, 12], [11, 4, 9], [3, 20, 8], [13, 22, 7]]) g2.fillRect(x, y, 2, h);
-  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.magFilter = t.minFilter = THREE.NearestFilter; return t;
+  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.magFilter = t.minFilter = THREE.NearestFilter; t.colorSpace = THREE.SRGBColorSpace; return t;
 }
 /** The river: a smooth channel with muddy, pebbly banks, flowing water, a timber bridge, and a waterfall where it leaves a gorge in the mountains along the top of the map. */
 function syncRiver(R: Rig) {
@@ -1048,13 +1048,23 @@ function syncRiver(R: Rig) {
   const t2 = (k: number) => k / 8;
   const fallGeo = new THREE.BufferGeometry(), fp: number[] = [], fu: number[] = [], fi: number[] = [];
   fallPath.forEach(([x, y, z], k) => { for (const [o, u] of [[-1.05, 0], [1.05, 1]]) { fp.push(x + o * (1 + t2(k) * 0.35), y, z); fu.push(u, k / 8); } if (k) fi.push((k - 1) * 2, k * 2, (k - 1) * 2 + 1, (k - 1) * 2 + 1, k * 2, k * 2 + 1); });
-  fallGeo.setAttribute('position', new THREE.Float32BufferAttribute(fp, 3)); fallGeo.setAttribute('uv', new THREE.Float32BufferAttribute(fu, 2)); fallGeo.setIndex(fi);
-  R.riverG.add(new THREE.Mesh(fallGeo, new THREE.MeshBasicMaterial({ map: fallTex, side: THREE.DoubleSide })));
+  fallGeo.setAttribute('position', new THREE.Float32BufferAttribute(fp, 3)); fallGeo.setAttribute('uv', new THREE.Float32BufferAttribute(fu, 2)); fallGeo.setIndex(fi); fallGeo.computeVertexNormals();
+  R.riverG.add(new THREE.Mesh(fallGeo, new THREE.MeshStandardMaterial({ map: fallTex, emissive: 0x7d9aa3, emissiveMap: fallTex, roughness: 0.6, side: THREE.DoubleSide }))); // lit, so it darkens at night like everything else
+  const FOAM = mat(0xf4fafb, { rough: 0.9, emissive: 0x3a4446 });
+  const lipFoam = mesh(cached('lipfoam', () => new THREE.BoxGeometry(2.3, 0.18, 0.35)), FOAM, sx, lip + 0.02, top - 1.3, false); R.riverG.add(lipFoam); // white water spilling over the lip
   const pool = mesh(cached('pool', () => new THREE.CircleGeometry(2.2, 10)), new THREE.MeshStandardMaterial({ color: 0x4a9bbd, roughness: 0.7 }), sx, 0.018, top + 0.5, false); pool.rotation.x = -Math.PI / 2; R.riverG.add(pool);
-  for (let i = 0; i < 7; i++) { const m = mesh(cached(`mist${i}`, () => new THREE.IcosahedronGeometry(0.4 + (i % 4) * 0.12, 1)), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.3, depthWrite: false }), sx - 1.1 + (i % 4) * 0.7, 0.25 + (i > 3 ? 0.4 : 0), top + 0.3 + (i > 3 ? 0.3 : 0), false); m.name = 'mist'; R.riverG.add(m); }
+  for (let i = 0; i < 9; i++) { const m = mesh(cached('splash', () => new THREE.IcosahedronGeometry(1, 0)), FOAM, sx - 1.4 + (i % 5) * 0.7, 0.05, top + 0.15 + (i > 4 ? 0.55 : 0) + vh(i, 7) * 0.3, false); m.scale.set(0.4 + vh(i, 9) * 0.25, 0.22, 0.4 + vh(i, 9) * 0.25); m.name = 'mist'; R.riverG.add(m); } // chunky white splash at the foot
+  // rocks in the stream with white water breaking round them
+  const ring = cached('foamring', () => new THREE.RingGeometry(0.32, 0.55, 7).rotateX(-Math.PI / 2));
+  for (let i = 8; i < line.length - 2; i += 13) {
+    const [x, z] = line[i], o = (vh(i, 3) - 0.5) * 1.4;
+    if (isRoad(Math.floor(z)) || isRoad(Math.floor(z) + 2) || isRoad(Math.floor(z) - 2)) continue;
+    const rk = mesh(cached('boulder', () => new THREE.DodecahedronGeometry(1, 0)), mat(0x8a847a, { rough: 1 }), x + o, 0, z); rk.scale.set(0.3, 0.2, 0.28); rk.rotation.y = i; R.riverG.add(rk);
+    R.riverG.add(mesh(ring, FOAM, x + o, 0.035, z, false));
+  }
   for (let i = 0; i < 6; i++) { const rk = mesh(cached('boulder', () => new THREE.DodecahedronGeometry(1, 0)), mat(i % 2 ? 0x77716a : 0x8a847a, { rough: 1 }), sx + (i < 3 ? -1 : 1) * (1.9 + (i % 3) * 0.55), 0.15, top + 0.2 + (i % 3) * 0.6); rk.scale.set(0.5 + (i % 3) * 0.15, 0.4 + (i % 2) * 0.2, 0.45); rk.rotation.y = i; R.riverG.add(rk); }
   // foam flecks that drift downstream
-  const n = Math.min(160, line.length * 1.2 | 0);
+  const n = Math.min(480, line.length * 2.4 | 0);
   const im = new THREE.InstancedMesh(cached('foam', () => new THREE.BoxGeometry(0.3, 0.01, 0.08)), new THREE.MeshBasicMaterial({ color: 0xeaf6f8 }), n);
   im.frustumCulled = false; R.riverG.add(im);
   R.foam = { im, pts: line, phase: Array.from({ length: n }, (_, i) => vh(i, 300)) };
@@ -1063,14 +1073,15 @@ function animateRiver(R: Rig, t: number) {
   if (!R.foam) return;
   const { im, pts, phase } = R.foam, m = new THREE.Matrix4(), L = pts.length - 1;
   phase.forEach((p0, i) => {
-    const f = ((p0 + t * 0.012) % 1) * L, k = Math.floor(f), u = f - k, [x0, z0] = pts[k], [x1, z1] = pts[Math.min(L, k + 1)];
-    const side = ((i * 0.618) % 1 - 0.5) * 1.8;
-    m.makeTranslation(x0 + (x1 - x0) * u + side, 0.03, z0 + (z1 - z0) * u);
+    // a quarter of the foam churns in the white water below the falls; the rest drifts the whole way down
+    const span = i % 4 ? L : Math.min(L, 14), f = ((p0 + t * (i % 4 ? 0.012 : 0.05)) % 1) * span, k = Math.floor(f), u = f - k, [x0, z0] = pts[k], [x1, z1] = pts[Math.min(L, k + 1)];
+    const side = ((i * 0.618) % 1 - 0.5) * (i % 4 ? 1.9 : 2.4), len = 0.6 + ((i * 0.381) % 1) * 1.6;
+    m.makeRotationY(-Math.atan2(z1 - z0, x1 - x0)).scale(new THREE.Vector3(len, 1, 1)).setPosition(x0 + (x1 - x0) * u + side, 0.03, z0 + (z1 - z0) * u);
     im.setMatrixAt(i, m);
   });
   im.instanceMatrix.needsUpdate = true;
   if (R.fall) R.fall.offset.y = t * 1.4; // the waterfall pours
-  R.riverG.children.forEach((c) => { if (c.name === 'mist') { c.scale.setScalar(1 + 0.15 * Math.sin(t * 2 + c.position.x)); } });
+  R.riverG.children.forEach((c) => { if (c.name === 'mist') c.position.y = 0.05 + 0.08 * Math.abs(Math.sin(t * 3 + c.position.x * 2)); });
 }
 
 // ---------------------------------------------------------------- live things
