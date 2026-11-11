@@ -528,7 +528,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       if (cost > s.cash) return fail(`A geological survey costs $${cost.toLocaleString()}.`);
       post(s, 'research', -cost, `Geological survey: ${REGIONS[a.region].name}`, a.region, 'energy');
       oilOf(s).surveyed.push(a.region);
-      return ok('The survey is in: darker ground on the map is likelier to hold oil.');
+      return ok('The survey is in: the surveyor’s stakes mark where oil is likeliest. Taller, redder stakes are better odds.');
     }
     case 'drillOil': {
       if (!featureEra(s, 4)) return fail('Oil exploration opens with Industry.');

@@ -315,7 +315,7 @@ function OilBar({ s, p }: { s: GameState; p: { region: RegionId; hover?: [number
   const known = surveyed(s, p.region), drill = Math.round(DRILL_PRICE * s.macro.cpi), survey = Math.round(SURVEY_PRICE * s.macro.cpi);
   const odds = p.hover && known ? oilChance(p.region, p.hover[0], p.hover[1]) : null;
   const touch = !matchMedia('(pointer: fine)').matches;
-  const hint = !known ? 'Drilling blind rarely strikes. A survey maps where the oil lies.' : odds !== null ? `Here: about ${Math.round(odds * 100)}% chance of oil · ${touch ? 'tap again to drill' : 'click to drill'} · ${money(drill)}` : `Darker ground is likelier · ${touch ? 'tap a spot to see the odds' : 'click a spot to drill'} · ${money(drill)}`;
+  const hint = !known ? 'Drilling blind rarely strikes. A survey maps where the oil lies.' : odds !== null ? `Here: about ${Math.round(odds * 100)}% chance of oil · ${touch ? 'tap again to drill' : 'click to drill'} · ${money(drill)}` : `Stakes mark the best odds · ${touch ? 'tap a spot to see the odds' : 'click a spot to drill'} · ${money(drill)}`;
   return <div className="placement-bar road-bar" role="dialog" aria-label="Oil">
     <div className="placement-info"><b>🛢 Oil</b><span className="muted">{hint}</span></div>
     {!known && <button className="btn primary" disabled={survey > s.cash} onClick={() => act({ type: 'surveyOil', region: p.region })}>Survey · {money(survey)}</button>}

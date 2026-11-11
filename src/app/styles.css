@@ -849,3 +849,4 @@ body:has(.modal-bg) .shell .coach { display: none !important; }
 .civ-intro{display:grid;grid-template-columns:96px 1fr;align-items:center;gap:12px}.civ-intro img{width:96px;height:96px;object-fit:contain}.civ-intro p{margin:0}
 .civ-steps{display:grid;gap:8px;margin:12px 0 0;padding-left:22px}.civ-steps li{line-height:1.4}
 @media(min-width:901px){.page-drawer:has(.community-page) .sheet-grip,.page-drawer:has(.town-page) .sheet-grip{display:none}}
+.shell:has(.placement-bar) .toasts{bottom:116px}@media(max-width:900px){.shell:has(.placement-bar) .toasts{bottom:170px}}

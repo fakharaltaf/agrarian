@@ -49,7 +49,7 @@ const merged = (...parts: THREE.BufferGeometry[]) => mergeGeometries(parts.map(g
 const RIPE: Partial<Record<CropId, number>> = { wheat: 0xe0b23f, rice: 0xd9c46a, corn: 0xcfae4a, sugarcane: 0x8fbf55, potatoes: 0x8a9a3a, soybeans: 0xb6a24a, cotton: 0xf6f3ec, coffee: 0xb8392f, apples: 0xd2402f, grapes: 0x6b3a7e };
 
 interface Rig {
-  glide?: { x: number; z: number; zoom: number }; page?: string;
+  oilSeen?: string; glide?: { x: number; z: number; zoom: number }; page?: string;
   renderer: THREE.WebGLRenderer; scene: THREE.Scene; camera: THREE.OrthographicCamera; target: THREE.Vector3; yaw: number; yawTo: number; zoom: number;
   sun: THREE.DirectionalLight; hemi: THREE.HemisphereLight; ground: THREE.Mesh;
   lots: THREE.Group; fields: THREE.Group; units: THREE.Group; deco: THREE.Group; fx: THREE.Group; sel: THREE.Group; ghost: THREE.Group; ghostSig: string;
@@ -999,6 +999,17 @@ function syncOil(R: Rig, s: GameState, P: { region: RegionId; hover?: [number, n
     }
     const im = new THREE.InstancedMesh(cached('oilheat', () => new THREE.BoxGeometry(CHUNK * 0.96, 0.02, CHUNK * 0.96)), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.45, depthWrite: false }), Math.max(1, list.length));
     list.forEach((m, i) => { im.setMatrixAt(i, m); im.setColorAt(i, cols[i]); }); im.count = list.length; im.frustumCulled = false; R.oilG.add(im);
+    // the surveyor's stakes: a tall marker on each promising patch, seen above the trees, taller and darker the better the odds
+    let best: [number, number, number] | null = null;
+    for (let y = MAP.y0; y < MAP.y0 + MAP.h; y += CHUNK) for (let x = MAP.x0; x < MAP.x0 + MAP.w; x += CHUNK) {
+      const c = oilChance(R.region, x + 2, y + 2);
+      if (!best || c > best[2]) best = [x + 2, y + 2, c];
+      if (c < 0.35) continue;
+      const h = 1.4 + c * 2.6, col = new THREE.Color().setHSL(0.07 - c * 0.07, 0.8, 0.5 - c * 0.2);
+      const pole = mesh(cached('oilpole', () => new THREE.CylinderGeometry(0.06, 0.06, 1, 6).translate(0, 0.5, 0)), mat(0x5a4632), x + 2, 0, y + 2, false); pole.scale.y = h; R.oilG.add(pole);
+      R.oilG.add(mesh(cached('oilflag', () => new THREE.OctahedronGeometry(0.45, 0)), new THREE.MeshBasicMaterial({ color: col }), x + 2, h + 0.35, y + 2, false));
+    }
+    if (best && R.oilSeen !== R.region) { R.oilSeen = R.region; R.glide = { x: best[0], z: best[1], zoom: Math.min(R.zoom, 0.6) }; } // show where the oil is likeliest
   }
   if (P.hover) {
     const [hx, hy] = P.hover, ok = !placeProblem(s, R.region, hx - 1, hy - 1, { w: 2, d: 2 });
