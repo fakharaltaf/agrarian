@@ -1120,7 +1120,7 @@ function syncRiver(R: Rig) {
   const fallGeo = new THREE.BufferGeometry(), fp: number[] = [], fu: number[] = [], fi: number[] = [];
   fallPath.forEach(([x, y, z], k) => { for (const [o, u] of [[-1.05, 0], [1.05, 1]]) { fp.push(x + o * (1 + t2(k) * 0.35), y, z); fu.push(u, k / 8); } if (k) fi.push((k - 1) * 2, k * 2, (k - 1) * 2 + 1, (k - 1) * 2 + 1, k * 2, k * 2 + 1); });
   fallGeo.setAttribute('position', new THREE.Float32BufferAttribute(fp, 3)); fallGeo.setAttribute('uv', new THREE.Float32BufferAttribute(fu, 2)); fallGeo.setIndex(fi); fallGeo.computeVertexNormals();
-  R.riverG.add(new THREE.Mesh(fallGeo, new THREE.MeshStandardMaterial({ map: fallTex, emissive: 0x7d9aa3, emissiveMap: fallTex, roughness: 0.6, side: THREE.DoubleSide }))); // lit, so it darkens at night like everything else
+  R.riverG.add(new THREE.Mesh(fallGeo, new THREE.MeshStandardMaterial({ map: fallTex, emissive: 0x52666c, emissiveMap: fallTex, roughness: 0.6, side: THREE.DoubleSide }))); // lit, so it darkens at night like everything else
   const FOAM = mat(0xf4fafb, { rough: 0.9, emissive: 0x3a4446 });
   const lipFoam = mesh(cached('lipfoam', () => new THREE.BoxGeometry(2.3, 0.18, 0.35)), FOAM, sx, lip + 0.02, top - 1.3, false); R.riverG.add(lipFoam); // white water spilling over the lip
   const pool = mesh(cached('pool', () => new THREE.CircleGeometry(2.2, 10)), new THREE.MeshStandardMaterial({ color: 0x4a9bbd, roughness: 0.7 }), sx, 0.018, top + 0.5, false); pool.rotation.x = -Math.PI / 2; R.riverG.add(pool);
@@ -1136,7 +1136,7 @@ function syncRiver(R: Rig) {
   for (let i = 0; i < 6; i++) { const rk = mesh(cached('boulder', () => new THREE.DodecahedronGeometry(1, 0)), mat(i % 2 ? 0x77716a : 0x8a847a, { rough: 1 }), sx + (i < 3 ? -1 : 1) * (1.9 + (i % 3) * 0.55), 0.15, top + 0.2 + (i % 3) * 0.6); rk.scale.set(0.5 + (i % 3) * 0.15, 0.4 + (i % 2) * 0.2, 0.45); rk.rotation.y = i; R.riverG.add(rk); }
   // foam flecks that drift downstream
   const n = Math.min(480, line.length * 2.4 | 0);
-  const im = new THREE.InstancedMesh(cached('foam', () => new THREE.BoxGeometry(0.3, 0.01, 0.08)), new THREE.MeshBasicMaterial({ color: 0xeaf6f8 }), n);
+  const im = new THREE.InstancedMesh(cached('foam', () => new THREE.BoxGeometry(0.3, 0.01, 0.08)), FOAM, n);
   im.frustumCulled = false; R.riverG.add(im);
   R.foam = { im, pts: line, phase: Array.from({ length: n }, (_, i) => vh(i, 300)) };
 }
