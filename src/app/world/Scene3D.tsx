@@ -940,9 +940,15 @@ function syncRoadPreview(R: Rig, s: GameState, Rd: Roading | null) {
     tiles = isRoad(Rd.hover[1]) ? (Rd.tool === 'remove' ? [] : Array.from({ length: MAP.w * 2 }, (_, i) => [MAP.x0 + (i >> 1), ROAD_Y + (i & 1)] as [number, number])) : roadStretch(w, Rd.hover[0], Rd.hover[1]).map(tileAt);
     ok = tiles.length > 0;
   }
-  const col = !ok ? 0xd04a3a : Rd.tool === 'remove' ? 0xd04a3a : Rd.tool === 'upgrade' ? 0x4aa0d0 : 0xffc94d;
-  const geo = cached('road-prev', () => new THREE.BoxGeometry(0.96, 0.05, 0.96)), m = new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.55, depthWrite: false });
-  for (const [x, y] of tiles) R.roadPrev.add(mesh(geo, m, x + 0.5, 0.03, y + 0.5, false));
+  // the planned road as one soft ribbon, the same shape the road will take: gold to build, blue to upgrade, red to remove or blocked
+  const col = new THREE.Color(!ok || Rd.tool === 'remove' ? 0xe0533d : Rd.tool === 'upgrade' ? 0x4aa0d0 : 0xffc94d);
+  const plan = new Set(tiles.map(([x, y]) => tileId(x, y))), d = new Decal(0.03), band: Band[] = [[-0.4, col, 0], [-0.3, col, 1], [0.3, col, 1], [0.4, col, 0]]; // solid core, so overlaps don't show
+  const linked = (x: number, y: number) => plan.has(tileId(x, y)) || (Rd.tool === 'draw' && (isRoad(y) || !!w.roads[tileId(x, y)]));
+  for (const [x, y] of tiles) {
+    d.disc(x + 0.5, y + 0.5, [[0.3, col, 1], [0.4, col, 0]]);
+    for (const [dx, dy] of [[1, 0], [0, 1], [-1, 0], [0, -1]] as const) if (linked(x + dx, y + dy) && !(plan.has(tileId(x + dx, y + dy)) && (dx < 0 || dy < 0))) d.seg(x + 0.5, y + 0.5, x + 0.5 + dx, y + 0.5 + dy, band);
+  }
+  if (tiles.length) { const m = d.mesh(true); (m.material as THREE.MeshStandardMaterial).emissive.copy(col).multiplyScalar(0.5); m.renderOrder = 2; R.roadPrev.add(m); }
 }
 
 /** Carts and trucks on their way to the village market and back, and the market itself. */
