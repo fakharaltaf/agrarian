@@ -16,7 +16,7 @@ export type Footprint = { w: number; d: number };
 export interface ClearJob { chunk: number; hours: number }
 /** owned: patches the farm has bought (you can only clear, farm and build on your own land). */
 /** roads: grade (1 dirt, 2 gravel, 3 paved) by tile id; main: grade of the main road through the map. */
-export interface RegionWorld { cleared: number[]; owned: number[]; pos: Record<string, [number, number]>; queue: ClearJob[]; roads: Record<number, number>; main: number; canals: Record<number, number>; zones: Record<number, Zone> }
+export interface RegionWorld { cleared: number[]; owned: number[]; pos: Record<string, [number, number]>; queue: ClearJob[]; roads: Record<number, number>; main: number; canals: Record<number, number>; zones: Record<number, Zone>; links: Record<string, number[]> }
 /** res: homes only (no farming); ind: industrial plants. Unzoned land is farmland. */
 export type Zone = 'res' | 'ind';
 /** What a placement is, for zoning: homes need a residential zone; fields stay out of zones; farm buildings stay out of residential. */
@@ -38,7 +38,7 @@ export const HOME_BLOCKS = (h: CommunityHome) => Math.min(h.count, 8);
 export const homeFootprint = (h: CommunityHome): Footprint => { const n = HOME_BLOCKS(h); return { w: Math.min(n, 4) * 4 - 1, d: Math.ceil(n / 4) * 4 - 1 }; };
 export const SERVICE_FOOTPRINT: Footprint = { w: 3, d: 3 };
 
-export const worldOf = (s: GameState, r: RegionId): RegionWorld => { const w = ((s.world ??= {})[r] ??= { cleared: [], owned: [], pos: {}, queue: [], roads: {}, main: 1, canals: {}, zones: {} }); w.owned ??= []; w.roads ??= {}; w.main ??= 1; w.canals ??= {}; w.zones ??= {}; return w; };
+export const worldOf = (s: GameState, r: RegionId): RegionWorld => { const w = ((s.world ??= {})[r] ??= { cleared: [], owned: [], pos: {}, queue: [], roads: {}, main: 1, canals: {}, zones: {}, links: {} }); w.owned ??= []; w.links ??= {}; w.roads ??= {}; w.main ??= 1; w.canals ??= {}; w.zones ??= {}; return w; };
 export const chunkAt = (x: number, y: number) => {
   const cx = Math.floor((x - MAP.x0) / CHUNK), cy = Math.floor((y - MAP.y0) / CHUNK);
   return cx < 0 || cy < 0 || cx >= CHUNKS_X || cy >= CHUNKS_Y ? -1 : cy * CHUNKS_X + cx;
@@ -187,7 +187,7 @@ export function canPlaceNew(s: GameState, r: RegionId, fp: Footprint, at?: [numb
   if (at) { const p = placeProblem(s, r, at[0], at[1], fp, undefined, use); return p ? PROBLEM_TEXT[p] : null; }
   return findSpot(s, r, fp, false, use) ? null : use === 'home' ? 'No free residential land: zone more of your cleared land as residential.' : 'No free cleared land of yours. Clear forest or buy more land.';
 }
-export const forget = (s: GameState, r: RegionId, key: string) => { delete worldOf(s, r).pos[key]; touch(worldOf(s, r)); };
+export const forget = (s: GameState, r: RegionId, key: string) => { delete worldOf(s, r).pos[key]; unlink(s, r, key); };
 
 // ---------------------------------------------------------------- legacy layout (positions for saves made before the map)
 
@@ -286,7 +286,7 @@ export function reconcileWorld(s: GameState, wanted: Wanted) {
     for (const f of s.fields) if (f.region === r) keys.push(`field:${f.id}`);
     for (const b of s.buildings) if (b.region === r) keys.push(`b:${b.id}`);
     const live = new Set(keys);
-    for (const k of Object.keys(w.pos)) if (!live.has(k)) delete w.pos[k];
+    for (const k of Object.keys(w.pos)) if (!live.has(k)) { delete w.pos[k]; unlink(s, r, k); }
     for (const k of keys) {
       if (w.pos[k]) continue;
       const fp = footprintOf(s, k);
@@ -363,9 +363,22 @@ export function connect(s: GameState, r: RegionId, key: string) {
   const net = accessCache(s, w).net; // a stub that goes nowhere does not count
   const path = route(openGround(s, r), doorstep(p[0], p[1], fp), (x, y) => inMap(x, y) && (isRoad(y) || net.has(tileId(x, y))));
   if (!path) return false;
-  for (const [x, y] of path) w.roads[tileId(x, y)] ||= 1;
+  const added = path.map(([x, y]) => tileId(x, y)).filter((id) => !w.roads[id]);
+  for (const id of added) w.roads[id] = 1;
+  if (added.length) w.links[key] = [...(w.links[key] ?? []), ...added]; // remembered, so the track goes when the building does
   touch(w);
   return true;
+}
+/** A building left or moved: lift the dirt track that was laid for it, unless the player upgraded it or another building's track uses it. Anything that loses its road gets a fresh track. */
+export function unlink(s: GameState, r: RegionId, key: string) {
+  const w = worldOf(s, r), mine = w.links[key];
+  delete w.links[key];
+  touch(w);
+  if (!mine?.length) return;
+  const used = new Set(Object.values(w.links).flat()), before = Object.keys(w.pos).filter((k) => hasAccess(s, r, k));
+  for (const id of mine) if (!used.has(id) && w.roads[id] === 1) delete w.roads[id];
+  touch(w);
+  for (const k of before) if (!hasAccess(s, r, k)) connect(s, r, k);
 }
 /** Road access is cached per region: recomputed every game hour and straight away when roads or buildings change (touch). */
 const revs = new WeakMap<RegionWorld, number>();

@@ -799,8 +799,51 @@ function animateFelling(R: Rig, s: GameState, t: number) {
   }
 }
 
-const ROAD_COL = [0, 0xc19a64, 0xb9b3a6, 0x5f6266], RUT_COL = [0, 0xa27f50, 0x9d978b, 0], VERGE_COL = [0, 0xa9a465, 0xa3a477, 0x9da27a];
-/** Roads: the main road and every track, coloured by grade (dirt, gravel, paved). */
+const ROAD_COL = [0, 0xc19a64, 0xb9b3a6, 0x5f6266], RUT_COL = [0, 0x9f7c4e, 0x99938a, 0], VERGE_COL = [0, 0xa9a465, 0xa3a477, 0x9da27a], SHOULDER_COL = [0, 0xb08c5a, 0xa8a295, 0x55575b];
+type Band = [number, THREE.Color, number]; // offset (or radius), colour, opacity
+/** Flat ground decals (no sides, so nothing reads as cut card): ribbons along segments and round joints, with soft, fading edges. */
+class Decal {
+  pos: number[] = []; col: number[] = [];
+  constructor(public y: number) {}
+  private v(x: number, z: number, [, c, a]: Band) { this.pos.push(x, this.y, z); this.col.push(c.r, c.g, c.b, a); }
+  /** A ribbon from a to b; each band edge runs parallel to the centre line. */
+  seg(ax: number, az: number, bx: number, bz: number, bands: Band[]) {
+    const l = Math.hypot(bx - ax, bz - az) || 1, nx = -(bz - az) / l, nz = (bx - ax) / l;
+    for (let i = 0; i < bands.length - 1; i++) {
+      const p = bands[i], q = bands[i + 1];
+      this.v(ax + nx * p[0], az + nz * p[0], p); this.v(bx + nx * p[0], bz + nz * p[0], p); this.v(bx + nx * q[0], bz + nz * q[0], q);
+      this.v(ax + nx * p[0], az + nz * p[0], p); this.v(bx + nx * q[0], bz + nz * q[0], q); this.v(ax + nx * q[0], az + nz * q[0], q);
+    }
+  }
+  /** A round patch: rings out from the centre (fills corners and junctions). */
+  disc(x: number, z: number, rings: Band[], sides = 14) {
+    for (let k = 0; k < sides; k++) {
+      const a0 = (k / sides) * Math.PI * 2, a1 = ((k + 1) / sides) * Math.PI * 2, c0 = Math.cos(a0), s0 = Math.sin(a0), c1 = Math.cos(a1), s1 = Math.sin(a1);
+      this.v(x, z, rings[0]); this.v(x + c0 * rings[0][0], z + s0 * rings[0][0], rings[0]); this.v(x + c1 * rings[0][0], z + s1 * rings[0][0], rings[0]);
+      for (let i = 0; i < rings.length - 1; i++) {
+        const p = rings[i], q = rings[i + 1];
+        this.v(x + c0 * p[0], z + s0 * p[0], p); this.v(x + c0 * q[0], z + s0 * q[0], q); this.v(x + c1 * q[0], z + s1 * q[0], q);
+        this.v(x + c0 * p[0], z + s0 * p[0], p); this.v(x + c1 * q[0], z + s1 * q[0], q); this.v(x + c1 * p[0], z + s1 * p[0], p);
+      }
+    }
+  }
+  mesh(transparent: boolean) {
+    const P = this.pos, Cc = this.col, n = P.length / 3;
+    for (let i = 0; i < n; i += 3) { // every face up, so the sun lights it from above
+      const ux = P[i * 3 + 3] - P[i * 3], uz = P[i * 3 + 5] - P[i * 3 + 2], vx = P[i * 3 + 6] - P[i * 3], vz = P[i * 3 + 8] - P[i * 3 + 2];
+      if (uz * vx - ux * vz >= 0) continue;
+      for (let k = 0; k < 3; k++) [P[i * 3 + 3 + k], P[i * 3 + 6 + k]] = [P[i * 3 + 6 + k], P[i * 3 + 3 + k]];
+      for (let k = 0; k < 4; k++) [Cc[i * 4 + 4 + k], Cc[i * 4 + 8 + k]] = [Cc[i * 4 + 8 + k], Cc[i * 4 + 4 + k]];
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(this.col, 4));
+    g.setAttribute('normal', new THREE.Float32BufferAttribute(new Array(n).fill([0, 1, 0]).flat(), 3));
+    const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, transparent, depthWrite: !transparent }));
+    m.receiveShadow = true; m.frustumCulled = false;
+    return m;
+  }
+}
+/** Roads: the main road and every track, by grade (dirt, gravel, paved), as one soft-edged surface. */
 function syncRoads(R: Rig, s: GameState) {
   const w = worldOf(s, R.region), ids = Object.keys(w.roads);
   const cids = Object.keys(w.canals);
@@ -808,42 +851,48 @@ function syncRoads(R: Rig, s: GameState) {
   if (sig === R.roadSig) return;
   R.roadSig = sig;
   clear(R.roadsG);
-  // the main road: a worn verge, the surface, and wheel ruts (dirt, gravel) or painted lines (paved)
-  const L = MAP.w + 600, cx = MAP.x0 + MAP.w / 2, cz = ROAD_Y + ROAD_H / 2, g = w.main;
-  const band = (key: string, width: number, col: number, y: number, dz = 0) => { const m = mesh(cached(key, () => new THREE.BoxGeometry(L, 0.02, width)), mat(col, { rough: 1 }), cx, y, cz + dz, false); m.receiveShadow = true; R.roadsG.add(m); };
-  band('road-verge', ROAD_H + 0.5, VERGE_COL[g], -0.005);
-  band('road-main', ROAD_H - 0.2, ROAD_COL[g], 0.005);
-  if (g < 3) for (const dz of [-0.42, 0.42]) band('road-rut', 0.22, RUT_COL[g], 0.016, dz);
+  const C = (h: number) => new THREE.Color(h);
+  const verge = new Decal(0.004), surface = new Decal(0.009), marks = new Decal(0.014);
+  // a cross-section: verge fading into the grass, a darker worn shoulder, the surface
+  const road = (g: number, half: number): { v: Band[]; s: Band[] } => ({
+    v: [[-half - 0.32, C(VERGE_COL[g]), 0], [-half - 0.06, C(VERGE_COL[g]), 0.6], [half + 0.06, C(VERGE_COL[g]), 0.6], [half + 0.32, C(VERGE_COL[g]), 0]],
+    s: [[-half, C(SHOULDER_COL[g]), 1], [-half + 0.14, C(ROAD_COL[g]), 1], [half - 0.14, C(ROAD_COL[g]), 1], [half, C(SHOULDER_COL[g]), 1]],
+  });
+  const rut = (g: number, o: number, wd: number): Band[] => [[o - wd, C(ROAD_COL[g]), 1], [o - wd / 3, C(RUT_COL[g]), 1], [o + wd / 3, C(RUT_COL[g]), 1], [o + wd, C(ROAD_COL[g]), 1]];
+  // the main road
+  const g = w.main, cz = ROAD_Y + ROAD_H / 2, x0 = MAP.x0 - 300, x1 = MAP.x0 + MAP.w + 300, M = road(g, ROAD_H / 2 - 0.1);
+  verge.seg(x0, cz, x1, cz, M.v); surface.seg(x0, cz, x1, cz, M.s);
+  if (g < 3) for (const o of [-0.42, 0.42]) marks.seg(x0, cz, x1, cz, rut(g, o, 0.16));
   else {
-    for (const dz of [-(ROAD_H / 2 - 0.25), ROAD_H / 2 - 0.25]) band('road-edge', 0.06, 0xe9e4d6, 0.018, dz);
-    const dash: THREE.Matrix4[] = []; for (let x = MAP.x0 - 300; x < MAP.x0 + MAP.w + 300; x += 2) dash.push(new THREE.Matrix4().makeTranslation(x + 0.5, 0.02, cz));
-    const im = new THREE.InstancedMesh(cached('dash', () => new THREE.BoxGeometry(0.8, 0.01, 0.08)), mat(0xf2d77a), dash.length); dash.forEach((m, i) => im.setMatrixAt(i, m)); im.frustumCulled = false; R.roadsG.add(im);
+    for (const o of [-(ROAD_H / 2 - 0.3), ROAD_H / 2 - 0.3]) marks.seg(x0, cz, x1, cz, [[o - 0.03, C(0xe9e4d6), 1], [o + 0.03, C(0xe9e4d6), 1]]);
+    for (let x = x0; x < x1; x += 2) marks.seg(x, cz, x + 0.9, cz, [[-0.04, C(0xf2d77a), 1], [0.04, C(0xf2d77a), 1]]);
   }
-  // the river (with a timber bridge where the main road crosses) and irrigation channels
-  // channels: one flat blue, like the river (no shadow on them: per-tile shadow edges drew a grid)
-  const canalTiles = cids.map((k) => { const [x, y] = tileAt(Number(k)); return new THREE.Matrix4().makeTranslation(x + 0.5, 0.014, y + 0.5); });
-  if (canalTiles.length) { const im = new THREE.InstancedMesh(cached('canal', () => new THREE.PlaneGeometry(1.02, 1.02).rotateX(-Math.PI / 2)), mat(0x5aa7c4, { rough: 0.7 }), canalTiles.length); canalTiles.forEach((m, i) => im.setMatrixAt(i, m)); im.frustumCulled = false; R.roadsG.add(im); }
-  // tracks: drawn like the main road (verge, surface, wheel ruts), each tile joined only to the roads beside it
-  const parts = new Map<number, THREE.Matrix4[]>(); // colour -> boxes
-  const put = (col: number, x: number, y: number, z: number, sx: number, sz: number) => { const list = parts.get(col) ?? parts.set(col, []).get(col)!; list.push(new THREE.Matrix4().makeTranslation(x, y, z).scale(new THREE.Vector3(sx, 1, sz))); };
-  const at = (x: number, y: number) => (isRoad(y) ? -1 : w.roads[tileId(x, y)] ?? 0); // -1: the main road
+  // tracks: a ribbon between each pair of neighbouring tiles (and onto the main road), a round joint on every tile
+  const at = (x: number, y: number) => (isRoad(y) ? -1 : w.roads[tileId(x, y)] ?? 0);
+  const HALF = 0.36, STEPS4 = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
+  const linksAt = (x: number, y: number) => STEPS4.filter(([dx, dy]) => at(x + dx, y + dy) !== 0);
+  const through = (x: number, y: number) => { const d = linksAt(x, y); return d.length === 1 || (d.length === 2 && d[0][0] === -d[1][0] && d[0][1] === -d[1][1]); }; // ruts run on through it
   for (const k of ids) {
-    const id = Number(k), [x, y] = tileAt(id), gr = w.roads[id], cx = x + 0.5, cz = y + 0.5;
-    const dirs = ([[1, 0], [-1, 0], [0, 1], [0, -1]] as const).filter(([dx, dy]) => at(x + dx, y + dy) !== 0);
-    const arm = (dx: number, dy: number, width: number, col: number, lift: number, off = 0) => { // from the centre to the edge (into the main road's verge)
-      const len = at(x + dx, y + dy) === -1 ? 0.75 : 0.53; // a hair past the edge so neighbours meet without a seam
-      put(col, cx + dx * len / 2 + dy * off, lift, cz + dy * len / 2 + dx * off, dx ? len : width, dy ? len : width);
-    };
-    put(VERGE_COL[gr], cx, 0.004, cz, 0.98, 0.98);
-    put(ROAD_COL[gr], cx, 0.012, cz, 0.72, 0.72);
-    for (const [dx, dy] of dirs) { arm(dx, dy, 0.98, VERGE_COL[gr], 0.004); arm(dx, dy, 0.72, ROAD_COL[gr], 0.012); }
-    const straight = dirs.length === 2 && dirs[0][0] === -dirs[1][0] && dirs[0][1] === -dirs[1][1];
-    if (gr < 3 && (straight || dirs.length === 1)) for (const off of [-0.17, 0.17]) for (const [dx, dy] of dirs) arm(dx, dy, 0.09, RUT_COL[gr], 0.02, off); // ruts on plain runs, not junctions
+    const id = Number(k), [x, y] = tileAt(id), gr = w.roads[id], ax = x + 0.5, az = y + 0.5;
+    const dirs = linksAt(x, y);
+    verge.disc(ax, az, [[HALF + 0.06, C(VERGE_COL[gr]), 0.6], [HALF + 0.32, C(VERGE_COL[gr]), 0]]);
+    surface.disc(ax, az, [[HALF - 0.14, C(ROAD_COL[gr]), 1], [HALF, C(SHOULDER_COL[gr]), 1]]);
+    for (const [dx, dy] of dirs) {
+      const n = at(x + dx, y + dy);
+      if (n > 0 && (dx < 0 || dy < 0)) continue; // each pair once, from its west or north tile
+      const sg = n > 0 ? Math.min(gr, n) : gr, S = road(sg, HALF), len = n === -1 ? 0.5 + 0.35 : 1; // onto the main road, up to its ruts
+      const bx = ax + dx * len, bz = az + dy * len;
+      verge.seg(ax, az, bx, bz, S.v); surface.seg(ax, az, bx, bz, S.s);
+      if (sg < 3) { // ruts stop short of corners and junctions
+        const s0 = through(x, y) ? 0 : 0.3, s1 = n === -1 ? 0.5 : through(x + dx, y + dy) ? len : len - 0.3;
+        for (const o of [-0.15, 0.15]) marks.seg(ax + dx * s0, az + dy * s0, ax + dx * s1, az + dy * s1, rut(sg, o, 0.08));
+      }
+    }
   }
-  for (const [col, list] of parts) {
-    const im = new THREE.InstancedMesh(cached('track-part', () => new THREE.BoxGeometry(1, 0.02, 1)), mat(col, { rough: 1 }), list.length);
-    list.forEach((m, i) => im.setMatrixAt(i, m)); im.receiveShadow = true; im.frustumCulled = false; R.roadsG.add(im);
-  }
+  R.roadsG.add(verge.mesh(true), surface.mesh(false), marks.mesh(false));
+  // irrigation channels: one flat blue, like the river (no shadow on them: per-tile shadow edges drew a grid)
+  const canalTiles = cids.map((k) => { const [x, y] = tileAt(Number(k)); return new THREE.Matrix4().makeTranslation(x + 0.5, 0.016, y + 0.5); });
+  if (canalTiles.length) { const im = new THREE.InstancedMesh(cached('canal', () => new THREE.PlaneGeometry(1.02, 1.02).rotateX(-Math.PI / 2)), mat(0x5aa7c4, { rough: 0.7 }), canalTiles.length); canalTiles.forEach((m, i) => im.setMatrixAt(i, m)); im.frustumCulled = false; R.roadsG.add(im); }
 }
 /** Road mode: the route a new road would take, or the stretch that would be upgraded or removed. */
 function syncRoadPreview(R: Rig, s: GameState, Rd: Roading | null) {

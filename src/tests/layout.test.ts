@@ -145,3 +145,30 @@ it('buildings get a dirt track to the road and stop working without one; roads c
   W.touch(w);
   expect(W.roadStretch(w, 21, -6)).toEqual([W.tileId(21, -6)]);
 });
+
+it('a building\'s dirt track goes with it when it is demolished or moved, but never strands a neighbour', async () => {
+  const { hasAccess, ROAD_Y } = await import('../simulation/world');
+  const s = createGame(1012); s.legacyProgression = true; s.era = 4; post(s, 'prize', 1e6, 'fixture');
+  const w = worldOf(s, 'heartland'), roads = () => Object.keys(w.roads).length;
+  const far = (dy: number) => { for (let x = -8; x < 10; x++) if (!placeProblem(s, 'heartland', x, ROAD_Y + dy, { w: 3, d: 3 })) return [x, ROAD_Y + dy] as [number, number]; return null; };
+  const before = roads();
+  expect(dispatch(s, { type: 'build', region: 'heartland', building: 'barn', at: far(6)! }).ok).toBe(true);
+  const barn = s.buildings.at(-1)!;
+  expect(roads()).toBeGreaterThan(before);
+  expect(dispatch(s, { type: 'demolish', buildingId: barn.id }).ok).toBe(true);
+  expect(roads()).toBe(before); // no stub left behind
+
+  // a second barn further out joins the first one's track; demolishing the first keeps the second on the road
+  expect(dispatch(s, { type: 'build', region: 'heartland', building: 'barn', at: far(6)! }).ok).toBe(true);
+  const a = s.buildings.at(-1)!;
+  expect(dispatch(s, { type: 'build', region: 'heartland', building: 'barn', at: far(11)! }).ok).toBe(true);
+  const b = s.buildings.at(-1)!;
+  expect(dispatch(s, { type: 'demolish', buildingId: a.id }).ok).toBe(true);
+  expect(hasAccess(s, 'heartland', `b:${b.id}`)).toBe(true);
+
+  // moving lifts the old track and lays a new one
+  const oldTiles = [...(w.links[`b:${b.id}`] ?? [])];
+  expect(dispatch(s, { type: 'moveObject', region: 'heartland', key: `b:${b.id}`, at: far(3)! }).ok).toBe(true);
+  for (const id of oldTiles) if (!(w.links[`b:${b.id}`] ?? []).includes(id)) expect(w.roads[id]).toBeUndefined();
+  expect(hasAccess(s, 'heartland', `b:${b.id}`)).toBe(true);
+});

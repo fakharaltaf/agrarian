@@ -10,7 +10,7 @@ import {
 } from './config';
 import { buildingDivision, clamp, debt, factoryCrop, equity, freeSpace, has, known, log, marketWage, nextId, post, random, round2, todayBook, lean } from './core';
 import { addGoods, canGrow, clearField, fertilizeField, fieldsTick, frostNight, harvestField, isManual, isReady, newField, plantField, spoilageDaily } from './agriculture';
-import { reconcileWorld, accessNote, cutsOff, buyable, chunksIn, connect, placedIn, touch, useOf, IRRIGATION_CHANNEL_PRICE, waterRoute, isRoad, MAP, ROAD_GRADES, ROAD_H, roadRoute, roadStretch, roadTilePrice, tileId, canPlaceNew, LAND_HA_PER_PATCH, landCost, own, ownedSet, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, clearCost, clearedSet, FOOTPRINT, footprintOf, forget, MOVE_DOWNTIME, placeNew, placeProblem, plotSide, PROBLEM_TEXT, seedWorld, TIMBER_PER_PATCH, worldOf } from './world';
+import { reconcileWorld, unlink, accessNote, cutsOff, buyable, chunksIn, connect, placedIn, touch, useOf, IRRIGATION_CHANNEL_PRICE, waterRoute, isRoad, MAP, ROAD_GRADES, ROAD_H, roadRoute, roadStretch, roadTilePrice, tileId, canPlaceNew, LAND_HA_PER_PATCH, landCost, own, ownedSet, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, clearCost, clearedSet, FOOTPRINT, footprintOf, forget, MOVE_DOWNTIME, placeNew, placeProblem, plotSide, PROBLEM_TEXT, seedWorld, TIMBER_PER_PATCH, worldOf } from './world';
 import { buyAnimals, livestockDaily, sellAnimals } from './livestock';
 import { claimDaily, startDay } from './daily';
 import { createMarkets, drawWeather, executeBuy, executeSell, quoteBuy, macroDaily, marketsDaily, marketsTick, priceFromInv } from './markets';
@@ -514,7 +514,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       if (fee > s.cash) return fail(`Moving costs $${fee.toLocaleString()}.`);
       post(s, 'maintenance', -fee, 'Moving on the farm', a.region);
       w.pos[a.key] = [a.at[0], a.at[1]];
-      touch(w);
+      unlink(s, a.region, a.key); // the old track goes, a new one comes
       connect(s, a.region, a.key);
       const b = kind === 'b' ? s.buildings.find((x) => x.id === +id) : undefined;
       if (b) b.movedUntil = s.tick + MOVE_DOWNTIME;
@@ -574,6 +574,8 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       if (!stretch.length) return fail(isRoad(a.at[1]) ? 'The main road stays.' : 'There is no road there.');
       const lost = cutsOff(s, a.region, stretch);
       for (const id of stretch) delete w.roads[id];
+      const gone = new Set(stretch);
+      for (const k in w.links) w.links[k] = w.links[k].filter((id) => !gone.has(id)); // the player's removal wins; never lift a later road in its place
       touch(w);
       return ok(`Removed ${stretch.length} tiles of road.${lost.length ? ` ${lost.length} building${lost.length === 1 ? '' : 's'} now ha${lost.length === 1 ? 's' : 've'} no road and will stop working.` : ''}`);
     }
