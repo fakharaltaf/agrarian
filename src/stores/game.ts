@@ -4,7 +4,7 @@ import { useSyncExternalStore } from 'react';
 import { CONFIG } from '../simulation/config';
 import { advance, createGame, dispatch as engineDispatch } from '../simulation/engine';
 import { BUILDINGS, type RegionId } from '../simulation/config';
-import { FOOTPRINT, SERVICE_FOOTPRINT, findSpot, homeFootprint, plotSide, worldOf, chunkAt, roadRoute } from '../simulation/world';
+import { FOOTPRINT, SERVICE_FOOTPRINT, findSpot, homesCentre, homeFootprint, plotSide, worldOf, chunkAt, roadRoute } from '../simulation/world';
 import { SERVICE_DEFS } from '../simulation/town-state';
 import { parseSave, SAVE_VERSION, type SaveFile } from '../simulation/persistence';
 export { parseSave, SAVE_VERSION } from '../simulation/persistence';
@@ -51,6 +51,7 @@ const bump = () => set({ v: store.v + 1 });
 
 export const getGame = () => store.game;
 export const getSpeed = () => store.speed;
+export const getPage = () => store.page;
 
 // ---------------------------------------------------------------- persistence (IndexedDB, localStorage fallback)
 
@@ -249,7 +250,7 @@ function placementFor(a: Action): { region: RegionId; w: number; d: number; labe
   return null;
 }
 export function startPlacement(p: Omit<Placement, 'at'>) {
-  const g = store.game, at = findSpot(g, p.region, { w: p.w, d: p.d }, false, placementUse(p)) ?? (worldOf(g, p.region).pos[p.region === 'heartland' ? 'farmhouse' : 'shed'] ?? [1, 1]);
+  const g = store.game, civic = p.action.type === 'buildService' || p.action.type === 'buildHomes', at = findSpot(g, p.region, { w: p.w, d: p.d }, false, placementUse(p), civic ? homesCentre(worldOf(g, p.region)) : null) ?? (worldOf(g, p.region).pos[p.region === 'heartland' ? 'farmhouse' : 'shed'] ?? [1, 1]); // services and homes start among the homes
   set({ placing: { ...p, at: [at[0], at[1]] }, roading: null, page: 'farm' });
 }
 export const startRoads = (region: RegionId) => set({ roading: { tool: 'draw', region }, placing: null, prospect: null, page: 'farm' });

@@ -3,12 +3,13 @@ import * as THREE from 'three';
 import type { Lot } from './layout';
 import { FOOTPRINT } from './layout';
 import type { ServiceType } from '../../simulation/types';
-import { buildCivic, buildLot } from './models';
+import { buildCivic, buildCommunityHome, buildLot } from './models';
+import { homeFootprint } from '../../simulation/world';
 import { artRevision } from './art';
 let cachedRevision=-1;
 
 const SIZE = 192;
-type PortraitType = Lot['type'] | `civic:${ServiceType | 'hall'}`;
+type PortraitType = Lot['type'] | `civic:${ServiceType | 'hall'}` | `home:${'cottage' | 'terrace' | 'apartment'}`;
 const cache = new Map<PortraitType, string>();
 let renderer: THREE.WebGLRenderer | null = null;
 let idle = 0;
@@ -29,9 +30,10 @@ export function portrait(type: PortraitType): string {
     const sun = new THREE.DirectionalLight(0xfff1d6, 2.2);
     sun.position.set(-4, 10, 6);
     scene.add(new THREE.HemisphereLight(0xfff4e0, 0xb59a70, 0.9), sun);
-    const civic=type.startsWith('civic:');
-    const [w, d] = civic ? [3,3] : FOOTPRINT[type as Lot['type']];
-    const model = (civic ? buildCivic(type.slice(6),w,d) : buildLot(type as Lot['type'], w, d)).group;
+    const civic = type.startsWith('civic:'), home = type.startsWith('home:');
+    const tier = type.slice(5) as 'cottage' | 'terrace' | 'apartment', hf = home ? homeFootprint({ id: 0, tier, count: 1, cost: 0 }) : null;
+    const [w, d] = civic ? [3, 3] : hf ? [hf.w, hf.d] : FOOTPRINT[type as Lot['type']];
+    const model = (civic ? buildCivic(type.slice(6), w, d) : home ? buildCommunityHome(tier, w, d, 'portrait') : buildLot(type as Lot['type'], w, d)).group;
     scene.add(model);
     // frame the model from the farm's own isometric angle
     const box = new THREE.Box3().setFromObject(model);

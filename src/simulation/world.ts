@@ -147,9 +147,15 @@ export const PROBLEM_TEXT: Record<Exclude<PlaceProblem, null>, string> = {
   unowned: 'You do not own that land. Buy it first.', zone: 'Wrong zone: homes go in a residential zone; fields and farm buildings stay out of it.', water: 'That is water: the river or an irrigation channel.', forest: 'That spot is forest. Clear it first.', occupied: 'Something already stands there.', road: 'You cannot build on the road.', outside: 'That is off the map.',
 };
 /** First free cleared spot, searched outward from the farmhouse. */
-export function findSpot(s: GameState, r: RegionId, fp: Footprint, allowForest = false, use?: Use): [number, number] | null {
+/** Where homes cluster: the middle of the placed homes, if any. */
+export function homesCentre(w: RegionWorld): [number, number] | null {
+  const hs = Object.entries(w.pos).filter(([k]) => k.startsWith('home:')).map(([, p]) => p);
+  return hs.length ? [Math.round(hs.reduce((n, p) => n + p[0], 0) / hs.length), Math.round(hs.reduce((n, p) => n + p[1], 0) / hs.length)] : null;
+}
+/** The free spot nearest `near` (the farmhouse by default). */
+export function findSpot(s: GameState, r: RegionId, fp: Footprint, allowForest = false, use?: Use, near?: [number, number] | null): [number, number] | null {
   const fits = occupancy(s, r, undefined, allowForest, use), w = worldOf(s, r);
-  const [cx, cy] = w.pos[r === 'heartland' ? 'farmhouse' : 'shed'] ?? [1, 1];
+  const [cx, cy] = near ?? w.pos[r === 'heartland' ? 'farmhouse' : 'shed'] ?? [1, 1];
   // nothing can stand off the farm's own land, so search no further than the far corner of what it owns
   let far = 0;
   for (const c of w.owned) { const [ox, oy] = chunkOrigin(c); far = Math.max(far, Math.abs(ox - cx), Math.abs(ox + CHUNK - cx), Math.abs(oy - cy), Math.abs(oy + CHUNK - cy)); }

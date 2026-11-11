@@ -10,7 +10,7 @@ import { fieldMovable, timingFactor, fertility, growth, isMature, isReady } from
 import { priceUsd, stored } from '../../simulation/core';
 import { spreadNeed } from '../../simulation/agriculture';
 import type { GameState } from '../../simulation/types';
-import { getGame, getSpeed, moveGhost, placementUse, startZoning, stopZoning, zoneHover, zoneTap, type Zoning, prospectHover, prospectTap, roadHover, roadTap, startProspect, startRoads, stopProspect, stopRoads, type Placement, type Roading } from '../../stores/game';
+import { getGame, getSpeed, moveGhost, placementUse, startZoning, stopZoning, zoneHover, zoneTap, type Zoning, prospectHover, prospectTap, roadHover, roadTap, startProspect, startRoads, stopProspect, stopRoads, type Placement, type Roading , getPage } from '../../stores/game';
 import { featureEra, stageAtLeast } from '../../simulation/stages';
 import { preloadArt, artRevision } from './art';
 import { money, num, pct0 } from '../format';
@@ -49,6 +49,7 @@ const merged = (...parts: THREE.BufferGeometry[]) => mergeGeometries(parts.map(g
 const RIPE: Partial<Record<CropId, number>> = { wheat: 0xe0b23f, rice: 0xd9c46a, corn: 0xcfae4a, sugarcane: 0x8fbf55, potatoes: 0x8a9a3a, soybeans: 0xb6a24a, cotton: 0xf6f3ec, coffee: 0xb8392f, apples: 0xd2402f, grapes: 0x6b3a7e };
 
 interface Rig {
+  glide?: { x: number; z: number; zoom: number }; page?: string;
   renderer: THREE.WebGLRenderer; scene: THREE.Scene; camera: THREE.OrthographicCamera; target: THREE.Vector3; yaw: number; yawTo: number; zoom: number;
   sun: THREE.DirectionalLight; hemi: THREE.HemisphereLight; ground: THREE.Mesh;
   lots: THREE.Group; fields: THREE.Group; units: THREE.Group; deco: THREE.Group; fx: THREE.Group; sel: THREE.Group; ghost: THREE.Group; ghostSig: string;
@@ -144,6 +145,12 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
         if (urlAt?.length === 2 && urlAt.every(Number.isFinite)) R.target.set(urlAt[0], 0, urlAt[1]); // ?at=x,z points the camera somewhere (screenshots, sharing a spot)
         if (urlZoom > 0) R.zoom = Math.max(0.3, Math.min(4, urlZoom));
       }
+      const pg = getPage();
+      if (pg !== R.page) { R.page = pg; if (pg === 'community' || pg === 'town') focusCivic(R, L, pg, W, H); }
+      if (R.glide) { // ease towards a spot the game wants to show
+        const k = 0.12; R.target.x += (R.glide.x - R.target.x) * k; R.target.z += (R.glide.z - R.target.z) * k; R.zoom += (R.glide.zoom - R.zoom) * k;
+        if (Math.abs(R.glide.x - R.target.x) + Math.abs(R.glide.z - R.target.z) < 0.02 && Math.abs(R.glide.zoom - R.zoom) < 0.005) R.glide = undefined;
+      }
       syncLots(R, L);
       syncFields(R, L);
       if (now - lastCrops > 400) { syncCrops(R, L, s); lastCrops = now; }
@@ -196,6 +203,7 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
       if (P && g) moveGhost([g[0] - Math.floor(P.w / 2), g[1] - Math.floor(P.d / 2)]);
     };
     const pan = (dx: number, dy: number) => {
+      if (rig.current) rig.current.glide = undefined; // the player takes the camera back
       const R = rig.current;
       if (!R) return;
       const k = (R.camera.top - R.camera.bottom) / c.clientHeight;
@@ -205,7 +213,7 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
       // stay over the map
       R.target.x = Math.max(MAP.x0 + 10, Math.min(MAP.x0 + MAP.w - 10, R.target.x)); R.target.z = Math.max(MAP.y0 + 10, Math.min(MAP.y0 + MAP.h - 10, R.target.z));
     };
-    const zoomBy = (f: number) => { if (rig.current) rig.current.zoom = Math.max(0.3, Math.min(4, rig.current.zoom * f)); };
+    const zoomBy = (f: number) => { if (rig.current) rig.current.glide = undefined; if (rig.current) rig.current.zoom = Math.max(0.3, Math.min(4, rig.current.zoom * f)); };
     const down = (e: PointerEvent) => {
       c.setPointerCapture(e.pointerId);
       pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -371,6 +379,19 @@ function frameCamera(R: Rig,L:Layout,selected:number[]=[],selectedLot?:string){
   }
   const lot=L.lots.find(x=>x.type==='house')??L.lots[0];
   if(lot){R.target.set(lot.x+lot.w/2,0,lot.y+lot.d/2);R.zoom=1;}
+}
+
+/** Opening Community or Town glides the camera to the homes and services, framed in the part of the map the panel leaves free. */
+function focusCivic(R: Rig, L: Layout, page: string, W: number, H: number) {
+  const lots = L.lots.filter((l) => l.key.startsWith('community:') || (page === 'town' && l.key.startsWith('civic:')));
+  if (!lots.length) return;
+  const x0 = Math.min(...lots.map((l) => l.x)), x1 = Math.max(...lots.map((l) => l.x + l.w)), z0 = Math.min(...lots.map((l) => l.y)), z1 = Math.max(...lots.map((l) => l.y + l.d));
+  const phone = W <= 900, span = Math.max(x1 - x0, z1 - z0) + 6;
+  const zoom = Math.max(0.35, Math.min(1.2, (phone ? 11 : 16) / span));
+  const perPx = (2 * 9 / zoom) / H, rx = Math.cos(R.yaw), rz = -Math.sin(R.yaw), bx = Math.sin(R.yaw), bz = Math.cos(R.yaw);
+  // desktop: the panel covers the right 480px, so aim right of the homes; phone: the sheet covers the bottom 62%, so aim below them
+  const right = phone ? 0 : 240 * perPx, down = phone ? (0.31 * H * perPx) / Math.sin(0.62) : 0;
+  R.glide = { x: (x0 + x1) / 2 + rx * right + bx * down, z: (z0 + z1) / 2 + rz * right + bz * down, zoom };
 }
 
 function updateCamera(R: Rig, W: number, H: number) {
@@ -620,7 +641,15 @@ function syncGhost(R: Rig, s: GameState, P: Placement | null, forest: [number, n
       };
       ring(P.at[0] + P.w / 2, P.at[1] + P.d / 2, rad, true);
       const pos = worldOf(s, P.region).pos;
-      for (const b of townOf(s).services) if (group.includes(b.type) && `svc:${b.id}` !== P.key) { const q = pos[`svc:${b.id}`]; if (q) ring(q[0] + 1.5, q[1] + 1.5, SERVICE_RADIUS[b.type] ?? 10, false); }
+      const others: [number, number, number][] = [];
+      for (const b of townOf(s).services) if (group.includes(b.type) && `svc:${b.id}` !== P.key) { const q = pos[`svc:${b.id}`]; if (q) { const r2 = SERVICE_RADIUS[b.type] ?? 10; ring(q[0] + 1.5, q[1] + 1.5, r2, false); others.push([q[0] + 1.5, q[1] + 1.5, r2]); } }
+      // a marker over every home: green when this or another of its kind reaches it, red when nothing does
+      const gx = P.at[0] + P.w / 2, gz = P.at[1] + P.d / 2, pin = cached('reach-pin', () => new THREE.OctahedronGeometry(0.32, 0));
+      for (const [k, q] of Object.entries(pos)) {
+        if (!k.startsWith('home:')) continue;
+        const hx = q[0] + 1.5, hz = q[1] + 1.5, served = (hx - gx) ** 2 + (hz - gz) ** 2 <= rad * rad || others.some(([x, z, r2]) => (hx - x) ** 2 + (hz - z) ** 2 <= r2 * r2);
+        R.ghost.add(mesh(pin, new THREE.MeshBasicMaterial({ color: served ? 0x4cc35a : 0xe0533d }), hx, 2.6, hz, false));
+      }
     }
     return;
   }

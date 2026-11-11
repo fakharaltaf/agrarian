@@ -46,8 +46,9 @@ export function foodDays(s: GameState) {
   const kcal = COMMUNITY_FOOD.reduce((n, g) => n + available(s, g) * GOODS[g].kcal, 0);
   return population(s) ? kcal / (population(s) * 2000) : 0;
 }
-function buyWithinCash(s: GameState, g: GoodId, desired: number) {
-  let lo = 0, hi = Math.floor(Math.min(desired, freeSpace(s, 'heartland', g)));
+/** Buy up to `desired` with the cash on hand. Heating fuel burned the same day needs no room in the barns. */
+function buyWithinCash(s: GameState, g: GoodId, desired: number, burnNow = false) {
+  let lo = 0, hi = Math.floor(burnNow ? desired : Math.min(desired, freeSpace(s, 'heartland', g)));
   for (let i = 0; i < 28 && hi > lo; i++) {
     const mid = Math.ceil((lo + hi) / 2), q = quoteBuy(s, 'heartland', g, mid);
     if (q.net <= Math.max(0, s.cash)) lo = mid; else hi = mid - 1;
@@ -73,7 +74,7 @@ export function settlementTick(s: GameState) {
   c.fed = eat(s, people * 2000);
   s.stats.peopleFed += people * c.fed / 365;
   const fuelNeed = s.regions.heartland.temp < 10 ? people * 0.02 : 0;
-  if (c.autoLarder && fuelNeed > s.regions.heartland.inventory.fuel) buyWithinCash(s, 'fuel', Math.ceil(fuelNeed - s.regions.heartland.inventory.fuel));
+  if (c.autoLarder && fuelNeed > s.regions.heartland.inventory.fuel) buyWithinCash(s, 'fuel', Math.ceil(fuelNeed - s.regions.heartland.inventory.fuel), true);
   const fuel = Math.min(fuelNeed, s.regions.heartland.inventory.fuel);
   s.regions.heartland.inventory.fuel -= fuel;
   c.warm = fuelNeed ? fuel / fuelNeed : 1;
