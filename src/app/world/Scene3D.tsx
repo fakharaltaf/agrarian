@@ -823,13 +823,26 @@ function syncRoads(R: Rig, s: GameState) {
   // channels: one flat blue, like the river (no shadow on them: per-tile shadow edges drew a grid)
   const canalTiles = cids.map((k) => { const [x, y] = tileAt(Number(k)); return new THREE.Matrix4().makeTranslation(x + 0.5, 0.014, y + 0.5); });
   if (canalTiles.length) { const im = new THREE.InstancedMesh(cached('canal', () => new THREE.PlaneGeometry(1.02, 1.02).rotateX(-Math.PI / 2)), mat(0x5aa7c4, { rough: 0.7 }), canalTiles.length); canalTiles.forEach((m, i) => im.setMatrixAt(i, m)); im.frustumCulled = false; R.roadsG.add(im); }
-  const byGrade: THREE.Matrix4[][] = [[], [], [], []];
-  for (const k of ids) { const id = Number(k), [x, y] = tileAt(id); byGrade[w.roads[id]]?.push(new THREE.Matrix4().makeTranslation(x + 0.5, 0.012, y + 0.5)); }
-  for (let gr = 1; gr <= 3; gr++) {
-    if (!byGrade[gr].length) continue;
-    const im = new THREE.InstancedMesh(cached('road-tile', () => new THREE.BoxGeometry(1.03, 0.025, 1.03)), mat(ROAD_COL[gr], { rough: 1 }), byGrade[gr].length); // tiles overlap a hair so a track reads as one strip
-    byGrade[gr].forEach((m, i) => im.setMatrixAt(i, m)); im.receiveShadow = true; im.frustumCulled = false;
-    R.roadsG.add(im);
+  // tracks: drawn like the main road (verge, surface, wheel ruts), each tile joined only to the roads beside it
+  const parts = new Map<number, THREE.Matrix4[]>(); // colour -> boxes
+  const put = (col: number, x: number, y: number, z: number, sx: number, sz: number) => { const list = parts.get(col) ?? parts.set(col, []).get(col)!; list.push(new THREE.Matrix4().makeTranslation(x, y, z).scale(new THREE.Vector3(sx, 1, sz))); };
+  const at = (x: number, y: number) => (isRoad(y) ? -1 : w.roads[tileId(x, y)] ?? 0); // -1: the main road
+  for (const k of ids) {
+    const id = Number(k), [x, y] = tileAt(id), gr = w.roads[id], cx = x + 0.5, cz = y + 0.5;
+    const dirs = ([[1, 0], [-1, 0], [0, 1], [0, -1]] as const).filter(([dx, dy]) => at(x + dx, y + dy) !== 0);
+    const arm = (dx: number, dy: number, width: number, col: number, lift: number, off = 0) => { // from the centre to the edge (into the main road's verge)
+      const len = at(x + dx, y + dy) === -1 ? 0.75 : 0.53; // a hair past the edge so neighbours meet without a seam
+      put(col, cx + dx * len / 2 + dy * off, lift, cz + dy * len / 2 + dx * off, dx ? len : width, dy ? len : width);
+    };
+    put(VERGE_COL[gr], cx, 0.004, cz, 0.98, 0.98);
+    put(ROAD_COL[gr], cx, 0.012, cz, 0.72, 0.72);
+    for (const [dx, dy] of dirs) { arm(dx, dy, 0.98, VERGE_COL[gr], 0.004); arm(dx, dy, 0.72, ROAD_COL[gr], 0.012); }
+    const straight = dirs.length === 2 && dirs[0][0] === -dirs[1][0] && dirs[0][1] === -dirs[1][1];
+    if (gr < 3 && (straight || dirs.length === 1)) for (const off of [-0.17, 0.17]) for (const [dx, dy] of dirs) arm(dx, dy, 0.09, RUT_COL[gr], 0.02, off); // ruts on plain runs, not junctions
+  }
+  for (const [col, list] of parts) {
+    const im = new THREE.InstancedMesh(cached('track-part', () => new THREE.BoxGeometry(1, 0.02, 1)), mat(col, { rough: 1 }), list.length);
+    list.forEach((m, i) => im.setMatrixAt(i, m)); im.receiveShadow = true; im.frustumCulled = false; R.roadsG.add(im);
   }
 }
 /** Road mode: the route a new road would take, or the stretch that would be upgraded or removed. */
