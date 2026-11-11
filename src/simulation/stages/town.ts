@@ -155,7 +155,7 @@ function action(s: GameState,a:Action):ActionResult|null {
   const t=townOf(s),fail=(error:string):ActionResult=>({ok:false,error});
   if(((a.type==='startTown'&&a.charter!==undefined)||a.type==='changeSchools')&&a.charter!=='public'&&a.charter!=='trade')return fail('Choose Public or Trade schools.');
   if(a.type==='startTown') {
-    if(!canStartTown(s)) return fail('Welcome 80 well-fed residents at 65% happiness first.');
+    if(!canStartTown(s)) return fail('Settle 6 families, well fed and at least 60% happy, first.');
     t.active=true;t.enteredAt=s.tick;t.nextPetition=Math.floor(s.tick/24)+7;setCharter(s,a.charter??'public');
     s.stageId='town';if(!s.legacyProgression)s.era=6;s.eraReady=false;
     log(s,'opportunity','Newcomers want to settle here too. Homes inside the reach of a school, a clinic and a water tower keep them healthy and happy.','town');

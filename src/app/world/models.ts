@@ -318,9 +318,18 @@ export function buildLot(type: Lot['type'], w: number, d: number, variant = ''):
       smoke.push(new THREE.Vector3(2.75, 2.7, 0.6));
       for (let i = 0; i < 6; i++) { const cane = cyl(0.03, 0.7, 0x8fae4a, 0, 0, 0, 5); cane.rotation.z = Math.PI / 2; cane.position.set(2.4, 0.04 + Math.floor(i / 3) * 0.06, 1.75 + (i % 3) * 0.07); g.add(cane); } // cut cane
       break;
-    case 'biogas':
+    case 'biogas': // two concrete digesters under green gas-holder domes, a pipe rack, a flare stack and a manure pit
       pad();
-      for (const [x, z] of [[0.9, 0.9], [2.1, 1.9]]) { g.add(cyl(0.6, 0.5, PAL.stoneDark, x, 0, z, 14)); g.add(sphere(0.62, 0x7a8f5a, x, 0.5, z)); }
+      for (const [x, z, r] of [[0.85, 0.85, 0.62], [2.15, 1.25, 0.5]] as const) {
+        g.add(cyl(r, 0.55, 0xb9b3a6, x, 0, z, 16));
+        const dome = mesh(cached(`dome${r}`, () => new THREE.SphereGeometry(r * 0.98, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2)), mat(0x4f6b45, { rough: 0.7 }), x, 0.55, z);
+        g.add(dome);
+        g.add(box(r * 2 + 0.04, 0.04, 0.04, PAL.stoneDark, x, 0.5, z));
+      }
+      g.add(box(1.4, 0.06, 0.06, PAL.metal, 1.5, 0.35, 1.05)); // gas pipe between them
+      g.add(cyl(0.05, 1.7, PAL.metalDark, 2.7, 0, 2.5, 8), cyl(0.09, 0.12, 0x3a3a3a, 2.7, 1.7, 2.5, 8)); // flare stack
+      g.add(box(1.1, 0.05, 0.7, 0x6e5537, 0.85, 0.02, 2.3), box(1.2, 0.18, 0.06, PAL.stone, 0.85, 0, 1.95)); // manure pit
+      smoke.push(new THREE.Vector3(2.7, 1.9, 2.5));
       break;
     case 'solar':
       for (let r = 0; r < 3; r++) for (let c = 0; c < 4; c++) {
@@ -353,11 +362,21 @@ export function buildLot(type: Lot['type'], w: number, d: number, variant = ''):
       for (let i = 0; i < 2; i++) g.add(cyl(0.18, 0.5, 0x2b2b2b, 0.4 + i * 0.45, 0.08, 0.35, 10)); // barrels of crude
       break;
     }
-    case 'verticalFarm':
-      g.add(box(1.6, 3.4, 1.6, PAL.glass, 1, 0, 1, { opacity: 0.55, rough: 0.2 }));
-      for (let i = 0; i < 6; i++) g.add(box(1.5, 0.08, 1.5, 0x6faf5a, 1, 0.3 + i * 0.52, 1));
-      g.add(box(1.7, 0.1, 1.7, PAL.metalDark, 1, 3.4, 1));
+    case 'verticalFarm': { // a glass tower: steel frame, floors of greens under violet grow lights, plant room on the roof
+      const fw = 1.6, H = 3.4, cx = w / 2, cz = d / 2;
+      g.add(box(fw + 0.2, 0.08, fw + 0.2, PAL.stoneDark, cx, 0, cz));
+      g.add(box(fw, H, fw, 0xa9d4de, cx, 0.08, cz, { opacity: 0.35, rough: 0.1 }));
+      for (let i = 0; i < 6; i++) {
+        const y = 0.3 + i * 0.52;
+        g.add(box(fw - 0.12, 0.05, fw - 0.12, PAL.metalDark, cx, y, cz), box(fw - 0.2, 0.1, fw - 0.2, 0x5faf4a, cx, y + 0.05, cz));
+        const glow = box(fw - 0.2, 0.02, fw - 0.2, 0xc07ae0, cx, y + 0.42, cz, { emissive: 0x6a2a8a }); glow.userData.window = true; g.add(glow);
+      }
+      for (const [dx, dz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) g.add(box(0.07, H, 0.07, PAL.metalDark, cx + (dx * fw) / 2, 0.08, cz + (dz * fw) / 2));
+      for (let i = 1; i <= 6; i++) g.add(box(fw + 0.04, 0.04, fw + 0.04, PAL.metalDark, cx, 0.08 + i * (H / 6) - 0.02, cz));
+      g.add(box(fw + 0.1, 0.1, fw + 0.1, PAL.metalDark, cx, H + 0.08, cz), box(0.7, 0.35, 0.5, PAL.white, cx - 0.3, H + 0.18, cz - 0.3));
+      g.add(cyl(0.18, 0.3, PAL.metal, cx + 0.45, H + 0.18, cz + 0.4, 10));
       break;
+    }
     case 'lab':
     case 'lab2':
       pad();
@@ -623,12 +642,25 @@ export function buildCommunityHome(tier: string, w: number, d: number, key = '')
 
 /** Small civic landmarks use the farm palette and shared geometry caches. */
 export function buildCivic(type: string, w: number, d: number): Model {
-  const group = new THREE.Group(), windows: THREE.Mesh[] = [];
+  const group = new THREE.Group(), windows: THREE.Mesh[] = [], smoke: THREE.Vector3[] = [];
   group.add(box(w-.1,.08,d-.1,PAL.stone,w/2,0,d/2));
-  if(type==='lighting'){
-    for(const x of [.5,w-.5]){const bulb=sphere(.18,0xffd889,x+.5,2.4,d/2,{emissive:0x806020});windows.push(bulb);group.add(box(.1,2.5,.1,PAL.roofGrey,x,0,d/2),box(.7,.1,.1,PAL.roofGrey,x+.25,2.5,d/2),bulb);}
-  } else if(type==='sanitation'){
-    group.add(cyl(.85,.65,PAL.stone,w/2,.1,d/2),cyl(.75,.04,0x65a8bb,w/2,.78,d/2),box(1.8,.08,.15,PAL.roofGrey,w/2,.9,d/2));
+  if(type==='lighting'){ // power station: brick turbine hall, tall stack, fenced transformer yard, a pylon carrying the line out
+    shed(group,1.7,1.2,1.1,PAL.brick,PAL.roofGrey,.2,.2,{door:'roller',windows:2,roofH:.35});
+    group.add(cyl(.16,2.8,PAL.brick,1.65,0,.45,10,.12),cyl(.17,.12,PAL.stoneDark,1.65,2.8,.45,10));
+    smoke.push(new THREE.Vector3(1.65,2.95,.45));
+    group.add(box(1.1,.04,1.1,PAL.stoneDark,2.35,.08,2.3));
+    for(const [x,z] of [[2.1,2.05],[2.6,2.05]]){group.add(box(.32,.38,.26,0x6f7d6a,x,.12,z));for(const dx of [-.09,0,.09])group.add(cyl(.025,.2,0xd9d2c0,x+dx,.5,z,6));}
+    fenceRect(group,1.15,1.05,1.8,1.75,.28);
+    const px=.55,pz=2.35; // lattice pylon
+    for(const [dx,dz] of [[-.18,-.18],[.18,-.18],[-.18,.18],[.18,.18]]){const leg=box(.04,2.6,.04,PAL.metalDark,px+dx*.55,0,pz+dz*.55);leg.rotation.set(dz*.25,0,-dx*.25);group.add(leg);}
+    for(const y of [1.9,2.35])group.add(box(.9,.04,.05,PAL.metalDark,px,y,pz));
+    for(const dx of [-.42,0,.42])group.add(cyl(.025,.14,0xd9d2c0,px+dx,2.2,pz,6));
+  } else if(type==='sanitation'){ // treatment works: two settling tanks with turning bridges and a pump house
+    for(const [x,z,r] of [[.95,1.05,.72],[2.25,2.2,.55]] as const){
+      group.add(cyl(r,.45,PAL.stone,x,.08,z,18),cyl(r-.07,.03,0x5f7d6b,x,.5,z,18),box(r*2,.06,.12,PAL.metalDark,x,.58,z),cyl(.06,.2,PAL.metalDark,x,.5,z,8));
+    }
+    shed(group,.9,.75,.75,PAL.creamDark,PAL.roofBlue,1.9,.25,{door:'house',roofH:.3});
+    group.add(box(.07,.07,1.1,PAL.metal,1.6,.2,1.6)); // pipe between the tanks
   } else if(type==='watchtower'){
     for(const [x,z] of [[.6,.6],[w-.6,.6],[.6,d-.6],[w-.6,d-.6]])group.add(box(.14,3,.14,PAL.wood,x,.1,z));
     group.add(box(w-.6,.12,d-.6,PAL.wood,w/2,3,d/2),box(w-.6,.4,.08,PAL.wood,w/2,3.1,.55),box(w-.6,.4,.08,PAL.wood,w/2,3.1,d-.55));
@@ -651,16 +683,32 @@ export function buildCivic(type: string, w: number, d: number): Model {
     const a=tree(.7,mat(PAL.roofGreen));a.position.set(w/2,0,d/2);group.add(a);
     group.add(box(1,.12,.35,PAL.wood,w/2,.35,d-.5));
   } else {
-    shed(group,w-.4,d-.6,1.6,PAL.cream,type==='school'?PAL.roofGreen:PAL.roofBlue,.2,.2,{door:'house',windows:3});
-    if(type==='clinic'||type==='hospital')group.add(box(.65,.13,.1,PAL.barnRed,w/2,1.55,d-.35),box(.13,.65,.1,PAL.barnRed,w/2,1.3,d-.35));
-    if(type==='school') {
-      group.add(box(.8,.45,.12,PAL.wood,w/2,1.2,d-.35));
-      group.add(box(.28,.34,.02,PAL.white,w/2-.15,1.25,d-.27),box(.28,.34,.02,PAL.creamDark,w/2+.15,1.25,d-.27));
-    }
+    if(type==='school'){ // a one-room schoolhouse with a bell cupola, a flagpole and a playground
+      shed(group,w-.6,1.5,1.3,0xc96f4f,PAL.roofGreen,.3,.3,{door:'house',windows:3,roofH:.6});
+      group.add(box(.34,.3,.34,PAL.white,w/2,1.75,1.05),cone(.3,.35,PAL.roofGreen,w/2,2.05,1.05,4),cyl(.07,.1,0xc9a44a,w/2,1.8,1.05,8));
+      group.add(box(.04,1.9,.04,PAL.metal,.3,0,d-.4),box(.35,.22,.02,0x3a6fb0,.48,1.62,d-.4));
+      group.add(box(1,.04,.6,0xe0c98f,w-.8,.06,d-.55)); // sandpit
+      for(const x of [w-1.25,w-.35])group.add(box(.05,.75,.05,PAL.metalDark,x,0,d-.25));
+      group.add(box(.95,.05,.05,PAL.metalDark,w-.8,.75,d-.25),box(.22,.03,.1,PAL.barnRed,w-.8,.3,d-.25));
+    } else if(type==='clinic'||type==='hospital'){ // white clinic with a red-cross sign, a covered entrance and a bench
+      shed(group,w-.6,1.6,1.2,PAL.white,0x5f8fa8,.3,.25,{door:'house',windows:4,roofH:.4});
+      group.add(box(.8,.05,.5,PAL.roofGrey,w/2,1.0,1.95),box(.05,1,.05,PAL.metalDark,w/2-.35,0,2.15),box(.05,1,.05,PAL.metalDark,w/2+.35,0,2.15));
+      group.add(box(.05,1.1,.05,PAL.metalDark,.45,0,d-.35),box(.55,.55,.04,PAL.white,.45,1.1,d-.35));
+      group.add(box(.4,.1,.05,PAL.barnRed,.45,1.32,d-.32),box(.1,.4,.05,PAL.barnRed,.45,1.17,d-.32));
+      group.add(box(.6,.08,.18,PAL.wood,w-.7,.22,d-.35));
+    } else if(type==='hall'){ // town hall: stone front with columns, a pediment and a clock tower
+      group.add(box(w-.6,1.5,1.4,0xd8cfbd,w/2,0,1));
+      group.add(gable(w-.5,1.5,.5,PAL.roofGrey,w/2,1.5,1));
+      group.add(box(w-.4,.08,.5,PAL.stone,w/2,0,1.95),box(w-.5,.15,.45,PAL.stone,w/2,1.35,1.95));
+      for(let i=0;i<4;i++)group.add(cyl(.07,1.35,PAL.white,.65+i*(w-1.3)/3,0,2.05,8));
+      group.add(box(.32,.6,.04,PAL.door,w/2,0,1.71));
+      for(const x of [.7,w-.7]){const win=box(.26,.5,.03,PAL.window,x,.55,1.71);win.userData.window=true;group.add(win);}
+      group.add(box(.5,.9,.5,0xd8cfbd,w/2,1.7,.75),cone(.42,.55,PAL.roofGrey,w/2,2.6,.75,4),cyl(.16,.03,PAL.white,w/2,2.2,1.01,12));
+      group.add(box(.04,1.5,.04,PAL.metal,w-.35,0,d-.3),box(.4,.25,.02,PAL.roofGreen,w-.15,1.25,d-.3));
+    } else shed(group,w-.4,d-.6,1.6,PAL.cream,PAL.roofBlue,.2,.2,{door:'house',windows:3});
     if(type==='barracks'){group.add(box(.06,2.6,.06,PAL.wood,w-.3,.1,.3),box(.7,.4,.03,PAL.barnRed,w-.65,2.4,.3));}
     if(type==='police')group.add(box(.5,.6,.08,PAL.roofBlue,w/2,1.2,d-.3),box(.12,.4,.1,PAL.cream,w/2,1.3,d-.25));
-    if(type==='hall') {group.add(box(.08,1.6,.08,PAL.wood,w-.4,2,.5),box(.5,.3,.06,PAL.roofGreen,w-.15,3,.5));}
   }
   group.traverse(o=>{if((o as THREE.Mesh).isMesh&&o.userData.window&&!windows.includes(o as THREE.Mesh))windows.push(o as THREE.Mesh);});
-  return {group,windows,smoke:[]};
+  return {group,windows,smoke};
 }

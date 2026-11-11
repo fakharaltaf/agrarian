@@ -59,7 +59,7 @@ interface Rig {
   rain: THREE.Points; smoke: THREE.Sprite[]; pops: { key: string; text: string; x: number; z: number; t0: number; tone?: string }[]; seenHarvest: Map<number, object>; popsReady: boolean; crownMat: THREE.MeshStandardMaterial; lastHaul: number; layout: Layout | null; region: RegionId; animT?: number;
   roadsG: THREE.Group; roadSig: string; roadPrev: THREE.Group; roadPrevSig: string;
   haulers: Map<string, THREE.Group>; tickSeen: number; tickAt: number;
-  riverG: THREE.Group; riverSig: string; foam?: { im: THREE.InstancedMesh; pts: [number, number][]; phase: number[] }; fall?: THREE.Texture;
+  riverG: THREE.Group; riverSig: string; foam?: { im: THREE.InstancedMesh; pts: [number, number][]; phase: number[] }; fall?: THREE.Texture; flow?: THREE.Texture;
   oilG: THREE.Group; oilSig: string; zoneG: THREE.Group; zoneSig: string;
   felling?: { chunk: number; trees: THREE.Group[]; fallAt: number[]; extras: THREE.Group };
 }
@@ -688,14 +688,20 @@ function syncDeco(R: Rig, L: Layout, s: GameState) {
     const c = inside ? gy * CHUNKS_X + gxx : 100000 + (gy + 500) * 2000 + (gxx + 500); // stable id for scenery patches
     if (inside && (cleared.has(c) || c === felling)) continue; // the patch being felled is drawn tree by tree
     const ox = MAP.x0 + gxx * CHUNK, oy = MAP.y0 + gy * CHUNK;
-    if (oy < MAP.y0 && oy > MAP.y0 - 34 && Math.abs(ox + CHUNK / 2 - riverSource(R.region)) < 52) continue; // the mountains where the river rises
+    const src = riverSource(R.region);
     if (ox + CHUNK > MARKET_X - 6 && ox < MARKET_X + 4 && oy + CHUNK > ROAD_Y - 6 && oy < ROAD_Y) continue; // the village market's clearing
     const dense = hash(c * 0.37 + 5), n = Math.round(sparse ? 3 + dense * 3 : 6 + dense * 6);
     const river = riverTiles(R.region);
     for (const p of patchTrees(c, ox, oy, n)) {
       if (inside && [-2, -1, 0, 1, 2].some((d) => river.has(tileId(Math.floor(p.x) + d, Math.floor(p.z))))) continue; // keep the banks clear
+      let ty = 0;
+      if (p.z < MAP.y0) { // on the mountains: trees thin out up the slopes, none on rock or in the gorge
+        ty = mountainH(p.x, p.z, src);
+        const slope = Math.abs(mountainH(p.x + 0.6, p.z, src) - ty) + Math.abs(mountainH(p.x, p.z - 0.6, src) - ty);
+        if (ty > 6.5 || slope > 1.1 || hash(p.x * 1.7 + p.z) < ty / 8 || Math.abs(p.x - gorgeX(src, MAP.y0 - p.z)) < 2.5) continue;
+      }
       q.setFromAxisAngle(up, p.rot);
-      const m = new THREE.Matrix4().compose(new THREE.Vector3(p.x, 0, p.z), q, new THREE.Vector3(p.k, p.ky, p.k));
+      const m = new THREE.Matrix4().compose(new THREE.Vector3(p.x, ty, p.z), q, new THREE.Vector3(p.k, p.ky, p.k));
       const shade = 0.82 + hash(p.x * 3.1 + p.z) * 0.3;
       trunks.push(p.kind === 2 ? m.clone().multiply(new THREE.Matrix4().makeScale(0.75, 1.5, 0.75)) : m); trunkCol.push(p.kind === 2 ? BIRCH : BARK);
       if (p.kind === 1) { pines.push(m); pineCol.push(new THREE.Color().setScalar(shade)); }
@@ -916,28 +922,95 @@ function syncZones(R: Rig, s: GameState, Z: Zoning | null) {
 /** Where the river comes over the falls (x at the top of the map). */
 const sources = new Map<RegionId, number>();
 const riverSource = (r: RegionId) => { const hit = sources.get(r); if (hit !== undefined) return hit; let best = 0, by = Infinity; for (const id of riverTiles(r)) { const [x, y] = tileAt(id); if (y < by) { by = y; best = x; } } sources.set(r, best + 1); return best + 1; };
-/** The river as one smooth ribbon with sandy banks, born in a waterfall under the mountains at the top of the map. */
+// ---- the mountains along the top edge of the map, and the gorge the river comes down through
+const vh = (x: number, y: number) => { const v = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return v - Math.floor(v); };
+function vnoise(x: number, y: number) {
+  const xi = Math.floor(x), yi = Math.floor(y), u0 = x - xi, v0 = y - yi, u = u0 * u0 * (3 - 2 * u0), v = v0 * v0 * (3 - 2 * v0);
+  const a = vh(xi, yi), b = vh(xi + 1, yi), c = vh(xi, yi + 1), d = vh(xi + 1, yi + 1);
+  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+}
+function ridged(x: number, y: number) { let s = 0, amp = 0.55, f = 1; for (let i = 0; i < 5; i++) { const n = 1 - Math.abs(vnoise(x * f, y * f) * 2 - 1); s += n * n * amp; amp *= 0.5; f *= 2.03; } return s; }
+const smooth = (a: number, b: number, t: number) => { const k = Math.min(1, Math.max(0, (t - a) / (b - a))); return k * k * (3 - 2 * k); };
+/** The gorge's centre line, d tiles beyond the top edge. */
+const gorgeX = (sx: number, d: number) => sx + 1.8 * Math.sin(d * 0.22) * smooth(1, 4, d);
+/** Height of the water in the gorge: a lip over the falls, then a gentle climb upstream. */
+const gorgeFloor = (d: number) => (d < 1 ? 0 : 5.2 + Math.max(0, d - 1.3) * 0.22);
+/** Terrain height past the top edge: foothills right at the edge, a ridged range behind, an escarpment around the falls and a gorge cut through it. */
+function mountainH(x: number, z: number, sx: number) {
+  const d = MAP.y0 - z;
+  if (d <= 0) return 0;
+  const near = Math.exp(-(((x - sx) / 16) ** 2));
+  const h = smooth(0, 3, d) * (1.5 + 2 * vnoise(x * 0.18, z * 0.18)) + smooth(2, 28, d) * (2 + 19 * ridged(x * 0.045 + 3.1, z * 0.045)) * (1 + 0.5 * smooth(25, 55, d)) + near * smooth(0.4, 1.4, d) * 6.5;
+  const gw = 1.5 + d * 0.12, g = Math.exp(-(((x - gorgeX(sx, d)) / gw) ** 2));
+  return h * (1 - g) + Math.min(h, gorgeFloor(d)) * g;
+}
+/** A strip along a path of [x, y, z] points; each cross-section is a list of [offset, lift, colour]. */
+function strip(path: [number, number, number][], profile: (i: number) => [number, number, THREE.Color][], vScale = 0.25) {
+  const pos: number[] = [], col: number[] = [], uv: number[] = [], idx: number[] = [];
+  let len = 0;
+  const k = profile(0).length;
+  path.forEach(([x, y, z], i) => {
+    const [ax, , az] = path[Math.max(0, i - 1)], [bx, , bz] = path[Math.min(path.length - 1, i + 1)];
+    const tx = bx - ax, tz = bz - az, tl = Math.hypot(tx, tz) || 1, nx = -tz / tl, nz = tx / tl;
+    if (i) len += Math.hypot(x - path[i - 1][0], z - path[i - 1][2]);
+    profile(i).forEach(([o, lift, c], j) => { pos.push(x + nx * o, y + lift, z + nz * o); col.push(c.r, c.g, c.b); uv.push(j / (k - 1), len * vScale); });
+    if (i) for (let j = 0; j < k - 1; j++) { const a0 = (i - 1) * k + j, b0 = i * k + j; idx.push(a0, a0 + 1, b0, a0 + 1, b0 + 1, b0); }
+  });
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3)); geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geo.setIndex(idx); geo.computeVertexNormals();
+  return geo;
+}
+/** Soft streaks that scroll down the river and over the falls. */
+function waterTexture(falls: boolean) {
+  const c = document.createElement('canvas'); c.width = 64; c.height = 128; const g2 = c.getContext('2d')!;
+  g2.fillStyle = falls ? 'rgba(150,200,225,0.55)' : '#c9d6dc'; g2.fillRect(0, 0, 64, 128);
+  for (let i = 0; i < (falls ? 110 : 60); i++) {
+    const x = (i * 37) % 64, y = (i * 53) % 128, l = falls ? 12 + (i * 7) % 34 : 3 + (i * 7) % 9;
+    g2.fillStyle = `rgba(255,255,255,${(falls ? 0.4 : 0.25) + ((i * 13) % 40) / 100})`;
+    g2.fillRect(x, y, falls ? 2 + (i % 2) : 6 + (i % 5) * 3, falls ? l : 1);
+  }
+  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; return t;
+}
+/** The river: a smooth channel with muddy, pebbly banks, flowing water, a timber bridge, and a waterfall where it leaves a gorge in the mountains along the top of the map. */
 function syncRiver(R: Rig) {
   if (R.riverSig === R.region) return;
   R.riverSig = R.region;
   clear(R.riverG);
-  // centre line: the middle of the river's tiles on each row
   const rows = new Map<number, number[]>();
   for (const id of riverTiles(R.region)) { const [x, y] = tileAt(id); (rows.get(y) ?? rows.set(y, []).get(y)!).push(x); }
-  const line = [...rows.entries()].sort((a, b) => a[0] - b[0]).map(([y, xs]) => [(Math.min(...xs) + Math.max(...xs) + 1) / 2, y + 0.5] as [number, number]);
+  let line = [...rows.entries()].sort((a, b) => a[0] - b[0]).map(([y, xs]) => [(Math.min(...xs) + Math.max(...xs) + 1) / 2, y + 0.5] as [number, number]);
   if (line.length < 2) return;
-  const ribbon = (half: number, y: number, color: number, opts: Parameters<typeof mat>[1] = {}) => {
-    const pos: number[] = [];
-    for (let i = 0; i < line.length - 1; i++) {
-      const [x0, z0] = line[i], [x1, z1] = line[i + 1], w0 = half * (1 + 0.12 * Math.sin(z0 * 0.4)), w1 = half * (1 + 0.12 * Math.sin(z1 * 0.4));
-      pos.push(x0 - w0, y, z0, x1 - w1, y, z1, x0 + w0, y, z0, x0 + w0, y, z0, x1 - w1, y, z1, x1 + w1, y, z1);
+  for (let pass = 0; pass < 3; pass++) line = line.map(([, z], i) => { let sx = 0, n = 0; for (let k = -3; k <= 3; k++) { const p = line[i + k]; if (p) { sx += p[0]; n++; } } return [sx / n, z] as [number, number]; }); // ease the tile steps into curves
+  const sx = riverSource(R.region), top = MAP.y0, C = (h: number) => new THREE.Color(h);
+  // upstream in the gorge, then down the map
+  const up: [number, number, number][] = [];
+  for (let d = 40; d >= 1.3; d -= 0.7) up.push([gorgeX(sx, d), gorgeFloor(d) + 0.06, top - d]);
+  const down: [number, number, number][] = [[line[0][0], 0, top + 0.6], ...line.filter(([, z]) => z > top + 1).map(([x, z]) => [x, 0, z] as [number, number, number])];
+  const W = (z: number) => 1.45 * (1 + 0.14 * Math.sin(z * 0.27) + 0.08 * Math.sin(z * 0.71));
+  const MUD = C(0x8a7a5a), SAND = C(0xc2ae80), GRASS = C(0x7aa956), SHALLOW = C(0x5f9ea3), MID = C(0x2f6c88), DEEP = C(0x204f6e);
+  const bankProfile = (pts: [number, number, number][]) => (i: number): [number, number, THREE.Color][] => { const w = W(pts[i][2]); return [[-w - 1.1, 0.004, GRASS], [-w - 0.45, 0.008, SAND], [-w + 0.1, 0.01, MUD], [w - 0.1, 0.01, MUD], [w + 0.45, 0.008, SAND], [w + 1.1, 0.004, GRASS]]; };
+  const waterProfile = (pts: [number, number, number][], scale: number) => (i: number): [number, number, THREE.Color][] => { const w = W(pts[i][2]) * scale; return [[-w, 0.02, SHALLOW], [-w * 0.5, 0.022, MID], [0, 0.024, DEEP], [w * 0.5, 0.022, MID], [w, 0.02, SHALLOW]]; };
+  const bankMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 });
+  const flow = waterTexture(false); flow.repeat.set(1, 1); R.flow = flow;
+  const waterMat = new THREE.MeshStandardMaterial({ vertexColors: true, map: flow, roughness: 0.18, metalness: 0.25 });
+  const addStrip = (geo: THREE.BufferGeometry, m: THREE.Material) => { const o = new THREE.Mesh(geo, m); o.receiveShadow = true; R.riverG.add(o); };
+  addStrip(strip(down, bankProfile(down)), bankMat); addStrip(strip(down, waterProfile(down, 1)), waterMat);
+  addStrip(strip(up, waterProfile(up, 0.6)), waterMat);
+  // pebbles and reeds along the banks
+  const stones: THREE.Matrix4[] = [], reeds: THREE.Matrix4[] = [], q = new THREE.Quaternion(), upV = new THREE.Vector3(0, 1, 0);
+  down.forEach(([x, , z], i) => {
+    if (i % 2 || isRoad(Math.floor(z)) || isRoad(Math.floor(z) + 1) || isRoad(Math.floor(z) - 1)) return;
+    for (const side of [-1, 1]) {
+      const r = vh(i, side), w = W(z) + 0.2 + r * 0.5;
+      q.setFromAxisAngle(upV, r * 6);
+      if (r < 0.55) stones.push(new THREE.Matrix4().compose(new THREE.Vector3(x + side * w, 0.02, z + r - 0.5), q, new THREE.Vector3(0.18 + r * 0.25, 0.1 + r * 0.08, 0.15 + r * 0.2)));
+      else reeds.push(new THREE.Matrix4().compose(new THREE.Vector3(x + side * (w - 0.1), 0, z), q, new THREE.Vector3(1, 0.7 + r * 0.6, 1)));
     }
-    const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.computeVertexNormals();
-    const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color, roughness: opts.rough ?? 0.8, metalness: opts.metal ?? 0, flatShading: true, side: THREE.DoubleSide })); m.receiveShadow = true; R.riverG.add(m);
-  };
-  ribbon(2.3, 0.006, 0xc9b27e, { rough: 1 }); // sandy banks
-  ribbon(1.75, 0.012, 0x3f7fb0, { rough: 0.15, metal: 0.15 }); // deep water
-  ribbon(1.2, 0.016, 0x5aa0cf, { rough: 0.1, metal: 0.2 }); // the lighter channel down the middle
+  });
+  const inst = (geo: THREE.BufferGeometry, m: THREE.Material, list: THREE.Matrix4[]) => { if (!list.length) return; const im = new THREE.InstancedMesh(geo, m, list.length); list.forEach((x, i) => im.setMatrixAt(i, x)); im.castShadow = true; im.frustumCulled = false; R.riverG.add(im); };
+  inst(cached('pebble', () => new THREE.IcosahedronGeometry(1, 0)), mat(0x9a948a, { rough: 1 }), stones);
+  inst(cached('reed', () => new THREE.ConeGeometry(0.12, 0.6, 4).translate(0, 0.3, 0)), mat(0x6f8f3f, { rough: 1 }), reeds);
   // a timber bridge where the main road crosses
   const cross = line.find(([, z]) => isRoad(Math.floor(z)));
   if (cross) {
@@ -945,53 +1018,61 @@ function syncRiver(R: Rig) {
     R.riverG.add(box(5.2, 0.12, ROAD_H + 0.2, PAL.wood, bx, 0.06, bz));
     for (const dz of [-ROAD_H / 2 - 0.05, ROAD_H / 2 + 0.05]) { R.riverG.add(box(5.2, 0.06, 0.06, PAL.woodDark, bx, 0.45, bz + dz)); for (let i = -2; i <= 2; i++) R.riverG.add(box(0.08, 0.42, 0.08, PAL.woodDark, bx + i * 1.2, 0.06, bz + dz)); }
   }
-  // the source: a cliff and a waterfall under a ridge of mountains past the top of the map
-  const [sx] = line[0], top = MAP.y0;
-  // a rocky escarpment of boulders, with a notch where the water comes over
-  for (let i = 0; i < 16; i++) {
-    const dx = -9 + i * 1.2, notch = Math.abs(dx) < 1.6;
-    const h = notch ? 1.2 : 3.2 + Math.sin(i * 2.7) * 0.9;
-    for (let k = 0; k < 2; k++) {
-      const rock = mesh(cached(`boulder${(i + k) % 4}`, () => new THREE.IcosahedronGeometry(1, 0)), mat(k ? 0x8d877c : 0x7a7469, { rough: 1 }), sx + dx + k * 0.4, h * (0.45 + k * 0.4), top - 1.2 - k * 0.9);
-      rock.scale.set(1.0 + (i % 3) * 0.2, h * (0.55 - k * 0.15), 1.1); rock.rotation.y = i * 1.3; R.riverG.add(rock);
-    }
+  // the mountains: a heightfield along the whole top edge, flat-shaded rock, scrub and snow
+  const xs: number[] = [];
+  for (let x = MAP.x0 - 60; x <= MAP.x0 + MAP.w + 60; x += Math.abs(x - sx) < 8 ? 0.4 : 1.5) xs.push(x);
+  const ds = [0, 0.3, 0.6, 0.9, 1.0, 1.08, 1.3, 1.6, 2, 2.5, 3, 3.6, 4.3, 5];
+  for (let d = 6; d <= 62; d += 1.5) ds.push(d);
+  const H = (x: number, d: number) => mountainH(x, top - d, sx);
+  const pos: number[] = [], col: number[] = [], c = new THREE.Color();
+  const ROCK = [C(0x7b756b), C(0x857f74), C(0x6c675f)], SNOW = C(0xeef1f4), SCRUB = C(0x56703f), MEADOW = C(0x7c8c58), FOOT = C(0x88ba5c);
+  const tri = (a: number[], b: number[], cc: number[]) => {
+    const e1 = new THREE.Vector3(b[0] - a[0], b[1] - a[1], b[2] - a[2]), e2 = new THREE.Vector3(cc[0] - a[0], cc[1] - a[1], cc[2] - a[2]), n = e1.cross(e2).normalize();
+    const ny = Math.abs(n.y), h = (a[1] + b[1] + cc[1]) / 3, r = vh(a[0] * 0.7, a[2] * 0.7);
+    if (h > 13 + 3 * vnoise(a[0] * 0.1, a[2] * 0.1) && ny > 0.45) c.copy(SNOW);
+    else if (ny < 0.62 || h > 10) c.copy(ROCK[Math.floor(r * 3)]);
+    else if (h < 0.35) c.copy(FOOT);
+    else if (h < 6.5) c.copy(SCRUB).lerp(MEADOW, r * 0.4).lerp(ROCK[1], ny < 0.75 ? 0.45 : 0);
+    else c.copy(MEADOW).lerp(ROCK[0], r);
+    for (const p of [a, b, cc]) { pos.push(p[0], p[1], p[2]); col.push(c.r, c.g, c.b); }
+  };
+  for (let j = 0; j < ds.length - 1; j++) for (let i = 0; i < xs.length - 1; i++) {
+    const p = (ii: number, jj: number) => [xs[ii], H(xs[ii], ds[jj]), top - ds[jj]];
+    const a = p(i, j), b = p(i + 1, j), e = p(i, j + 1), f = p(i + 1, j + 1);
+    tri(a, b, e); tri(b, f, e);
   }
-  const tex = new THREE.CanvasTexture((() => { // falling water: pale streaks of varied length on blue-white
-    const c = document.createElement('canvas'); c.width = 64; c.height = 128; const g2 = c.getContext('2d')!;
-    g2.fillStyle = 'rgba(190,222,240,0.9)'; g2.fillRect(0, 0, 64, 128);
-    for (let i = 0; i < 90; i++) { const x = (i * 37) % 64, y = (i * 53) % 128, l = 10 + (i * 7) % 30; g2.fillStyle = `rgba(255,255,255,${0.35 + ((i * 13) % 50) / 100})`; g2.fillRect(x, y, 2 + (i % 2), l); }
-    return c; })());
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping; tex.repeat.set(1, 3); R.fall = tex;
-  const fall = new THREE.Mesh(new THREE.PlaneGeometry(2.8, 1.6), new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.95, side: THREE.DoubleSide }));
-  fall.position.set(sx, 0.8, top - 0.4); fall.rotation.x = -0.25; R.riverG.add(fall);
-  const pool = mesh(cached('pool', () => new THREE.CircleGeometry(2.4, 18)), new THREE.MeshStandardMaterial({ color: 0x4b8fc0, roughness: 0.15 }), sx, 0.02, top + 0.6, false); pool.rotation.x = -Math.PI / 2; R.riverG.add(pool);
-  for (let i = 0; i < 5; i++) { const m = mesh(cached(`mist${i}`, () => new THREE.IcosahedronGeometry(0.5 + i * 0.12, 0)), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.35, depthWrite: false }), sx - 1.2 + i * 0.6, 0.3, top + 0.8, false); m.name = 'mist'; R.riverG.add(m); }
-  // mountains: grey stone with snow, larger further back; a few green foothills in front
-  const rnd = (i: number) => { const v = Math.sin(i * 91.7 + sx) * 43758.5453; return v - Math.floor(v); };
-  for (let i = 0; i < 26; i++) {
-    const x = sx - 46 + i * 3.7 + rnd(i) * 3, back = rnd(i + 50), z = top - 4 - back * 14, h = 7 + back * 9 + rnd(i + 9) * 4, r = 4 + rnd(i + 20) * 3;
-    const peak = mesh(cached(`mtn${i % 6}`, () => new THREE.ConeGeometry(1, 1, 6 + (i % 3))), mat(i % 3 ? 0x8a8378 : 0x958e82, { rough: 1 }), x, h / 2, z);
-    peak.scale.set(r, h, r); R.riverG.add(peak);
-    const snow = mesh(cached(`snow${i % 6}`, () => new THREE.ConeGeometry(1, 1, 6 + (i % 3))), mat(0xf4f6f8, { rough: 0.9 }), x, h * 0.78, z); snow.scale.set(r * 0.32, h * 0.3, r * 0.32); R.riverG.add(snow);
-    if (i % 2 === 0) { const hill = mesh(cached('foothill', () => new THREE.IcosahedronGeometry(1, 0)), mat(0x5f8a4a, { rough: 1 }), x + 1.5, 0, top - 2.5 + rnd(i + 3)); hill.scale.set(3.2, 1.6, 2.2); R.riverG.add(hill); }
-  }
-  // foam flecks that drift downstream so the river is seen to flow
-  const pts = line, n = Math.min(260, pts.length * 2);
-  const im = new THREE.InstancedMesh(cached('foam', () => new THREE.BoxGeometry(0.22, 0.01, 0.05)), new THREE.MeshBasicMaterial({ color: 0xeaf4fb, transparent: true, opacity: 0.8 }), n);
+  const mg = new THREE.BufferGeometry(); mg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); mg.setAttribute('color', new THREE.Float32BufferAttribute(col, 3)); mg.computeVertexNormals();
+  const mtn = new THREE.Mesh(mg, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, flatShading: true, side: THREE.DoubleSide })); mtn.receiveShadow = true; mtn.castShadow = true; R.riverG.add(mtn);
+  // the falls: water pouring off the gorge's lip into a foaming pool
+  const fallTex = waterTexture(true); fallTex.repeat.set(1, 1.5); R.fall = fallTex;
+  const lip = gorgeFloor(1.3) + 0.06, fallPath: [number, number, number][] = [];
+  for (let k = 0; k <= 8; k++) { const t = k / 8; fallPath.push([sx, lip * (1 - t * t) + 0.02, top - 1.3 + 0.5 * t + 0.6 * t * t]); }
+  const t2 = (k: number) => k / 8;
+  const fallGeo = new THREE.BufferGeometry(), fp: number[] = [], fu: number[] = [], fi: number[] = [];
+  fallPath.forEach(([x, y, z], k) => { for (const [o, u] of [[-1.05, 0], [1.05, 1]]) { fp.push(x + o * (1 + t2(k) * 0.35), y, z); fu.push(u, k / 8); } if (k) fi.push((k - 1) * 2, k * 2, (k - 1) * 2 + 1, (k - 1) * 2 + 1, k * 2, k * 2 + 1); });
+  fallGeo.setAttribute('position', new THREE.Float32BufferAttribute(fp, 3)); fallGeo.setAttribute('uv', new THREE.Float32BufferAttribute(fu, 2)); fallGeo.setIndex(fi);
+  R.riverG.add(new THREE.Mesh(fallGeo, new THREE.MeshBasicMaterial({ map: fallTex, transparent: true, depthWrite: false, side: THREE.DoubleSide })));
+  const pool = mesh(cached('pool', () => new THREE.CircleGeometry(2.2, 20)), new THREE.MeshStandardMaterial({ color: 0x2f6c88, roughness: 0.15, metalness: 0.2 }), sx, 0.018, top + 0.5, false); pool.rotation.x = -Math.PI / 2; R.riverG.add(pool);
+  for (let i = 0; i < 7; i++) { const m = mesh(cached(`mist${i}`, () => new THREE.IcosahedronGeometry(0.4 + (i % 4) * 0.12, 1)), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.3, depthWrite: false }), sx - 1.1 + (i % 4) * 0.7, 0.25 + (i > 3 ? 0.4 : 0), top + 0.3 + (i > 3 ? 0.3 : 0), false); m.name = 'mist'; R.riverG.add(m); }
+  for (let i = 0; i < 6; i++) { const rk = mesh(cached('boulder', () => new THREE.DodecahedronGeometry(1, 0)), mat(i % 2 ? 0x77716a : 0x8a847a, { rough: 1 }), sx + (i < 3 ? -1 : 1) * (1.9 + (i % 3) * 0.55), 0.15, top + 0.2 + (i % 3) * 0.6); rk.scale.set(0.5 + (i % 3) * 0.15, 0.4 + (i % 2) * 0.2, 0.45); rk.rotation.y = i; R.riverG.add(rk); }
+  // foam flecks that drift downstream
+  const n = Math.min(160, line.length * 1.2 | 0);
+  const im = new THREE.InstancedMesh(cached('foam', () => new THREE.BoxGeometry(0.2, 0.01, 0.05)), new THREE.MeshBasicMaterial({ color: 0xeaf4fb, transparent: true, opacity: 0.55 }), n);
   im.frustumCulled = false; R.riverG.add(im);
-  R.foam = { im, pts, phase: Array.from({ length: n }, (_, i) => rnd(i + 300)) };
+  R.foam = { im, pts: line, phase: Array.from({ length: n }, (_, i) => vh(i, 300)) };
 }
 function animateRiver(R: Rig, t: number) {
   if (!R.foam) return;
   const { im, pts, phase } = R.foam, m = new THREE.Matrix4(), L = pts.length - 1;
   phase.forEach((p0, i) => {
     const f = ((p0 + t * 0.012) % 1) * L, k = Math.floor(f), u = f - k, [x0, z0] = pts[k], [x1, z1] = pts[Math.min(L, k + 1)];
-    const side = ((i * 0.618) % 1 - 0.5) * 2.2;
-    m.makeTranslation(x0 + (x1 - x0) * u + side, 0.022, z0 + (z1 - z0) * u);
+    const side = ((i * 0.618) % 1 - 0.5) * 1.8;
+    m.makeTranslation(x0 + (x1 - x0) * u + side, 0.03, z0 + (z1 - z0) * u);
     im.setMatrixAt(i, m);
   });
   im.instanceMatrix.needsUpdate = true;
-  if (R.fall) R.fall.offset.y = -t * 0.9; // the waterfall pours
+  if (R.fall) R.fall.offset.y = t * 1.4; // the waterfall pours
+  if (R.flow) R.flow.offset.y = -t * 0.35; // and the river runs
   R.riverG.children.forEach((c) => { if (c.name === 'mist') { c.scale.setScalar(1 + 0.15 * Math.sin(t * 2 + c.position.x)); } });
 }
 

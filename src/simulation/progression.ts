@@ -67,7 +67,7 @@ export function advanceEra(s: GameState): string | null {
     if(next==='region')return 'Choose a border policy on the Region map.';
     if(next==='nation')return 'Choose your path on the Nation page.';
     if (next === 'town') return 'Open the Town hall to welcome newcomers.';
-    if (next === 'settlement') return 'Choose the Company town or Free settlement charter on the Community page.';
+    if (next === 'settlement') return 'Open the Community page to bring your workers’ families.';
     s.stageId = next;
     s.stageState[next] ??= STAGES[next].createState();
     if (!s.legacyProgression) s.era = Math.min(8, s.era + 1);
@@ -94,10 +94,10 @@ export const DISCOVERIES: Discovery[] = [
   {id:'regionRaid',title:'Bandits on the road',text:'A caravan was raided. Police coverage and staffed watchtowers protect the roads; pursue to recover some of the goods.',page:'region',when:s=>regionActive(s)&&!!regionOf(s).raid},
   {id:'regionDemand',title:'A rival makes a move',text:'A neighbour demands tribute. Paying buys their trust; refusing invites more raids for a while.',page:'region',when:s=>regionActive(s)&&!!regionOf(s).demand},
   {id:'cityCaravans',title:'Caravans seek safe passage',text:'Neighbouring traders notice your city. Keep growing here; a future regional chapter will build on your security choices.',page:'city',when:s=>cityActive(s)&&cityOf(s).threatAt>=0},
-  { id: 'townSchool', title: 'A school for your children', text: '80 residents are ready to become a town. Preview Public or Trade schools at the Town hall. Your existing business keeps running.', page: 'town', when: canStartTown },
-  { id: 'townClinic', title: 'Clean water and healthcare', text: 'A growing town needs a clinic and safe water. Services only cover their own neighbourhood and need paid staff from your population.', page: 'town', when: s => townOf(s).active && townOf(s).services.length > 0 },
+  { id: 'townSchool', title: 'Newcomers want to settle', text: 'Families from outside want to live here too. Open the Town page to welcome them and place schools, clinics and water.', page: 'town', when: canStartTown },
+  { id: 'townClinic', title: 'Clean water and healthcare', text: 'A growing town needs a clinic and safe water. Each service covers only the homes within its reach, so place them among the houses.', page: 'town', when: s => townOf(s).active && townOf(s).services.length > 0 },
   { id: 'townCrime', title: 'Wealth attracts trouble', text: 'Thefts are rising. Jobs, education and roads reduce crime; City will offer police and justice choices when you choose the next chapter.', page: 'town', when: s => townOf(s).active && townOf(s).crime >= .1 },
-  { id: 'familyHomes', title: 'A place for families', text: 'Your workers ask whether their families can join them. Preview Company town or Free settlement, and begin whenever you choose. Your existing business keeps running.', page: 'community', when: canStartSettlement },
+  { id: 'familyHomes', title: 'A place for families', text: 'Your workers miss their families. Zone some land residential and build homes, and their families will move in. Your existing business keeps running.', page: 'community', when: canStartSettlement },
   { id: 'communityFood', title: 'The first family has arrived', text: 'Families eat from your own food stores. The larder policy protects three days of food and buys an affordable shortfall. Cold weather also needs heating fuel.', page: 'community', when: s => communityOf(s).active && population(s) > 0 },
   { id: 'communityChildren', title: 'Children need somewhere to learn', text: 'Your settlement is growing into a town. Schools and healthcare are the next chapter; you can keep building and running this community in the meantime.', page: 'community', when: () => false },
   { id: 'marketDay', title: 'Your first market day', text: 'The village market is open. Prices now respond to local supply and demand; once a week, a real demand surge brings a brief selling opportunity. The village trader remains available for barter and small trades.', page: 'markets', when: (s) => !s.legacyProgression && s.stageId === 'market-town' },
@@ -281,7 +281,7 @@ export function objective(s: GameState): { title: string; hint: string; page?: s
     return {title:`A rival is watching · day ${Math.min(days,60)}/60`,hint:'Keep caravans on the road; a rival will make a move.',page:'region'};}
   if(canStartCity(s))return {title:'A city worth protecting',hint:'Preview sanitation, lighting and your safety charter.',page:'city'};
   if(cityActive(s)&&s.stageId==='city')return civicObjective(s);
-  if (canStartTown(s)) return { title: 'Your children need a school', hint: 'Preview Public or Trade schools at the Town hall.', page: 'town' };
+  if (canStartTown(s)) return { title: 'Newcomers want to settle', hint: 'Welcome them on the Town page.', page: 'town' };
   if (townOf(s).active && s.stageId === 'town') return civicObjective(s);
   if (canStartSettlement(s)) return { title: 'Your workers want their families nearby', hint: 'Preview a settlement charter, then build the first homes when you are ready.', page: 'community' };
   if (communityOf(s).active && s.stageId === 'settlement') return civicObjective(s);
@@ -362,13 +362,13 @@ export function civicObjective(s: GameState): { title: string; hint: string; pag
   const hint = (x: string) => gate ? `${x} Next chapter: ${gate}.` : x;
   if (!homeCapacity(s)) return { title: 'Build the first cottage', hint: 'A home makes room for a worker’s family.', page: 'community' };
   if (city && cityOf(s).case) return { title: 'Choose a response to theft', hint: hint('Rehabilitation builds prevention; punishment acts now but costs happiness.'), page: 'city' };
-  if (town && !t.services.length) return { title: 'Build the first school', hint: hint('Fund the public treasury, then place a school where families live.'), page: 'town' };
+  if (town && !t.services.length) return { title: 'Build the first school', hint: hint('Place it near the homes: it only serves families within its reach.'), page: 'town' };
   const upkeep = plannedServiceCost(s);
-  if ((town || city) && upkeep > 0 && t.cash < upkeep * 7) {
+  if (city && upkeep > 0 && t.cash < upkeep * 7) {
     const days = Math.floor(t.cash / upkeep);
     return { title: `The treasury is running low · ${days} day${days === 1 ? '' : 's'} left`, hint: hint(`Services close when it runs dry. Taxes cover ${pctTxt(Math.min(1, t.lastTax / upkeep))} of upkeep; fund the rest from the farm.`), page: 'town' };
   }
-  if ((town || city) && t.services.some((b) => b.active && !b.funded && t.cash >= serviceDailyCost(s, b.type) * b.count)) return { title: 'Services need resident staff', hint: hint('Public jobs are filled by your own families. Build homes so more adults move in.'), page: 'community' };
+  if (city && t.services.some((b) => b.active && !b.funded && t.cash >= serviceDailyCost(s, b.type) * b.count)) return { title: 'Services need resident staff', hint: hint('Public jobs are filled by your own families. Build homes so more adults move in.'), page: 'community' };
   if (c.fed < .9) return { title: `Families are going hungry · fed ${pctTxt(c.fed)}`, hint: hint('Keep food in storage and turn on the larder policy.'), page: 'community' };
   if (c.happiness < (s.stageId === 'settlement' ? .6 : .65)) {
     const w = wellbeing(s), weakest = (Object.entries({ food: w.fed, homes: w.housed, warmth: w.warm, jobs: w.jobs }) as [string, number][]).sort((a, b) => a[1] - b[1])[0][0];
