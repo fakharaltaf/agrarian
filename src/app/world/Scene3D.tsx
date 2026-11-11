@@ -982,7 +982,7 @@ function syncZones(R: Rig, s: GameState, Z: Zoning | null) {
   for (const z of ['res', 'ind'] as const) {
     const list = keys.filter((k) => w.zones[Number(k)] === z).map((k) => { const [x, y] = chunkOrigin(Number(k)); return new THREE.Matrix4().makeTranslation(x + CHUNK / 2, 0.02, y + CHUNK / 2); });
     if (!list.length) continue;
-    const im = new THREE.InstancedMesh(cached('zonetile', () => new THREE.BoxGeometry(CHUNK - 0.1, 0.01, CHUNK - 0.1)), new THREE.MeshBasicMaterial({ color: ZONE_COL[z], transparent: true, opacity: Z ? 0.38 : 0.16, depthWrite: false }), list.length);
+    const im = new THREE.InstancedMesh(Z ? cached('zonetile', () => new THREE.BoxGeometry(CHUNK - 0.1, 0.01, CHUNK - 0.1)) : cached('zonearea', () => new THREE.PlaneGeometry(CHUNK, CHUNK).rotateX(-Math.PI / 2)), new THREE.MeshBasicMaterial({ color: ZONE_COL[z], transparent: true, opacity: Z ? 0.38 : 0.16, depthWrite: false }), list.length);
     list.forEach((m, i) => im.setMatrixAt(i, m)); im.frustumCulled = false; R.zoneG.add(im);
   }
   if (Z?.hover) {
