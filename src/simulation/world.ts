@@ -16,7 +16,7 @@ export type Footprint = { w: number; d: number };
 export interface ClearJob { chunk: number; hours: number }
 /** owned: patches the farm has bought (you can only clear, farm and build on your own land). */
 /** roads: grade (1 dirt, 2 gravel, 3 paved) by tile id; main: grade of the main road through the map. */
-export interface RegionWorld { cleared: number[]; owned: number[]; pos: Record<string, [number, number]>; queue: ClearJob[]; roads: Record<number, number>; main: number; canals: Record<number, number>; zones: Record<number, Zone>; links: Record<string, number[]> }
+export interface RegionWorld { cleared: number[]; owned: number[]; pos: Record<string, [number, number]>; queue: ClearJob[]; roads: Record<number, number>; main: number; canals: Record<number, number>; zones: Record<number, Zone>; links: Record<string, number[]>; /** quarter turns (0–3) of each placed thing; its front faces +y at 0, then +x, −y, −x */ rot?: Record<string, number> }
 /** res: homes only (no farming); ind: industrial plants. Unzoned land is farmland. */
 export type Zone = 'res' | 'ind';
 /** What a placement is, for zoning: homes need a residential zone; fields stay out of zones; farm buildings stay out of residential. */
@@ -83,7 +83,16 @@ export const tileAt = (id: number): [number, number] => [MAP.x0 + (id % MAP.w), 
 
 /** Everything that stands on the map, with the key its position is saved under. */
 export interface Placed { key: string; x: number; y: number; w: number; d: number }
+/** How many quarter turns a placed thing stands at (keys are unique to one region, or square). */
+export const rotOf = (s: GameState, key: string) => { for (const w of Object.values(s.world ?? {})) { const r = w?.rot?.[key]; if (r) return r; } return 0; };
+/** A footprint after quarter turns: odd turns swap width and depth. */
+export const turned = (fp: Footprint, rot: number): Footprint => (rot % 2 ? { w: fp.d, d: fp.w } : fp);
 export function footprintOf(s: GameState, key: string): Footprint | null {
+  const fp = baseFootprint(s, key);
+  return fp && !key.startsWith('field:') ? turned(fp, rotOf(s, key)) : fp;
+}
+/** The footprint as built, before any turn. */
+export function baseFootprint(s: GameState, key: string): Footprint | null {
   const [kind, id] = key.split(':');
   if (kind === 'field') { const f = s.fields.find((x) => x.id === +id); return f ? { w: plotSide(f.ha), d: plotSide(f.ha) } : null; }
   if (kind === 'b') { const b = s.buildings.find((x) => x.id === +id); if (!b) return null; const [w, d] = FOOTPRINT[b.type]; return { w, d }; }
@@ -176,7 +185,9 @@ export function clearRect(w: RegionWorld, x: number, y: number, fw: number, fd: 
   }
 }
 /** Place a new thing: at the player's chosen spot, or (automation, bulk builds) the first free spot. */
-export function placeNew(s: GameState, r: RegionId, key: string, at?: [number, number]): string | null {
+export function placeNew(s: GameState, r: RegionId, key: string, at?: [number, number], rot = 0): string | null {
+  const w0 = worldOf(s, r);
+  if (rot % 4) (w0.rot ??= {})[key] = rot % 4; else if (w0.rot) delete w0.rot[key];
   const fp = footprintOf(s, key);
   if (!fp) return 'Nothing to place.';
   const use = useOf(key);
@@ -189,11 +200,12 @@ export function placeNew(s: GameState, r: RegionId, key: string, at?: [number, n
   return null;
 }
 /** Check before money changes hands; the caller places after creating the object. */
-export function canPlaceNew(s: GameState, r: RegionId, fp: Footprint, at?: [number, number], use?: Use): string | null {
+export function canPlaceNew(s: GameState, r: RegionId, fp0: Footprint, at?: [number, number], use?: Use, rot = 0): string | null {
+  const fp = turned(fp0, rot);
   if (at) { const p = placeProblem(s, r, at[0], at[1], fp, undefined, use); return p ? PROBLEM_TEXT[p] : null; }
   return findSpot(s, r, fp, false, use) ? null : use === 'home' ? 'No free residential land: zone more of your cleared land as residential.' : 'No free cleared land of yours. Clear forest or buy more land.';
 }
-export const forget = (s: GameState, r: RegionId, key: string) => { delete worldOf(s, r).pos[key]; unlink(s, r, key); };
+export const forget = (s: GameState, r: RegionId, key: string) => { const w = worldOf(s, r); delete w.pos[key]; if (w.rot) delete w.rot[key]; unlink(s, r, key); };
 
 // ---------------------------------------------------------------- legacy layout (positions for saves made before the map)
 
@@ -337,6 +349,16 @@ function openGround(s: GameState, r: RegionId) {
   return (x: number, y: number) => { if (!inMap(x, y) || blocked[tileId(x, y)] || river.has(tileId(x, y))) return false; const c = chunkAt(x, y); return owned.has(c) && cleared.has(c); };
 }
 /** Tiles just outside a footprint, where a road would give it access. */
+/** The tile(s) just outside the middle of a thing's front, where its door is. */
+export function frontDoor(x: number, y: number, fp: Footprint, rot: number): [number, number][] {
+  const along = rot % 2 ? fp.d : fp.w, mid = along % 2 ? [Math.floor(along / 2)] : [along / 2 - 1, along / 2];
+  return mid.map((i): [number, number] => [[x + i, y + fp.d], [x + fp.w, y + i], [x + i, y - 1], [x - 1, y + i]][rot % 4] as [number, number]);
+}
+/** The whole front side (the door can't be reached straight on, but nearby is better than round the back). */
+function frontSide(x: number, y: number, fp: Footprint, rot: number): [number, number][] {
+  const n = rot % 2 ? fp.d : fp.w;
+  return Array.from({ length: n }, (_, i): [number, number] => [[x + i, y + fp.d], [x + fp.w, y + i], [x + i, y - 1], [x - 1, y + i]][rot % 4] as [number, number]);
+}
 function doorstep(x: number, y: number, fp: Footprint): [number, number][] {
   const out: [number, number][] = [];
   for (let i = 0; i < fp.w; i++) out.push([x + i, y - 1], [x + i, y + fp.d]);
@@ -367,7 +389,9 @@ export function connect(s: GameState, r: RegionId, key: string) {
   const w = worldOf(s, r), p = w.pos[key], fp = footprintOf(s, key);
   if (!p || !fp) return false;
   const net = accessCache(s, w).net; // a stub that goes nowhere does not count
-  const path = route(openGround(s, r), doorstep(p[0], p[1], fp), (x, y) => inMap(x, y) && (isRoad(y) || net.has(tileId(x, y))));
+  // the track starts at the front door; only when that is boxed in does it leave from the side or the back
+  const rot = key.startsWith('field:') ? 0 : rotOf(s, key), open = openGround(s, r), done = (x: number, y: number) => inMap(x, y) && (isRoad(y) || net.has(tileId(x, y)));
+  const path = route(open, frontDoor(p[0], p[1], fp, rot), done) ?? route(open, frontSide(p[0], p[1], fp, rot), done) ?? route(open, doorstep(p[0], p[1], fp), done);
   if (!path) return false;
   const added = path.map(([x, y]) => tileId(x, y)).filter((id) => !w.roads[id]);
   for (const id of added) w.roads[id] = 1;

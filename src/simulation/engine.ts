@@ -10,7 +10,7 @@ import {
 } from './config';
 import { buildingDivision, clamp, debt, factoryCrop, equity, freeSpace, has, known, log, marketWage, nextId, post, random, round2, todayBook, lean } from './core';
 import { addGoods, canGrow, clearField, fertilizeField, fieldsTick, frostNight, harvestField, isManual, isReady, newField, plantField, spoilageDaily } from './agriculture';
-import { reconcileWorld, unlink, accessNote, cutsOff, buyable, chunksIn, connect, placedIn, touch, useOf, IRRIGATION_CHANNEL_PRICE, waterRoute, isRoad, MAP, ROAD_GRADES, ROAD_H, roadRoute, roadStretch, roadTilePrice, tileId, canPlaceNew, LAND_HA_PER_PATCH, landCost, own, ownedSet, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, clearCost, clearedSet, FOOTPRINT, footprintOf, forget, MOVE_DOWNTIME, placeNew, placeProblem, plotSide, PROBLEM_TEXT, seedWorld, TIMBER_PER_PATCH, worldOf } from './world';
+import { reconcileWorld, unlink, accessNote, cutsOff, buyable, chunksIn, connect, placedIn, touch, useOf, IRRIGATION_CHANNEL_PRICE, waterRoute, isRoad, MAP, ROAD_GRADES, ROAD_H, roadRoute, roadStretch, roadTilePrice, tileId, canPlaceNew, LAND_HA_PER_PATCH, landCost, own, ownedSet, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, clearCost, clearedSet, FOOTPRINT, footprintOf, forget, rotOf, turned, MOVE_DOWNTIME, placeNew, placeProblem, plotSide, PROBLEM_TEXT, seedWorld, TIMBER_PER_PATCH, worldOf } from './world';
 import { buyAnimals, livestockDaily, sellAnimals } from './livestock';
 import { claimDaily, startDay } from './daily';
 import { createMarkets, drawWeather, executeBuy, executeSell, quoteBuy, macroDaily, marketsDaily, marketsTick, priceFromInv } from './markets';
@@ -484,13 +484,13 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       if (price * n > s.cash) return fail(`Costs $${(price * n).toLocaleString()}.`);
       if (a.at && n > 1) return fail('Place buildings one at a time.');
       const [fw, fd] = FOOTPRINT[a.building];
-      const room = canPlaceNew(s, a.region, { w: fw, d: fd }, a.at, 'building');
+      const room = canPlaceNew(s, a.region, { w: fw, d: fd }, a.at, 'building', a.rot);
       if (room) return fail(room);
       let built = 0;
       for (let i = 0; i < n; i++) {
         const id = nextId(s);
         s.buildings.push({ id, type: a.building, region: a.region, active: true, level: 1, cost: price, depreciated: 0, util: 0, reserved: 0, reason: '', productionReport: emptyProductionReport(), stats: { out: 0, inCost: 0, outValue: 0, opCost: 0 } });
-        const placed = placeNew(s, a.region, `b:${id}`, a.at);
+        const placed = placeNew(s, a.region, `b:${id}`, a.at, a.rot);
         if (placed) { s.buildings.pop(); if (!i) return fail(placed); log(s, 'warning', `Only ${i} ${d.name.toLowerCase()}s fitted. Clear forest to make room for more.`, 'farm'); break; }
         post(s, 'building', -price, d.name, a.region);
         built++;
@@ -503,7 +503,8 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       if (!s.regions[a.region]?.unlocked) return fail('You have no operations there.');
       const w = worldOf(s, a.region);
       if (!w.pos[a.key]) return fail('Nothing to move.');
-      const fp = footprintOf(s, a.key);
+      const was = a.key.startsWith('field:') ? 0 : rotOf(s, a.key), rot = a.key.startsWith('field:') ? 0 : (((a.rot ?? was) % 4) + 4) % 4;
+      const now = footprintOf(s, a.key), fp = now && turned(now, (rot - was + 4) % 4); // the footprint it will have, turned as asked
       if (!fp || !Array.isArray(a.at) || a.at.length !== 2) return fail('Choose where to move it.');
       const [kind, id] = a.key.split(':');
       const fieldToMove = kind === 'field' ? s.fields.find((f) => f.id === +id) : undefined;
@@ -514,6 +515,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       if (fee > s.cash) return fail(`Moving costs $${fee.toLocaleString()}.`);
       post(s, 'maintenance', -fee, 'Moving on the farm', a.region);
       w.pos[a.key] = [a.at[0], a.at[1]];
+      if (rot) (w.rot ??= {})[a.key] = rot; else if (w.rot) delete w.rot[a.key];
       unlink(s, a.region, a.key); // the old track goes, a new one comes
       connect(s, a.region, a.key);
       const b = kind === 'b' ? s.buildings.find((x) => x.id === +id) : undefined;

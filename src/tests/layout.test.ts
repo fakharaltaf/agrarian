@@ -172,3 +172,24 @@ it('a building\'s dirt track goes with it when it is demolished or moved, but ne
   for (const id of oldTiles) if (!(w.links[`b:${b.id}`] ?? []).includes(id)) expect(w.roads[id]).toBeUndefined();
   expect(hasAccess(s, 'heartland', `b:${b.id}`)).toBe(true);
 });
+
+it('buildings can be turned when placed or moved; the footprint turns and the track leaves from the front door', async () => {
+  const { ROAD_Y, frontDoor, footprintOf, rotOf, tileId } = await import('../simulation/world');
+  const s = createGame(1013); s.legacyProgression = true; s.era = 4; post(s, 'prize', 1e6, 'fixture');
+  const w = worldOf(s, 'heartland');
+  const spot = (fw: number, fd: number) => { for (let y = ROAD_Y + 4; y < ROAD_Y + 14; y++) for (let x = -8; x < 12; x++) if (!placeProblem(s, 'heartland', x, y, { w: fw, d: fd })) return [x, y] as [number, number]; return null; };
+  // a barn is 3×2; a quarter turn makes it 2×3, facing +x
+  expect(dispatch(s, { type: 'build', region: 'heartland', building: 'barn', at: spot(2, 3)!, rot: 1 }).ok).toBe(true);
+  const key = `b:${s.buildings.at(-1)!.id}`;
+  expect(rotOf(s, key)).toBe(1);
+  expect(footprintOf(s, key)).toEqual({ w: 2, d: 3 });
+  const [x, y] = w.pos[key];
+  expect(frontDoor(x, y, { w: 2, d: 3 }, 1).some(([tx, ty]) => w.roads[tileId(tx, ty)])).toBe(true); // the track starts at the door
+  // moving it with a new turn: back to 3×2, facing −y (away from the road), and the track still comes to the door
+  const to = spot(3, 2)!;
+  expect(dispatch(s, { type: 'moveObject', region: 'heartland', key, at: to, rot: 2 }).ok).toBe(true);
+  expect(footprintOf(s, key)).toEqual({ w: 3, d: 2 });
+  expect(frontDoor(to[0], to[1], { w: 3, d: 2 }, 2).some(([tx, ty]) => w.roads[tileId(tx, ty)])).toBe(true);
+  // the map draws it turned
+  expect(layoutRegion(s, 'heartland').lots.find((l) => l.place === key)).toMatchObject({ w: 3, d: 2, rot: 2 });
+});

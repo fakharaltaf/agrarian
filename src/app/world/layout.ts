@@ -12,7 +12,8 @@ const saleSpot = new Map<RegionId, [number, number]>();
 export { FOOTPRINT, plotSide } from '../../simulation/world';
 
 /** `place` is the saved-map key this lot moves with (several home blocks share one). */
-export interface Lot { key: string; place: string; type: BuildingType | 'house' | 'shed'; buildings: Building[]; service?: CivicService; x: number; y: number; w: number; d: number }
+/** w and d are as it stands on the map (already turned); rot is its quarter turns, the front facing +y at 0. */
+export interface Lot { key: string; place: string; type: BuildingType | 'house' | 'shed'; buildings: Building[]; service?: CivicService; x: number; y: number; w: number; d: number; rot: number }
 export interface Plot { field: Field; x: number; y: number; s: number }
 export interface Layout { lots: Lot[]; plots: Plot[]; roadY: number; buy: { x: number; y: number; s: number } | null; maxX: number; maxY: number; minX: number; minY: number }
 
@@ -22,8 +23,8 @@ export function layoutRegion(s: GameState, r: RegionId): Layout {
   const add = (key: string, place: string, type: Lot['type'], bs: Building[], extra: Partial<Lot> = {}) => {
     const p = at(place);
     if (!p) return;
-    const [fw, fd] = FOOTPRINT[type];
-    lots.push({ key, place, type, buildings: bs, x: p[0], y: p[1], w: fw, d: fd, ...extra });
+    const [fw, fd] = FOOTPRINT[type], rot = w.rot?.[place] ?? 0, base = { w: fw, d: fd, ...extra };
+    lots.push({ key, place, type, buildings: bs, x: p[0], y: p[1], ...extra, w: rot % 2 ? base.d : base.w, d: rot % 2 ? base.w : base.d, rot });
   };
   add(r === 'heartland' ? 'house' : 'shed', r === 'heartland' ? 'farmhouse' : 'shed', r === 'heartland' ? 'house' : 'shed', []);
   add('market', 'market', 'shed', []);
@@ -35,7 +36,8 @@ export function layoutRegion(s: GameState, r: RegionId): Layout {
       const p = at(`home:${home.id}`);
       if (!p) continue;
       // blocks stand in rows of four inside the home's footprint
-      for (let i = 0; i < HOME_BLOCKS(home); i++) lots.push({ key: `community:${home.tier}:${home.id}-${i}`, place: `home:${home.id}`, type: 'house', buildings: [], x: p[0] + (i % 4) * 4, y: p[1] + Math.floor(i / 4) * 4, w: 3, d: 3 });
+      const rot = w.rot?.[`home:${home.id}`] ?? 0; // a turned home lays its rows of blocks the other way
+      for (let i = 0; i < HOME_BLOCKS(home); i++) { const a = (i % 4) * 4, b = Math.floor(i / 4) * 4; lots.push({ key: `community:${home.tier}:${home.id}-${i}`, place: `home:${home.id}`, type: 'house', buildings: [], x: p[0] + (rot % 2 ? b : a), y: p[1] + (rot % 2 ? a : b), w: 3, d: 3, rot }); }
     }
   }
   if (r === 'heartland' && townOf(s).active) {

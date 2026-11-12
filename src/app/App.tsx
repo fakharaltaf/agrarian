@@ -3,7 +3,7 @@ import { equity, sumBooks } from '../simulation/core';
 import { backlogHours, fleet, haulOf, marketCut, onTheWay, oneWay, usesCarts, VEHICLES } from '../simulation/hauling';
 import { ACHIEVEMENTS, PAGES } from '../simulation/engine';
 import {
-  act, deleteSlot, getGame, offlineOn, dismissAway, toast, exportSave, go, importSave, loadFrom, newGame, saveTo, setSpeed, slotInfo, slotLabel, SLOTS, SPEEDS, useGame, useStore, type Slot, type Speed,
+  act, deleteSlot, getGame, offlineOn, rotatePlacement, dismissAway, toast, exportSave, go, importSave, loadFrom, newGame, saveTo, setSpeed, slotInfo, slotLabel, SLOTS, SPEEDS, useGame, useStore, type Slot, type Speed,
 } from '../stores/game';
 import { Coach, resetTips, tipsOff, tipsOn } from './Coach';
 import { clock, money, stamp } from './format';
@@ -553,6 +553,7 @@ function useShortcuts(h: { help: () => void; log: () => void }) {
         else (prev.current = L.speed), setSpeed(0);
       } else if ((e.target as HTMLElement).closest('[role=dialog]')) return;
       else if (/^[1-6]$/.test(e.key) && (L.sales > 0 || SPEEDS[+e.key - 1] <= 5)) setSpeed(SPEEDS[+e.key - 1]);
+      else if ((e.key === 'r' || e.key === 'R') && rotatePlacement()) e.preventDefault();
       else if (e.key === '?') L.help();
       else if (e.key === 'n') L.log();
     };

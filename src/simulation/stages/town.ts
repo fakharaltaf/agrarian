@@ -220,10 +220,10 @@ function action(s: GameState,a:Action):ActionResult|null {
     const cost=round2(servicePrice(s,a.service)*count);if(s.cash<cost)return fail(`That costs $${cost.toLocaleString()}.`);
     // Roads are part of the street plan; other services stand on the map. A chosen spot always starts a new building.
     const group=a.at||a.service==='road'?undefined:t.services.find(b=>b.type===a.service&&b.district===a.district);
-    if(!group&&a.service!=='road'){const room=canPlaceNew(s,'heartland',SERVICE_FOOTPRINT,a.at);if(room)return fail(room);}
+    if(!group&&a.service!=='road'){const room=canPlaceNew(s,'heartland',SERVICE_FOOTPRINT,a.at,undefined,a.rot);if(room)return fail(room);}
     post(s,'building',-cost,`${count} ${SERVICE_DEFS[a.service].name}`,'heartland','corporate');
     if(group){group.count+=count;group.cost=round2(group.cost+cost);}
-    else{const svc={id:nextId(s),type:a.service,district:a.district,count,cost,active:true,staffed:0,funded:false};t.services.push(svc);if(a.service!=='road')placeNew(s,'heartland',`svc:${svc.id}`,a.at);}
+    else{const svc={id:nextId(s),type:a.service,district:a.district,count,cost,active:true,staffed:0,funded:false};t.services.push(svc);if(a.service!=='road')placeNew(s,'heartland',`svc:${svc.id}`,a.at,a.rot);}
     return {ok:true};
   }
   return null;

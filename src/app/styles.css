@@ -783,6 +783,7 @@ body:has(.modal-bg) .shell .coach { display: none !important; }
 .placement-info { display: grid; gap: 2px; flex: 1; min-width: 0; font-size: 14px; }
 .placement-info b { font-size: 15px; } .placement-info .bad { color: var(--down); }
 .placement-bar .btn { min-height: 44px; white-space: nowrap; }
+@media (max-width: 560px) { .placement-bar { flex-wrap: wrap; } .placement-info { flex-basis: 100%; } .placement-bar .btn { flex: 1; } }
 /* Smaller world bubbles with a mouse; touch keeps 44px targets. */
 @media (pointer: fine) { .wl-radial button { min-height: 34px; min-width: 34px; padding: 4px 10px; font-size: 14px; } .world-overlay > .wl-radial { padding: 4px; gap: 4px; } .wl-radial .wl-grow { min-height: 34px; font-size: 14px; } }
 

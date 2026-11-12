@@ -166,7 +166,7 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
         const k = 0.12; R.target.x += (R.glide.x - R.target.x) * k; R.target.z += (R.glide.z - R.target.z) * k; R.zoom += (R.glide.zoom - R.zoom) * k;
         if (Math.abs(R.glide.x - R.target.x) + Math.abs(R.glide.z - R.target.z) < 0.02 && Math.abs(R.glide.zoom - R.zoom) < 0.005) R.glide = undefined;
       }
-      syncLots(R, L, s);
+      syncLots(R, L);
       syncFields(R, L);
       if (now - lastCrops > 400) { syncCrops(R, L, s); lastCrops = now; }
       syncSelection(R, L, live.current.selected);
@@ -432,32 +432,27 @@ function clear(g: THREE.Group) {
   for (const ch of [...g.children]) g.remove(ch);
 }
 
-/** Which side of a lot its road arrives on, as the turn that brings a model's front (+z) round to face it. */
-function facing(w: ReturnType<typeof worldOf>, l: Lot) {
-  const road = (x: number, y: number) => isRoad(y) || w.roads[tileId(x, y)] !== undefined ? 1 : 0;
-  const count = (n: number, f: (i: number) => number) => Array.from({ length: n }, (_, i) => f(i)).reduce((a, b) => a + b, 0);
-  const sides: [number, number][] = [ // [roads touching, turn]; ties go to the front, then the sides, then the back
-    [count(l.w, (i) => road(l.x + i, l.y + l.d)), 0], [count(l.d, (j) => road(l.x + l.w, l.y + j)), Math.PI / 2],
-    [count(l.d, (j) => road(l.x - 1, l.y + j)), -Math.PI / 2], [count(l.w, (i) => road(l.x + i, l.y - 1)), Math.PI],
-  ];
-  return sides.reduce((a, b) => (b[0] > a[0] ? b : a))[1];
+/** What a lot is called on the map and when moving it. */
+export const lotName = (lot: Lot) => lot.key.startsWith('civic:') ? (lot.key==='civic:hall'?'Town hall':SERVICE_DEFS[lot.key.split(':')[1] as ServiceType].name) : lot.key.startsWith('community:') ? ({cottage:'Cottage',terrace:'Terrace',apartment:'Apartments'}[lot.key.split(':')[1]] ?? 'Neighbourhood') : lot.key === 'crew' ? 'Bunkhouse' : lot.key === 'office' ? 'Farm office' : lot.key === 'market' ? 'Village trader' : lot.type === 'house' ? 'Farmhouse' : lot.type === 'shed' ? 'Office' : BUILDINGS[lot.type].name;
+/** A point in a lot's own (unturned) frame, carried round with the lot's turn; returns lot-relative map coordinates. */
+function turnPoint(l: Lot, x: number, z: number): [number, number] {
+  const bw = l.rot % 2 ? l.d : l.w, bd = l.rot % 2 ? l.w : l.d, a = (l.rot * Math.PI) / 2, dx = x - bw / 2, dz = z - bd / 2;
+  return [l.w / 2 + dx * Math.cos(a) + dz * Math.sin(a), l.d / 2 - dx * Math.sin(a) + dz * Math.cos(a)];
 }
-function syncLots(R: Rig, L: Layout, s: GameState) {
-  const w = worldOf(s, R.region);
-  const sig = L.lots.map((l) => `${l.key}:${l.type}@${l.x},${l.y}:${l.buildings.length}:${l.buildings.map((b) => b.level).join('')}:${facing(w, l)}`).join('|');
+function syncLots(R: Rig, L: Layout) {
+  const sig = L.lots.map((l) => `${l.key}:${l.type}@${l.x},${l.y}r${l.rot}:${l.buildings.length}:${l.buildings.map((b) => b.level).join('')}`).join('|');
   if (sig === R.sig.lots) return;
   R.sig.lots = sig;
   clear(R.lots);
   R.models = [];
   R.pick = R.pick.filter((o) => o.userData.kind !== 'lot');
   for (const lot of L.lots) {
-    const model = lot.key.startsWith('civic:') ? buildCivic(lot.key.split(':')[1],lot.w,lot.d) : lot.key.startsWith('community:') ? buildCommunityHome(lot.key.split(':')[1], lot.w, lot.d, lot.key) : buildLot(lot.type, lot.w, lot.d, lot.key === 'crew' || lot.key === 'office' || lot.key === 'market' ? lot.key : '');
-    model.group.position.set(lot.x, 0, lot.y);
-    const art = model.group.children.length === 1 ? (model.group.children[0].userData.art as Parameters<typeof artModel>[0] | undefined) : undefined, turn = facing(w, lot);
-    if (art && turn) { // an imported building turns its front door to its road (refitted when a quarter turn swaps width and depth)
-      const side = Math.abs(turn) === Math.PI / 2, m = side ? artModel(art, lot.d, lot.w, true) : model.group.children[0];
-      if (m) { model.group.clear(); m.position.set(lot.w / 2, 0, lot.d / 2); m.rotation.y = turn; model.group.add(m); }
-    }
+    const bw = lot.rot % 2 ? lot.d : lot.w, bd = lot.rot % 2 ? lot.w : lot.d; // built unturned, then turned about its centre
+    const model = lot.key.startsWith('civic:') ? buildCivic(lot.key.split(':')[1], bw, bd) : lot.key.startsWith('community:') ? buildCommunityHome(lot.key.split(':')[1], bw, bd, lot.key) : buildLot(lot.type, bw, bd, lot.key === 'crew' || lot.key === 'office' || lot.key === 'market' ? lot.key : '');
+    const inner = new THREE.Group(); inner.add(...model.group.children); inner.position.set(-bw / 2, 0, -bd / 2); model.group.add(inner);
+    model.group.position.set(lot.x + lot.w / 2, 0, lot.y + lot.d / 2); model.group.rotation.y = (lot.rot * Math.PI) / 2;
+    model.smoke = model.smoke.map((p) => { const [x, z] = turnPoint(lot, p.x, p.z); return new THREE.Vector3(x, p.y, z); });
+    if (model.pen) { const [ax, az] = turnPoint(lot, model.pen.x0, model.pen.z0), [bx, bz] = turnPoint(lot, model.pen.x1, model.pen.z1); model.pen = { x0: Math.min(ax, bx), z0: Math.min(az, bz), x1: Math.max(ax, bx), z1: Math.max(az, bz) }; }
     const lvl = Math.max(1, ...lot.buildings.map((b) => b.level));
     if (lvl > 1) model.group.scale.set(1, 1 + (lvl - 1) * 0.18, 1); // upgraded buildings stand taller
     R.lots.add(model.group);
@@ -647,7 +642,7 @@ function syncCrops(R: Rig, L: Layout, s: GameState) {
 
 /** The placement ghost (green where it fits, red where it does not) and the forest patches about to be cleared. */
 function syncGhost(R: Rig, s: GameState, P: Placement | null, forest: [number, number] | null) {
-  const sig = P ? `${P.region}:${P.at}:${P.w}x${P.d}:${P.key ?? ''}:${worldOf(s, P.region).cleared.length}` : forest ? `f${forest}:${worldOf(s, R.region).queue.length}` : '';
+  const sig = P ? `${P.region}:${P.at}:${P.w}x${P.d}r${P.rot ?? 0}:${P.key ?? ''}:${worldOf(s, P.region).cleared.length}` : forest ? `f${forest}:${worldOf(s, R.region).queue.length}` : '';
   if (sig === R.ghostSig) return;
   R.ghostSig = sig;
   clear(R.ghost);
@@ -658,6 +653,11 @@ function syncGhost(R: Rig, s: GameState, P: Placement | null, forest: [number, n
     const edge = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(P.w, 0.25, P.d)), new THREE.LineBasicMaterial({ color: ok ? 0x2f8f3a : 0xa02a1a }));
     edge.position.set(P.at[0] + P.w / 2, 0.13, P.at[1] + P.d / 2);
     R.ghost.add(edge);
+    if (!P.key?.startsWith('field:') && P.action.type !== 'buyPlot' && P.action.type !== 'buyParcel') { // an arrow out of the front door: the track starts here
+      const r = P.rot ?? 0, [fx, fz] = [[P.w / 2, P.d], [P.w, P.d / 2], [P.w / 2, 0], [0, P.d / 2]][r], [ox, oz] = [[0, 1], [1, 0], [0, -1], [-1, 0]][r];
+      const arrow = mesh(cached('doorarrow', () => new THREE.ConeGeometry(0.32, 0.55, 3).rotateX(Math.PI / 2).scale(1, 0.15, 1)), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, depthWrite: false }), P.at[0] + fx + ox * 0.45, 0.28, P.at[1] + fz + oz * 0.45, false);
+      arrow.rotation.y = Math.atan2(ox, oz); R.ghost.add(arrow);
+    }
     // a town service shows how far it reaches, with the reach of the ones already built of the same kind
     const svcType = P.action.type === 'buildService' ? P.action.service : P.key?.startsWith('svc:') ? townOf(s).services.find((b) => `svc:${b.id}` === P.key)?.type : undefined;
     const rad = svcType ? SERVICE_RADIUS[svcType] : undefined;
@@ -1582,7 +1582,7 @@ function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el
     if (lot.key.startsWith('community:')) continue; // rows of homes read at a glance; a label on each is just clutter
     const [x, y] = project(lot.x + lot.w / 2, 0, lot.y + lot.d + 0.3);
     if (x < -60 || y < -20 || x > W + 60 || y > H + 20) continue;
-    const name = lot.key.startsWith('civic:') ? (lot.key==='civic:hall'?'Town hall':SERVICE_DEFS[lot.key.split(':')[1] as ServiceType].name) : lot.key.startsWith('community:') ? ({cottage:'Cottage',terrace:'Terrace',apartment:'Apartments'}[lot.key.split(':')[1]] ?? 'Neighbourhood') : lot.key === 'crew' ? 'Bunkhouse' : lot.key === 'office' ? 'Farm office' : lot.key === 'market' ? 'Village trader' : lot.type === 'house' ? 'Farmhouse' : lot.type === 'shed' ? 'Office' : BUILDINGS[lot.type].name;
+    const name = lotName(lot);
     const lvl = Math.max(1, ...lot.buildings.map((b) => b.level));
     const noRoad = !hasAccess(s, R.region, lot.place);
     const warn = noRoad || !!(lot.service?.active && !lot.service.funded) || lot.buildings.some((b) => b.active && /Not enough|full|Disease/.test(b.reason));

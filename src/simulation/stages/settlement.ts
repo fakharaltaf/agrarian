@@ -162,10 +162,10 @@ function action(s: GameState, a: Action): ActionResult | null {
   let built = 0;
   for (let i = 0; i < a.count; i++) {
     const home = { id: nextId(s), tier: a.tier, count: 1, cost };
-    const room = canPlaceNew(s, 'heartland', homeFootprint(home), a.at, 'home');
+    const room = canPlaceNew(s, 'heartland', homeFootprint(home), a.at, 'home', a.rot);
     if (room) { if (!i) return fail(room); log(s, 'warning', `Only ${i} homes fitted. Clear forest to make room for more.`, 'community'); break; }
     c.homes.push(home);
-    placeNew(s, 'heartland', `home:${home.id}`, a.at);
+    placeNew(s, 'heartland', `home:${home.id}`, a.at, a.rot);
     built++;
   }
   const cut = c.homes.slice(-built).map((h) => accessNote(s, 'heartland', `home:${h.id}`)).find(Boolean);

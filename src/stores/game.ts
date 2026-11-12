@@ -4,7 +4,7 @@ import { useSyncExternalStore } from 'react';
 import { CONFIG } from '../simulation/config';
 import { advance, createGame, dispatch as engineDispatch } from '../simulation/engine';
 import { BUILDINGS, type RegionId } from '../simulation/config';
-import { FOOTPRINT, SERVICE_FOOTPRINT, findSpot, homesCentre, homeFootprint, plotSide, worldOf, chunkAt, roadRoute } from '../simulation/world';
+import { FOOTPRINT, SERVICE_FOOTPRINT, findSpot, homesCentre, homeFootprint, plotSide, worldOf, chunkAt, roadRoute, rotOf } from '../simulation/world';
 import { SERVICE_DEFS } from '../simulation/town-state';
 import { parseSave, SAVE_VERSION, type SaveFile } from '../simulation/persistence';
 export { parseSave, SAVE_VERSION } from '../simulation/persistence';
@@ -38,7 +38,7 @@ export type Roading = { tool: 'draw' | 'upgrade' | 'remove'; region: RegionId; f
 export type Zoning = { region: RegionId; zone: 'res' | 'ind' | 'farm'; hover?: [number, number] };
 /** What a placement is, for zoning checks in the preview. */
 export const placementUse = (p: Pick<Placement, 'action' | 'key' | 'kind'>) => p.kind === 'move' ? undefined : p.action.type === 'buildHomes' ? 'home' as const : p.action.type === 'buyPlot' || p.action.type === 'buyParcel' ? 'field' as const : p.action.type === 'build' ? 'building' as const : undefined;
-export type Placement = { kind: 'new' | 'move'; action: Action; region: RegionId; w: number; d: number; label: string; key?: string; at: [number, number]; /** placing one of several: how many are left, of how many */ left?: number; total?: number };
+export type Placement = { kind: 'new' | 'move'; action: Action; region: RegionId; w: number; d: number; label: string; key?: string; at: [number, number]; /** quarter turns; w and d are already turned */ rot?: number; /** placing one of several: how many are left, of how many */ left?: number; total?: number };
 
 let store: Store = { game: createGame(), v: 0, speed: 1, toasts: [], away: null, catchUp: null, page: 'farm', ready: false, placing: null, roading: null, prospect: null, zoning: null };
 const listeners = new Set<() => void>();
@@ -251,7 +251,7 @@ function placementFor(a: Action): { region: RegionId; w: number; d: number; labe
 }
 export function startPlacement(p: Omit<Placement, 'at'>) {
   const g = store.game, civic = p.action.type === 'buildService' || p.action.type === 'buildHomes', at = findSpot(g, p.region, { w: p.w, d: p.d }, false, placementUse(p), civic ? homesCentre(worldOf(g, p.region)) : null) ?? (worldOf(g, p.region).pos[p.region === 'heartland' ? 'farmhouse' : 'shed'] ?? [1, 1]); // services and homes start among the homes
-  set({ placing: { ...p, at: [at[0], at[1]] }, roading: null, page: 'farm' });
+  set({ placing: { ...p, rot: p.rot ?? (p.kind === 'move' && p.key && !p.key.startsWith('field:') ? rotOf(g, p.key) : 0), at: [at[0], at[1]] }, roading: null, page: 'farm' });
 }
 export const startRoads = (region: RegionId) => set({ roading: { tool: 'draw', region }, placing: null, prospect: null, page: 'farm' });
 /** Oil mode: see the survey, pick a 2×2 spot, drill. */
@@ -278,11 +278,18 @@ export function roadTap(at: [number, number] | null) {
   act({ type: R.tool === 'upgrade' ? 'upgradeRoad' : 'removeRoad', region: R.region, at });
 }
 export const moveGhost = (at: [number, number]) => store.placing && set({ placing: { ...store.placing, at } });
+/** Turn what is being placed a quarter turn clockwise (fields are square plots and do not turn). */
+export function rotatePlacement() {
+  const p = store.placing;
+  if (!p || p.key?.startsWith('field:') || p.action.type === 'buyPlot' || p.action.type === 'buyParcel') return false;
+  set({ placing: { ...p, rot: ((p.rot ?? 0) + 1) % 4, w: p.d, d: p.w } });
+  return true;
+}
 export const cancelPlacement = () => set({ placing: null });
 export function confirmPlacement() {
   const p = store.placing;
   if (!p) return false;
-  const a = (p.kind === 'move' ? { type: 'moveObject', region: p.region, key: p.key!, at: p.at } : { ...p.action, at: p.at }) as Action;
+  const a = (p.kind === 'move' ? { type: 'moveObject', region: p.region, key: p.key!, at: p.at, rot: p.rot } : { ...p.action, at: p.at, ...(p.rot ? { rot: p.rot } : {}) }) as Action;
   const r = engineDispatch(store.game, a);
   sfx(r.ok ? 'buy' : 'error');
   if (!r.ok) { toast(r.error); bump(); return false; }

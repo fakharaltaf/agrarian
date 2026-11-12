@@ -9,7 +9,7 @@ import { known } from '../../simulation/core';
 import { buildingMargin } from '../../simulation/processing';
 import { DISCOVERIES, ERA_UNLOCK_TEXT, dailyGoals, dailyPrize, forecast, herdOf, homePlotPrice, housing, isManual, isReady, objective, chapterGate, gateProgress, type GateRow, PAGES, seedShortfall, upgradeCost } from '../../simulation/engine';
 import type { GameState } from '../../simulation/types';
-import { act, cancelPlacement, confirmPlacement, go, placementUse, setRoadTool, setZoneTool, startPlacement, stopProspect, stopRoads, stopZoning, type Zoning, useGame, usePageState, useStore, type Placement, type Roading } from '../../stores/game';
+import { act, cancelPlacement, confirmPlacement, rotatePlacement, go, placementUse, setRoadTool, setZoneTool, startPlacement, stopProspect, stopRoads, stopZoning, type Zoning, useGame, usePageState, useStore, type Placement, type Roading } from '../../stores/game';
 import { cutsOff, footprintOf, forSaleAround, isRoad, MAP, ROAD_GRADES, ROAD_H, roadRoute, roadStretch, roadTilePrice, worldOf, patchesAround, placeProblem, plotSide, PROBLEM_TEXT } from '../../simulation/world';
 import { buildingPrice, moveFee, parcelPrice } from '../../simulation/engine';
 import { homePrice } from '../../simulation/community-state';
@@ -20,7 +20,7 @@ import { NEXT_STAGE, STAGES, stageAtLeast } from '../../simulation/stages';
 import { unlockedRegions } from '../pages/shared';
 import { Bar, Card, Confirm, Modal, Select, usePref } from '../ui';
 import { AdvisorPill } from '../Advisor';
-import { Scene3D, fertilisePlan, type WorldPick } from './Scene3D';
+import { Scene3D, fertilisePlan, lotName, type WorldPick } from './Scene3D';
 import { layoutRegion, type Lot } from './layout';
 import { communityOf, population, homeCapacity } from '../../simulation/community-state';
 
@@ -245,7 +245,7 @@ export function Hud() {
           else if(kind==='buy1'||kind==='buy9'){ if(forest)act({type:'buyLand',region,chunks:forSaleAround(s,region,forest[0],forest[1],kind==='buy1'?1:3)}); } // the bubble stays open so the new land can be cleared next
           else if(kind==='clear1'||kind==='clear9'){ if(forest&&act({type:'clearForest',region,chunks:patchesAround(s,region,forest[0],forest[1],kind==='clear1'?1:3)}))setForest(null); }
           else if(kind==='move'){ const f=s.fields.find(x=>x.id===id); if(f){ const side=plotSide(f.ha); startPlacement({kind:'move',key:`field:${id}`,region:f.region,w:side,d:side,label:`Field ${id}`,action:{type:'seeTip',tip:''}}); setSel([]); } }
-          else if(kind==='movelot'&&lot){ const fp=footprintOf(s,lot.place); if(fp){ startPlacement({kind:'move',key:lot.place,region,w:fp.w,d:fp.d,label:'Move',action:{type:'seeTip',tip:''}}); setLot(null); } }
+          else if(kind==='movelot'&&lot){ const fp=footprintOf(s,lot.place); if(fp){ startPlacement({kind:'move',key:lot.place,region,w:fp.w,d:fp.d,label:lotName(lot),action:{type:'seeTip',tip:''}}); setLot(null); } }
           else if(kind==='plant'||kind==='harvest') act(kind==='harvest'?{type:'harvest',fieldId:id}:{type:'plant',fieldId:id,crop});
           else if(kind==='irrigate') act({type:'irrigate',fieldIds:[id]},'Irrigation installed.');
           else if(kind==='fertilise'){
@@ -353,6 +353,7 @@ function PlacementBar({ s, p }: { s: GameState; p: Placement }) {
   return <div className="placement-bar" role="dialog" aria-label={`Placing ${p.label}`}>
     <div className="placement-info"><b>{p.kind === 'move' ? '✥ Moving' : '📍 Placing'} {p.label}{p.total ? ` ${p.total - p.left! + 1} of ${p.total}` : ''}{cost > 0 ? ` · ${money(cost)}` : ''}</b>
       <span className={problem ? 'bad' : 'muted'}>{problem ? PROBLEM_TEXT[problem] : matchMedia('(pointer: fine)').matches ? 'Click a green spot to place it.' : 'Tap where it goes, then confirm.'}</span></div>
+    {!p.key?.startsWith('field:') && p.action.type !== 'buyPlot' && p.action.type !== 'buyParcel' && <button className="btn ghost" aria-label="Rotate" title="Rotate (R)" onClick={() => rotatePlacement()}>⟳ Rotate</button>}
     <button className="btn primary" disabled={!!problem} onClick={() => confirmPlacement()}>{p.kind === 'move' ? 'Move here' : 'Place'}</button>
     <button className="btn ghost" onClick={() => cancelPlacement()}>Cancel</button>
   </div>;

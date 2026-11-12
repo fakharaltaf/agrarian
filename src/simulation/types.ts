@@ -418,7 +418,7 @@ export type Action =
   | { type: 'haggle'; offerId: string }
   | { type: 'chooseCharter'; charter: TraderCharter }
   | { type: 'startSettlement'; charter?: SettlementCharter }
-  | { type: 'buildHomes'; tier: HomeTier; count: number; at?: [number, number] }
+  | { type: 'buildHomes'; tier: HomeTier; count: number; at?: [number, number]; rot?: number }
   | { type: 'setLarder'; enabled: boolean }
   | { type: 'settleWorker'; workerId: number }
   | { type: 'setCityFunding'; enabled:boolean }
@@ -448,7 +448,7 @@ export type Action =
   | { type: 'startTown'; charter?: SchoolCharter }
   | { type: 'fundTown'; amount: number; direction: 'toTown' | 'repay' }
   | { type: 'setTownTax'; rate: number }
-  | { type: 'buildService'; service: ServiceType; district: DistrictId; count?: number; at?: [number, number] }
+  | { type: 'buildService'; service: ServiceType; district: DistrictId; count?: number; at?: [number, number]; rot?: number }
   | { type: 'toggleService'; serviceId: number }
   | { type: 'changeSchools'; charter: SchoolCharter }
   | { type: 'answerPetition'; accept: boolean }
@@ -465,8 +465,8 @@ export type Action =
   | { type: 'sellMachine'; machineId: number }
   | { type: 'sellIdleMachines'; machineIds: number[] }
   | { type: 'service'; machineId: number }
-  | { type: 'build'; region: RegionId; building: BuildingType; count?: number; at?: [number, number] }
-  | { type: 'moveObject'; region: RegionId; key: string; at: [number, number] }
+  | { type: 'build'; region: RegionId; building: BuildingType; count?: number; at?: [number, number]; rot?: number }
+  | { type: 'moveObject'; region: RegionId; key: string; at: [number, number]; rot?: number }
   | { type: 'clearForest'; region: RegionId; chunks: number[] }
   | { type: 'demolish'; buildingId: number }
   | { type: 'toggleBuilding'; buildingId: number }
