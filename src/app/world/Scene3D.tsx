@@ -914,7 +914,7 @@ type Band = [number, THREE.Color, number]; // offset (or radius), colour, opacit
 /** Smooth noise in about −1…1 over the ground, so neighbouring pieces of road agree on where an edge wanders. */
 const wn = (x: number, z: number) => Math.sin(x * 1.9 + z * 0.7) * 0.5 + Math.sin(x * 0.63 - z * 1.3 + 1.7) * 0.35 + Math.sin(x * 3.7 + z * 2.9) * 0.15;
 /** step: cut the ribbon every so far; edge: how far the outer edges wander; meander: the whole ribbon wanders sideways; fade: how patchy its opacity is along the way. */
-type Wobble = { step?: number; edge?: number; meander?: number; fade?: number };
+type Wobble = { step?: number; edge?: number; meander?: number; fade?: number; /** fade in over this far from the start, and out over this far before the end */ ends?: [number, number] };
 class Decal {
   pos: number[] = []; col: number[] = []; uv: number[] = [];
   constructor(public y: number) {}
@@ -928,7 +928,8 @@ class Decal {
       const cx = ax + (bx - ax) * t, cz = az + (bz - az) * t;
       let off = b[0] + (o.meander ? o.meander * wn(cx * 0.8, cz * 0.8) : 0);
       if (o.edge) off += Math.sign(b[0]) * o.edge * (Math.abs(b[0]) / outer) ** 4 * wn(cx + nx * b[0] * 2, cz + nz * b[0] * 2);
-      const a = b[2] * (o.fade ? 1 - o.fade * (0.5 + 0.5 * wn(cx * 1.3 + 5, cz * 1.3 - 2)) : 1);
+      const ramp = (d: number, r: number) => (r > 0 ? Math.min(1, d / r) ** 2 * (3 - 2 * Math.min(1, d / r)) : 1);
+      const a = b[2] * (o.fade ? 1 - o.fade * (0.5 + 0.5 * wn(cx * 1.3 + 5, cz * 1.3 - 2)) : 1) * (o.ends ? ramp(t * l, o.ends[0]) * ramp((1 - t) * l, o.ends[1]) : 1);
       this.vx(cx + nx * off, cz + nz * off, b[1], a);
     };
     for (let k = 0; k < n; k++) {
@@ -983,14 +984,13 @@ function syncRoads(R: Rig, s: GameState) {
   R.roadSig = sig;
   clear(R.roadsG);
   const C = (h: number) => new THREE.Color(h), GRASS = C(0x8d9a4c);
-  const verge = new Decal(0.004), surface = new Decal(0.009), marks = new Decal(0.014);
+  const verge = new Decal(0.004), surface = new Decal(0.009), grass = new Decal(0.011), marks = new Decal(0.014), mouths: [number, number, number][] = [];
   // a cross-section: a verge of worn grass, the surface fading in over a darker shoulder (no hard edge), and on farm tracks grass down the middle
-  const road = (g: number, half: number, o: { mid?: boolean; plain?: boolean } = {}): { v: Band[]; s: Band[] } => {
-    const sh = C(o.plain ? ROAD_COL[g] : SHOULDER_COL[g]), rd = C(ROAD_COL[g]), soft = g === 3 ? 0.03 : 0.07;
-    const mid: Band[] = o.mid ? [[-0.11, rd, 1], [-0.05, GRASS, 0.9], [0.05, GRASS, 0.9], [0.11, rd, 1]] : [];
+  const road = (g: number, half: number): { v: Band[]; s: Band[] } => {
+    const sh = C(SHOULDER_COL[g]), rd = C(ROAD_COL[g]), soft = g === 3 ? 0.03 : 0.07;
     return {
       v: [[-half - 0.2, C(VERGE_COL[g]), 0], [-half, C(VERGE_COL[g]), 0.3], [half, C(VERGE_COL[g]), 0.3], [half + 0.2, C(VERGE_COL[g]), 0]],
-      s: [[-half - soft, sh, 0], [-half + soft, sh, 1], [-half + 0.2, rd, 1], ...mid, [half - 0.2, rd, 1], [half - soft, sh, 1], [half + soft, sh, 0]],
+      s: [[-half - soft, sh, 0], [-half + soft, sh, 1], [-half + 0.2, rd, 1], [half - 0.2, rd, 1], [half - soft, sh, 1], [half + soft, sh, 0]],
     };
   };
   const ROADSIDE: Wobble = { step: 0.35, edge: 0.06 }, PAVED: Wobble = { step: 0.5 };
@@ -1022,16 +1022,21 @@ function syncRoads(R: Rig, s: GameState) {
       const n = at(x + dx, y + dy);
       if (n > 0 && (dx < 0 || dy < 0)) continue; // each pair once, from its west or north tile
       const main = n === -1, sg = n > 0 ? Math.min(gr, n) : gr, len = main ? 0.5 + 0.35 : 1; // onto the main road, up to its ruts
-      const S = road(sg, HALF, { mid: sg === 1 && !main, plain: main }), wob = sg === 3 ? PAVED : ROADSIDE; // where it joins the main road, no border to cut across it
+      const S = road(sg, HALF), wob = sg === 3 ? PAVED : ROADSIDE;
       const bx = ax + dx * len, bz = az + dy * len;
       verge.seg(ax, az, bx, bz, S.v, wob); surface.seg(ax, az, bx, bz, S.s, wob);
-      if (sg < 3) { // ruts stop short of corners and junctions
-        const s0 = through(x, y) ? 0 : 0.3, s1 = main ? 0.5 : through(x + dx, y + dy) ? len : len - 0.3;
-        for (const o of [-0.15, 0.15]) marks.seg(ax + dx * s0, az + dy * s0, ax + dx * s1, az + dy * s1, rut(sg, o, 0.1), RUTS);
+      if (main) mouths.push([ax + dx * 0.5, az + dy * 0.5, sg]);
+      if (sg < 3) { // ruts and the grass between them run on through straight tiles and fade out at bends, junctions and ends
+        const in0 = through(x, y), in1 = !main && through(x + dx, y + dy), s0 = in0 ? 0 : 0.15, s1 = main ? 0.55 : in1 ? len : len - 0.15;
+        const ends: [number, number] = [in0 ? 0 : 0.3, in1 ? 0 : 0.3], p0x = ax + dx * s0, p0z = az + dy * s0, p1x = ax + dx * s1, p1z = az + dy * s1;
+        for (const o of [-0.15, 0.15]) marks.seg(p0x, p0z, p1x, p1z, rut(sg, o, 0.1), { ...RUTS, ends });
+        if (sg === 1 && !main) grass.seg(p0x, p0z, p1x, p1z, [[-0.08, GRASS, 0], [-0.03, GRASS, 0.85], [0.03, GRASS, 0.85], [0.08, GRASS, 0]], { step: 0.3, fade: 0.35, ends });
       }
     }
   }
-  const layers = [verge.mesh(true), surface.mesh(true, roadGrain()), marks.mesh(true, roadGrain())];
+  // where a track meets the main road its mouth widens into a soft rounded fan, so the corners are not cut square
+  for (const [mx, mz, mg] of mouths) surface.disc(mx, mz, [[0.5, C(ROAD_COL[Math.min(mg, g)]), 1], [0.82, C(ROAD_COL[Math.min(mg, g)]), 0]], 0.05, 24);
+  const layers = [verge.mesh(true), surface.mesh(true, roadGrain()), grass.mesh(true, roadGrain()), marks.mesh(true, roadGrain())];
   layers.forEach((m, i) => { m.renderOrder = i; }); // drawn in order, each blending over the one below
   R.roadsG.add(...layers, roadsideTufts(w, riverTiles(R.region)));
   // irrigation channels: one flat blue, like the river (no shadow on them: per-tile shadow edges drew a grid)
