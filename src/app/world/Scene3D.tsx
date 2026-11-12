@@ -12,7 +12,7 @@ import { spreadNeed } from '../../simulation/agriculture';
 import type { GameState } from '../../simulation/types';
 import { getGame, getSpeed, moveGhost, placementUse, startZoning, stopZoning, zoneHover, zoneTap, type Zoning, prospectHover, prospectTap, roadHover, roadTap, startProspect, startRoads, stopProspect, stopRoads, type Placement, type Roading , getPage } from '../../stores/game';
 import { featureEra, stageAtLeast } from '../../simulation/stages';
-import { preloadArt, artRevision } from './art';
+import { preloadArt, artRevision, artModel, playClip } from './art';
 import { money, num, pct0 } from '../format';
 import { layoutRegion, type Layout, type Lot, type Plot } from './layout';
 import { CHUNK, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, LAND_HA_PER_PATCH, MAP, hasAccess, riverTiles, riverX, tileId, roadRoute, roadStretch, tileAt, forSaleAround, landCost, ownedSet, ROAD_H, ROAD_Y, chunkAt, chunkOrigin, clearCost, clearedSet, isRoad, patchesAround, placeProblem, worldOf } from '../../simulation/world';
@@ -46,6 +46,17 @@ const ACCENT: Partial<Record<CropId, { color: number; from: number; n: number }>
   cotton: { color: 0xf8f6ef, from: 0.6, n: 3 }, coffee: { color: 0xb8392f, from: 0.7, n: 4 }, apples: { color: 0xd2402f, from: 0.75, n: 5 }, grapes: { color: 0x6b3a7e, from: 0.75, n: 4 },
 };
 const merged = (...parts: THREE.BufferGeometry[]) => mergeGeometries(parts.map(g => g.index ? g.toNonIndexed() : g))!;
+/** One blob of foliage, shaded as part of a single soft canopy centred at height cy rather than as hard facets. */
+function blob(r: number, x: number, y: number, z: number, cy: number, sy = 1) {
+  const g = new THREE.IcosahedronGeometry(r, 1), p = g.getAttribute('position'), n = g.getAttribute('normal'), a = new THREE.Vector3(), b = new THREE.Vector3();
+  for (let i = 0; i < p.count; i++) {
+    a.fromBufferAttribute(p, i).normalize();
+    b.fromBufferAttribute(p, i).add(new THREE.Vector3(x, y - cy, z)).normalize();
+    a.lerp(b, 0.6).normalize(); n.setXYZ(i, a.x, a.y, a.z);
+  }
+  return g.scale(1, sy, 1).translate(x, y, z);
+}
+export const SOFT_PINE = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95 });
 const RIPE: Partial<Record<CropId, number>> = { wheat: 0xe0b23f, rice: 0xd9c46a, corn: 0xcfae4a, sugarcane: 0x8fbf55, potatoes: 0x8a9a3a, soybeans: 0xb6a24a, cotton: 0xf6f3ec, coffee: 0xb8392f, apples: 0xd2402f, grapes: 0x6b3a7e };
 
 interface Rig {
@@ -57,7 +68,7 @@ interface Rig {
   crops: Partial<Record<Shape, THREE.InstancedMesh>>; sig: { lots: string; fields: string; crops: string; sel: string; deco: string };
   neighbours: THREE.Group[]; people: Map<number, THREE.Group>; machines: Map<number, THREE.Group>; trucks: { obj: THREE.Group; t0: number }[]; herds: Map<string, THREE.Group[]>;
   storageProps: THREE.Group; lastStockTick: number; lastCash: number; lastCoin: number;
-  rain: THREE.Points; smoke: THREE.Sprite[]; pops: { key: string; text: string; x: number; z: number; t0: number; tone?: string }[]; seenHarvest: Map<number, object>; popsReady: boolean; crownMat: THREE.MeshStandardMaterial; lastHaul: number; layout: Layout | null; region: RegionId; animT?: number;
+  rain: THREE.Points; smoke: THREE.Sprite[]; pops: { key: string; text: string; x: number; z: number; t0: number; tone?: string }[]; seenHarvest: Map<number, object>; popsReady: boolean; crownMat: THREE.MeshStandardMaterial; lastHaul: number; layout: Layout | null; region: RegionId; animT?: number; dt: number;
   roadsG: THREE.Group; roadSig: string; roadPrev: THREE.Group; roadPrevSig: string;
   haulers: Map<string, THREE.Group>; tickSeen: number; tickAt: number;
   riverG: THREE.Group; riverSig: string; foam?: { im: THREE.InstancedMesh; pts: [number, number][]; phase: number[] }; fall?: THREE.Texture;
@@ -116,7 +127,7 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
       renderer, scene, camera, target: new THREE.Vector3(6, 0, 8), yaw: Math.PI / 4, yawTo: Math.PI / 4, zoom: 1, sun, hemi, ground,
       lots: g(), fields: g(), units: g(), deco: g(), fx: g(), sel: g(), ghost: g(), ghostSig: '', models: [], pick: [], crops: {}, sig: { lots: '', fields: '', crops: '', sel: '', deco: '' },
       storageProps: g(), lastStockTick:-1, lastCash:getGame().cash, lastCoin:0,
-      neighbours: [], people: new Map(), machines: new Map(), trucks: [], herds: new Map(), rain, smoke: [], pops: [], seenHarvest: new Map(), popsReady: false, crownMat: mat(CROWN.Spring).clone(), lastHaul: -1, layout: null, region,
+      neighbours: [], people: new Map(), machines: new Map(), trucks: [], herds: new Map(), rain, smoke: [], pops: [], seenHarvest: new Map(), popsReady: false, crownMat: Object.assign(mat(CROWN.Spring).clone(), { flatShading: false }), lastHaul: -1, layout: null, region, dt: 0,
       roadsG: g(), roadSig: '', roadPrev: g(), roadPrevSig: '', haulers: new Map(), tickSeen: -1, tickAt: 0, riverG: g(), riverSig: '', oilG: g(), oilSig: '', zoneG: g(), zoneSig: '',
     };
     rig.current = R;
@@ -130,6 +141,10 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
         artVersion=artRevision(); c.dataset.art=String(artVersion); R.sig.lots=''; R.sig.deco='';
         for(const animals of R.herds.values())for(const a of animals)R.units.remove(a);
         R.herds.clear();
+        // people, carts and the market were drawn before the models arrived: build them again
+        for(const o of [...R.people.values(),...R.haulers.values(),...R.neighbours])R.units.remove(o);
+        R.people.clear();R.haulers.clear();R.neighbours.length=0;
+        const mk=R.units.getObjectByName('village-market');if(mk)R.units.remove(mk);R.lastStockTick=-1;
       }
       const W = c.clientWidth, H = c.clientHeight;
       if (!W || !H) return;
@@ -437,9 +452,6 @@ function syncLots(R: Rig, L: Layout) {
     R.pick.push(hit);
     R.models.push({ lot, model, hit });
   }
-  const home=L.lots[0];
-  R.lots.add(box(2.6,.09,.32,PAL.wood,home.x+home.w+1.4,.2,home.y+1));
-  R.lots.add(box(2.6,.25,.06,PAL.wood,home.x+home.w+1.4,.35,home.y+.85));
   // smoke sprites for every chimney
   for (const sp of R.smoke) R.fx.remove(sp);
   R.smoke = [];
@@ -775,10 +787,10 @@ function syncDeco(R: Rig, L: Layout, s: GameState) {
     // winter: broadleaf trees stand bare
     inst(cached('forest-bare', () => merged(...[0, 1, 2, 3].map((n) => new THREE.CylinderGeometry(0.015, 0.035, 0.55, 4).translate(0, 0.27, 0).rotateZ(0.55).rotateY(n * 1.6 + 0.3).translate(0, 0.55, 0)))), mat(PAL.woodDark), [...oaks, ...birches]);
   } else {
-    inst(far ? cached('forest-leafy-far', () => new THREE.IcosahedronGeometry(0.5, 0).scale(1.1, 0.9, 1.1).translate(0, 0.82, 0).toNonIndexed()) : cached('forest-leafy', () => merged(new THREE.IcosahedronGeometry(0.42, 0).translate(0, 0.85, 0), new THREE.IcosahedronGeometry(0.3, 0).translate(0.24, 0.72, 0.1), new THREE.IcosahedronGeometry(0.28, 0).translate(-0.2, 0.75, -0.12))), R.crownMat, oaks, oakCol);
-    inst(cached('forest-birch', () => merged(new THREE.IcosahedronGeometry(0.32, 0).scale(1, 1.5, 1).translate(0, 1.15, 0), new THREE.IcosahedronGeometry(0.22, 0).scale(1, 1.4, 1).translate(0.12, 0.85, 0.05))), R.crownMat, birches, birchCol);
+    inst(far ? cached('forest-leafy-far', () => new THREE.IcosahedronGeometry(0.5, 0).scale(1.1, 0.9, 1.1).translate(0, 0.82, 0).toNonIndexed()) : cached('forest-leafy-soft', () => merged(blob(0.4, 0, 0.92, 0, 0.8), blob(0.32, 0.26, 0.74, 0.08, 0.8), blob(0.3, -0.22, 0.76, -0.14, 0.8), blob(0.27, 0.02, 0.7, 0.28, 0.8))), R.crownMat, oaks, oakCol);
+    inst(cached('forest-birch-soft', () => merged(blob(0.3, 0, 1.18, 0, 1.0, 1.45), blob(0.22, 0.13, 0.88, 0.05, 1.0, 1.35))), R.crownMat, birches, birchCol);
   }
-  inst(far ? cached('forest-pine-far', () => merged(new THREE.ConeGeometry(0.42, 0.75, 6).translate(0, 0.62, 0), new THREE.ConeGeometry(0.26, 0.55, 6).translate(0, 1.05, 0))) : cached('forest-pine', () => merged(new THREE.ConeGeometry(0.42, 0.55, 7).translate(0, 0.55, 0), new THREE.ConeGeometry(0.33, 0.48, 7).translate(0, 0.85, 0), new THREE.ConeGeometry(0.22, 0.4, 7).translate(0, 1.12, 0))), mat(0xffffff, { rough: 0.95 }), pines, pineCol.map((c) => c.clone().multiply(new THREE.Color(0x3f6b45))));
+  inst(far ? cached('forest-pine-far', () => merged(new THREE.ConeGeometry(0.42, 0.75, 6).translate(0, 0.62, 0), new THREE.ConeGeometry(0.26, 0.55, 6).translate(0, 1.05, 0))) : cached('forest-pine-soft', () => merged(new THREE.ConeGeometry(0.42, 0.55, 10).translate(0, 0.55, 0), new THREE.ConeGeometry(0.33, 0.48, 10).translate(0, 0.85, 0), new THREE.ConeGeometry(0.22, 0.4, 10).translate(0, 1.12, 0))), SOFT_PINE, pines, pineCol.map((c) => c.clone().multiply(new THREE.Color(0x3f6b45))));
   inst(cached('bound-rail', () => new THREE.BoxGeometry(CHUNK, 0.04, 0.04)), mat(0xc9a46a), rails);
   inst(cached('bound-post', () => new THREE.BoxGeometry(0.07, 0.36, 0.07).translate(0, 0.18, 0)), mat(PAL.wood), posts);
   inst(cached('ribbon', () => merged(new THREE.CylinderGeometry(0.03, 0.03, 0.9, 5).translate(0, 0.45, 0), new THREE.BoxGeometry(0.28, 0.14, 0.02).translate(0.15, 0.8, 0))), mat(0xd23c2c), ribbons);
@@ -825,6 +837,7 @@ function animateFelling(R: Rig, s: GameState, t: number) {
   const next = F.trees.find((_, i) => F.fallAt[i] < 0 || t < F.fallAt[i]) ?? F.trees[n - 1];
   const { cutter, pile } = F.extras.userData as { cutter: THREE.Group; pile: THREE.Group };
   if (next) { cutter.position.set(next.position.x - 0.35, 0, next.position.z + 0.1); cutter.rotation.y = 0; }
+  playClip(cutter, 'Idle'); (cutter.userData.mixer as THREE.AnimationMixer | undefined)?.update(R.dt);
   (cutter.userData.axe as THREE.Group).rotation.z = -0.4 - Math.max(0, Math.sin(t * 6)) * 1.4;
   while (pile.children.length < Math.min(9, logs)) {
     const i = pile.children.length, log = cyl(0.07, 0.55, PAL.wood, 0, 0, 0, 7);
@@ -966,7 +979,8 @@ function animateHaul(R: Rig, s: GameState, t: number) {
     const key = `${trip.vehicle}@${trip.depart}`;
     seen.add(key);
     let o = R.haulers.get(key);
-    if (!o) { o = hauler(trip.kind); R.units.add(o); R.haulers.set(key, o); }
+    if (!o) { o = hauler(trip.kind); playClip(o, 'Walk'); R.units.add(o); R.haulers.set(key, o); }
+    (o.userData.mixer as THREE.AnimationMixer | undefined)?.update(R.dt);
     const now = s.tick + part, out = now < trip.arrive;
     const f = out ? (now - trip.depart) / Math.max(1, trip.arrive - trip.depart) : 1 - (now - trip.arrive) / Math.max(1, trip.back - trip.arrive);
     const k = Math.max(0, Math.min(route.length - 1, f * (route.length - 1))), i = Math.floor(k), j = Math.min(route.length - 1, i + 1), u = k - i;
@@ -975,12 +989,17 @@ function animateHaul(R: Rig, s: GameState, t: number) {
     o.position.set(x0 + 0.5 + (x1 - x0) * u, 0.02, z0 + 0.5 + (z1 - z0) * u + (out ? -0.25 : 0.25)); // keep to their side of the road
     const dx = (x1 - x0) * (out ? 1 : -1), dz = (z1 - z0) * (out ? 1 : -1);
     if (dx || dz) o.rotation.y = Math.atan2(-dz, dx);
-    (o.children[0] as THREE.Object3D | undefined) && (o.position.y = 0.02 + Math.abs(Math.sin(t * 9)) * 0.01);
+    if (!o.userData.mixer) o.position.y = 0.02 + Math.abs(Math.sin(t * 9)) * 0.01;
   }
   for (const [k, o] of R.haulers) if (!seen.has(k)) { R.units.remove(o); R.haulers.delete(k); }
   if (!R.units.getObjectByName('village-market')) { // the market: a few stalls and a sign by the road
     const m = new THREE.Group(); m.name = 'village-market';
     for (const [dx, i] of [[-3, 0], [0, 1], [3, 2]] as const) { const st = buildLot('shed', 2, 2, 'market').group; st.position.set(MARKET_X + dx - 1, 0, ROAD_Y - 3.2 - (i % 2) * 0.4); m.add(st); }
+    // between the stalls: a vendor's cart, a second stand, lamps and stacked goods
+    const put = (id: Parameters<typeof artModel>[0], w: number, x: number, z: number, rot = 0) => { const a = artModel(id, w, w, true); if (a) { a.position.set(x, 0, z); a.rotation.y = rot; m.add(a); } };
+    put('stall2', 1.3, MARKET_X - 1.5, ROAD_Y - 2.4, 0.2); put('cart', 1.1, MARKET_X + 1.6, ROAD_Y - 1.9, -0.5);
+    for (const x of [MARKET_X - 4.2, MARKET_X + 4.6]) put('lamp', 1.6, x, ROAD_Y - 1.3);
+    put('barrel', 0.3, MARKET_X - 0.3, ROAD_Y - 1.7); put('crate', 0.3, MARKET_X + 0.2, ROAD_Y - 1.75, 0.4); put('sacks', 0.45, MARKET_X + 3.3, ROAD_Y - 1.8); put('haybale', 0.35, MARKET_X - 3.4, ROAD_Y - 1.8);
     m.add(box(0.1, 1.4, 0.1, PAL.woodDark, MARKET_X - 5, 0, ROAD_Y - 0.6), box(1.2, 0.4, 0.06, PAL.roofGreen, MARKET_X - 5, 1.1, ROAD_Y - 0.6));
     R.units.add(m);
   }
@@ -1212,19 +1231,20 @@ function animateNeighbours(R: Rig, L: Layout, s: GameState, time: number) {
   const homes = L.lots.filter(l => l.key.startsWith('community:'));
   const count = R.region === 'heartland' && communityOf(s).active && homes.length ? Math.min(8, Math.ceil(Math.max(0, population(s) - residentWorkers(s)) / 2)) : 0;
   while(R.neighbours.length > count) R.units.remove(R.neighbours.pop()!);
-  while(R.neighbours.length < count) { const i = R.neighbours.length, p = person(SHIRTS[i % SHIRTS.length], false); if(i % 2) p.scale.setScalar(0.75); R.neighbours.push(p); R.units.add(p); }
+  while(R.neighbours.length < count) { const i = R.neighbours.length, p = person(SHIRTS[(i * 3 + 1) % SHIRTS.length], false); if(i % 3 === 2) p.scale.setScalar(0.7); playClip(p, 'Walk', hash(i)); R.neighbours.push(p); R.units.add(p); }
   const t = reducedMotionQuery?.matches ? 0 : time;
-  R.neighbours.forEach((p, i) => { const home = homes[i % homes.length], stride = Math.sin(t * 0.35 + i * 1.7); p.position.set(home.x + 1.5 + stride * 1.2, 0.03, home.y + home.d + 0.45); p.rotation.y = Math.cos(t * 0.35 + i * 1.7) > 0 ? Math.PI / 2 : -Math.PI / 2; });
+  R.neighbours.forEach((p, i) => { const home = homes[i % homes.length], stride = Math.sin(t * 0.35 + i * 1.7); p.position.set(home.x + 1.5 + stride * 1.2, 0.03, home.y + home.d + 0.45); p.rotation.y = Math.cos(t * 0.35 + i * 1.7) > 0 ? 0 : Math.PI; (p.userData.mixer as THREE.AnimationMixer | undefined)?.update(R.dt * 0.6); });
 }
 
 function animateUnits(R: Rig, L: Layout, s: GameState, t: number) {
   const r = R.region;
+  R.dt = Math.min(0.1, Math.max(0, t - (R.animT ?? t))); R.animT = t;
   const plotOf = (id: number) => L.plots.find((p) => p.field.id === id);
   const house = L.lots[0];
   // people
   // everyone working is out in the fields; only a few idle hands loiter in the yard (the rest are indoors)
   let idle = 0;
-  const people = s.workers.filter((w) => w.region === r && (w.task || idle++ < 8)).slice(0, 150);
+  const people = s.workers.filter((w) => w.region === r && (w.task || idle++ < 8)).slice(0, 60); // modelled people are heavier: a field shows a few, not every hand
   const seen = new Set<number>();
   people.forEach((w, i) => {
     seen.add(w.id);
@@ -1232,19 +1252,21 @@ function animateUnits(R: Rig, L: Layout, s: GameState, t: number) {
     if (!o) { o = person(SHIRTS[w.id % SHIRTS.length], w.role === 'manager'); R.units.add(o); R.people.set(w.id, o); }
     const p = w.task ? plotOf(w.task) : undefined;
     let x: number, z: number;
+    const folk = !!o.userData.folk;
+    if (folk) { playClip(o, p ? 'Walk' : 'Idle', hash(w.id)); (o.userData.mixer as THREE.AnimationMixer | undefined)?.update(R.dt); }
     if (p) {
       o.scale.y = 1;
       const lane = (w.id * 7) % Math.max(1, p.s - 1);
       x = p.x + 0.35 + ((t * 0.18 + hash(w.id) * p.s) % (p.s - 0.7));
       z = p.y + 0.4 + lane;
-      o.position.y = Math.abs(Math.sin(t * 7 + i)) * 0.03;
-      o.rotation.y = Math.PI / 2;
+      o.position.y = folk ? 0 : Math.abs(Math.sin(t * 7 + i)) * 0.03;
+      o.rotation.y = folk ? 0 : Math.PI / 2; // walking up the rows
     } else {
       x = house.x + house.w + 0.4 + (i % 6) * 0.35 + Math.sin(t * 0.5 + i) * 0.05;
       z = house.y + 1 + Math.floor(i / 6) * 0.35;
-      o.position.y = .15;
-      o.scale.y = .75;
-      o.rotation.y = 0;
+      o.position.y = folk ? 0 : .15;
+      o.scale.y = folk ? 1 : .75;
+      o.rotation.y = folk ? hash(w.id + 5) * 6 : 0; // standing about, chatting
     }
     o.position.x = x; o.position.z = z;
   });
@@ -1285,7 +1307,7 @@ function animateUnits(R: Rig, L: Layout, s: GameState, t: number) {
     return true;
   });
   // animals wander inside their pens, spread across every pen of their kind
-  const dt = Math.min(0.1, Math.max(0, t - (R.animT ?? t))); R.animT = t;
+  const dt = R.dt;
   const seenH = new Set<string>();
   for (const h of s.herds) {
     if (h.region !== r) continue;
@@ -1607,8 +1629,9 @@ function syncStorage(R: Rig,L: Layout,s: GameState){
   const st=stored(s,R.region), n=Math.min(12,Math.ceil(st.dry/Math.max(1,st.cap.dry)*12));
   const at=L.lots.find(l=>l.type!=='house'&&l.type!=='shed'&&BUILDINGS[l.type].category==='storage')??L.lots.find(l=>l.key==='market');
   if(!at)return;
-  const signature=`${at.key}:${at.x}:${at.y}:${n}`;
+  const signature=`${at.key}:${at.x}:${at.y}:${n}:${artRevision()}`;
   if(R.storageProps.userData.signature===signature)return;
   R.storageProps.userData.signature=signature;R.storageProps.clear();
-  for(let i=0;i<n;i++)R.storageProps.add(box(.32,.27,.32,PAL.wood,at.x+(i%4)*.36,.05+Math.floor(i/4)*.27,at.y+at.d+.4));
+  for(let i=0;i<n;i++){const x=at.x+(i%4)*.36,y=.05+Math.floor(i/4)*.3,z=at.y+at.d+.4,c=artModel('crate',.3,.3,true);
+    if(c){c.position.set(x,y,z);c.rotation.y=(i*.7)%.3;R.storageProps.add(c);}else R.storageProps.add(box(.32,.27,.32,PAL.wood,x,y,z));}
 }

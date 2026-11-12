@@ -63,12 +63,183 @@
     "sha256": "91aedec323b54d42b802b065b2f5005daea527b0a379a9f3fe90f3258f3c2382"
   },
   {
-    "file": "house.glb",
+    "file": "farmer.glb",
+    "title": "Farmer",
+    "author": "Quaternius",
+    "license": "CC0 1.0",
+    "source": "https://poly.pizza/m/7pn3R6hPvE",
+    "download": "https://static.poly.pizza/81f2f0cf-6f53-4b57-92ea-dba0928620f2.glb",
+    "sha256": "f7ae6e2596c6521d296fa5948783f1dac717807456ce5355e48719e81d15e9a6"
+  },
+  {
+    "file": "woman.glb",
+    "title": "Animated Woman",
+    "author": "Quaternius",
+    "license": "CC0 1.0",
+    "source": "https://poly.pizza/m/nIItLV9nxS",
+    "download": "https://static.poly.pizza/46d6db5a-3c9f-4238-8cdf-8eb7194498dc.glb",
+    "sha256": "a6522fe53d15de21130a957d1bf2b8a9a58d4e4e9a12af646645b667a9bb2d17"
+  },
+  {
+    "file": "woman2.glb",
+    "title": "Woman Casual",
+    "author": "Quaternius",
+    "license": "CC0 1.0",
+    "source": "https://poly.pizza/m/jpKRgGDxhk",
+    "download": "https://static.poly.pizza/51d5abdd-bb87-4b8d-9967-21738ffb8437.glb",
+    "sha256": "99c4df0aaabd19022809facc68f5fb5f564d35df3a9893c273a31fdaacf68e96"
+  },
+  {
+    "file": "man.glb",
+    "title": "Man",
+    "author": "Quaternius",
+    "license": "CC0 1.0",
+    "source": "https://poly.pizza/m/HMnuH5geEG",
+    "download": "https://static.poly.pizza/3746be88-6799-4817-929b-6bc067c47caa.glb",
+    "sha256": "dad8fa3ca2bc7760892f9ff47f544941179e50acb2aa772cf9f035154a37fc58"
+  },
+  {
+    "file": "horse.glb",
+    "title": "Horse",
+    "author": "Quaternius",
+    "license": "CC0 1.0",
+    "source": "https://poly.pizza/m/qvTrSG9pZF",
+    "download": "https://static.poly.pizza/d37dbc87-ca61-4b2c-a2da-d2f0c4240bef.glb",
+    "sha256": "fae7a7ec91e0d6a33554efb896fac9c4e8c632644183bcb8cc962f673d3ce609"
+  },
+  {
+    "file": "donkey.glb",
+    "title": "Donkey",
+    "author": "Quaternius",
+    "license": "CC0 1.0",
+    "source": "https://poly.pizza/m/qmX6nhnvp7",
+    "download": "https://static.poly.pizza/ca29f94e-0874-41b6-8334-66642af56a61.glb",
+    "sha256": "b3a529f300a3d2e62db7ac02f45df42327af9740146f0b27c5cae7b5d234f1d2"
+  },
+  {
+    "file": "cart.glb",
+    "title": "Cart",
+    "author": "Quaternius",
+    "license": "CC0 1.0",
+    "source": "https://poly.pizza/m/l7bDe7ak6j",
+    "download": "https://static.poly.pizza/94b32c91-4d46-4172-aadd-10176a4eb543.glb",
+    "sha256": "c98eee1d2a91a1a894bbbe5b54f0b262bfcfc268d4eab17fbbde5b0a40885f53"
+  },
+  {
+    "file": "stall.glb",
+    "title": "Market Stand",
+    "author": "Quaternius",
+    "license": "CC0 1.0",
+    "source": "https://poly.pizza/m/DGIM5HGISb",
+    "download": "https://static.poly.pizza/e2633001-4cf5-46fa-ac68-575c9954f4ba.glb",
+    "sha256": "19b9b99c84d41c0b1124fe286ac3b99668d2f2d489d44affa559188881448d75"
+  },
+  {
+    "file": "stall2.glb",
+    "title": "Market Stand",
+    "author": "Quaternius",
+    "license": "CC0 1.0",
+    "source": "https://poly.pizza/m/hts7l0NZxW",
+    "download": "https://static.poly.pizza/8927a168-7f28-4f44-8a8e-e951aeffdf89.glb",
+    "sha256": "8f3aadd10a1392e5dcc9890d8c331b53cadbb9afc0ebab935256b2905a3e0487"
+  },
+  {
+    "file": "crate.glb",
+    "title": "Cube Crate",
+    "author": "Quaternius",
+    "license": "CC0 1.0",
+    "source": "https://poly.pizza/m/YAghI6GBls",
+    "download": "https://static.poly.pizza/9b0c7d9b-344c-48d2-9a49-a59df0f4f838.glb",
+    "sha256": "e0c4c5946b53ba314ec6e22bdb5d3329e4a2f0950b3c477a88e0d456d85baea8"
+  },
+  {
+    "file": "barrel.glb",
+    "title": "Barrel",
+    "author": "Quaternius",
+    "license": "CC0 1.0",
+    "source": "https://poly.pizza/m/ONdghDBByN",
+    "download": "https://static.poly.pizza/6d3e8847-bda4-4d6c-8004-7b03cf848b13.glb",
+    "sha256": "bc2fe12bd6f04492ea22d89394324c18e32c77afe85194d1319c16585777963a"
+  },
+  {
+    "file": "sacks.glb",
+    "title": "Bags",
+    "author": "Quaternius",
+    "license": "CC0 1.0",
+    "source": "https://poly.pizza/m/gzvyAQ797z",
+    "download": "https://static.poly.pizza/5a6e6186-ab59-4c81-a5e1-9beb5e1bb8e9.glb",
+    "sha256": "ad5ebf8f6c7082662cbefd93e960dc33a9a70239d36b23d0ec0c7fdcc8588c95"
+  },
+  {
+    "file": "cottage.glb",
     "title": "House",
     "author": "Quaternius",
     "license": "CC0 1.0",
-    "source": "https://poly.pizza/m/YlADpCJU8U",
-    "download": "https://static.poly.pizza/0877b108-5675-4da1-b646-2aedb9768869.glb",
-    "sha256": "81bc46fc9589e24b77d5f97803325f35a6f1e8cbbdee644b54cb3a479b5cad4c"
+    "source": "https://poly.pizza/m/RSwoYSLblu",
+    "download": "https://static.poly.pizza/d1ec68ce-6b50-45b8-9806-47dc8bfddd84.glb",
+    "sha256": "2fa386ba7809ff1a40d9a66aebce9bb4902382726e630d76128d107b92773c60"
+  },
+  {
+    "file": "cottage2.glb",
+    "title": "House",
+    "author": "Quaternius",
+    "license": "CC0 1.0",
+    "source": "https://poly.pizza/m/oJJIRwv6Bo",
+    "download": "https://static.poly.pizza/65d155f6-705c-4e6c-9e3a-b9974bb82324.glb",
+    "sha256": "a0c6912d60898de574f3e03b7112cc989c466e372ff671f4aae61057ab5c4947"
+  },
+  {
+    "file": "cottage3.glb",
+    "title": "House",
+    "author": "Quaternius",
+    "license": "CC0 1.0",
+    "source": "https://poly.pizza/m/k6tP5nFUd2",
+    "download": "https://static.poly.pizza/40308351-1d17-4abc-9ab2-7fd50c700686.glb",
+    "sha256": "e3423546ab2d5ed2248eec14d074f6c28cd1e441cb7b35eb1edc82a2447c4cbc"
+  },
+  {
+    "file": "townhouse.glb",
+    "title": "Town House",
+    "author": "Quaternius",
+    "license": "CC0 1.0",
+    "source": "https://poly.pizza/m/sDQJBImZuw",
+    "download": "https://static.poly.pizza/58662a37-93d7-47c0-8c68-490bb7100a1a.glb",
+    "sha256": "f2f463c5d09aa7a851e8094064df80fbd3a80211aa6d336535cc0ee982fac740"
+  },
+  {
+    "file": "well.glb",
+    "title": "Well",
+    "author": "Quaternius",
+    "license": "CC0 1.0",
+    "source": "https://poly.pizza/m/QlqncKYxXb",
+    "download": "https://static.poly.pizza/0e044203-f62e-4dad-ad3e-c3cb6cb393ac.glb",
+    "sha256": "8e5158984421cfd8ec5040a318a2627911a6dcd7e4b43172bdd7d36f367ad3db"
+  },
+  {
+    "file": "lamp.glb",
+    "title": "Street Light",
+    "author": "Quaternius",
+    "license": "CC0 1.0",
+    "source": "https://poly.pizza/m/nFwrlcLvM5",
+    "download": "https://static.poly.pizza/9a8aac3e-d1ee-4860-b294-edca62ef50be.glb",
+    "sha256": "812b82718233f91850490805b67afd6166a17ed802907521ccc8a2280839f275"
+  },
+  {
+    "file": "haybale.glb",
+    "title": "Hay",
+    "author": "Quaternius",
+    "license": "CC0 1.0",
+    "source": "https://poly.pizza/m/Yu8TOERkpw",
+    "download": "https://static.poly.pizza/8ab0043c-9a54-47b1-9b46-31b98d2f6ed8.glb",
+    "sha256": "a7b39cae2cbd0839647c23c597a4ff64cb3a1086529e78c0169614f4a42655ed"
+  },
+  {
+    "file": "farmhouse.glb",
+    "title": "House",
+    "author": "Quaternius",
+    "license": "CC0 1.0",
+    "source": "https://poly.pizza/m/roqiHdrpgc",
+    "download": "https://static.poly.pizza/d42ffe97-ae91-40b8-9189-24fab8a608fb.glb",
+    "sha256": "fc94607515c4f83da254143fbb1610aa60fbef176400bbd17afe44c7bbd9dec6"
   }
 ]

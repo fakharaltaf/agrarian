@@ -24,6 +24,6 @@ describe('licensed farm assets',()=>{
     expect(bytes).toBeLessThan(15*1024*1024);
   });
   it('offers an immediate procedural fallback before graphics load',()=>{
-    expect(artModel('house',3,3)).toBeNull();
+    expect(artModel('farmhouse',3,3)).toBeNull();
   });
 });

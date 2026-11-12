@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import type { AnimalId, MachineType } from '../../simulation/config';
 import type { Lot } from './layout';
-import { artModel, type ArtId } from './art';
+import { artFigure, artModel, type ArtId } from './art';
 
 export const PAL = {
   barnRed: 0xb24a3c, barnRedDark: 0x8e3a30, cream: 0xf1e6cc, creamDark: 0xd9cbab, white: 0xf4f2ec, roofRed: 0x9e3b2e, roofBrown: 0x6b4a36,
@@ -41,6 +41,13 @@ const cone = (r: number, h: number, color: number, x: number, y: number, z: numb
   mesh(cached(`k${r},${h},${seg}`, () => new THREE.ConeGeometry(r, h, seg)), mat(color), x, y + h / 2, z);
 const sphere = (r: number, color: number, x: number, y: number, z: number, o?: Parameters<typeof mat>[1]) =>
   mesh(cached(`s${r}`, () => new THREE.IcosahedronGeometry(r, 1)), mat(color, o), x, y, z);
+
+/** An imported prop fitted into a w×d footprint centred at (x, z), turned by rot. Null until the art has loaded. */
+function prop(g: THREE.Group, id: ArtId, w: number, d: number, x: number, z: number, rot = 0) {
+  const m = artModel(id, w, d, true);
+  if (m) { m.position.set(x, 0, z); m.rotation.y = rot; g.add(m); }
+  return m;
+}
 
 /** Gable roof spanning w (x) by d (z), ridge along x, eaves at height y. */
 function gable(w: number, d: number, h: number, color: number, x: number, y: number, z: number) {
@@ -222,6 +229,13 @@ export function buildLot(type: Lot['type'], w: number, d: number, variant = ''):
       g.add(sphere(0.32, 0x5f8f4a, 2.85, 0.32, 2.6)); // garden shrub
       break;
     case 'shed':
+      if (variant === 'market' && artModel('stall', 1, 1)) { // village trader: a market stall with crates, sacks and a barrel
+        g.add(box(w - 0.1, 0.04, d - 0.1, PAL.stone, w / 2, 0, d / 2, { rough: 1 }));
+        prop(g, 'stall', 1.5, 1.3, w / 2 + 0.2, 0.8);
+        prop(g, 'crate', 0.32, 0.32, 0.35, d - 0.4, 0.3); prop(g, 'crate', 0.26, 0.26, 0.38, d - 0.75, -0.2);
+        prop(g, 'sacks', 0.45, 0.4, 0.85, d - 0.35); prop(g, 'barrel', 0.3, 0.3, w - 0.3, d - 0.35);
+        break;
+      }
       if (variant === 'market') { // village trader: a market stall with a striped awning, produce crates and a hand cart
         g.add(box(w - 0.1, 0.04, d - 0.1, PAL.stone, w / 2, 0, d / 2, { rough: 1 }));
         g.add(box(1.5, 0.55, 0.5, PAL.wood, w / 2, 0, 0.55)); // counter
@@ -431,7 +445,7 @@ export function buildLot(type: Lot['type'], w: number, d: number, variant = ''):
       for (let i = 0; i < 3; i++) { const b = cyl(0.17, 0.4, PAL.woodDark, 0.6 + i * 0.45, 0, 2.4, 10); b.rotation.z = Math.PI / 2; b.position.y = 0.18; g.add(b); }
       break;
   }
-  const ids: Partial<Record<Lot['type'], ArtId>>={house:'house',shed:'shed',barn:'barn',silo:'silo',flourMill:'mill'};
+  const ids: Partial<Record<Lot['type'], ArtId>>={house:'farmhouse',shed:'shed',barn:'barn',silo:'silo',flourMill:'mill'};
   const art=ids[type] && !variant && artModel(ids[type]!, w, d);
   if(art){g.clear();g.add(art);smoke.length=0;sails=undefined;}
   const windows: THREE.Mesh[] = [];
@@ -441,7 +455,10 @@ export function buildLot(type: Lot['type'], w: number, d: number, variant = ''):
 
 // ---------------------------------------------------------------- people, machines, animals
 
+const FOLK: ArtId[] = ['farmer', 'man', 'woman2', 'farmer', 'woman'];
 export function person(shirt: number, manager: boolean) {
+  const art = artFigure(manager ? 'man' : FOLK[(shirt >>> 4) % FOLK.length], 0.55);
+  if (art) { art.userData.folk = true; return art; }
   const g = new THREE.Group();
   g.add(box(0.07, 0.16, 0.07, 0x3b3f4a, -0.04, 0, 0));
   g.add(box(0.07, 0.16, 0.07, 0x3b3f4a, 0.04, 0, 0));
@@ -521,6 +538,13 @@ export function vehicle(type: MachineType | 'truck') {
 export function hauler(kind: 'cart' | 'horse' | 'truck') {
   if (kind === 'truck') return vehicle('truck');
   const g = new THREE.Group(), big = kind === 'horse';
+  const beast = artFigure(big ? 'horse' : 'donkey', big ? 0.8 : 0.66, true), cart = artFigure('cart', big ? 0.62 : 0.5, true);
+  if (beast && cart) { // the cart's shafts reach forward to the animal's shoulders
+    cart.position.x = -0.2; beast.position.x = big ? 0.42 : 0.34;
+    g.add(cart, beast);
+    Object.assign(g.userData, { clips: beast.userData.clips, rig: beast.userData.rig });
+    return g;
+  }
   const wheel = (z: number) => { const w = mesh(cached(`cartwheel${big}`, () => new THREE.CylinderGeometry(big ? 0.14 : 0.1, big ? 0.14 : 0.1, 0.03, 10)), mat(PAL.woodDark), -0.05, big ? 0.14 : 0.1, z); w.rotation.x = Math.PI / 2; g.add(w); };
   const bw = big ? 0.42 : 0.3, bd = big ? 0.3 : 0.22;
   g.add(box(bw, 0.12, bd, PAL.wood, -0.05, big ? 0.16 : 0.12, 0)); // cart bed
@@ -577,11 +601,12 @@ export function animal(a: AnimalId) {
 
 /** A small decorative tree (season changes its crown). */
 /** Stylised low-poly scenery tree in the farm's palette. `kind` 0 = leafy (seasonal crown), 1 = evergreen pine. */
+const SMOOTH_PINE = new THREE.MeshStandardMaterial({ color: 0x3f6b45, roughness: 0.95 });
 export function tree(scale: number, crown: THREE.Material, kind = 0) {
   const g = new THREE.Group();
   if (kind === 1) {
     g.add(mesh(cached('pineTrunk', () => new THREE.CylinderGeometry(0.05, 0.08, 0.35, 6)), mat(PAL.woodDark), 0, 0.17, 0));
-    const pine = mat(0x3f6b45, { rough: 0.95 });
+    const pine = SMOOTH_PINE;
     for (const [r, h, y] of [[0.42, 0.55, 0.55], [0.33, 0.48, 0.85], [0.22, 0.4, 1.12]] as const)
       g.add(mesh(cached(`pine${r}`, () => new THREE.ConeGeometry(r, h, 7)), pine, 0, y, 0));
   } else {
@@ -602,7 +627,12 @@ export { cached, cyl, mesh };
 export function buildCommunityHome(tier: string, w: number, d: number, key = ''): Model {
   const group = new THREE.Group(), windows: THREE.Mesh[] = [], smoke: THREE.Vector3[] = [];
   const seed = hashStr(key);
-  if (tier === 'cottage') cottage(group, w, d, seed);
+  const kind: ArtId | null = tier === 'cottage' ? (['cottage', 'cottage2', 'cottage3'] as const)[Math.floor(seed * 3)] : tier === 'terrace' ? 'townhouse' : null;
+  if (kind && artModel(kind, 1, 1)) {
+    group.add(box(w - 0.1, 0.04, d - 0.1, PAL.stone, w / 2, 0, d / 2, { rough: 1 }));
+    prop(group, kind, w - 0.3, d - 0.4, w / 2, d / 2 - 0.1);
+    if (tier === 'cottage') group.add(sphere(0.2, 0x5f8f4a, w - 0.3, 0.18, d - 0.25)); // a shrub by the gate
+  } else if (tier === 'cottage') cottage(group, w, d, seed);
   else if (tier === 'terrace') {
     // a row of three narrow two-storey houses under one roof, each painted differently
     group.add(box(w - 0.1, 0.04, d - 0.1, PAL.stone, w / 2, 0, d / 2, { rough: 1 }));
@@ -674,6 +704,8 @@ export function buildCivic(type: string, w: number, d: number): Model {
     group.add(box(w-.1,.05,d-.1,PAL.roofGrey,w/2,.09,d/2));
     for(let i=0;i<Math.min(18,Math.ceil(d/2));i++)group.add(box(.06,.02,.4,PAL.white,w/2,.15,.4+i*2));
     group.add(box(.08,1.8,.08,PAL.wood,.2,.1,.5),sphere(.16,0xffd889,.2,2,.5,{emissive:0x806020}));
+  } else if(type==='well'&&artModel('well',1,1)) {
+    prop(group,'well',w-.3,d-.3,w/2,d/2);
   } else if(type==='well'||type==='waterworks') {
     group.add(cyl(type==='well'?.55:1,1,PAL.creamDark,w/2,.1,d/2));
     group.add(cyl(type==='well'?.42:.85,.04,0x65a8bb,w/2,1.1,d/2));

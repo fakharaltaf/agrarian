@@ -6,6 +6,7 @@ See CC0-1.0.txt for the full licence.
 
 Farm Buildings: https://quaternius.com/packs/farmbuildings.html
 Farm Animals: https://quaternius.com/packs/farmanimal.html
+Also used: Medieval Village, Ultimate Animated Characters, Animated Animals and Survival packs (see sources.json).
 Models were obtained from the creator's Poly Pizza pages, each explicitly
 labelled CC0 1.0. Do not assume every asset on either website has this licence.
 
