@@ -18,7 +18,7 @@ import { layoutRegion, type Layout, type Lot, type Plot } from './layout';
 import { CHUNK, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, LAND_HA_PER_PATCH, MAP, hasAccess, riverTiles, riverX, tileId, roadRoute, roadStretch, pipeRoute, pipeStretch, plotSide, fieldWater, wetTiers, tileAt, forSaleAround, landCost, ownedSet, ROAD_H, ROAD_Y, chunkAt, chunkOrigin, clearCost, clearedSet, isRoad, patchesAround, placeProblem, worldOf } from '../../simulation/world';
 import { animal, buildCivic, buildCommunityHome, buildLot, box, cached, cyl, farmhand, hauler, mat, mesh, PAL, person, tree, vehicle, type Model } from './models';
 import { haulOf, MARKET_X, marketRoute } from '../../simulation/hauling';
-import { oilChance, oilOf, surveyed } from '../../simulation/oil';
+import { oilOf, oilReading, struckFields, SURVEY_R, surveyedAt } from '../../simulation/oil';
 
 /** Graphics quality chosen in Settings (per browser). Low turns off shadows and high-DPI rendering. */
 export const graphicsQuality = (): 'high' | 'low' => {
@@ -1161,36 +1161,37 @@ function animateHaul(R: Rig, s: GameState, t: number) {
 }
 
 /** Oil: dry holes always show; in oil mode, the survey's heat map and the spot under the cursor with its odds. */
-function syncOil(R: Rig, s: GameState, P: { region: RegionId; hover?: [number, number] } | null) {
-  const O = oilOf(s), dry = O.dry[R.region] ?? [], known = surveyed(s, R.region);
-  const sig = `${R.region}:${dry.length}:${!!P}:${known}:${P?.hover}:${s.buildings.length}`;
+function syncOil(R: Rig, s: GameState, P: { region: RegionId; hover?: [number, number]; survey?: boolean } | null) {
+  const O = oilOf(s), dry = O.dry[R.region] ?? [], areas = O.surveys[R.region] ?? [], known = areas.length > 0;
+  const sig = `${R.region}:${dry.length}:${!!P}:${areas.length}:${P?.hover}:${P?.survey}:${s.buildings.length}`;
   if (sig === R.oilSig) return;
   R.oilSig = sig;
   clear(R.oilG);
   for (const [x, y] of dry) { const m = mesh(cached('dryhole', () => new THREE.CylinderGeometry(0.12, 0.2, 0.25, 8)), mat(0x6b6b6b), x + 1, 0.12, y + 1); R.oilG.add(m); }
   if (!P) return;
-  if (known) { // heat map: darker, warmer patches are likelier to strike
+  for (const [cx, cy] of areas) R.oilG.add(mesh(cached('surveyring', () => new THREE.RingGeometry(SURVEY_R - 0.25, SURVEY_R, 96).rotateX(-Math.PI / 2)), new THREE.MeshBasicMaterial({ color: 0x8a6a3a, transparent: true, opacity: 0.5, depthWrite: false }), cx, 0.05, cy, false)); // where each survey reads
+  if (known) { // heat map of the survey readings: warmer patches are likelier, but the readings are rough
     const list: THREE.Matrix4[] = [], cols: THREE.Color[] = [];
     for (let y = MAP.y0; y < MAP.y0 + MAP.h; y += CHUNK) for (let x = MAP.x0; x < MAP.x0 + MAP.w; x += CHUNK) {
-      const c = oilChance(R.region, x + 2, y + 2);
-      if (c < 0.12) continue;
+      if (!surveyedAt(s, R.region, x + 2, y + 2)) continue;
+      const c = oilReading(R.region, x + 2, y + 2);
+      if (c < 0.15) continue;
       list.push(new THREE.Matrix4().makeTranslation(x + 2, 0.06, y + 2)); cols.push(new THREE.Color().setHSL(0.08 - c * 0.08, 0.7, 0.55 - c * 0.35));
     }
     const im = new THREE.InstancedMesh(cached('oilheat', () => new THREE.BoxGeometry(CHUNK * 0.96, 0.02, CHUNK * 0.96)), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.45, depthWrite: false }), Math.max(1, list.length));
     list.forEach((m, i) => { im.setMatrixAt(i, m); im.setColorAt(i, cols[i]); }); im.count = list.length; im.frustumCulled = false; R.oilG.add(im);
     // the surveyor's stakes: a tall marker on each promising patch, seen above the trees, taller and darker the better the odds
-    let best: [number, number, number] | null = null;
     for (let y = MAP.y0; y < MAP.y0 + MAP.h; y += CHUNK) for (let x = MAP.x0; x < MAP.x0 + MAP.w; x += CHUNK) {
-      const c = oilChance(R.region, x + 2, y + 2);
-      if (!best || c > best[2]) best = [x + 2, y + 2, c];
-      if (c < 0.35) continue;
+      if (!surveyedAt(s, R.region, x + 2, y + 2)) continue;
+      const c = oilReading(R.region, x + 2, y + 2);
+      if (c < 0.5) continue;
       const h = 1.4 + c * 2.6, col = new THREE.Color().setHSL(0.07 - c * 0.07, 0.8, 0.5 - c * 0.2);
       const pole = mesh(cached('oilpole', () => new THREE.CylinderGeometry(0.06, 0.06, 1, 6).translate(0, 0.5, 0)), mat(0x5a4632), x + 2, 0, y + 2, false); pole.scale.y = h; R.oilG.add(pole);
       R.oilG.add(mesh(cached('oilflag', () => new THREE.OctahedronGeometry(0.45, 0)), new THREE.MeshBasicMaterial({ color: col }), x + 2, h + 0.35, y + 2, false));
     }
-    if (best && R.oilSeen !== R.region) { R.oilSeen = R.region; R.glide = { x: best[0], z: best[1], zoom: Math.min(R.zoom, 0.6) }; } // show where the oil is likeliest
   }
-  if (P.hover) {
+  if (P.hover && P.survey) R.oilG.add(mesh(cached('surveypick', () => new THREE.CircleGeometry(SURVEY_R, 96).rotateX(-Math.PI / 2)), new THREE.MeshBasicMaterial({ color: 0xffc94d, transparent: true, opacity: 0.18, depthWrite: false }), P.hover[0], 0.07, P.hover[1], false));
+  else if (P.hover) {
     const [hx, hy] = P.hover, ok = !placeProblem(s, R.region, hx - 1, hy - 1, { w: 2, d: 2 });
     R.oilG.add(mesh(cached('oilspot', () => new THREE.BoxGeometry(2, 0.05, 2)), new THREE.MeshBasicMaterial({ color: ok ? 0xffc94d : 0xd04a3a, transparent: true, opacity: 0.6, depthWrite: false }), hx, 0.08, hy, false));
   }
@@ -1680,6 +1681,13 @@ function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el
     const [x, y] = project(p.x + p.s / 2, 1.1, p.y + p.s / 2);
     if (x < -20 || y < -20 || x > W + 20 || y > H + 20) continue;
     want.push({ key: `n${p.field.id}`, x, y, html: need.fertilise ? '🌿' : need.water ? '🚰' : '💧', cls: 'wl-need' });
+  }
+  for (const f of struckFields(s, R.region)) { // each struck oil field: what is left, over its wells
+    const ps = f.wells.map((b) => worldOf(s, R.region).pos[`b:${b.id}`]).filter(Boolean);
+    if (!ps.length) continue;
+    const [x, y] = project(ps.reduce((a, p) => a + p[0], 0) / ps.length + 1, 3.2, ps.reduce((a, p) => a + p[1], 0) / ps.length + 1);
+    if (x < -60 || y < -20 || x > W + 60 || y > H + 20) continue;
+    want.push({ key: `oil${f.i}`, x, y, cls: 'wl-name', html: `🛢 ${f.left >= 1000 ? `${Math.round(f.left / 1000)}k` : Math.round(f.left)} bbl left${f.wells.length > f.balanced ? ` · ⚠ ${f.wells.length}/${f.balanced} wells` : ''}` });
   }
   if (zoomed) for (const m of R.models) {
     const lot = m.lot;

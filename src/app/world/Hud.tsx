@@ -1,5 +1,5 @@
 import { bestCrop } from '../crops';
-import { DRILL_PRICE, oilChance, SURVEY_PRICE, surveyed } from '../../simulation/oil';
+import { DRILL_PRICE, oilReading, readingWord, struckFields, SURVEY_PRICE, SURVEY_R, surveyedAt } from '../../simulation/oil';
 import {cityActive} from '../../simulation/city-state';
 import { townOf } from '../../simulation/town-state';
 // Everything that floats over the world: objective, selection panel, market, land, region switcher.
@@ -9,7 +9,7 @@ import { known } from '../../simulation/core';
 import { buildingMargin } from '../../simulation/processing';
 import { DISCOVERIES, ERA_UNLOCK_TEXT, dailyGoals, dailyPrize, forecast, herdOf, homePlotPrice, housing, isManual, isReady, objective, chapterGate, gateProgress, type GateRow, PAGES, seedShortfall, upgradeCost } from '../../simulation/engine';
 import type { GameState } from '../../simulation/types';
-import { act, cancelPlacement, confirmPlacement, rotatePlacement, go, placementUse, setRoadTool, setZoneTool, startPipes, startPlacement, stopProspect, stopRoads, stopZoning, type Zoning, useGame, usePageState, useStore, type Placement, type Roading } from '../../stores/game';
+import { act, cancelPlacement, confirmPlacement, rotatePlacement, go, placementUse, setRoadTool, setSurveying, setZoneTool, startPipes, type Prospect, startPlacement, stopProspect, stopRoads, stopZoning, type Zoning, useGame, usePageState, useStore, type Placement, type Roading } from '../../stores/game';
 import { WATER_LEVEL, WATER_PRICE, WATER_TIERS, wetTiers, pipeRoute, pipeStretch, cutsOff, footprintOf, forSaleAround, isRoad, MAP, ROAD_GRADES, ROAD_H, roadRoute, roadStretch, roadTilePrice, worldOf, patchesAround, placeProblem, plotSide, PROBLEM_TEXT } from '../../simulation/world';
 import { buildingPrice, moveFee, parcelPrice } from '../../simulation/engine';
 import { homePrice } from '../../simulation/community-state';
@@ -312,14 +312,19 @@ function ZoneBar({ z }: { z: Zoning }) {
   </div>;
 }
 
-function OilBar({ s, p }: { s: GameState; p: { region: RegionId; hover?: [number, number] } }) {
-  const known = surveyed(s, p.region), drill = Math.round(DRILL_PRICE * s.macro.cpi), survey = Math.round(SURVEY_PRICE * s.macro.cpi);
-  const odds = p.hover && known ? oilChance(p.region, p.hover[0], p.hover[1]) : null;
-  const touch = !matchMedia('(pointer: fine)').matches;
-  const hint = !known ? 'Drilling blind rarely strikes. A survey maps where the oil lies.' : odds !== null ? `Here: about ${Math.round(odds * 100)}% chance of oil · ${touch ? 'tap again to drill' : 'click to drill'} · ${money(drill)}` : `Stakes mark the best odds · ${touch ? 'tap a spot to see the odds' : 'click a spot to drill'} · ${money(drill)}`;
+function OilBar({ s, p }: { s: GameState; p: Prospect }) {
+  const drill = Math.round(DRILL_PRICE * s.macro.cpi), survey = Math.round(SURVEY_PRICE * s.macro.cpi), h = p.hover;
+  const read = h && surveyedAt(s, p.region, h[0], h[1]) ? readingWord(oilReading(p.region, h[0], h[1])) : null;
+  const touch = !matchMedia('(pointer: fine)').matches, tapHow = touch ? 'tap again' : 'click';
+  const hint = p.survey ? `${touch ? 'Tap' : 'Click'} the middle of the area to survey (${SURVEY_R * 2} tiles across) · ${money(survey)}`
+    : !h ? `Drill on industrial land · ${money(drill)} · survey first: blind wells rarely strike`
+    : read ? `Survey reads ${read} here · ${tapHow} to drill · ${money(drill)}` : `Not surveyed: drilling blind rarely strikes · ${tapHow} to drill · ${money(drill)}`;
+  const fields = struckFields(s, p.region);
   return <div className="placement-bar road-bar" role="dialog" aria-label="Oil">
-    <div className="placement-info"><b>🛢 Oil</b><span className="muted">{hint}</span></div>
-    {!known && <button className="btn primary" disabled={survey > s.cash} onClick={() => act({ type: 'surveyOil', region: p.region })}>Survey · {money(survey)}</button>}
+    <div className="placement-info"><b>🛢 Oil</b><span className="muted">{hint}</span>
+      {fields.map((f) => <span key={f.i} className="muted small">Field {f.i + 1}: {num(f.left)} of {num(f.reserve)} bbl left · {f.wells.length} well{f.wells.length === 1 ? '' : 's'} ({f.balanced} balanced){f.wells.length > f.balanced ? ' · over-drilled: draining fast' : ''}</span>)}
+    </div>
+    <button className={`btn ${p.survey ? 'primary' : 'ghost'}`} disabled={survey > s.cash && !p.survey} onClick={() => setSurveying(!p.survey)}>{p.survey ? 'Cancel survey' : `Survey · ${money(survey)}`}</button>
     <button className="btn ghost" onClick={() => stopProspect()}>Done</button>
   </div>;
 }

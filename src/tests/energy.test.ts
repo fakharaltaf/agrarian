@@ -2,7 +2,7 @@ import { expect, it } from 'vitest';
 import { createGame, dispatch, step } from '../simulation/engine';
 import { post } from '../simulation/core';
 import { MAP, chunksIn, clearRect, own, worldOf } from '../simulation/world';
-import { oilChance, oilOf } from '../simulation/oil';
+import { drawOil, fieldState, oilChance, oilFields, oilOf, struckFields, SURVEY_R, surveyedAt } from '../simulation/oil';
 
 const industry = (seed: number) => { const s = createGame(seed); s.legacyProgression = true; s.era = 4; post(s, 'prize', 1e6, 'fixture'); const w = worldOf(s, 'heartland'); own(w, chunksIn(MAP.x0, MAP.y0, MAP.w, MAP.h)); clearRect(w, MAP.x0, MAP.y0, MAP.w, MAP.h); return s; };
 
@@ -14,21 +14,66 @@ it('a wind turbine makes power day and night', () => {
   expect((s.lifetime.grid ?? 0) - grid).toBeGreaterThan(0); // nothing else uses power: it all sells
 });
 
-it('oil wells are found by drilling: the survey shows where, and a strike pumps crude', () => {
+it('oil wells are found by drilling: a survey reads one area roughly, and a strike pumps crude from its field', () => {
   const s = industry(602);
   expect(dispatch(s, { type: 'build', region: 'heartland', building: 'oilWell' }).ok).toBe(false);
-  expect(dispatch(s, { type: 'surveyOil', region: 'heartland' }).ok).toBe(true);
-  expect(dispatch(s, { type: 'surveyOil', region: 'heartland' }).ok).toBe(false);
-  let best: [number, number] = [0, 0], c = 0;
-  for (let y = MAP.y0 + 2; y < MAP.y0 + MAP.h - 4; y += 2) for (let x = MAP.x0 + 2; x < MAP.x0 + MAP.w - 4; x += 2) { const v = oilChance('heartland', x + 1, y + 1); if (v > c) { c = v; best = [x, y]; } }
-  expect(c).toBeGreaterThan(0.6);
+  const f = oilFields('heartland')[0];
+  expect(dispatch(s, { type: 'surveyOil', region: 'heartland', at: [f.x, f.y] }).ok).toBe(true);
+  expect(dispatch(s, { type: 'surveyOil', region: 'heartland', at: [f.x + 2, f.y] }).ok).toBe(false); // already read
+  expect(surveyedAt(s, 'heartland', f.x + SURVEY_R - 1, f.y)).toBe(true);
+  expect(surveyedAt(s, 'heartland', f.x + SURVEY_R + 2, f.y)).toBe(false); // only the area around the pick
   let wells = 0;
-  for (let i = 0; i < 6 && !wells; i++) { dispatch(s, { type: 'drillOil', region: 'heartland', at: [best[0] + i * 3, best[1]] }); wells = s.buildings.filter((b) => b.type === 'oilWell').length; }
+  for (let i = 0; i < 12 && !wells; i++) { dispatch(s, { type: 'drillOil', region: 'heartland', at: [f.x - 1 + (i % 4) * 3, f.y - 1 + Math.floor(i / 4) * 3] }); wells = s.buildings.filter((b) => b.type === 'oilWell').length; }
   expect(wells).toBe(1);
   for (let i = 0; i < 24; i++) step(s);
   expect(s.regions.heartland.inventory.oil).toBeGreaterThan(0);
-  expect(oilChance('heartland', 1, 1)).toBeLessThan(0.2); // never rich right under the starting valley
-  expect(oilOf(s).surveyed).toContain('heartland');
+  const st = struckFields(s, 'heartland')[0];
+  expect(st.left).toBeLessThan(st.reserve);
+  expect(oilChance('heartland', 1, 1)).toBeLessThan(0.1); // never rich right under the starting valley
+  // blind odds are poor almost everywhere
+  let poor = 0, n = 0;
+  for (let y = MAP.y0; y < MAP.y0 + MAP.h; y += 8) for (let x = MAP.x0; x < MAP.x0 + MAP.w; x += 8) { n++; if (oilChance('heartland', x, y) < 0.1) poor++; }
+  expect(poor / n).toBeGreaterThan(0.85);
+});
+
+it('a field runs dry, and over-drilling it wastes oil so it runs dry sooner than a balanced number of wells', () => {
+  const s = industry(605), r = 'heartland' as const, f = oilFields(r)[0], key = `${r}:0`;
+  const well = (dx: number) => { const id = 9000 + dx; s.buildings.push({ id, type: 'oilWell', region: r, active: true, level: 1, cost: 0, depreciated: 0, util: 0, reserved: 0, reason: '', productionReport: s.buildings[0]?.productionReport ?? (undefined as never), stats: { out: 0, inCost: 0, outValue: 0, opCost: 0 } }); worldOf(s, r).pos[`b:${id}`] = [Math.round(f.x) - 1, Math.round(f.y) - 1]; }; // all on the field's heart
+  const bal = fieldState(s, r, 0).balanced;
+  for (let i = 0; i < bal; i++) well(i * 2);
+  expect(fieldState(s, r, 0).drain).toBe(1);
+  for (let i = 0; i < bal * 2; i++) well(100 + i);
+  const st = fieldState(s, r, 0);
+  expect(st.wells.length).toBe(bal * 3);
+  expect(st.drain).toBeGreaterThan(2); // three times the wells: the field loses more than it gives
+  drawOil(s, st.wells[0], 100);
+  expect(oilOf(s).drawn[key]).toBeCloseTo(100 * st.drain);
+  oilOf(s).drawn[key] = f.reserve; // pumped out
+  expect(fieldState(s, r, 0).left).toBe(0);
+});
+
+it('industry zoning: plants need industrial land from the start; workshops start anywhere but grow only on industrial land', async () => {
+  const { chunkAt, findSpot, footprintOf, placeProblem } = await import('../simulation/world');
+  const s = industry(606); s.legacyProgression = false; s.stageId = 'industry'; if (!s.discovered.includes('upgrades')) s.discovered.push('upgrades');
+  const t = dispatch(s, { type: 'build', region: 'heartland', building: 'windTurbine' });
+  expect(t).toMatchObject({ ok: false, error: expect.stringMatching(/industrial/) });
+  expect(dispatch(s, { type: 'build', region: 'heartland', building: 'flourMill' }).ok).toBe(true); // a first-stage workshop goes on farmland
+  const mill = s.buildings.find((b) => b.type === 'flourMill')!, w = worldOf(s, 'heartland');
+  const up = dispatch(s, { type: 'upgradeBuilding', buildingId: mill.id });
+  if (up.ok) throw new Error('a workshop on farmland must not grow');
+  expect(up.error).toMatch(/industrial/);
+  // zone the land under it industrial and it may grow; a turbine fits there too
+  const [mx, my] = w.pos[`b:${mill.id}`];
+  const fp = footprintOf(s, `b:${mill.id}`)!;
+  expect(dispatch(s, { type: 'zoneLand', region: 'heartland', chunks: chunksIn(mx, my, fp.w, fp.d), zone: 'ind' })).toMatchObject({ ok: true });
+  expect(w.zones[chunkAt(mx, my)]).toBe('ind');
+  expect(placeProblem(s, 'heartland', mx, my, { w: 1, d: 1 }, `b:${mill.id}`)).not.toBe('zone');
+  const grown = dispatch(s, { type: 'upgradeBuilding', buildingId: mill.id });
+  if (!grown.ok) expect(grown.error).not.toMatch(/industrial/); // any other limit (research) is fine here
+  const lot = findSpot(s, 'heartland', { w: 8, d: 8 }, false, 'building')!; // fresh farmland for an industrial patch
+  expect(dispatch(s, { type: 'zoneLand', region: 'heartland', chunks: chunksIn(lot[0], lot[1], 8, 8), zone: 'ind' })).toMatchObject({ ok: true });
+  expect(findSpot(s, 'heartland', { w: 2, d: 2 }, false, 'industry')).not.toBeNull();
+  expect(dispatch(s, { type: 'build', region: 'heartland', building: 'windTurbine' }).ok).toBe(true);
 });
 
 it('clean energy pulls the farm green and earns a better price; oil pulls it industrial and cheapens power', async () => {
@@ -42,4 +87,23 @@ it('clean energy pulls the farm green and earns a better price; oil pulls it ind
   s.values.cleanIndustrial = 80;
   expect(leaning(s).industrial).toBe(true);
   expect(electricityPrice(s, 'heartland')).toBeLessThan(power);
+});
+
+it('an older save loads into the new rules: whole-region surveys become surveys over its wells, and plants stand on industrial land', async () => {
+  const { parseSave, SAVE_VERSION } = await import('../simulation/persistence');
+  const { emptyProductionReport } = await import('../simulation/production-report');
+  const { buildingUse, chunksIn: cin, footprintOf } = await import('../simulation/world');
+  const s = industry(607); s.legacyProgression = false; s.stageId = 'industry';
+  const f = oilFields('heartland')[0], id = 8000;
+  s.buildings.push({ id, type: 'oilWell', region: 'heartland', active: true, level: 1, cost: 0, depreciated: 0, util: 0, reserved: 0, reason: '', productionReport: emptyProductionReport(), stats: { out: 0, inCost: 0, outValue: 0, opCost: 0 } });
+  worldOf(s, 'heartland').pos[`b:${id}`] = [Math.round(f.x) - 1, Math.round(f.y) - 1];
+  (s as { oil?: unknown }).oil = { surveyed: ['heartland'], dry: {} }; // the old shape
+  const g = parseSave(JSON.stringify({ version: SAVE_VERSION, savedAt: 0, game: s })).game;
+  const o = oilOf(g);
+  expect(o.surveys.heartland?.length).toBe(1);
+  expect(o.drawn).toEqual({});
+  expect(struckFields(g, 'heartland')[0].left).toBe(f.reserve);
+  const w = worldOf(g, 'heartland'), [px, py] = w.pos[`b:${id}`], fp = footprintOf(g, `b:${id}`)!;
+  expect(buildingUse(g, 'oilWell')).toBe('industry');
+  expect(cin(px, py, fp.w, fp.d).every((c) => w.zones[c] === 'ind')).toBe(true);
 });

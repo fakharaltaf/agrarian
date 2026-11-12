@@ -8,6 +8,7 @@ import { larderReserve } from './stages/settlement';
 import { BUILDINGS, COWS_PER_DAIRY_BATCH, GOODS, REGIONS, REGION_IDS, SUNRISE, SUNSET, type GoodId, type RegionId } from './config';
 import { buildingDivision, clamp, electricityPrice, execOn, freeSpace, has, hour, levelMult, post, priceUsd, round2, reserveCap, reservedStock, severity } from './core';
 import { addGoods } from './agriculture';
+import { drawOil, wellField } from './oil';
 import type { Building, GameState } from './types';
 
 export const EMA = 0.05;
@@ -100,6 +101,8 @@ function produce(s: GameState, b: Building, staff: number, cows = 0) {
     }
   }
   const outMult = has(s, 'processEfficiency') ? 1.1 : 1;
+  const oil = b.type === 'oilWell' ? wellField(s, b) : null; // a well pumps only what its field has left
+  if (oil) { const most = oil.left / (oil.drain * (rec.outputs.oil ?? 1) * outMult); if (most < batches) { batches = Math.max(0, most); reason = 'The oil field is pumped dry'; } }
   const outUnits = Object.values(rec.outputs).reduce((a, q) => a + q! * outMult, 0);
   if (outUnits > 0) {
     // A batch uses up its inputs before the outputs need room, so only the net growth per storage
@@ -136,6 +139,7 @@ function produce(s: GameState, b: Building, staff: number, cows = 0) {
   for (const [g, q] of Object.entries(rec.outputs) as [GoodId, number][]) {
     addGoods(s, b.region, g, q * outMult * batches, quality);
     s.stats.produced[g] = (s.stats.produced[g] ?? 0) + q * outMult * batches;
+    if (oil && g === 'oil') drawOil(s, b, q * outMult * batches);
     outValue += q * outMult * batches * priceUsd(s, b.region, g);
   }
   const kwh = rec.kwh * batches * (has(s, 'foodTech') && rec.kwh > 0 ? 0.7 : 1);

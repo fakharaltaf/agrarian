@@ -4,7 +4,8 @@ import { emptyProductionReport } from './production-report';
 import { CROPS, CROP_IDS, GOOD_IDS, REGION_IDS } from './config';
 import { createMarkets } from './markets';
 import { stageAtLeast, stageIdForEra, STAGES, STAGE_IDS } from './stages';
-import { CHUNKS_X, CHUNKS_Y, reconcileWorld } from './world';
+import { CHUNKS_X, CHUNKS_Y, reconcileWorld, zoneStandingIndustry } from './world';
+import { oilOf } from './oil';
 import type { GameState } from './types';
 import type { CivicService, CommunityHome, HouseholdCohort } from './types';
 import { createTownState } from './town-state';
@@ -190,6 +191,8 @@ export function migrate(g: Omit<GameState, 'version'> & { version: number }): Ga
     settled.homes = out;
   }
   if (before) reconcileWorld(gs, { farmMarket: gs.stats.harvests > 0, crew: stageAtLeast(gs, 'farm-business'), office: gs.legacyProgression ? gs.era >= 3 : stageAtLeast(gs, 'industry'), hall: !!gs.stageState.town?.active });
+  if (gs.oil) oilOf(gs); // older oil records: whole-region surveys become surveys over the wells already struck
+  if (gs.world) zoneStandingIndustry(gs);
   return gs;
 }
 

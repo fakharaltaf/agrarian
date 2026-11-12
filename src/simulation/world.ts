@@ -19,10 +19,24 @@ export interface ClearJob { chunk: number; hours: number }
 export interface RegionWorld { cleared: number[]; owned: number[]; pos: Record<string, [number, number]>; queue: ClearJob[]; roads: Record<number, number>; main: number; /** water lines by tier (WATER_TIERS): 1 ditch, 2 pipe, 3 buried; the first two take the tile */ canals: Record<number, number>; zones: Record<number, Zone>; links: Record<string, number[]>; /** quarter turns (0–3) of each placed thing; its front faces +y at 0, then +x, −y, −x */ rot?: Record<string, number> }
 /** res: homes only (no farming); ind: industrial plants. Unzoned land is farmland. */
 export type Zone = 'res' | 'ind';
-/** What a placement is, for zoning: homes need a residential zone; fields stay out of zones; farm buildings stay out of residential. */
-export type Use = 'home' | 'field' | 'building';
-export const useOf = (key?: string): Use | undefined => !key ? undefined : key.startsWith('home:') ? 'home' : key.startsWith('field:') ? 'field' : key.startsWith('b:') ? 'building' : undefined;
-const zoneOk = (use: Use | undefined, z: Zone | undefined) => !use || (use === 'home' ? z === 'res' : use === 'field' ? !z : z !== 'res');
+/** What a placement is, for zoning: homes need a residential zone; fields stay out of zones; farm buildings stay out of residential; industry needs an industrial zone. */
+export type Use = 'home' | 'field' | 'building' | 'industry';
+/** Plants that belong on industrial land from the start. */
+export const INDUSTRY_ONLY: ReadonlySet<BuildingType> = new Set(['biogas', 'windTurbine', 'oilWell', 'solar', 'distribution']);
+/** Workshops that start anywhere off residential land, but grow past their first level only on industrial land. */
+export const INDUSTRY_TO_GROW: ReadonlySet<BuildingType> = new Set(['flourMill', 'bakery', 'feedMill', 'ranch', 'dairy', 'creamery', 'oilPress', 'sugarMill', 'winery']);
+/** The zoning a building at this level needs (the older progression keeps the plain farm rule). */
+export const buildingUse = (s: GameState, type: BuildingType, level = 1): Use => (!s.legacyProgression && (INDUSTRY_ONLY.has(type) || (INDUSTRY_TO_GROW.has(type) && level > 1)) ? 'industry' : 'building');
+export const useOf = (key?: string, s?: GameState): Use | undefined => {
+  if (!key) return undefined;
+  if (key.startsWith('home:')) return 'home';
+  if (key.startsWith('field:')) return 'field';
+  if (!key.startsWith('b:')) return undefined;
+  const b = s?.buildings.find((x) => x.id === +key.slice(2));
+  return s && b ? buildingUse(s, b.type, b.level) : 'building';
+};
+const zoneOk = (use: Use | undefined, z: Zone | undefined) => !use || (use === 'home' ? z === 'res' : use === 'field' ? !z : use === 'industry' ? z === 'ind' : z !== 'res');
+const NO_ROOM = { home: 'No free residential land: zone more of your cleared land as residential.', industry: 'No free industrial land: zone some of your cleared land as industrial first (🏘 Zones).' } as Partial<Record<Use, string>>;
 export type WorldState = Partial<Record<RegionId, RegionWorld>>;
 
 /** Tiles each building occupies (x × y). */
@@ -110,6 +124,18 @@ export function placedIn(s: GameState, r: RegionId): Placed[] {
   return out;
 }
 
+/** Saves from before industrial zoning: land under plants already standing becomes industrial, unless homes or fields share it. */
+export function zoneStandingIndustry(s: GameState) {
+  for (const b of s.buildings) {
+    if (buildingUse(s, b.type, b.level) !== 'industry') continue;
+    const w = worldOf(s, b.region), p = w.pos[`b:${b.id}`], fp = footprintOf(s, `b:${b.id}`);
+    if (!p || !fp) continue;
+    const chunks = chunksIn(p[0], p[1], fp.w, fp.d);
+    if (chunks.every((c) => w.zones[c] === 'ind')) continue;
+    const shared = placedIn(s, b.region).some((q) => { const u = useOf(q.key, s); return (u === 'home' || u === 'field') && chunksIn(q.x, q.y, q.w, q.d).some((c) => chunks.includes(c)); });
+    if (!shared) { for (const c of chunks) w.zones[c] = 'ind'; touch(w); }
+  }
+}
 /** Occupancy grid with a summed-area table: O(1) rectangle checks for placement and free-spot search. */
 function occupancy(s: GameState, r: RegionId, ignore?: string, allowForest = false, use?: Use) {
   const W = MAP.w, H = MAP.h, grid = new Uint8Array(W * H), w = worldOf(s, r), cleared = clearedSet(w), owned = ownedSet(w), river = riverTiles(r);
@@ -137,7 +163,7 @@ function occupancy(s: GameState, r: RegionId, ignore?: string, allowForest = fal
 }
 export type PlaceProblem = 'unowned' | 'forest' | 'occupied' | 'road' | 'water' | 'zone' | 'outside' | null;
 /** Why a footprint cannot stand at (x, y), or null when it can. */
-export function placeProblem(s: GameState, r: RegionId, x: number, y: number, fp: Footprint, ignore?: string, use: Use | undefined = useOf(ignore)): PlaceProblem {
+export function placeProblem(s: GameState, r: RegionId, x: number, y: number, fp: Footprint, ignore?: string, use: Use | undefined = useOf(ignore, s)): PlaceProblem {
   if (!Number.isInteger(x) || !Number.isInteger(y)) return 'outside';
   if (x < MAP.x0 || y < MAP.y0 || x + fp.w > MAP.x0 + MAP.w || y + fp.d > MAP.y0 + MAP.h) return 'outside';
   const roads = worldOf(s, r).roads;
@@ -153,7 +179,7 @@ export function placeProblem(s: GameState, r: RegionId, x: number, y: number, fp
   return null;
 }
 export const PROBLEM_TEXT: Record<Exclude<PlaceProblem, null>, string> = {
-  unowned: 'You do not own that land. Buy it first.', zone: 'Wrong zone: homes go in a residential zone; fields and farm buildings stay out of it.', water: 'That is the river or a water line. Upgrade the line until it is buried to build over it.', forest: 'That spot is forest. Clear it first.', occupied: 'Something already stands there.', road: 'You cannot build on the road.', outside: 'That is off the map.',
+  unowned: 'You do not own that land. Buy it first.', zone: 'Wrong zone: homes go in a residential zone, plants and grown workshops in an industrial zone; fields and farm buildings stay out of residential.', water: 'That is the river or a water line. Upgrade the line until it is buried to build over it.', forest: 'That spot is forest. Clear it first.', occupied: 'Something already stands there.', road: 'You cannot build on the road.', outside: 'That is off the map.',
 };
 /** First free cleared spot, searched outward from the farmhouse. */
 /** Where homes cluster: the middle of the placed homes, if any. */
@@ -190,10 +216,10 @@ export function placeNew(s: GameState, r: RegionId, key: string, at?: [number, n
   if (rot % 4) (w0.rot ??= {})[key] = rot % 4; else if (w0.rot) delete w0.rot[key];
   const fp = footprintOf(s, key);
   if (!fp) return 'Nothing to place.';
-  const use = useOf(key);
+  const use = useOf(key, s);
   if (at) { const p = placeProblem(s, r, at[0], at[1], fp, undefined, use); if (p) return PROBLEM_TEXT[p]; worldOf(s, r).pos[key] = [at[0], at[1]]; touch(worldOf(s, r)); connect(s, r, key); return null; }
   const spot = findSpot(s, r, fp, false, use);
-  if (!spot) return 'No free cleared land of yours. Clear forest or buy more land.';
+  if (!spot) return (use && NO_ROOM[use]) ?? 'No free cleared land of yours. Clear forest or buy more land.';
   worldOf(s, r).pos[key] = spot;
   touch(worldOf(s, r));
   connect(s, r, key); // a dirt track to the nearest road comes with every building
@@ -203,7 +229,7 @@ export function placeNew(s: GameState, r: RegionId, key: string, at?: [number, n
 export function canPlaceNew(s: GameState, r: RegionId, fp0: Footprint, at?: [number, number], use?: Use, rot = 0): string | null {
   const fp = turned(fp0, rot);
   if (at) { const p = placeProblem(s, r, at[0], at[1], fp, undefined, use); return p ? PROBLEM_TEXT[p] : null; }
-  return findSpot(s, r, fp, false, use) ? null : use === 'home' ? 'No free residential land: zone more of your cleared land as residential.' : 'No free cleared land of yours. Clear forest or buy more land.';
+  return findSpot(s, r, fp, false, use) ? null : (use && NO_ROOM[use]) ?? 'No free cleared land of yours. Clear forest or buy more land.';
 }
 export const forget = (s: GameState, r: RegionId, key: string) => { const w = worldOf(s, r); delete w.pos[key]; if (w.rot) delete w.rot[key]; unlink(s, r, key); };
 
@@ -309,7 +335,7 @@ export function reconcileWorld(s: GameState, wanted: Wanted) {
       if (w.pos[k]) continue;
       const fp = footprintOf(s, k);
       if (!fp) continue;
-      const spot = findSpot(s, r, fp, false, useOf(k)) ?? findSpot(s, r, fp, true, useOf(k));
+      const spot = findSpot(s, r, fp, false, useOf(k, s)) ?? findSpot(s, r, fp, true, useOf(k, s));
       if (spot) { w.pos[k] = spot; clearRect(w, spot[0], spot[1], fp.w, fp.d); connect(s, r, k); }
     }
   }

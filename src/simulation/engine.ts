@@ -1,5 +1,5 @@
 import { bestRetailCentre } from './facility-levels';
-import { DRILL_PRICE, oilChance, oilOf, SURVEY_PRICE, surveyed } from './oil';
+import { DRILL_PRICE, oilChance, oilOf, SURVEY_PRICE, SURVEY_R, surveyedAt } from './oil';
 import { haulDaily, haulOf, haulTick, usesCarts, VEHICLES } from './hauling';
 import { emptyProductionReport } from './production-report';
 import { payHouseholds } from './town-state';
@@ -10,7 +10,7 @@ import {
 } from './config';
 import { buildingDivision, clamp, debt, factoryCrop, equity, freeSpace, has, known, log, marketWage, nextId, post, random, round2, todayBook, lean } from './core';
 import { addGoods, canGrow, clearField, fertilizeField, fieldsTick, frostNight, harvestField, isManual, isReady, newField, plantField, spoilageDaily } from './agriculture';
-import { reconcileWorld, unlink, accessNote, cutsOff, buyable, chunksIn, connect, placedIn, touch, useOf, WATER_PRICE, WATER_TIERS, WATER_LEVEL, pipeRoute, pipeStretch, hasWater, isRoad, MAP, ROAD_GRADES, ROAD_H, roadRoute, roadStretch, roadTilePrice, tileId, canPlaceNew, LAND_HA_PER_PATCH, landCost, own, ownedSet, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, clearCost, clearedSet, FOOTPRINT, footprintOf, forget, rotOf, turned, MOVE_DOWNTIME, placeNew, placeProblem, plotSide, PROBLEM_TEXT, seedWorld, TIMBER_PER_PATCH, worldOf } from './world';
+import { reconcileWorld, unlink, accessNote, cutsOff, buyable, chunksIn, connect, placedIn, touch, useOf, buildingUse, INDUSTRY_TO_GROW, WATER_PRICE, WATER_TIERS, WATER_LEVEL, pipeRoute, pipeStretch, hasWater, isRoad, MAP, ROAD_GRADES, ROAD_H, roadRoute, roadStretch, roadTilePrice, tileId, canPlaceNew, LAND_HA_PER_PATCH, landCost, own, ownedSet, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, clearCost, clearedSet, FOOTPRINT, footprintOf, forget, rotOf, turned, MOVE_DOWNTIME, placeNew, placeProblem, plotSide, PROBLEM_TEXT, seedWorld, TIMBER_PER_PATCH, worldOf } from './world';
 import { buyAnimals, livestockDaily, sellAnimals } from './livestock';
 import { claimDaily, startDay } from './daily';
 import { createMarkets, drawWeather, executeBuy, executeSell, quoteBuy, macroDaily, marketsDaily, marketsTick, priceFromInv } from './markets';
@@ -477,7 +477,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       if (price * n > s.cash) return fail(`Costs $${(price * n).toLocaleString()}.`);
       if (a.at && n > 1) return fail('Place buildings one at a time.');
       const [fw, fd] = FOOTPRINT[a.building];
-      const room = canPlaceNew(s, a.region, { w: fw, d: fd }, a.at, 'building', a.rot);
+      const room = canPlaceNew(s, a.region, { w: fw, d: fd }, a.at, buildingUse(s, a.building), a.rot);
       if (room) return fail(room);
       let built = 0;
       for (let i = 0; i < n; i++) {
@@ -518,16 +518,17 @@ export function dispatch(s: GameState, a: Action): ActionResult {
     case 'surveyOil': {
       if (!featureEra(s, 4)) return fail('Oil exploration opens with Industry.');
       if (!s.regions[a.region]?.unlocked) return fail('You have no operations there.');
-      if (surveyed(s, a.region)) return fail('This region is already surveyed.');
+      if (!Array.isArray(a.at) || a.at.length !== 2) return fail('Choose where to survey.');
+      if (surveyedAt(s, a.region, a.at[0], a.at[1])) return fail('That ground is already surveyed: pick an area outside the last survey.');
       const cost = Math.round(SURVEY_PRICE * s.macro.cpi);
       if (cost > s.cash) return fail(`A geological survey costs $${cost.toLocaleString()}.`);
       post(s, 'research', -cost, `Geological survey: ${REGIONS[a.region].name}`, a.region, 'energy');
-      oilOf(s).surveyed.push(a.region);
-      return ok('The survey is in: the surveyor’s stakes mark where oil is likeliest. Taller, redder stakes are better odds.');
+      ((oilOf(s).surveys[a.region] ??= [])).push([Math.round(a.at[0]), Math.round(a.at[1])]);
+      return ok(`The survey is in for ${SURVEY_R * 2} tiles around that spot. Readings are rough: warmer ground is likelier, but not certain.`);
     }
     case 'drillOil': {
       if (!featureEra(s, 4)) return fail('Oil exploration opens with Industry.');
-      const at = a.at, problem = placeProblem(s, a.region, at[0], at[1], { w: 2, d: 2 });
+      const at = a.at, problem = placeProblem(s, a.region, at[0], at[1], { w: 2, d: 2 }, undefined, s.legacyProgression ? 'building' : 'industry');
       if (problem) return fail(PROBLEM_TEXT[problem]);
       const cost = Math.round(DRILL_PRICE * s.macro.cpi);
       if (cost > s.cash) return fail(`Drilling costs $${cost.toLocaleString()}.`);
@@ -541,7 +542,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
         return ok('🛢 Strike! The well is pumping crude oil.');
       }
       ((oilOf(s).dry[a.region] ??= [])).push([at[0], at[1]]);
-      return ok('Dry hole: no oil here. Darker ground on the survey is a better bet.');
+      return ok('Dry hole: no oil here. Survey readings are rough; strong ground is the better bet.');
     }
     case 'buyHorseCart': {
       if (!usesCarts(s, 'heartland')) return fail('Carts carry goods to the market from Market Town on.');
@@ -634,8 +635,8 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       const w = worldOf(s, a.region), owned = ownedSet(w), chunks = [...new Set(a.chunks)].filter((c) => Number.isInteger(c) && owned.has(c));
       if (!chunks.length) return fail('You can only zone land you own.');
       // nothing may be left standing in the wrong zone
-      const stuck = placedIn(s, a.region).find((p) => { const use = useOf(p.key); if (!use) return false; return chunksIn(p.x, p.y, p.w, p.d).some((c) => chunks.includes(c)) && !(a.zone === 'res' ? use === 'home' : a.zone === 'ind' ? use === 'building' : use !== 'home'); });
-      if (stuck) return fail(a.zone === 'res' ? 'Fields and farm buildings stand there: residential land is for homes only.' : a.zone === 'farm' ? 'Homes stand there: move them before turning the land back to farmland.' : 'Fields or homes stand there: industrial land is for plants and stores.');
+      const stuck = placedIn(s, a.region).find((p) => { const use = useOf(p.key, s); if (!use) return false; return chunksIn(p.x, p.y, p.w, p.d).some((c) => chunks.includes(c)) && !(a.zone === 'res' ? use === 'home' : a.zone === 'ind' ? use === 'building' || use === 'industry' : use === 'field' || use === 'building'); });
+      if (stuck) return fail(a.zone === 'res' ? 'Fields and farm buildings stand there: residential land is for homes only.' : a.zone === 'farm' ? 'Homes or industrial plants stand there: move them before turning the land back to farmland.' : 'Fields or homes stand there: industrial land is for plants and stores.');
       for (const c of chunks) { if (a.zone === 'farm') delete w.zones[c]; else w.zones[c] = a.zone; }
       touch(w);
       return ok();
@@ -897,6 +898,8 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       if (!b) return fail('No such building.');
       if (!known(s, 'upgrades')) return fail('Upgrades are not available yet.');
       if (b.level >= 3) return fail('Already at the highest level.');
+      if (buildingUse(s, b.type, b.level + 1) === 'industry' && placeProblem(s, b.region, ...(worldOf(s, b.region).pos[`b:${b.id}`] ?? [NaN, NaN]), footprintOf(s, `b:${b.id}`) ?? { w: 1, d: 1 }, `b:${b.id}`, 'industry') === 'zone')
+        return fail(`${BUILDINGS[b.type].name}s grow into ${INDUSTRY_TO_GROW.has(b.type) ? 'industrial plants' : 'bigger plants'} only on industrial land: zone the land under it industrial (🏘 Zones), or move it there.`);
       const cost = upgradeCost(s, b);
       if (cost > s.cash) return fail(`Upgrading costs $${Math.round(cost).toLocaleString()}.`);
       post(s, 'building', -cost, `Upgrade ${BUILDINGS[b.type].name} to level ${b.level + 1}`, b.region, buildingDivision(b.type));

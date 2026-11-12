@@ -477,7 +477,7 @@ export type Action =
   | { type: 'buyHorseCart' }
   | { type: 'setSettlementPay'; payCut?: number; housingTax?: number }
   | { type: 'zoneLand'; region: RegionId; chunks: number[]; zone: 'res' | 'ind' | 'farm' }
-  | { type: 'surveyOil'; region: RegionId }
+  | { type: 'surveyOil'; region: RegionId; at: [number, number] }
   | { type: 'drillOil'; region: RegionId; at: [number, number] }
   | { type: 'buildRoad'; region: RegionId; from: [number, number]; to: [number, number] }
   | { type: 'removeRoad'; region: RegionId; at: [number, number] }
