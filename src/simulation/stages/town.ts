@@ -1,5 +1,5 @@
 import { regionActive } from '../region-state';
-import { canPlaceNew, placeNew, SERVICE_FOOTPRINT } from '../world';
+import { canPlaceNew, placeNew, SERVICE_FOOTPRINT, smokedShare } from '../world';
 import { nationActive, nationOf } from '../nation-state';
 import {allocateNeighbourJobs} from '../employment';
 import { cityActive, cityOf } from '../city-state';
@@ -126,7 +126,7 @@ export function townDaily(s: GameState) {
   school=cover.school;water=cover.water;medical=cover.medical;roads=1;
   t.education=school;t.water=water;t.roads=roads;
   const sanitation=cityActive(s)?cityOf(s).sanitation:(t.sanitation??0);
-  const wellbeing=clamp(c.fed*.45+t.water*.3+medical*.25-.1*(1-sanitation),0,1);
+  const wellbeing=clamp(c.fed*.45+t.water*.3+medical*.25-.1*(1-sanitation)-.35*smokedShare(s,homes),0,1); // refinery smoke over the homes
   t.health=clamp(t.health+(wellbeing-t.health)*.15,0,1);
   const requested=factoryJobs(s);
   t.industrialJobs=Math.min(adults,requested);t.factoryShare=requested?t.industrialJobs/requested:0;

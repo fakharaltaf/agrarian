@@ -122,3 +122,21 @@ it('a well off its field pumps nothing, and wells stay where they were drilled',
   expect(b.reason).toMatch(/No oil|road/);
   expect(dispatch(s, { type: 'moveObject', region: r, key: `b:${id}`, at: [Math.round(f.x) - 1, Math.round(f.y) - 1] })).toMatchObject({ ok: false });
 });
+
+it('a refinery is huge, turns crude into diesel, pulls the farm industrial, and smokes out the homes near it', async () => {
+  const { smokedShare, SMOKE_R, footprintOf } = await import('../simulation/world');
+  const s = industry(609), r = 'heartland' as const;
+  s.regions.heartland.inventory.oil = 200;
+  const lean = s.values.cleanIndustrial ?? 50;
+  expect(dispatch(s, { type: 'build', region: r, building: 'refinery' }).ok).toBe(true);
+  const ref = s.buildings.find((b) => b.type === 'refinery')!, fp = footprintOf(s, `b:${ref.id}`)!;
+  expect(fp.w * fp.d).toBeGreaterThanOrEqual(90); // a real refinery's sprawl
+  expect(s.values.cleanIndustrial).toBeGreaterThan(lean);
+  const fuel = s.regions.heartland.inventory.fuel;
+  for (let i = 0; i < 6; i++) step(s);
+  if (ref.reason !== 'No road access') { expect(s.regions.heartland.inventory.oil).toBeLessThan(200); expect(s.regions.heartland.inventory.fuel).toBeGreaterThan(fuel); }
+  const [px, py] = worldOf(s, r).pos[`b:${ref.id}`], cx = px + fp.w / 2, cy = py + fp.d / 2;
+  expect(smokedShare(s, [{ x: cx + 5, y: cy, families: 3 }, { x: cx + SMOKE_R + 10, y: cy, families: 1 }])).toBeCloseTo(0.75);
+  ref.active = false; // a closed refinery stops smoking
+  expect(smokedShare(s, [{ x: cx + 5, y: cy, families: 3 }])).toBe(0);
+});

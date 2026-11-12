@@ -15,7 +15,7 @@ import { featureEra, stageAtLeast } from '../../simulation/stages';
 import { preloadArt, artRevision, artModel, playClip } from './art';
 import { money, num, pct0 } from '../format';
 import { layoutRegion, type Layout, type Lot, type Plot } from './layout';
-import { CHUNK, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, LAND_HA_PER_PATCH, MAP, hasAccess, riverTiles, riverX, tileId, roadRoute, roadStretch, pipeRoute, pipeStretch, plotSide, fieldWater, wetTiers, tileAt, forSaleAround, landCost, ownedSet, ROAD_H, ROAD_Y, chunkAt, chunkOrigin, clearCost, clearedSet, isRoad, patchesAround, placeProblem, worldOf } from '../../simulation/world';
+import { CHUNK, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, LAND_HA_PER_PATCH, MAP, hasAccess, riverTiles, riverX, tileId, roadRoute, roadStretch, pipeRoute, pipeStretch, plotSide, fieldWater, wetTiers, SMOKE_R, tileAt, forSaleAround, landCost, ownedSet, ROAD_H, ROAD_Y, chunkAt, chunkOrigin, clearCost, clearedSet, isRoad, patchesAround, placeProblem, worldOf } from '../../simulation/world';
 import { animal, buildCivic, buildCommunityHome, buildLot, box, cached, cyl, farmhand, hauler, mat, mesh, PAL, person, tree, vehicle, type Model } from './models';
 import { haulOf, MARKET_X, marketRoute } from '../../simulation/hauling';
 import { oilOf, oilReading, struckFields, SURVEY_R, surveyedAt } from '../../simulation/oil';
@@ -661,6 +661,12 @@ function syncGhost(R: Rig, s: GameState, P: Placement | null, forest: [number, n
       const r = P.rot ?? 0, [fx, fz] = [[P.w / 2, P.d], [P.w, P.d / 2], [P.w / 2, 0], [0, P.d / 2]][r], [ox, oz] = [[0, 1], [1, 0], [0, -1], [-1, 0]][r];
       const arrow = mesh(cached('doorarrow', () => new THREE.ConeGeometry(0.32, 0.55, 3).rotateX(Math.PI / 2).scale(1, 0.15, 1)), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, depthWrite: false }), P.at[0] + fx + ox * 0.45, 0.28, P.at[1] + fz + oz * 0.45, false);
       arrow.rotation.y = Math.atan2(ox, oz); R.ghost.add(arrow);
+    }
+    // a refinery shows how far its smoke reaches: homes inside it lose health
+    const refining = (P.action.type === 'build' && P.action.building === 'refinery') || (P.key?.startsWith('b:') && s.buildings.find((b) => `b:${b.id}` === P.key)?.type === 'refinery');
+    if (refining) {
+      R.ghost.add(mesh(new THREE.RingGeometry(SMOKE_R - 0.25, SMOKE_R, 96).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xc0392b, transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthWrite: false }), P.at[0] + P.w / 2, 0.06, P.at[1] + P.d / 2, false));
+      R.ghost.add(mesh(new THREE.CircleGeometry(SMOKE_R, 96).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x7a6a5a, transparent: true, opacity: 0.12, depthWrite: false }), P.at[0] + P.w / 2, 0.05, P.at[1] + P.d / 2, false));
     }
     // a town service shows how far it reaches, with the reach of the ones already built of the same kind
     const svcType = P.action.type === 'buildService' ? P.action.service : P.key?.startsWith('svc:') ? townOf(s).services.find((b) => `svc:${b.id}` === P.key)?.type : undefined;

@@ -22,7 +22,7 @@ export type Zone = 'res' | 'ind';
 /** What a placement is, for zoning: homes need a residential zone; fields stay out of zones; farm buildings stay out of residential; industry needs an industrial zone. */
 export type Use = 'home' | 'field' | 'building' | 'industry';
 /** Plants that belong on industrial land from the start. */
-export const INDUSTRY_ONLY: ReadonlySet<BuildingType> = new Set(['biogas', 'windTurbine', 'oilWell', 'solar', 'distribution']);
+export const INDUSTRY_ONLY: ReadonlySet<BuildingType> = new Set(['biogas', 'windTurbine', 'oilWell', 'refinery', 'solar', 'distribution']);
 /** Workshops that start anywhere off residential land, but grow past their first level only on industrial land. */
 export const INDUSTRY_TO_GROW: ReadonlySet<BuildingType> = new Set(['flourMill', 'bakery', 'feedMill', 'ranch', 'dairy', 'creamery', 'oilPress', 'sugarMill', 'winery']);
 /** The zoning a building at this level needs (the older progression keeps the plain farm rule). */
@@ -43,7 +43,7 @@ export type WorldState = Partial<Record<RegionId, RegionWorld>>;
 export const FOOTPRINT: Record<BuildingType | 'house' | 'shed', [number, number]> = {
   house: [3, 3], shed: [2, 2], barn: [3, 2], silo: [2, 2], coldStore: [3, 2], warehouse: [5, 3], flourMill: [2, 2], bakery: [2, 2],
   feedMill: [3, 2], ranch: [5, 4], dairy: [5, 3], creamery: [3, 2], oilPress: [3, 2], sugarMill: [3, 2], biogas: [3, 3], solar: [5, 3],
-  verticalFarm: [2, 2], windTurbine: [2, 2], oilWell: [2, 2], distribution: [5, 3], lab: [3, 2], lab2: [4, 3], coop: [3, 3], pigsty: [4, 3], cowshed: [5, 4], sheepfold: [5, 4], winery: [3, 3],
+  verticalFarm: [2, 2], windTurbine: [2, 2], oilWell: [2, 2], refinery: [12, 8], distribution: [5, 3], lab: [3, 2], lab2: [4, 3], coop: [3, 3], pigsty: [4, 3], cowshed: [5, 4], sheepfold: [5, 4], winery: [3, 3],
 };
 /** Side length in tiles: area grows with hectares but stays legible (1 ha = 2×2 tiles … capped at 16×16). */
 export const plotSide = (ha: number) => Math.max(2, Math.min(16, Math.round(2 * Math.sqrt(ha))));
@@ -124,6 +124,15 @@ export function placedIn(s: GameState, r: RegionId): Placed[] {
   return out;
 }
 
+/** How far a refinery's smoke reaches (tiles from its middle): families living inside it lose health. */
+export const SMOKE_R = 30;
+/** Share of the town's families living in a working refinery's smoke. */
+export function smokedShare(s: GameState, homes: { x: number; y: number; families: number }[]) {
+  const total = homes.reduce((n, h) => n + h.families, 0), w = worldOf(s, 'heartland');
+  if (!total) return 0;
+  const stacks = s.buildings.filter((b) => b.type === 'refinery' && b.active && b.region === 'heartland' && w.pos[`b:${b.id}`]).map((b) => { const p = w.pos[`b:${b.id}`], fp = footprintOf(s, `b:${b.id}`)!; return [p[0] + fp.w / 2, p[1] + fp.d / 2]; });
+  return homes.reduce((n, h) => n + (stacks.some(([x, y]) => (x - h.x) ** 2 + (y - h.y) ** 2 <= SMOKE_R * SMOKE_R) ? h.families : 0), 0) / total;
+}
 /** Saves from before industrial zoning: land under plants already standing becomes industrial, unless homes or fields share it. */
 export function zoneStandingIndustry(s: GameState) {
   for (const b of s.buildings) {

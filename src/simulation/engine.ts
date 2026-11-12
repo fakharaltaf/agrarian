@@ -490,6 +490,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       }
       log(s, 'info', `Built ${built > 1 ? `${built} ${d.name.toLowerCase()}s` : `a ${d.name.toLowerCase()}`} in ${REGIONS[a.region].name}.`, BUILDINGS[a.building].category === 'storage' ? 'storage' : 'production');
       if (greenBuild) lean(s, 'cleanIndustrial', -6 * built); // clean energy pulls the farm's character green
+      if (a.building === 'refinery') lean(s, 'cleanIndustrial', 15 * built); // and a refinery pulls it hard the other way
       return ok(s.buildings.slice(-built).map((b) => accessNote(s, a.region, `b:${b.id}`)).find(Boolean));
     }
     case 'moveObject': {

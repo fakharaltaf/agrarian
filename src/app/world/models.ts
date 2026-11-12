@@ -376,6 +376,24 @@ export function buildLot(type: Lot['type'], w: number, d: number, variant = ''):
       for (let i = 0; i < 2; i++) g.add(cyl(0.18, 0.5, 0x2b2b2b, 0.4 + i * 0.45, 0.08, 0.35, 10)); // barrels of crude
       break;
     }
+    case 'refinery': { // a real refinery's sprawl: tank farm, distillation columns on a pipe rack, cracking unit, flare stack
+      g.add(box(w - 0.1, 0.06, d - 0.1, 0x6b6b66, w / 2, 0, d / 2, { rough: 1 }));
+      for (let i = 0; i < 4; i++) for (let j = 0; j < 2; j++) { const x = 1.3 + i * 2.3, z = 1.3 + j * 2.4; g.add(cyl(0.95, 1.3, 0xdcdcd2, x, 0.06, z, 18), cyl(0.97, 0.06, 0xb9b9ae, x, 1.36, z, 18), box(1.95, 0.05, 1.95, 0x4f4f4a, x, 0.06, z)); } // the tank farm, each in its bund
+      g.add(box(w - 1.2, 0.08, 0.3, PAL.metalDark, w / 2, 1.2, 5.3)); // pipe rack across the site
+      for (let x = 1; x < w - 0.5; x += 1.4) g.add(box(0.08, 1.2, 0.3, PAL.metalDark, x, 0, 5.3));
+      for (let k = 0; k < 3; k++) g.add(box(w - 1.2, 0.06, 0.06, k === 1 ? 0xb8862e : PAL.metal, w / 2, 1.3 + k * 0.08, 5.2 + k * 0.1));
+      for (const [x, h, r] of [[2.2, 4.6, 0.38], [3.3, 3.8, 0.3], [4.2, 5.2, 0.42]] as const) { // distillation columns with their platforms
+        g.add(cyl(r, h, 0xc9ccd0, x, 0.06, 6.6, 12));
+        for (let y = 1; y < h; y += 1.2) g.add(cyl(r + 0.14, 0.04, PAL.metalDark, x, y, 6.6, 12));
+      }
+      g.add(box(2.4, 1.8, 1.6, 0x8a8f96, 7, 0.06, 6.7), box(2.6, 0.12, 1.8, PAL.metalDark, 7, 1.86, 6.7)); // cracking unit
+      g.add(cyl(0.22, 2.6, 0x8a8f96, 6.2, 1.9, 6.4, 10), cyl(0.18, 2.2, 0x8a8f96, 7.8, 1.9, 7.0, 10)); // its stacks
+      g.add(box(1.6, 0.9, 1.2, PAL.white, 10.2, 0.06, 6.9), box(1.7, 0.08, 1.3, PAL.roofGrey, 10.2, 0.96, 6.9)); // control room
+      g.add(cyl(0.12, 6.4, 0xb04a3a, w - 0.8, 0.06, 1.0, 8), cyl(0.2, 0.25, PAL.metalDark, w - 0.8, 6.46, 1.0, 8)); // flare stack
+      g.add(cone(0.22, 0.7, 0xffa53a, w - 0.8, 6.7, 1.0, 8)); // the flare
+      smoke.push(new THREE.Vector3(6.2, 4.6, 6.4), new THREE.Vector3(7.8, 4.2, 7.0), new THREE.Vector3(w - 0.8, 7.4, 1.0));
+      break;
+    }
     case 'verticalFarm': { // a glass tower: steel frame, floors of greens under violet grow lights, plant room on the roof
       const fw = 1.6, H = 3.4, cx = w / 2, cz = d / 2;
       g.add(box(fw + 0.2, 0.08, fw + 0.2, PAL.stoneDark, cx, 0, cz));
