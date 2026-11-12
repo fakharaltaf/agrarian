@@ -693,6 +693,35 @@ function syncSelection(R: Rig, L: Layout, selected: number[]) {
   }
 }
 
+type Gate = { a: [number, number]; b: [number, number]; inX: number; inZ: number };
+const GATE_WOOD = 0xb38d5c, GATE_POST = 0x7a5536;
+/** One leaf of a five-bar field gate, hinged at the origin and reaching along +x: stiles, rails and the diagonal brace. */
+function gateLeaf(len: number) {
+  return cached(`gateleaf${len.toFixed(2)}`, () => {
+    const parts = [new THREE.BoxGeometry(0.05, 0.46, 0.05).translate(0.04, 0.27, 0), new THREE.BoxGeometry(0.04, 0.42, 0.04).translate(len - 0.03, 0.25, 0)];
+    for (const [y, h] of [[0.09, 0.03], [0.17, 0.03], [0.25, 0.03], [0.33, 0.03], [0.43, 0.05]] as const) parts.push(new THREE.BoxGeometry(len - 0.04, h, 0.03).translate(len / 2, y, 0));
+    const run = len - 0.12, rise = 0.32, brace = new THREE.BoxGeometry(Math.hypot(run, rise), 0.03, 0.025);
+    parts.push(brace.rotateZ(Math.atan2(rise, run)).translate(0.06 + run / 2, 0.09 + rise / 2, 0.02));
+    parts.push(new THREE.BoxGeometry(0.07, 0.04, 0.07).translate(len - 0.02, 0.3, 0)); // the latch
+    return merged(...parts);
+  });
+}
+/** Stout gateposts either side of a road through the fence, the gate (two leaves on a wide road) swung open against the verge. */
+function farmGate({ a, b, inX, inZ }: Gate) {
+  const g = new THREE.Group(), dx = Math.sign(b[0] - a[0]), dz = Math.sign(b[1] - a[1]), width = Math.hypot(b[0] - a[0], b[1] - a[1]);
+  for (const [px, pz] of [a, b]) {
+    g.add(mesh(cached('gatepost', () => new THREE.BoxGeometry(0.12, 0.62, 0.12).translate(0, 0.31, 0)), mat(GATE_POST), px, 0, pz));
+    g.add(mesh(cached('gatecap', () => new THREE.ConeGeometry(0.1, 0.07, 4).rotateY(Math.PI / 4).translate(0, 0.655, 0)), mat(PAL.woodDark), px, 0, pz));
+  }
+  const leaves: [[number, number], number][] = width > 1.5 ? [[a, 1], [b, -1]] : [[a, 1]];
+  for (const [[hx, hz]] of leaves) {
+    const len = (width > 1.5 ? width / 2 : width) - 0.1, leaf = mesh(gateLeaf(len), mat(GATE_WOOD), hx + inX * 0.06 + dx * 0.06 * (hx === a[0] && hz === a[1] ? 1 : -1), 0, hz + inZ * 0.06 + dz * 0.06 * (hx === a[0] && hz === a[1] ? 1 : -1));
+    leaf.rotation.y = Math.atan2(-inZ, inX) + (hx === a[0] && hz === a[1] ? -1 : 1) * 0.12; // swung right back, nearly against the verge
+    g.add(leaf);
+  }
+  return g;
+}
+
 type TreeSpot = { x: number; z: number; k: number; ky: number; rot: number; kind: 0 | 1 | 2 }; // 0 oak, 1 pine, 2 birch
 /** The trees of one forest patch: an uneven number, scattered with a little spacing, a mix of oak, pine and birch. */
 function patchTrees(c: number, ox: number, oy: number, n: number): TreeSpot[] {
@@ -761,7 +790,7 @@ function syncDeco(R: Rig, L: Layout, s: GameState) {
     }
   }
   // the farm's boundary: low posts and a rail wherever land you own meets land you don't
-  const owned = ownedSet(w), rails: THREE.Matrix4[] = [], posts: THREE.Matrix4[] = [], turn = new THREE.Quaternion().setFromAxisAngle(up, Math.PI / 2), flat = new THREE.Quaternion(), one = new THREE.Vector3(1, 1, 1);
+  const gates: Gate[] = [], owned = ownedSet(w), rails: THREE.Matrix4[] = [], posts: THREE.Matrix4[] = [], turn = new THREE.Quaternion().setFromAxisAngle(up, Math.PI / 2), flat = new THREE.Quaternion(), one = new THREE.Vector3(1, 1, 1);
   for (let gy = Math.max(0, gy0); gy <= Math.min(CHUNKS_Y - 1, gy1); gy++) for (let gxx = Math.max(0, gx0); gxx <= Math.min(CHUNKS_X - 1, gx1); gxx++) {
     const c = gy * CHUNKS_X + gxx;
     if (!owned.has(c)) continue;
@@ -769,20 +798,30 @@ function syncDeco(R: Rig, L: Layout, s: GameState) {
     const edge = (nx: number, ny: number) => nx < 0 || ny < 0 || nx >= CHUNKS_X || ny >= CHUNKS_Y || !owned.has(ny * CHUNKS_X + nx);
     // a tile of road or track on either side of the line leaves a gap: the fence never crosses or runs along a road
     const open = (tx: number, ty: number) => isRoad(ty) || w.roads[tileId(tx, ty)] !== undefined;
-    const side = (x: number, z: number, along: boolean) => {
-      for (let i = 0; i < CHUNK; i++) {
+    const side = (x: number, z: number, along: boolean, inX: number, inZ: number) => {
+      let run = -1; // where a road crosses: stout posts either side and a five-bar gate swung open into the farm
+      for (let i = 0; i <= CHUNK; i++) {
         const tx = along ? x - CHUNK / 2 + i : x, ty = along ? z : z - CHUNK / 2 + i;
+        const crossing = i < CHUNK && (along ? open(tx, ty - 1) && open(tx, ty) : open(tx - 1, ty) && open(tx, ty));
+        if (crossing && run < 0) run = i;
+        if (!crossing && run >= 0) {
+          const width = i - run, at = (k: number): [number, number] => (along ? [x - CHUNK / 2 + k, z] : [x, z - CHUNK / 2 + k]);
+          if (width <= 3) gates.push({ a: at(run), b: at(i), inX, inZ });
+          run = -1;
+        }
+        if (i === CHUNK) break;
         if (along ? open(tx, ty - 1) || open(tx, ty) : open(tx - 1, ty) || open(tx, ty)) continue;
-        rails.push(new THREE.Matrix4().compose(new THREE.Vector3(along ? tx + 0.5 : x, 0.24, along ? z : ty + 0.5), along ? flat : turn, one));
+        for (const ry of [0.13, 0.27]) rails.push(new THREE.Matrix4().compose(new THREE.Vector3(along ? tx + 0.5 : x, ry, along ? z : ty + 0.5), along ? flat : turn, one));
         posts.push(new THREE.Matrix4().makeTranslation(along ? tx : x, 0, along ? z : ty));
         if (i === CHUNK - 1 || (along ? open(tx + 1, ty - 1) || open(tx + 1, ty) : open(tx - 1, ty + 1) || open(tx, ty + 1))) posts.push(new THREE.Matrix4().makeTranslation(along ? tx + 1 : x, 0, along ? z : ty + 1));
       }
     };
-    if (edge(gxx, gy - 1)) side(ox + CHUNK / 2, oy, true);
-    if (edge(gxx, gy + 1)) side(ox + CHUNK / 2, oy + CHUNK, true);
-    if (edge(gxx - 1, gy)) side(ox, oy + CHUNK / 2, false);
-    if (edge(gxx + 1, gy)) side(ox + CHUNK, oy + CHUNK / 2, false);
+    if (edge(gxx, gy - 1)) side(ox + CHUNK / 2, oy, true, 0, 1);
+    if (edge(gxx, gy + 1)) side(ox + CHUNK / 2, oy + CHUNK, true, 0, -1);
+    if (edge(gxx - 1, gy)) side(ox, oy + CHUNK / 2, false, 1, 0);
+    if (edge(gxx + 1, gy)) side(ox + CHUNK, oy + CHUNK / 2, false, -1, 0);
   }
+  for (const gt of gates) R.deco.add(farmGate(gt));
   const inst = (geo: THREE.BufferGeometry, material: THREE.Material, list: THREE.Matrix4[], cols?: THREE.Color[]) => {
     const im = new THREE.InstancedMesh(geo, material, Math.max(1, list.length));
     list.forEach((m, i) => { im.setMatrixAt(i, m); if (cols) im.setColorAt(i, cols[i]); });
@@ -857,9 +896,9 @@ const ROAD_COL = [0, 0xc19a64, 0xb9b3a6, 0x5f6266], RUT_COL = [0, 0x9f7c4e, 0x99
 type Band = [number, THREE.Color, number]; // offset (or radius), colour, opacity
 /** Flat ground decals (no sides, so nothing reads as cut card): ribbons along segments and round joints, with soft, fading edges. */
 class Decal {
-  pos: number[] = []; col: number[] = [];
+  pos: number[] = []; col: number[] = []; uv: number[] = [];
   constructor(public y: number) {}
-  private v(x: number, z: number, [, c, a]: Band) { this.pos.push(x, this.y, z); this.col.push(c.r, c.g, c.b, a); }
+  private v(x: number, z: number, [, c, a]: Band) { this.pos.push(x, this.y, z); this.col.push(c.r, c.g, c.b, a); this.uv.push(x * 0.5, z * 0.5); } // the texture lies in world space, so joints and junctions match
   /** A ribbon from a to b; each band edge runs parallel to the centre line. */
   seg(ax: number, az: number, bx: number, bz: number, bands: Band[]) {
     const l = Math.hypot(bx - ax, bz - az) || 1, nx = -(bz - az) / l, nz = (bx - ax) / l;
@@ -881,20 +920,21 @@ class Decal {
       }
     }
   }
-  mesh(transparent: boolean) {
+  mesh(transparent: boolean, map?: THREE.Texture) {
     const P = this.pos, Cc = this.col, n = P.length / 3;
     for (let i = 0; i < n; i += 3) { // every face up, so the sun lights it from above
       const ux = P[i * 3 + 3] - P[i * 3], uz = P[i * 3 + 5] - P[i * 3 + 2], vx = P[i * 3 + 6] - P[i * 3], vz = P[i * 3 + 8] - P[i * 3 + 2];
       if (uz * vx - ux * vz >= 0) continue;
       for (let k = 0; k < 3; k++) [P[i * 3 + 3 + k], P[i * 3 + 6 + k]] = [P[i * 3 + 6 + k], P[i * 3 + 3 + k]];
       for (let k = 0; k < 4; k++) [Cc[i * 4 + 4 + k], Cc[i * 4 + 8 + k]] = [Cc[i * 4 + 8 + k], Cc[i * 4 + 4 + k]];
+      for (let k = 0; k < 2; k++) [this.uv[i * 2 + 2 + k], this.uv[i * 2 + 4 + k]] = [this.uv[i * 2 + 4 + k], this.uv[i * 2 + 2 + k]];
     }
     const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(this.col, 4));
+    g.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(this.col, 4)); g.setAttribute('uv', new THREE.Float32BufferAttribute(this.uv, 2));
     g.setAttribute('normal', new THREE.Float32BufferAttribute(new Array(n).fill([0, 1, 0]).flat(), 3));
     // pulled toward the camera in the depth test, so the ground never flickers through at the edges (layers stack by height)
     const lift = -1 - Math.round(this.y * 400);
-    const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, transparent, depthWrite: !transparent, polygonOffset: true, polygonOffsetFactor: lift, polygonOffsetUnits: lift }));
+    const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, transparent, depthWrite: !transparent, polygonOffset: true, polygonOffsetFactor: lift, polygonOffsetUnits: lift, map: map ?? null }));
     m.receiveShadow = true; m.frustumCulled = false;
     return m;
   }
@@ -945,7 +985,7 @@ function syncRoads(R: Rig, s: GameState) {
       }
     }
   }
-  R.roadsG.add(verge.mesh(true), surface.mesh(false), marks.mesh(false));
+  R.roadsG.add(verge.mesh(true), surface.mesh(false, roadGrain()), marks.mesh(false, roadGrain()), roadsideTufts(w, riverTiles(R.region)));
   // irrigation channels: one flat blue, like the river (no shadow on them: per-tile shadow edges drew a grid)
   const canalTiles = cids.map((k) => { const [x, y] = tileAt(Number(k)); return new THREE.Matrix4().makeTranslation(x + 0.5, 0.016, y + 0.5); });
   if (canalTiles.length) { const im = new THREE.InstancedMesh(cached('canal', () => new THREE.PlaneGeometry(1.02, 1.02).rotateX(-Math.PI / 2)), mat(0x5aa7c4, { rough: 0.7 }), canalTiles.length); canalTiles.forEach((m, i) => im.setMatrixAt(i, m)); im.frustumCulled = false; R.roadsG.add(im); }
@@ -1599,6 +1639,67 @@ function grassTexture() {
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
+}
+
+/** Packed dirt seen from above: soft worn patches, fine grit and scattered pebbles with their shadows. Light grey, so it tints whatever road colour lies under it. Tiles seamlessly. */
+let grain: THREE.CanvasTexture | null = null;
+function roadGrain() {
+  if (grain) return grain;
+  const S = 512, c = document.createElement('canvas'); c.width = c.height = S;
+  const x = c.getContext('2d')!;
+  let seed = 7; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const wrap = (px: number, py: number, r: number, draw: (X: number, Y: number) => void) => { for (const ox of [-S, 0, S]) for (const oy of [-S, 0, S]) if (px + ox > -r && px + ox < S + r && py + oy > -r && py + oy < S + r) draw(px + ox, py + oy); };
+  x.fillStyle = '#ededed'; x.fillRect(0, 0, S, S);
+  for (let i = 0; i < 260; i++) { // worn and packed patches
+    const px = rnd() * S, py = rnd() * S, r = 14 + rnd() * 46, l = Math.round(200 + rnd() * 70), a = 0.18 + rnd() * 0.2;
+    wrap(px, py, r, (X, Y) => { const g = x.createRadialGradient(X, Y, 0, X, Y, r); g.addColorStop(0, `rgba(${l},${l - 4},${l - 10},${a})`); g.addColorStop(1, `rgba(${l},${l - 4},${l - 10},0)`); x.fillStyle = g; x.fillRect(X - r, Y - r, r * 2, r * 2); });
+  }
+  const img = x.getImageData(0, 0, S, S), d = img.data; // fine grit
+  for (let i = 0; i < d.length; i += 4) { const n = (rnd() - 0.5) * 26; d[i] += n; d[i + 1] += n; d[i + 2] += n * 0.9; }
+  x.putImageData(img, 0, 0);
+  for (let i = 0; i < 900; i++) { // pebbles: a shadow below, the stone, a lit top
+    const px = rnd() * S, py = rnd() * S, r = 1.2 + rnd() * rnd() * 5.5, rot = rnd() * 3, l = Math.round(150 + rnd() * 105), warm = rnd() * 18;
+    wrap(px, py, r + 3, (X, Y) => {
+      x.fillStyle = 'rgba(70,58,44,0.45)'; x.beginPath(); x.ellipse(X + r * 0.35, Y + r * 0.45, r * 1.05, r * 0.8, rot, 0, 7); x.fill();
+      x.fillStyle = `rgb(${l + warm},${l + warm * 0.6},${l})`; x.beginPath(); x.ellipse(X, Y, r, r * 0.75, rot, 0, 7); x.fill();
+      x.fillStyle = 'rgba(255,255,255,0.35)'; x.beginPath(); x.ellipse(X - r * 0.25, Y - r * 0.25, r * 0.45, r * 0.3, rot, 0, 7); x.fill();
+    });
+  }
+  for (let i = 0; i < 1400; i++) { const px = rnd() * S, py = rnd() * S; x.fillStyle = `rgba(80,66,50,${0.2 + rnd() * 0.3})`; x.fillRect(px, py, 1 + rnd() * 1.5, 1 + rnd() * 1.5); } // dark grit
+  grain = new THREE.CanvasTexture(c);
+  grain.wrapS = grain.wrapT = THREE.RepeatWrapping; grain.colorSpace = THREE.SRGBColorSpace; grain.anisotropy = 4;
+  return grain;
+}
+
+/** Tufts of grass along the road edges, so the road sits in the field instead of being painted on it. */
+function roadsideTufts(w: ReturnType<typeof worldOf>, river: Set<number>) {
+  const list: THREE.Matrix4[] = [], cols: THREE.Color[] = [], q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0);
+  const put = (x: number, z: number, k: number) => {
+    q.setFromAxisAngle(up, hash(x * 3.1 + z * 7.7) * 6.28);
+    const sc = 0.5 + hash(x * 1.7 - z) * 0.55;
+    list.push(new THREE.Matrix4().compose(new THREE.Vector3(x, 0, z), q, new THREE.Vector3(sc, sc * (0.8 + hash(x + z * 9) * 0.6), sc)));
+    cols.push(new THREE.Color().setHSL(0.21 + hash(k) * 0.07, 0.55, 0.26 + hash(k * 3.3) * 0.1));
+  };
+  const cz = ROAD_Y + ROAD_H / 2, half = ROAD_H / 2 - 0.1;
+  for (let x = MAP.x0; x < MAP.x0 + MAP.w; x += 0.16) for (const sd of [-1, 1]) {
+    const k = x * 13 + sd, ty = sd < 0 ? ROAD_Y - 1 : ROAD_Y + ROAD_H;
+    if (hash(k) < 0.3 || w.roads[tileId(Math.floor(x), ty)] || [-2, -1, 0, 1, 2].some((o) => river.has(tileId(Math.floor(x) + o, ty)))) continue; // gaps where tracks join and at the bridge
+    put(x + hash(k * 1.3) * 0.1, cz + sd * (half + 0.02 + hash(k * 2.1) * hash(k * 5.1) * 0.22), k);
+  }
+  for (const id of Object.keys(w.roads)) {
+    const [tx, ty] = tileAt(Number(id));
+    for (let i = 0; i < 11; i++) {
+      const k = Number(id) * 7 + i, a = hash(k) * Math.PI * 2, dx = Math.cos(a), dz = Math.sin(a);
+      const nx = Math.round(dx * 0.75), nz = Math.round(dz * 0.75); // skip the sides where the track runs on
+      if ((nx || nz) && (w.roads[tileId(tx + nx, ty + nz)] !== undefined || isRoad(ty + nz))) continue;
+      const r = 0.38 + hash(k * 1.9) * hash(k * 4.3) * 0.2;
+      put(tx + 0.5 + dx * r, ty + 0.5 + dz * r, k);
+    }
+  }
+  const im = new THREE.InstancedMesh(cached('tuft', () => merged(...[0, 1, 2, 3, 4].map((i) => new THREE.ConeGeometry(0.022, 0.13 + (i % 3) * 0.03, 3).translate(0, 0.065, 0).rotateZ((i - 2) * 0.28).rotateY(i * 1.3).translate(Math.cos(i * 1.3) * 0.025, 0, Math.sin(i * 1.3) * 0.025)))), SOFT_PINE, Math.max(1, list.length));
+  list.forEach((m, i) => { im.setMatrixAt(i, m); im.setColorAt(i, cols[i]); });
+  im.count = list.length; im.frustumCulled = false;
+  return im;
 }
 
 let furrows: THREE.CanvasTexture | null = null;
