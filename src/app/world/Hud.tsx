@@ -10,7 +10,7 @@ import { buildingMargin } from '../../simulation/processing';
 import { DISCOVERIES, ERA_UNLOCK_TEXT, dailyGoals, dailyPrize, forecast, herdOf, homePlotPrice, housing, isManual, isReady, objective, chapterGate, gateProgress, type GateRow, PAGES, seedShortfall, upgradeCost } from '../../simulation/engine';
 import type { GameState } from '../../simulation/types';
 import { act, cancelPlacement, confirmPlacement, rotatePlacement, go, placementUse, setRoadTool, setZoneTool, startPlacement, stopProspect, stopRoads, stopZoning, type Zoning, useGame, usePageState, useStore, type Placement, type Roading } from '../../stores/game';
-import { cutsOff, footprintOf, forSaleAround, isRoad, MAP, ROAD_GRADES, ROAD_H, roadRoute, roadStretch, roadTilePrice, worldOf, patchesAround, placeProblem, plotSide, PROBLEM_TEXT } from '../../simulation/world';
+import { IRRIGATION_CHANNEL_PRICE, PIPE_BURY_PRICE, pipeRoute, pipeStretch, cutsOff, footprintOf, forSaleAround, isRoad, MAP, ROAD_GRADES, ROAD_H, roadRoute, roadStretch, roadTilePrice, worldOf, patchesAround, placeProblem, plotSide, PROBLEM_TEXT } from '../../simulation/world';
 import { buildingPrice, moveFee, parcelPrice } from '../../simulation/engine';
 import { homePrice } from '../../simulation/community-state';
 import { servicePrice } from '../../simulation/town-state';
@@ -260,7 +260,7 @@ export function Hud() {
           } else {setPanel(true);setJournal(false); if(kind==='plan') requestAnimationFrame(()=>document.querySelector('[data-coach=plan-picker]')?.scrollIntoView({block:'center'}));}
         }} />
       {placing && <PlacementBar s={s} p={placing} />}
-      {roading && <RoadBar s={s} r={roading} />}
+      {roading && (roading.pipe ? <PipeBar s={s} r={roading} /> : <RoadBar s={s} r={roading} />)}
       {prospect && <OilBar s={s} p={prospect} />}
       {zoning && <ZoneBar z={zoning} />}
       <div className={`hud-left${journal ? ' journal-open' : ''}`} hidden={page !== 'farm'}>
@@ -320,6 +320,27 @@ function OilBar({ s, p }: { s: GameState; p: { region: RegionId; hover?: [number
     <div className="placement-info"><b>🛢 Oil</b><span className="muted">{hint}</span></div>
     {!known && <button className="btn primary" disabled={survey > s.cash} onClick={() => act({ type: 'surveyOil', region: p.region })}>Survey · {money(survey)}</button>}
     <button className="btn ghost" onClick={() => stopProspect()}>Done</button>
+  </div>;
+}
+
+function PipeBar({ s, r }: { s: GameState; r: Roading }) {
+  const w = worldOf(s, r.region), price = Math.round(IRRIGATION_CHANNEL_PRICE * s.macro.cpi), bury = Math.round(PIPE_BURY_PRICE * s.macro.cpi), h = r.hover;
+  let hint: string;
+  if (r.tool === 'draw') {
+    const route = r.from && h ? pipeRoute(s, r.region, r.from, h) : null;
+    hint = !r.from ? 'Tap beside the river (or on a pipe) to start' : !h ? `Tap where it goes next · ${money(price)} a tile` : route ? `${route.length} tiles · ${money(price * route.length)} · tap to lay` : 'Can\'t get there: keep to your own cleared land';
+  } else {
+    const st = h ? pipeStretch(w, h[0], h[1]) : [];
+    if (!st.length) hint = r.tool === 'upgrade' ? 'Tap a pipe to bury it and free the land' : 'Tap a pipe to remove that run';
+    else if (r.tool === 'upgrade') { const n = st.filter((id) => w.canals[id] === 1).length; hint = n ? `Bury ${n} tiles · ${money(bury * n)} · the land is freed` : 'Already underground'; }
+    else hint = `Remove ${st.length} tiles of pipe`;
+  }
+  return <div className="placement-bar road-bar" role="dialog" aria-label="Irrigation pipes">
+    <div className="placement-info"><b>💧 Pipes</b><span className="muted">{hint}</span></div>
+    <div className="seg" role="group" aria-label="Pipe tool">
+      {(['draw', 'upgrade', 'remove'] as const).map((t) => <button key={t} className={`btn ${r.tool === t ? 'primary' : 'ghost'}`} aria-pressed={r.tool === t} onClick={() => setRoadTool(t)}>{t === 'draw' ? '✏ Draw' : t === 'upgrade' ? '⬇ Bury' : '✕ Remove'}</button>)}
+    </div>
+    <button className="btn ghost" onClick={() => stopRoads()}>Done</button>
   </div>;
 }
 

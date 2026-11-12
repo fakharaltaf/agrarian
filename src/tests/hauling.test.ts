@@ -49,3 +49,35 @@ it('irrigation needs a channel from the river, dug over your own land', async ()
   const [rx, ry] = tileAt([...riverTiles('heartland')][100]);
   expect(placeProblem(s, 'heartland', rx, ry, { w: 1, d: 1 })).not.toBeNull(); // nothing is built on the river
 });
+
+it('pipes follow their field, can be buried to free the land, and a field cut off from the river gets no water', async () => {
+  const W = await import('../simulation/world');
+  const s = createGame(504); post(s, 'prize', 100_000, 'fixture'); s.stageId = 'farm-business';
+  const f = s.fields[0], key = `field:${f.id}`, w = W.worldOf(s, 'heartland');
+  W.own(w, W.chunksIn(-40, -8, 52, 24)); W.clearRect(w, -40, -8, 52, 24);
+  expect(dispatch(s, { type: 'irrigate', fieldIds: [f.id] }).ok).toBe(true);
+  const laid = [...(w.plinks?.[key] ?? [])];
+  expect(laid.length).toBeGreaterThan(3);
+  expect(W.hasWater(s, 'heartland', key)).toBe(true);
+  // a surface pipe takes its tile; buried, the tile is free again
+  const [px, py] = W.tileAt(laid[Math.floor(laid.length / 2)]);
+  expect(W.placeProblem(s, 'heartland', px, py, { w: 1, d: 1 })).toBe('water');
+  expect(dispatch(s, { type: 'buryPipe', region: 'heartland', at: [px, py] }).ok).toBe(true);
+  expect(w.canals[W.tileId(px, py)]).toBe(2);
+  expect(W.placeProblem(s, 'heartland', px, py, { w: 1, d: 1 })).not.toBe('water');
+  expect(W.hasWater(s, 'heartland', key)).toBe(true); // water still flows underground
+  // moving the field lifts its old pipe and lays a new one to where it went
+  const side = W.plotSide(f.ha), to = W.findSpot(s, 'heartland', { w: side, d: side })!;
+  expect(dispatch(s, { type: 'moveObject', region: 'heartland', key, at: to }).ok).toBe(true);
+  for (const id of laid) if (!(w.plinks?.[key] ?? []).includes(id)) expect(w.canals[id]).toBeUndefined();
+  expect(W.hasWater(s, 'heartland', key)).toBe(true);
+  // removing its pipe cuts it off, and the result says so
+  const mine = w.plinks?.[key] ?? [];
+  if (mine.length) {
+    const [mx, my] = W.tileAt(mine[0]);
+    const r = dispatch(s, { type: 'removePipe', region: 'heartland', at: [mx, my] });
+    expect(r.ok).toBe(true);
+    expect(W.hasWater(s, 'heartland', key)).toBe(false);
+    expect(r.ok && r.note).toMatch(/no water/);
+  }
+});

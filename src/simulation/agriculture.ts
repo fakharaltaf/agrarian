@@ -3,6 +3,7 @@ import { CONFIG, CROPS, GOODS, MACHINES, REGIONS, TICKS_PER_DAY, TICKS_PER_YEAR,
 import { buildingsIn, clamp, factoryCrop, reserveCap, freeSpace, has, log, post, round2, seasonOf, seedCost, severity, stored, todayBook } from './core';
 import { executeSell } from './markets';
 import type { Field, GameState, HarvestBreakdown } from './types';
+import { hasWater } from './world';
 
 export function newField(s: GameState, region: RegionId, ha: number, cost: number): Field {
   const q = REGIONS[region].soil;
@@ -240,7 +241,7 @@ export function fieldsTick(s: GameState) {
     // Soil water relaxes toward a level set by today's rain, heat, crop demand and organic matter (retention).
     const eq = clamp(0.12 + reg.rainToday * 0.8 - (crop ? 0.08 : 0) - (reg.temp - 15) * 0.008 + (f.soil.organic - 0.5) * 0.1, 0, 1);
     f.moisture = clamp(f.moisture + (eq - f.moisture) * 0.04, 0, 1);
-    if (growing && f.irrigated && f.moisture < s.automation.policies.irrigateMin) {
+    if (growing && f.irrigated && f.moisture < s.automation.policies.irrigateMin && (s.legacyProgression || hasWater(s, f.region, `field:${f.id}`))) { // no pipe to the river, no water
       const want = (s.automation.policies.irrigateMin - f.moisture) * f.ha;
       const capLeft = REGIONS[f.region].waterCap === Infinity ? Infinity : REGIONS[f.region].waterCap * irrigatedHa(s, f.region) - reg.waterToday;
       const units = Math.max(0, Math.min(want * CONFIG.irrigationWaterPerHa * 4, capLeft));

@@ -16,7 +16,7 @@ export type Footprint = { w: number; d: number };
 export interface ClearJob { chunk: number; hours: number }
 /** owned: patches the farm has bought (you can only clear, farm and build on your own land). */
 /** roads: grade (1 dirt, 2 gravel, 3 paved) by tile id; main: grade of the main road through the map. */
-export interface RegionWorld { cleared: number[]; owned: number[]; pos: Record<string, [number, number]>; queue: ClearJob[]; roads: Record<number, number>; main: number; canals: Record<number, number>; zones: Record<number, Zone>; links: Record<string, number[]>; /** quarter turns (0–3) of each placed thing; its front faces +y at 0, then +x, −y, −x */ rot?: Record<string, number> }
+export interface RegionWorld { cleared: number[]; owned: number[]; pos: Record<string, [number, number]>; queue: ClearJob[]; roads: Record<number, number>; main: number; /** irrigation pipes: 1 on the surface (takes the tile), 2 buried (the tile is free again) */ canals: Record<number, number>; zones: Record<number, Zone>; links: Record<string, number[]>; /** pipe tiles laid to water each field, lifted when it moves or goes */ plinks?: Record<string, number[]>; /** quarter turns (0–3) of each placed thing; its front faces +y at 0, then +x, −y, −x */ rot?: Record<string, number> }
 /** res: homes only (no farming); ind: industrial plants. Unzoned land is farmland. */
 export type Zone = 'res' | 'ind';
 /** What a placement is, for zoning: homes need a residential zone; fields stay out of zones; farm buildings stay out of residential. */
@@ -116,7 +116,7 @@ function occupancy(s: GameState, r: RegionId, ignore?: string, allowForest = fal
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const wx = x + MAP.x0, wy = y + MAP.y0;
     const c = chunkAt(wx, wy);
-    if (isRoad(wy) || w.roads[y * W + x] || w.canals[y * W + x] || river.has(y * W + x) || !owned.has(c) || (!allowForest && !cleared.has(c)) || !zoneOk(use, w.zones[c])) grid[y * W + x] = 1;
+    if (isRoad(wy) || w.roads[y * W + x] || w.canals[y * W + x] === 1 || river.has(y * W + x) || !owned.has(c) || (!allowForest && !cleared.has(c)) || !zoneOk(use, w.zones[c])) grid[y * W + x] = 1;
   }
   for (const p of placedIn(s, r)) {
     if (p.key === ignore) continue;
@@ -142,7 +142,7 @@ export function placeProblem(s: GameState, r: RegionId, x: number, y: number, fp
   if (x < MAP.x0 || y < MAP.y0 || x + fp.w > MAP.x0 + MAP.w || y + fp.d > MAP.y0 + MAP.h) return 'outside';
   const roads = worldOf(s, r).roads;
   const river = riverTiles(r), canals = worldOf(s, r).canals;
-  for (let yy = y; yy < y + fp.d; yy++) for (let xx = x; xx < x + fp.w; xx++) if (river.has(tileId(xx, yy)) || canals[tileId(xx, yy)]) return 'water';
+  for (let yy = y; yy < y + fp.d; yy++) for (let xx = x; xx < x + fp.w; xx++) if (river.has(tileId(xx, yy)) || canals[tileId(xx, yy)] === 1) return 'water';
   for (let yy = y; yy < y + fp.d; yy++) { if (isRoad(yy)) return 'road'; for (let xx = x; xx < x + fp.w; xx++) if (roads[tileId(xx, yy)]) return 'road'; }
   const cleared = clearedSet(worldOf(s, r)), owned = ownedSet(worldOf(s, r));
   for (let yy = y; yy < y + fp.d; yy++) for (let xx = x; xx < x + fp.w; xx++) if (!owned.has(chunkAt(xx, yy))) return 'unowned';
@@ -153,7 +153,7 @@ export function placeProblem(s: GameState, r: RegionId, x: number, y: number, fp
   return null;
 }
 export const PROBLEM_TEXT: Record<Exclude<PlaceProblem, null>, string> = {
-  unowned: 'You do not own that land. Buy it first.', zone: 'Wrong zone: homes go in a residential zone; fields and farm buildings stay out of it.', water: 'That is water: the river or an irrigation channel.', forest: 'That spot is forest. Clear it first.', occupied: 'Something already stands there.', road: 'You cannot build on the road.', outside: 'That is off the map.',
+  unowned: 'You do not own that land. Buy it first.', zone: 'Wrong zone: homes go in a residential zone; fields and farm buildings stay out of it.', water: 'That is the river or an irrigation pipe. Bury the pipe to build over it.', forest: 'That spot is forest. Clear it first.', occupied: 'Something already stands there.', road: 'You cannot build on the road.', outside: 'That is off the map.',
 };
 /** First free cleared spot, searched outward from the farmhouse. */
 /** Where homes cluster: the middle of the placed homes, if any. */
@@ -205,7 +205,7 @@ export function canPlaceNew(s: GameState, r: RegionId, fp0: Footprint, at?: [num
   if (at) { const p = placeProblem(s, r, at[0], at[1], fp, undefined, use); return p ? PROBLEM_TEXT[p] : null; }
   return findSpot(s, r, fp, false, use) ? null : use === 'home' ? 'No free residential land: zone more of your cleared land as residential.' : 'No free cleared land of yours. Clear forest or buy more land.';
 }
-export const forget = (s: GameState, r: RegionId, key: string) => { const w = worldOf(s, r); delete w.pos[key]; if (w.rot) delete w.rot[key]; unlink(s, r, key); };
+export const forget = (s: GameState, r: RegionId, key: string) => { const w = worldOf(s, r); delete w.pos[key]; if (w.rot) delete w.rot[key]; unlink(s, r, key); unpipe(s, r, key); };
 
 // ---------------------------------------------------------------- legacy layout (positions for saves made before the map)
 
@@ -492,16 +492,76 @@ export function riverTiles(r: RegionId): Set<number> {
   rivers.set(r, set);
   return set;
 }
-export const IRRIGATION_CHANNEL_PRICE = 15;
-/** Dig a channel from the river to a field (irrigating does this). Returns the new channel tiles, [] if it already has water, or null if the river is out of reach. */
+export const IRRIGATION_CHANNEL_PRICE = 15, PIPE_BURY_PRICE = 25;
+/** Where a pipe may run: your own cleared open land, under roads, and along other pipes. */
+function pipeGround(s: GameState, r: RegionId) {
+  const w = worldOf(s, r), open = openGround(s, r), owned = ownedSet(w);
+  return (x: number, y: number) => open(x, y) || (inMap(x, y) && owned.has(chunkAt(x, y)) && (isRoad(y) || !!w.roads[tileId(x, y)] || !!w.canals[tileId(x, y)]));
+}
+/** Lay a pipe from the river to a field (irrigating does this). Returns the new pipe tiles, [] if it already has water, or null if the river is out of reach. */
 export function waterRoute(s: GameState, r: RegionId, key: string): [number, number][] | null {
   const w = worldOf(s, r), p = w.pos[key], fp = footprintOf(s, key);
   if (!p || !fp) return null;
-  const river = riverTiles(r), open = openGround(s, r);
-  const door = doorstep(p[0], p[1], fp);
-  if (door.some(([x, y]) => inMap(x, y) && (river.has(tileId(x, y)) || w.canals[tileId(x, y)]))) return [];
-  // channels run over your own open land, under roads (culverts) and along existing channels
-  const owned = ownedSet(w);
-  const can = (x: number, y: number) => open(x, y) || (inMap(x, y) && owned.has(chunkAt(x, y)) && (isRoad(y) || !!w.roads[tileId(x, y)] || !!w.canals[tileId(x, y)]));
-  return route(can, door, (x, y) => inMap(x, y) && river.has(tileId(x, y)));
+  const river = riverTiles(r), door = doorstep(p[0], p[1], fp), wet = wetPipes(s, r);
+  if (door.some(([x, y]) => inMap(x, y) && (river.has(tileId(x, y)) || wet.has(tileId(x, y))))) return [];
+  const path = route(pipeGround(s, r), door, (x, y) => inMap(x, y) && (river.has(tileId(x, y)) || wet.has(tileId(x, y))));
+  return path && path.filter(([x, y]) => !w.canals[tileId(x, y)]);
+}
+/** A pipe drawn by hand, from one tile to another, over ground a pipe may cross. New tiles only; null if there is no way. */
+export function pipeRoute(s: GameState, r: RegionId, from: [number, number], to: [number, number]) {
+  const w = worldOf(s, r), can = pipeGround(s, r);
+  if (!can(from[0], from[1]) || !can(to[0], to[1])) return null;
+  const path = route(can, [from], (x, y) => x === to[0] && y === to[1]);
+  return path ? [...path, to].filter(([x, y]) => !w.canals[tileId(x, y)]) : null;
+}
+/** The run of pipe at a tile, up to the next junction (like a stretch of road). */
+export function pipeStretch(w: RegionWorld, x: number, y: number): number[] {
+  const start = tileId(x, y), has = (a: number, b: number) => inMap(a, b) && !!w.canals[tileId(a, b)];
+  if (!has(x, y)) return [];
+  const degree = (id: number) => { const [a, b] = tileAt(id); return STEPS.filter(([dx, dy]) => has(a + dx, b + dy)).length; };
+  if (degree(start) >= 3) return [start];
+  const out = [start], seen = new Set(out);
+  for (let h = 0; h < out.length; h++) {
+    if (h > 0 && degree(out[h]) >= 3) continue;
+    const [a, b] = tileAt(out[h]);
+    for (const [dx, dy] of STEPS) { const nid = tileId(a + dx, b + dy); if (has(a + dx, b + dy) && !seen.has(nid)) { seen.add(nid); out.push(nid); } }
+  }
+  return out.filter((id, i) => i === 0 || degree(id) < 3);
+}
+/** Pipe tiles that carry water: joined, pipe to pipe, to a tile beside the river. Cached until pipes change (touch). */
+const wetCache = new WeakMap<RegionWorld, { rev: number; set: Set<number> }>();
+export function wetPipes(s: GameState, r: RegionId): Set<number> {
+  const w = worldOf(s, r), rev = revs.get(w) ?? 0, hit = wetCache.get(w);
+  if (hit && hit.rev === rev) return hit.set;
+  const river = riverTiles(r), set = new Set<number>(), q: number[] = [];
+  for (const k of Object.keys(w.canals)) { const id = Number(k), [x, y] = tileAt(id); if (STEPS.some(([dx, dy]) => inMap(x + dx, y + dy) && river.has(tileId(x + dx, y + dy)))) { set.add(id); q.push(id); } }
+  for (let h = 0; h < q.length; h++) { const [x, y] = tileAt(q[h]); for (const [dx, dy] of STEPS) { const nid = tileId(x + dx, y + dy); if (inMap(x + dx, y + dy) && w.canals[nid] && !set.has(nid)) { set.add(nid); q.push(nid); } } }
+  wetCache.set(w, { rev, set });
+  return set;
+}
+/** Does water reach this field: the river or a wet pipe touching its edge? */
+export function hasWater(s: GameState, r: RegionId, key: string) {
+  const w = worldOf(s, r), p = w.pos[key], fp = footprintOf(s, key);
+  if (!p || !fp) return true; // not on the map (older layouts): leave it be
+  const river = riverTiles(r), wet = wetPipes(s, r);
+  return doorstep(p[0], p[1], fp).some(([x, y]) => inMap(x, y) && (river.has(tileId(x, y)) || wet.has(tileId(x, y))));
+}
+/** A field moved or went: lift the pipe laid for it, unless another field's pipe shares it. */
+export function unpipe(s: GameState, r: RegionId, key: string) {
+  const w = worldOf(s, r), mine = w.plinks?.[key];
+  if (!mine?.length) return;
+  delete w.plinks![key];
+  const used = new Set(Object.values(w.plinks ?? {}).flat());
+  for (const id of mine) if (!used.has(id)) delete w.canals[id];
+  touch(w);
+}
+/** Lay (or re-lay) the pipe for a field and remember it; returns the tiles laid, or null if the river is out of reach. */
+export function pipeTo(s: GameState, r: RegionId, key: string) {
+  const w = worldOf(s, r), path = waterRoute(s, r, key);
+  if (!path) return null;
+  const ids = path.map(([x, y]) => tileId(x, y));
+  for (const id of ids) w.canals[id] = 1;
+  if (ids.length) (w.plinks ??= {})[key] = [...(w.plinks?.[key] ?? []), ...ids];
+  touch(w);
+  return path;
 }

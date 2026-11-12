@@ -10,12 +10,12 @@ import { fieldMovable, timingFactor, fertility, growth, isMature, isReady } from
 import { priceUsd, stored } from '../../simulation/core';
 import { spreadNeed } from '../../simulation/agriculture';
 import type { GameState } from '../../simulation/types';
-import { getGame, getSpeed, moveGhost, placementUse, startZoning, stopZoning, zoneHover, zoneTap, type Zoning, prospectHover, prospectTap, roadHover, roadTap, startProspect, startRoads, stopProspect, stopRoads, type Placement, type Roading , getPage } from '../../stores/game';
+import { getGame, getSpeed, moveGhost, placementUse, startZoning, stopZoning, zoneHover, zoneTap, type Zoning, prospectHover, prospectTap, roadHover, roadTap, startProspect, startRoads, startPipes, stopProspect, stopRoads, type Placement, type Roading , getPage } from '../../stores/game';
 import { featureEra, stageAtLeast } from '../../simulation/stages';
 import { preloadArt, artRevision, artModel, playClip } from './art';
 import { money, num, pct0 } from '../format';
 import { layoutRegion, type Layout, type Lot, type Plot } from './layout';
-import { CHUNK, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, LAND_HA_PER_PATCH, MAP, hasAccess, riverTiles, riverX, tileId, roadRoute, roadStretch, tileAt, forSaleAround, landCost, ownedSet, ROAD_H, ROAD_Y, chunkAt, chunkOrigin, clearCost, clearedSet, isRoad, patchesAround, placeProblem, worldOf } from '../../simulation/world';
+import { CHUNK, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, LAND_HA_PER_PATCH, MAP, hasAccess, riverTiles, riverX, tileId, roadRoute, roadStretch, pipeRoute, pipeStretch, plotSide, tileAt, forSaleAround, landCost, ownedSet, ROAD_H, ROAD_Y, chunkAt, chunkOrigin, clearCost, clearedSet, isRoad, patchesAround, placeProblem, worldOf } from '../../simulation/world';
 import { animal, buildCivic, buildCommunityHome, buildLot, box, cached, cyl, farmhand, hauler, mat, mesh, PAL, person, tree, vehicle, type Model } from './models';
 import { haulOf, MARKET_X, marketRoute } from '../../simulation/hauling';
 import { oilChance, oilOf, surveyed } from '../../simulation/oil';
@@ -354,7 +354,8 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
         <button className="icon-btn" aria-label="Rotate right (E)" title="Rotate (E)" onClick={() => ctl().rotate(-1)}>⟳</button>
         {featureEra(getGame(), 4) && <button data-coach="zones-btn" className={`icon-btn${zoning ? ' on' : ''}`} aria-label="Zones" title="Zones: residential and industrial land" onClick={() => zoning ? stopZoning() : startZoning(region)}>🏘</button>}
         {featureEra(getGame(), 4) && <button className={`icon-btn${prospect ? ' on' : ''}`} aria-label="Oil" title="Oil: survey and drill" onClick={() => prospect ? stopProspect() : startProspect(region)}>🛢</button>}
-        <button data-coach="roads-btn" className={`icon-btn${roading ? ' on' : ''}`} aria-label="Roads" title="Roads: draw, upgrade or remove" onClick={() => roading ? stopRoads() : startRoads(region)}>🛤</button>
+        <button data-coach="roads-btn" className={`icon-btn${roading && !roading.pipe ? ' on' : ''}`} aria-label="Roads" title="Roads: draw, upgrade or remove" onClick={() => roading && !roading.pipe ? stopRoads() : startRoads(region)}>🛤</button>
+        {featureEra(getGame(), 2) && <button className={`icon-btn${roading?.pipe ? ' on' : ''}`} aria-label="Pipes" title="Irrigation pipes: draw, bury or remove" onClick={() => roading?.pipe ? stopRoads() : startPipes(region)}>💧</button>}
       </div>
     </div>
   );
@@ -979,7 +980,7 @@ class Decal {
 function syncRoads(R: Rig, s: GameState) {
   const w = worldOf(s, R.region), ids = Object.keys(w.roads);
   const cids = Object.keys(w.canals);
-  const sig = `${R.region}:${w.main}:${ids.length}:${ids.reduce((a, k) => a + ((Number(k) * 31) % 1000003) * w.roads[Number(k)], 0)}:${cids.length}`;
+  const sig = `${R.region}:${w.main}:${ids.length}:${ids.reduce((a, k) => a + ((Number(k) * 31) % 1000003) * w.roads[Number(k)], 0)}:${cids.length}:${cids.reduce((a, k) => a + ((Number(k) * 17) % 100003) * w.canals[Number(k)], 0)}:${s.fields.length}`;
   if (sig === R.roadSig) return;
   R.roadSig = sig;
   clear(R.roadsG);
@@ -1039,9 +1040,37 @@ function syncRoads(R: Rig, s: GameState) {
   const layers = [verge.mesh(true), surface.mesh(true, roadGrain()), grass.mesh(true, roadGrain()), marks.mesh(true, roadGrain())];
   layers.forEach((m, i) => { m.renderOrder = i; }); // drawn in order, each blending over the one below
   R.roadsG.add(...layers, roadsideTufts(w, riverTiles(R.region)));
-  // irrigation channels: one flat blue, like the river (no shadow on them: per-tile shadow edges drew a grid)
-  const canalTiles = cids.map((k) => { const [x, y] = tileAt(Number(k)); return new THREE.Matrix4().makeTranslation(x + 0.5, 0.016, y + 0.5); });
-  if (canalTiles.length) { const im = new THREE.InstancedMesh(cached('canal', () => new THREE.PlaneGeometry(1.02, 1.02).rotateX(-Math.PI / 2)), mat(0x5aa7c4, { rough: 0.7 }), canalTiles.length); canalTiles.forEach((m, i) => im.setMatrixAt(i, m)); im.frustumCulled = false; R.roadsG.add(im); }
+  R.roadsG.add(pipeworks(s, R.region));
+}
+/** Irrigation pipes on the surface: one thin pipe on low posts from tile to tile, out of the river bank and up to each field's edge. Buried pipe (and pipe under a road) is not drawn. */
+function pipeworks(s: GameState, r: RegionId) {
+  const w = worldOf(s, r), river = riverTiles(r), g = new THREE.Group();
+  const fieldTiles = new Set<number>();
+  for (const f of s.fields) { const p = w.pos[`field:${f.id}`]; if (f.region !== r || !p) continue; const n = plotSide(f.ha); for (let y = p[1]; y < p[1] + n; y++) for (let x = p[0]; x < p[0] + n; x++) fieldTiles.add(tileId(x, y)); }
+  const up = (x: number, y: number) => w.canals[tileId(x, y)] === 1 && !isRoad(y) && !w.roads[tileId(x, y)];
+  const runs: THREE.Matrix4[] = [], posts: THREE.Matrix4[] = [], caps: THREE.Matrix4[] = [], q = new THREE.Quaternion(), Y = new THREE.Vector3(0, 1, 0), H = 0.13;
+  const run = (ax: number, az: number, bx: number, bz: number) => { const len = Math.hypot(bx - ax, bz - az); q.setFromAxisAngle(Y, -Math.atan2(bz - az, bx - ax)); runs.push(new THREE.Matrix4().compose(new THREE.Vector3((ax + bx) / 2, H, (az + bz) / 2), q, new THREE.Vector3(len, 1, 1))); };
+  for (const k of Object.keys(w.canals)) {
+    const id = Number(k), [x, y] = tileAt(id);
+    if (!up(x, y)) continue;
+    const cx = x + 0.5, cz = y + 0.5;
+    posts.push(new THREE.Matrix4().makeTranslation(cx, 0, cz));
+    let joins = 0;
+    for (const [dx, dy] of [[1, 0], [0, 1], [-1, 0], [0, -1]] as const) {
+      const nx = x + dx, ny = y + dy, nid = tileId(nx, ny);
+      if (up(nx, ny)) { joins++; if (dx > 0 || dy > 0) run(cx, cz, cx + dx, cz + dy); } // each pair once
+      else if (w.canals[nid]) { joins++; run(cx, cz, cx + dx * 0.5, cz + dy * 0.5); caps.push(new THREE.Matrix4().makeTranslation(cx + dx * 0.5, H, cz + dy * 0.5)); } // goes underground (or under a road) here
+      else if (river.has(nid)) { joins++; run(cx, cz, cx + dx * 0.75, cz + dy * 0.75); caps.push(new THREE.Matrix4().makeTranslation(cx + dx * 0.75, H, cz + dy * 0.75)); } // the intake on the bank
+      else if (fieldTiles.has(nid)) { joins++; run(cx, cz, cx + dx * 0.55, cz + dy * 0.55); caps.push(new THREE.Matrix4().makeTranslation(cx + dx * 0.55, H, cz + dy * 0.55)); } // the outlet at the field's edge
+    }
+    if (joins !== 2) caps.push(new THREE.Matrix4().makeTranslation(cx, H, cz)); // a joint at bends, tees and ends
+  }
+  const inst = (geo: THREE.BufferGeometry, m: THREE.Material, list: THREE.Matrix4[]) => { if (!list.length) return; const im = new THREE.InstancedMesh(geo, m, list.length); list.forEach((x, i) => im.setMatrixAt(i, x)); im.castShadow = true; im.receiveShadow = true; im.frustumCulled = false; g.add(im); };
+  const PIPE = mat(0x7d98a6, { rough: 0.55, metal: 0.2 });
+  inst(cached('pipe-run', () => new THREE.CylinderGeometry(0.045, 0.045, 1, 8).rotateZ(Math.PI / 2)), PIPE, runs);
+  inst(cached('pipe-joint', () => new THREE.CylinderGeometry(0.065, 0.065, 0.12, 10)), mat(0x5f7a88, { rough: 0.5, metal: 0.25 }), caps);
+  inst(cached('pipe-post', () => merged(new THREE.BoxGeometry(0.05, H, 0.05).translate(0, H / 2, 0), new THREE.BoxGeometry(0.14, 0.03, 0.05).translate(0, H - 0.05, 0))), mat(PAL.woodDark), posts);
+  return g;
 }
 /** Road mode: the route a new road would take, or the stretch that would be upgraded or removed. */
 function syncRoadPreview(R: Rig, s: GameState, Rd: Roading | null) {
@@ -1051,21 +1080,29 @@ function syncRoadPreview(R: Rig, s: GameState, Rd: Roading | null) {
   clear(R.roadPrev);
   if (!Rd) return;
   const w = worldOf(s, R.region);
+  if (Rd.pipe) { // every pipe shows while the tool is open, buried ones too, as a dashed line
+    const d = new Decal(0.03), col = new THREE.Color(0x3f8fc8);
+    for (const k of Object.keys(w.canals)) { const [x, y] = tileAt(Number(k)); if (w.canals[Number(k)] === 1 && !isRoad(y) && !w.roads[Number(k)]) continue;
+      for (const [dx, dy] of [[1, 0], [0, 1]] as const) if (w.canals[tileId(x + dx, y + dy)]) for (let t = 0; t < 1; t += 0.34) d.seg(x + 0.5 + dx * t, y + 0.5 + dy * t, x + 0.5 + dx * (t + 0.2), y + 0.5 + dy * (t + 0.2), [[-0.05, col, 0.9], [0.05, col, 0.9]]);
+      d.disc(x + 0.5, y + 0.5, [[0.07, col, 0.9]]); }
+    if (d.pos.length) { const m = d.mesh(true); m.renderOrder = 2; R.roadPrev.add(m); }
+  }
   let tiles: [number, number][] = [], ok = true;
   if (Rd.tool === 'draw') {
-    if (Rd.from && Rd.hover) { const r = roadRoute(s, R.region, Rd.from, Rd.hover); ok = !!r; tiles = r ?? [Rd.hover]; }
+    if (Rd.from && Rd.hover) { const r = (Rd.pipe ? pipeRoute : roadRoute)(s, R.region, Rd.from, Rd.hover); ok = !!r; tiles = r ?? [Rd.hover]; }
     else if (Rd.hover) tiles = [Rd.hover];
     if (Rd.from) { const m = mesh(cached('road-start', () => new THREE.CylinderGeometry(0.3, 0.3, 0.6, 12)), mat(0xffc94d, { emissive: 0x403000 }), Rd.from[0] + 0.5, 0.3, Rd.from[1] + 0.5, false); R.roadPrev.add(m); }
   } else if (Rd.hover) { // on the main road: the whole road, since that is what an upgrade covers
-    tiles = isRoad(Rd.hover[1]) ? (Rd.tool === 'remove' ? [] : Array.from({ length: MAP.w * 2 }, (_, i) => [MAP.x0 + (i >> 1), ROAD_Y + (i & 1)] as [number, number])) : roadStretch(w, Rd.hover[0], Rd.hover[1]).map(tileAt);
+    tiles = Rd.pipe ? pipeStretch(w, Rd.hover[0], Rd.hover[1]).map(tileAt) : isRoad(Rd.hover[1]) ? (Rd.tool === 'remove' ? [] : Array.from({ length: MAP.w * 2 }, (_, i) => [MAP.x0 + (i >> 1), ROAD_Y + (i & 1)] as [number, number])) : roadStretch(w, Rd.hover[0], Rd.hover[1]).map(tileAt);
     ok = tiles.length > 0;
   }
   // the planned road as one soft ribbon, the same shape the road will take: gold to build, blue to upgrade, red to remove or blocked
-  const col = new THREE.Color(!ok || Rd.tool === 'remove' ? 0xe0533d : Rd.tool === 'upgrade' ? 0x4aa0d0 : 0xffc94d);
-  const plan = new Set(tiles.map(([x, y]) => tileId(x, y))), d = new Decal(0.03), band: Band[] = [[-0.4, col, 0], [-0.3, col, 1], [0.3, col, 1], [0.4, col, 0]]; // solid core, so overlaps don't show
-  const linked = (x: number, y: number) => plan.has(tileId(x, y)) || (Rd.tool === 'draw' && (isRoad(y) || !!w.roads[tileId(x, y)]));
+  const col = new THREE.Color(!ok || Rd.tool === 'remove' ? 0xe0533d : Rd.tool === 'upgrade' ? (Rd.pipe ? 0xa0784a : 0x4aa0d0) : Rd.pipe ? 0x3f8fc8 : 0xffc94d);
+  const half = Rd.pipe ? 0.14 : 0.3; // a pipe plans as a narrow line, a road as its full width
+  const plan = new Set(tiles.map(([x, y]) => tileId(x, y))), d = new Decal(0.03), band: Band[] = [[-half - 0.1, col, 0], [-half, col, 1], [half, col, 1], [half + 0.1, col, 0]]; // solid core, so overlaps don't show
+  const linked = (x: number, y: number) => plan.has(tileId(x, y)) || (Rd.tool === 'draw' && (Rd.pipe ? !!w.canals[tileId(x, y)] || riverTiles(R.region).has(tileId(x, y)) : isRoad(y) || !!w.roads[tileId(x, y)]));
   for (const [x, y] of tiles) {
-    d.disc(x + 0.5, y + 0.5, [[0.3, col, 1], [0.4, col, 0]]);
+    d.disc(x + 0.5, y + 0.5, [[half, col, 1], [half + 0.1, col, 0]]);
     for (const [dx, dy] of [[1, 0], [0, 1], [-1, 0], [0, -1]] as const) if (linked(x + dx, y + dy) && !(plan.has(tileId(x + dx, y + dy)) && (dx < 0 || dy < 0))) d.seg(x + 0.5, y + 0.5, x + 0.5 + dx, y + 0.5 + dy, band);
   }
   if (tiles.length) { const m = d.mesh(true); (m.material as THREE.MeshStandardMaterial).emissive.copy(col).multiplyScalar(0.5); m.renderOrder = 2; R.roadPrev.add(m); }
