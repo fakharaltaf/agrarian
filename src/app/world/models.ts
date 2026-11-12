@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import type { AnimalId, MachineType } from '../../simulation/config';
 import type { Lot } from './layout';
-import { artFigure, artModel, type ArtId } from './art';
+import { artFigure, artModel, recolor, type ArtId } from './art';
 
 export const PAL = {
   barnRed: 0xb24a3c, barnRedDark: 0x8e3a30, cream: 0xf1e6cc, creamDark: 0xd9cbab, white: 0xf4f2ec, roofRed: 0x9e3b2e, roofBrown: 0x6b4a36,
@@ -456,6 +456,25 @@ export function buildLot(type: Lot['type'], w: number, d: number, variant = ''):
 // ---------------------------------------------------------------- people, machines, animals
 
 const FOLK: ArtId[] = ['farmer', 'man', 'woman2', 'farmer', 'woman'];
+const SHIRTS_FARM = [0x9a6a3a, 0x8a3b2b, 0x6b7a3a, 0x5a7a9a, 0xc8b48a, 0xa04a3a]; // work shirts: tan, rust, olive, faded denim, cream, red
+/** A farm hand: the farmer in overalls and straw hat, shirt in one of a few colours, a hoe in the right hand (and a scythe for the harvest). Null until the art has loaded. */
+export function farmhand(seed: number) {
+  const g = artFigure('farmer', 0.55);
+  if (!g) return null;
+  recolor(g, 'Brown', SHIRTS_FARM[seed % SHIRTS_FARM.length]);
+  const rig = g.userData.rig as THREE.Object3D, hand = rig.getObjectByName('WristR');
+  if (hand) {
+    g.updateMatrixWorld(true);
+    const k = rig.getWorldScale(new THREE.Vector3()).x / hand.getWorldScale(new THREE.Vector3()).x; // tools are made in the model's own units (a man about 1.8 tall), whatever the bone's
+    const tool = (blade: THREE.Mesh) => { const t = new THREE.Group(); t.add(mesh(cached('toolshaft', () => new THREE.CylinderGeometry(0.03, 0.03, 1.5, 6)), mat(0x8a5a30), 0, -0.1, 0, false), blade); t.scale.setScalar(k); hand.add(t); return t; };
+    const hoe = tool(mesh(cached('hoeblade', () => new THREE.BoxGeometry(0.26, 0.05, 0.16)), mat(0x7d7d7d, { rough: 0.5 }), 0, 0.62, 0.08, false));
+    const scythe = tool(mesh(cached('scytheblade', () => new THREE.BoxGeometry(0.06, 0.03, 0.7).translate(0, 0, 0.33)), mat(0xb8bcc0, { rough: 0.4 }), 0, 0.62, 0, false));
+    scythe.visible = false;
+    Object.assign(g.userData, { hoe, scythe });
+  }
+  g.userData.folk = true;
+  return g;
+}
 export function person(shirt: number, manager: boolean) {
   const art = artFigure(manager ? 'man' : FOLK[(shirt >>> 4) % FOLK.length], 0.55);
   if (art) { art.userData.folk = true; return art; }

@@ -16,7 +16,7 @@ import { preloadArt, artRevision, artModel, playClip } from './art';
 import { money, num, pct0 } from '../format';
 import { layoutRegion, type Layout, type Lot, type Plot } from './layout';
 import { CHUNK, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, LAND_HA_PER_PATCH, MAP, hasAccess, riverTiles, riverX, tileId, roadRoute, roadStretch, tileAt, forSaleAround, landCost, ownedSet, ROAD_H, ROAD_Y, chunkAt, chunkOrigin, clearCost, clearedSet, isRoad, patchesAround, placeProblem, worldOf } from '../../simulation/world';
-import { animal, buildCivic, buildCommunityHome, buildLot, box, cached, cyl, hauler, mat, mesh, PAL, person, tree, vehicle, type Model } from './models';
+import { animal, buildCivic, buildCommunityHome, buildLot, box, cached, cyl, farmhand, hauler, mat, mesh, PAL, person, tree, vehicle, type Model } from './models';
 import { haulOf, MARKET_X, marketRoute } from '../../simulation/hauling';
 import { oilChance, oilOf, surveyed } from '../../simulation/oil';
 
@@ -1348,22 +1348,36 @@ function animateUnits(R: Rig, L: Layout, s: GameState, t: number) {
   let idle = 0;
   const people = s.workers.filter((w) => w.region === r && (w.task || idle++ < 8)).slice(0, 60); // modelled people are heavier: a field shows a few, not every hand
   const seen = new Set<number>();
+  const crews = new Map<number, number[]>(); // who works each field, so each hand takes a row of their own
+  for (const w of people) if (w.task) (crews.get(w.task) ?? crews.set(w.task, []).get(w.task)!).push(w.id);
   people.forEach((w, i) => {
     seen.add(w.id);
     let o = R.people.get(w.id);
-    if (!o) { o = person(SHIRTS[w.id % SHIRTS.length], w.role === 'manager'); R.units.add(o); R.people.set(w.id, o); }
+    if (!o) { o = (w.role === 'manager' ? null : farmhand(w.id)) ?? person(SHIRTS[w.id % SHIRTS.length], w.role === 'manager'); R.units.add(o); R.people.set(w.id, o); }
     const p = w.task ? plotOf(w.task) : undefined;
     let x: number, z: number;
-    const folk = !!o.userData.folk;
-    if (folk) { playClip(o, p ? 'Walk' : 'Idle', hash(w.id)); (o.userData.mixer as THREE.AnimationMixer | undefined)?.update(R.dt); }
-    if (p) {
+    const folk = !!o.userData.folk, mixer = o.userData.mixer as THREE.AnimationMixer | undefined;
+    if (p && folk) {
+      // work their row: a few steps, then hoe the ground (or scythe a ripe crop) for a while; turn at the end of the row
+      const crew = crews.get(p.field.id)!, k = crew.indexOf(w.id), m = crew.length, L = Math.max(0.5, p.s - 0.8);
+      const c = t / 4.5 + hash(w.id) * 7, stepN = Math.floor(c), ph = c - stepN, walking = ph < 0.28;
+      const lap = ((stepN + Math.min(1, ph / 0.28)) * 0.5) % (2 * L), fwd = lap < L, ripe = isReady(s, p.field);
+      x = p.x + 0.4 + (fwd ? lap : 2 * L - lap);
+      z = p.y + 0.4 + ((k + 0.5) / m) * L;
+      o.rotation.y = fwd ? 0 : Math.PI;
+      o.position.y = 0; o.scale.y = 1;
+      playClip(o, walking ? 'Walk' : ripe ? 'Sword_Slash' : 'Interact', hash(w.id));
+      if (o.userData.hoe) { o.userData.hoe.visible = !ripe; o.userData.scythe.visible = ripe; }
+      mixer?.update(R.dt);
+    } else if (p) {
       o.scale.y = 1;
       const lane = (w.id * 7) % Math.max(1, p.s - 1);
       x = p.x + 0.35 + ((t * 0.18 + hash(w.id) * p.s) % (p.s - 0.7));
       z = p.y + 0.4 + lane;
-      o.position.y = folk ? 0 : Math.abs(Math.sin(t * 7 + i)) * 0.03;
-      o.rotation.y = folk ? 0 : Math.PI / 2; // walking up the rows
+      o.position.y = Math.abs(Math.sin(t * 7 + i)) * 0.03;
+      o.rotation.y = Math.PI / 2;
     } else {
+      if (folk) { playClip(o, 'Idle', hash(w.id)); if (o.userData.hoe) { o.userData.hoe.visible = true; o.userData.scythe.visible = false; } mixer?.update(R.dt); }
       x = house.x + house.w + 0.4 + (i % 6) * 0.35 + Math.sin(t * 0.5 + i) * 0.05;
       z = house.y + 1 + Math.floor(i / 6) * 0.35;
       o.position.y = folk ? 0 : .15;

@@ -66,3 +66,19 @@ export function artFigure(id: ArtId, size: number, along = false): THREE.Group |
   Object.assign(g.userData, { clips: m.userData.clips, rig: m.userData.rig, art: id });
   return g;
 }
+
+const tinted = new Map<string, THREE.Material>();
+/** Give one material of an imported model a different colour (shared per colour, so a crowd costs a handful of materials). */
+export function recolor(o: THREE.Object3D, name: string, color: number) {
+  o.traverse((m) => {
+    if (!(m instanceof THREE.Mesh)) return;
+    const swap = (x: THREE.Material) => {
+      if (x.name !== name && !x.name.startsWith(name + '#')) return x;
+      const key = `${name}#${color}`;
+      let t = tinted.get(key);
+      if (!t) { t = (x as THREE.MeshStandardMaterial).clone(); t.name = key; (t as THREE.MeshStandardMaterial).color.set(color); tinted.set(key, t); }
+      return t;
+    };
+    m.material = Array.isArray(m.material) ? m.material.map(swap) : swap(m.material);
+  });
+}
