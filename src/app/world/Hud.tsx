@@ -488,7 +488,7 @@ function ServiceCard({ s, svc, onClose }: { s: GameState; svc: CivicService; onC
   return <Card title={<>{d.icon} {d.name} <span className="muted">· level {lv}</span></>} actions={<button className="icon-btn" onClick={onClose} aria-label="Close">✕</button>}>
     <div className="stack s">
       {net ? <><div className="row between small"><span className="muted">Families on its lines</span><b>{used} / {cap}</b></div><Bar value={cap ? used / cap : 0} label={`${used} / ${cap} families on its lines`} color={full ? 'var(--gold)' : 'var(--up)'} /></>
-        : <p className="small">Reaches <b>{Math.round(serviceRadius(svc))} tiles</b>: full service in the inner half, fading to the edge.</p>}
+        : <p className="small">Full service for <b>{Math.round(serviceRadius(svc))} tiles</b>, fading out over the next {Math.round(serviceRadius(svc) * 0.75)}.</p>}
       {full && <div className="callout warn">Full: upgrade it or build another to serve more homes.</div>}
       <div className="row wrap">
         {lv < 3 && <button className="btn primary sm" disabled={price > s.cash} onClick={() => act({ type: 'upgradeService', serviceId: svc.id })}>⬆ Level {lv + 1} · {money(price)}</button>}

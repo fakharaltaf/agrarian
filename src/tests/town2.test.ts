@@ -64,7 +64,7 @@ it('a clinic reaches homes as a fading heat map; a water tower serves only homes
   expect(t.water).toBeGreaterThanOrEqual(before - 1e-9);
   // the clinic's heat fades with distance
   const { heatAt } = await import('../simulation/town-state');
-  expect(heatAt(3, 12)).toBe(1); expect(heatAt(9, 12)).toBeCloseTo(0.5); expect(heatAt(13, 12)).toBe(0);
+  expect(heatAt(12, 12)).toBe(1); expect(heatAt(16.5, 12)).toBeCloseTo(0.5); expect(heatAt(21.1, 12)).toBe(0); // full over the old reach, fading beyond it
 });
 
 it('newcomer families settle once there is a town, and pay the housing tax', () => {

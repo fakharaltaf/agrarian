@@ -1,4 +1,4 @@
-import { SERVICE_DEFS, SERVICE_GROUPS, serviceJobs, serviceRadius, townOf, UTILITY_OF, heatAt } from '../../simulation/town-state';
+import { SERVICE_DEFS, SERVICE_GROUPS, serviceJobs, serviceRadius, townOf, UTILITY_OF, heatAt, HEAT_FADE } from '../../simulation/town-state';
 import type { ServiceType } from '../../simulation/types';
 import { communityOf, population, residentWorkers } from '../../simulation/community-state';
 // The 3D farm. A live, lit, low-poly picture of the simulation: everything shown is read from game state.
@@ -675,7 +675,7 @@ function syncGhost(R: Rig, s: GameState, P: Placement | null, forest: [number, n
     const rad = svcType && !UTILITY_OF[svcType] && svcType !== 'road' ? serviceRadius(svc ?? { type: svcType }) : undefined;
     if (svcType && rad) {
       const group = Object.values(SERVICE_GROUPS).find((g) => (g as readonly string[]).includes(svcType)) as readonly string[] | undefined ?? [svcType];
-      const glow = (x: number, z: number, r: number, strong: boolean) => { const m = mesh(cached('heat-disc', () => new THREE.CircleGeometry(1, 64).rotateX(-Math.PI / 2)), new THREE.MeshBasicMaterial({ color: strong ? 0x2f86c8 : 0x6aa8d4, map: heatTexture(), transparent: true, opacity: strong ? 0.75 : 0.4, depthWrite: false }), x, strong ? 0.06 : 0.05, z, false); m.scale.set(r, 1, r); R.ghost.add(m); };
+      const glow = (x: number, z: number, r: number, strong: boolean) => { const m = mesh(cached('heat-disc', () => new THREE.CircleGeometry(1, 64).rotateX(-Math.PI / 2)), new THREE.MeshBasicMaterial({ color: strong ? 0x2f86c8 : 0x6aa8d4, map: heatTexture(), transparent: true, opacity: strong ? 0.75 : 0.4, depthWrite: false }), x, strong ? 0.06 : 0.05, z, false); m.scale.set(r * (1 + HEAT_FADE), 1, r * (1 + HEAT_FADE)); R.ghost.add(m); };
       const gx = P.at[0] + P.w / 2, gz = P.at[1] + P.d / 2, pos = worldOf(s, P.region).pos, heats: [number, number, number][] = [[gx, gz, rad]];
       glow(gx, gz, rad, true);
       for (const b of townOf(s).services) if (group.includes(b.type) && `svc:${b.id}` !== P.key) { const q = pos[`svc:${b.id}`]; if (q) { const r2 = serviceRadius(b); glow(q[0] + 1.5, q[1] + 1.5, r2, false); heats.push([q[0] + 1.5, q[1] + 1.5, r2]); } }
@@ -1090,13 +1090,14 @@ function pipeworks(s: GameState, r: RegionId) {
   inst(cached('pipe-post', () => merged(new THREE.BoxGeometry(0.05, H, 0.05).translate(0, H / 2, 0), new THREE.BoxGeometry(0.14, 0.03, 0.05).translate(0, H - 0.05, 0))), mat(PAL.woodDark), posts);
   return g;
 }
-/** A soft disc for a service's reach: solid in its inner half, fading to nothing at its edge. */
+/** A soft disc for a service's reach: solid out to its full reach, then fading to nothing. */
 let heatTex: THREE.Texture | null = null;
 function heatTexture() {
   if (heatTex) return heatTex;
   const c = document.createElement('canvas'); c.width = c.height = 128;
   const x = c.getContext('2d')!, g = x.createRadialGradient(64, 64, 0, 64, 64, 64);
-  g.addColorStop(0, 'rgba(255,255,255,0.9)'); g.addColorStop(0.5, 'rgba(255,255,255,0.8)'); g.addColorStop(0.75, 'rgba(255,255,255,0.4)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+  const full = 1 / (1 + HEAT_FADE); // solid to the full reach, then fading out
+  g.addColorStop(0, 'rgba(255,255,255,0.85)'); g.addColorStop(full, 'rgba(255,255,255,0.8)'); g.addColorStop(full + (1 - full) * 0.5, 'rgba(255,255,255,0.35)'); g.addColorStop(1, 'rgba(255,255,255,0)');
   x.fillStyle = g; x.fillRect(0, 0, 128, 128);
   return (heatTex = new THREE.CanvasTexture(c));
 }
