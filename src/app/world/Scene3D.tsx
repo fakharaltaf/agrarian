@@ -716,7 +716,7 @@ function syncDeco(R: Rig, L: Layout, s: GameState) {
   const reach = Math.min(150, 9 / R.zoom * 3 + 12), step = Math.max(6, reach / 4);
   const cx = Math.round(R.target.x / step) * step, cz = Math.round(R.target.z / step) * step, rb = Math.ceil(reach / 6) * 6;
   const bare = seasonOf(s) === 'Winter' && R.region !== 'tropics';
-  const sig = `${R.region}:${w.cleared.length}:${w.owned.length}:${w.queue.map((j) => j.chunk).join(',')}:${cx},${cz},${rb}:${R.zoom < 0.5}:${bare}`;
+  const sig = `${R.region}:${w.cleared.length}:${w.owned.length}:${Object.keys(w.roads).length}:${w.queue.map((j) => j.chunk).join(',')}:${cx},${cz},${rb}:${R.zoom < 0.5}:${bare}`;
   if (sig === R.sig.deco) return;
   R.sig.deco = sig;
   clear(R.deco);
@@ -767,9 +767,16 @@ function syncDeco(R: Rig, L: Layout, s: GameState) {
     if (!owned.has(c)) continue;
     const ox = MAP.x0 + gxx * CHUNK, oy = MAP.y0 + gy * CHUNK;
     const edge = (nx: number, ny: number) => nx < 0 || ny < 0 || nx >= CHUNKS_X || ny >= CHUNKS_Y || !owned.has(ny * CHUNKS_X + nx);
+    // a tile of road or track on either side of the line leaves a gap: the fence never crosses or runs along a road
+    const open = (tx: number, ty: number) => isRoad(ty) || w.roads[tileId(tx, ty)] !== undefined;
     const side = (x: number, z: number, along: boolean) => {
-      rails.push(new THREE.Matrix4().compose(new THREE.Vector3(x, 0.24, z), along ? flat : turn, one));
-      for (let i = 0; i < CHUNK; i += 2) posts.push(new THREE.Matrix4().makeTranslation(along ? x - CHUNK / 2 + i : x, 0, along ? z : z - CHUNK / 2 + i));
+      for (let i = 0; i < CHUNK; i++) {
+        const tx = along ? x - CHUNK / 2 + i : x, ty = along ? z : z - CHUNK / 2 + i;
+        if (along ? open(tx, ty - 1) || open(tx, ty) : open(tx - 1, ty) || open(tx, ty)) continue;
+        rails.push(new THREE.Matrix4().compose(new THREE.Vector3(along ? tx + 0.5 : x, 0.24, along ? z : ty + 0.5), along ? flat : turn, one));
+        posts.push(new THREE.Matrix4().makeTranslation(along ? tx : x, 0, along ? z : ty));
+        if (i === CHUNK - 1 || (along ? open(tx + 1, ty - 1) || open(tx + 1, ty) : open(tx - 1, ty + 1) || open(tx, ty + 1))) posts.push(new THREE.Matrix4().makeTranslation(along ? tx + 1 : x, 0, along ? z : ty + 1));
+      }
     };
     if (edge(gxx, gy - 1)) side(ox + CHUNK / 2, oy, true);
     if (edge(gxx, gy + 1)) side(ox + CHUNK / 2, oy + CHUNK, true);
@@ -791,7 +798,7 @@ function syncDeco(R: Rig, L: Layout, s: GameState) {
     inst(cached('forest-birch-soft', () => merged(blob(0.3, 0, 1.18, 0, 1.0, 1.45), blob(0.22, 0.13, 0.88, 0.05, 1.0, 1.35))), R.crownMat, birches, birchCol);
   }
   inst(far ? cached('forest-pine-far', () => merged(new THREE.ConeGeometry(0.42, 0.75, 6).translate(0, 0.62, 0), new THREE.ConeGeometry(0.26, 0.55, 6).translate(0, 1.05, 0))) : cached('forest-pine-soft', () => merged(new THREE.ConeGeometry(0.42, 0.55, 10).translate(0, 0.55, 0), new THREE.ConeGeometry(0.33, 0.48, 10).translate(0, 0.85, 0), new THREE.ConeGeometry(0.22, 0.4, 10).translate(0, 1.12, 0))), SOFT_PINE, pines, pineCol.map((c) => c.clone().multiply(new THREE.Color(0x3f6b45))));
-  inst(cached('bound-rail', () => new THREE.BoxGeometry(CHUNK, 0.04, 0.04)), mat(0xc9a46a), rails);
+  inst(cached('bound-rail-1', () => new THREE.BoxGeometry(1, 0.04, 0.04)), mat(0xc9a46a), rails);
   inst(cached('bound-post', () => new THREE.BoxGeometry(0.07, 0.36, 0.07).translate(0, 0.18, 0)), mat(PAL.wood), posts);
   inst(cached('ribbon', () => merged(new THREE.CylinderGeometry(0.03, 0.03, 0.9, 5).translate(0, 0.45, 0), new THREE.BoxGeometry(0.28, 0.14, 0.02).translate(0.15, 0.8, 0))), mat(0xd23c2c), ribbons);
   void L;
@@ -846,7 +853,7 @@ function animateFelling(R: Rig, s: GameState, t: number) {
   }
 }
 
-const ROAD_COL = [0, 0xc19a64, 0xb9b3a6, 0x5f6266], RUT_COL = [0, 0x9f7c4e, 0x99938a, 0], VERGE_COL = [0, 0xa9a465, 0xa3a477, 0x9da27a], SHOULDER_COL = [0, 0xb08c5a, 0xa8a295, 0x55575b];
+const ROAD_COL = [0, 0xc19a64, 0xb9b3a6, 0x5f6266], RUT_COL = [0, 0x9f7c4e, 0x99938a, 0], VERGE_COL = [0, 0x8a8a4c, 0x868a66, 0x80866a], SHOULDER_COL = [0, 0xb08c5a, 0xa8a295, 0x55575b];
 type Band = [number, THREE.Color, number]; // offset (or radius), colour, opacity
 /** Flat ground decals (no sides, so nothing reads as cut card): ribbons along segments and round joints, with soft, fading edges. */
 class Decal {
@@ -885,7 +892,9 @@ class Decal {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(this.col, 4));
     g.setAttribute('normal', new THREE.Float32BufferAttribute(new Array(n).fill([0, 1, 0]).flat(), 3));
-    const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, transparent, depthWrite: !transparent }));
+    // pulled toward the camera in the depth test, so the ground never flickers through at the edges (layers stack by height)
+    const lift = -1 - Math.round(this.y * 400);
+    const m = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, transparent, depthWrite: !transparent, polygonOffset: true, polygonOffsetFactor: lift, polygonOffsetUnits: lift }));
     m.receiveShadow = true; m.frustumCulled = false;
     return m;
   }
@@ -902,7 +911,7 @@ function syncRoads(R: Rig, s: GameState) {
   const verge = new Decal(0.004), surface = new Decal(0.009), marks = new Decal(0.014);
   // a cross-section: verge fading into the grass, a darker worn shoulder, the surface
   const road = (g: number, half: number): { v: Band[]; s: Band[] } => ({
-    v: [[-half - 0.32, C(VERGE_COL[g]), 0], [-half - 0.06, C(VERGE_COL[g]), 0.6], [half + 0.06, C(VERGE_COL[g]), 0.6], [half + 0.32, C(VERGE_COL[g]), 0]],
+    v: [[-half - 0.16, C(VERGE_COL[g]), 0], [-half - 0.03, C(VERGE_COL[g]), 0.3], [half + 0.03, C(VERGE_COL[g]), 0.3], [half + 0.16, C(VERGE_COL[g]), 0]],
     s: [[-half, C(SHOULDER_COL[g]), 1], [-half + 0.14, C(ROAD_COL[g]), 1], [half - 0.14, C(ROAD_COL[g]), 1], [half, C(SHOULDER_COL[g]), 1]],
   });
   const rut = (g: number, o: number, wd: number): Band[] => [[o - wd, C(ROAD_COL[g]), 1], [o - wd / 3, C(RUT_COL[g]), 1], [o + wd / 3, C(RUT_COL[g]), 1], [o + wd, C(ROAD_COL[g]), 1]];
@@ -922,7 +931,7 @@ function syncRoads(R: Rig, s: GameState) {
   for (const k of ids) {
     const id = Number(k), [x, y] = tileAt(id), gr = w.roads[id], ax = x + 0.5, az = y + 0.5;
     const dirs = linksAt(x, y);
-    verge.disc(ax, az, [[HALF + 0.06, C(VERGE_COL[gr]), 0.6], [HALF + 0.32, C(VERGE_COL[gr]), 0]]);
+    verge.disc(ax, az, [[HALF + 0.03, C(VERGE_COL[gr]), 0.3], [HALF + 0.16, C(VERGE_COL[gr]), 0]]);
     surface.disc(ax, az, [[HALF - 0.14, C(ROAD_COL[gr]), 1], [HALF, C(SHOULDER_COL[gr]), 1]]);
     for (const [dx, dy] of dirs) {
       const n = at(x + dx, y + dy);
