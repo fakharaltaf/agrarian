@@ -166,7 +166,7 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
         const k = 0.12; R.target.x += (R.glide.x - R.target.x) * k; R.target.z += (R.glide.z - R.target.z) * k; R.zoom += (R.glide.zoom - R.zoom) * k;
         if (Math.abs(R.glide.x - R.target.x) + Math.abs(R.glide.z - R.target.z) < 0.02 && Math.abs(R.glide.zoom - R.zoom) < 0.005) R.glide = undefined;
       }
-      syncLots(R, L);
+      syncLots(R, L, s);
       syncFields(R, L);
       if (now - lastCrops > 400) { syncCrops(R, L, s); lastCrops = now; }
       syncSelection(R, L, live.current.selected);
@@ -432,8 +432,19 @@ function clear(g: THREE.Group) {
   for (const ch of [...g.children]) g.remove(ch);
 }
 
-function syncLots(R: Rig, L: Layout) {
-  const sig = L.lots.map((l) => `${l.key}:${l.type}@${l.x},${l.y}:${l.buildings.length}:${l.buildings.map((b) => b.level).join('')}`).join('|');
+/** Which side of a lot its road arrives on, as the turn that brings a model's front (+z) round to face it. */
+function facing(w: ReturnType<typeof worldOf>, l: Lot) {
+  const road = (x: number, y: number) => isRoad(y) || w.roads[tileId(x, y)] !== undefined ? 1 : 0;
+  const count = (n: number, f: (i: number) => number) => Array.from({ length: n }, (_, i) => f(i)).reduce((a, b) => a + b, 0);
+  const sides: [number, number][] = [ // [roads touching, turn]; ties go to the front, then the sides, then the back
+    [count(l.w, (i) => road(l.x + i, l.y + l.d)), 0], [count(l.d, (j) => road(l.x + l.w, l.y + j)), Math.PI / 2],
+    [count(l.d, (j) => road(l.x - 1, l.y + j)), -Math.PI / 2], [count(l.w, (i) => road(l.x + i, l.y - 1)), Math.PI],
+  ];
+  return sides.reduce((a, b) => (b[0] > a[0] ? b : a))[1];
+}
+function syncLots(R: Rig, L: Layout, s: GameState) {
+  const w = worldOf(s, R.region);
+  const sig = L.lots.map((l) => `${l.key}:${l.type}@${l.x},${l.y}:${l.buildings.length}:${l.buildings.map((b) => b.level).join('')}:${facing(w, l)}`).join('|');
   if (sig === R.sig.lots) return;
   R.sig.lots = sig;
   clear(R.lots);
@@ -442,6 +453,11 @@ function syncLots(R: Rig, L: Layout) {
   for (const lot of L.lots) {
     const model = lot.key.startsWith('civic:') ? buildCivic(lot.key.split(':')[1],lot.w,lot.d) : lot.key.startsWith('community:') ? buildCommunityHome(lot.key.split(':')[1], lot.w, lot.d, lot.key) : buildLot(lot.type, lot.w, lot.d, lot.key === 'crew' || lot.key === 'office' || lot.key === 'market' ? lot.key : '');
     model.group.position.set(lot.x, 0, lot.y);
+    const art = model.group.children.length === 1 ? (model.group.children[0].userData.art as Parameters<typeof artModel>[0] | undefined) : undefined, turn = facing(w, lot);
+    if (art && turn) { // an imported building turns its front door to its road (refitted when a quarter turn swaps width and depth)
+      const side = Math.abs(turn) === Math.PI / 2, m = side ? artModel(art, lot.d, lot.w, true) : model.group.children[0];
+      if (m) { model.group.clear(); m.position.set(lot.w / 2, 0, lot.d / 2); m.rotation.y = turn; model.group.add(m); }
+    }
     const lvl = Math.max(1, ...lot.buildings.map((b) => b.level));
     if (lvl > 1) model.group.scale.set(1, 1 + (lvl - 1) * 0.18, 1); // upgraded buildings stand taller
     R.lots.add(model.group);
@@ -1735,10 +1751,11 @@ function puffTexture() {
 }
 
 function syncStorage(R: Rig,L: Layout,s: GameState){
-  if(R.lastStockTick===s.tick)return;R.lastStockTick=s.tick;
-  const st=stored(s,R.region), n=Math.min(12,Math.ceil(st.dry/Math.max(1,st.cap.dry)*12));
   const at=L.lots.find(l=>l.type!=='house'&&l.type!=='shed'&&BUILDINGS[l.type].category==='storage')??L.lots.find(l=>l.key==='market');
   if(!at)return;
+  // stock is counted once a game hour, but the crates follow their building at once when it moves (even while paused)
+  const tickKey=s.tick*100003+at.x*317+at.y;if(R.lastStockTick===tickKey)return;R.lastStockTick=tickKey;
+  const st=stored(s,R.region), n=Math.min(12,Math.ceil(st.dry/Math.max(1,st.cap.dry)*12));
   const signature=`${at.key}:${at.x}:${at.y}:${n}:${artRevision()}`;
   if(R.storageProps.userData.signature===signature)return;
   R.storageProps.userData.signature=signature;R.storageProps.clear();

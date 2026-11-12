@@ -5,7 +5,10 @@ import type { Building, CivicService, Field, GameState } from '../../simulation/
 import { townOf } from '../../simulation/town-state';
 import { communityOf } from '../../simulation/community-state';
 import { CONFIG } from '../../simulation/config';
-import { FOOTPRINT, HOME_BLOCKS, MAP, ROAD_Y, findSpot, plotSide, worldOf } from '../../simulation/world';
+import { FOOTPRINT, HOME_BLOCKS, MAP, ROAD_Y, findSpot, placeProblem, plotSide, worldOf } from '../../simulation/world';
+
+/** Where each region's for-sale sign stands: it stays put until something is built on its spot. */
+const saleSpot = new Map<RegionId, [number, number]>();
 export { FOOTPRINT, plotSide } from '../../simulation/world';
 
 /** `place` is the saved-map key this lot moves with (several home blocks share one). */
@@ -48,7 +51,9 @@ export function layoutRegion(s: GameState, r: RegionId): Layout {
   // The "for sale" plot sits on the nearest free cleared spot; buying it lets the player choose where it goes.
   let buy: Layout['buy'] = null;
   if (r === 'heartland' && s.stats.sales > 0 && s.regions.heartland.homePlotsBought < CONFIG.homePlots) {
-    const spot = findSpot(s, r, { w: 4, d: 4 }); // a tile of space all round, so the sign never stands on a building's yard props
+    const kept = saleSpot.get(r), fp = { w: 4, d: 4 }; // a tile of space all round, so the sign never stands on a building's yard props
+    const spot = kept && !placeProblem(s, r, kept[0], kept[1], fp) ? kept : findSpot(s, r, fp);
+    if (spot) saleSpot.set(r, spot);
     if (spot) buy = { x: spot[0] + 1, y: spot[1] + 1, s: 2 };
   }
   const xs = [...lots.map((l) => [l.x, l.x + l.w]), ...plots.map((p) => [p.x, p.x + p.s])].flat(), ys = [...lots.map((l) => [l.y, l.y + l.d]), ...plots.map((p) => [p.y, p.y + p.s])].flat();
