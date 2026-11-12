@@ -10,7 +10,7 @@ import { buildingMargin } from '../../simulation/processing';
 import { DISCOVERIES, ERA_UNLOCK_TEXT, dailyGoals, dailyPrize, forecast, herdOf, homePlotPrice, housing, isManual, isReady, objective, chapterGate, gateProgress, type GateRow, PAGES, seedShortfall, upgradeCost } from '../../simulation/engine';
 import type { GameState } from '../../simulation/types';
 import { act, cancelPlacement, confirmPlacement, rotatePlacement, go, placementUse, setRoadTool, setZoneTool, startPipes, startPlacement, stopProspect, stopRoads, stopZoning, type Zoning, useGame, usePageState, useStore, type Placement, type Roading } from '../../stores/game';
-import { WATER_LEVEL, WATER_PRICE, WATER_TIERS, pipeRoute, pipeStretch, cutsOff, footprintOf, forSaleAround, isRoad, MAP, ROAD_GRADES, ROAD_H, roadRoute, roadStretch, roadTilePrice, worldOf, patchesAround, placeProblem, plotSide, PROBLEM_TEXT } from '../../simulation/world';
+import { WATER_LEVEL, WATER_PRICE, WATER_TIERS, wetTiers, pipeRoute, pipeStretch, cutsOff, footprintOf, forSaleAround, isRoad, MAP, ROAD_GRADES, ROAD_H, roadRoute, roadStretch, roadTilePrice, worldOf, patchesAround, placeProblem, plotSide, PROBLEM_TEXT } from '../../simulation/world';
 import { buildingPrice, moveFee, parcelPrice } from '../../simulation/engine';
 import { homePrice } from '../../simulation/community-state';
 import { servicePrice } from '../../simulation/town-state';
@@ -335,6 +335,7 @@ function PipeBar({ s, r }: { s: GameState; r: Roading }) {
     if (!st.length) hint = r.tool === 'upgrade' ? `Tap a line: ditch → pipe (${pct(2)}) → buried (${pct(3)}, frees the land)` : 'Tap a line to remove that run';
     else if (r.tool === 'upgrade') { const t = Math.min(3, Math.min(...st.map((id) => w.canals[id])) + 1), n = st.filter((id) => w.canals[id] < t).length; hint = n ? `${t === 3 ? 'Bury' : 'Pipe'} ${n} tiles · ${money(price(t) * n)} · fields at ${pct(t)}${t === 3 ? ' · land freed' : ''}` : `Already ${WATER_TIERS[3].toLowerCase()}`; }
     else hint = `Remove ${st.length} tiles of water line`;
+    if (st.length && !st.some((id) => wetTiers(s, r.region).has(id))) hint = `Dry (red): not joined to the river · ${hint}`;
   }
   return <div className="placement-bar road-bar" role="dialog" aria-label="Water lines">
     <div className="placement-info"><b>💧 Water</b><span className="muted">{hint}</span></div>

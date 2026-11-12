@@ -15,7 +15,7 @@ import { featureEra, stageAtLeast } from '../../simulation/stages';
 import { preloadArt, artRevision, artModel, playClip } from './art';
 import { money, num, pct0 } from '../format';
 import { layoutRegion, type Layout, type Lot, type Plot } from './layout';
-import { CHUNK, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, LAND_HA_PER_PATCH, MAP, hasAccess, riverTiles, riverX, tileId, roadRoute, roadStretch, pipeRoute, pipeStretch, plotSide, fieldWater, tileAt, forSaleAround, landCost, ownedSet, ROAD_H, ROAD_Y, chunkAt, chunkOrigin, clearCost, clearedSet, isRoad, patchesAround, placeProblem, worldOf } from '../../simulation/world';
+import { CHUNK, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, LAND_HA_PER_PATCH, MAP, hasAccess, riverTiles, riverX, tileId, roadRoute, roadStretch, pipeRoute, pipeStretch, plotSide, fieldWater, wetTiers, tileAt, forSaleAround, landCost, ownedSet, ROAD_H, ROAD_Y, chunkAt, chunkOrigin, clearCost, clearedSet, isRoad, patchesAround, placeProblem, worldOf } from '../../simulation/world';
 import { animal, buildCivic, buildCommunityHome, buildLot, box, cached, cyl, farmhand, hauler, mat, mesh, PAL, person, tree, vehicle, type Model } from './models';
 import { haulOf, MARKET_X, marketRoute } from '../../simulation/hauling';
 import { oilChance, oilOf, surveyed } from '../../simulation/oil';
@@ -1099,6 +1099,8 @@ function syncRoadPreview(R: Rig, s: GameState, Rd: Roading | null) {
     for (const k of Object.keys(w.canals)) { const [x, y] = tileAt(Number(k)); if (w.canals[Number(k)] < 3 && !isRoad(y) && !w.roads[Number(k)]) continue;
       for (const [dx, dy] of [[1, 0], [0, 1]] as const) if (w.canals[tileId(x + dx, y + dy)]) for (let t = 0; t < 1; t += 0.34) d.seg(x + 0.5 + dx * t, y + 0.5 + dy * t, x + 0.5 + dx * (t + 0.2), y + 0.5 + dy * (t + 0.2), [[-0.05, col, 0.9], [0.05, col, 0.9]]);
       d.disc(x + 0.5, y + 0.5, [[0.07, col, 0.9]]); }
+    const wet = wetTiers(s, R.region), dry = new THREE.Color(0xe0533d);
+    for (const k of Object.keys(w.canals)) if (!wet.has(Number(k))) { const [x, y] = tileAt(Number(k)); d.disc(x + 0.5, y + 0.5, [[0.16, dry, 0.75], [0.24, dry, 0]]); } // a dry line: not joined to the river
     if (d.pos.length) { const m = d.mesh(true); m.renderOrder = 2; R.roadPrev.add(m); }
   }
   let tiles: [number, number][] = [], ok = true;

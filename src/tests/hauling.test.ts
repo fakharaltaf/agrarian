@@ -79,3 +79,16 @@ it('water lines: irrigation is just the kit; you dig a ditch to the river, upgra
   expect(rm.ok && rm.note).toMatch(/no water/);
   expect(W.hasWater(s, r, key)).toBe(false);
 });
+
+it('a ditch started on the river bank (the drawn river is wider than its tiles) still takes water', async () => {
+  const W = await import('../simulation/world');
+  const s = createGame(504); post(s, 'prize', 100_000, 'fixture'); s.stageId = 'farm-business';
+  const f = s.fields[0], key = `field:${f.id}`, w = W.worldOf(s, 'heartland'), r = 'heartland' as const;
+  W.own(w, W.chunksIn(-40, -8, 52, 24)); W.clearRect(w, -40, -8, 52, 24);
+  const [px, py] = w.pos[key], to: [number, number] = [px - 1, py], river = W.riverTiles(r);
+  let from: [number, number] | undefined; // two tiles out from the water, nothing beside it is river
+  for (const id of river) { const [x, y] = W.tileAt(id); if (!from && !river.has(W.tileId(x + 1, y)) && !river.has(W.tileId(x + 2, y + 1)) && !river.has(W.tileId(x + 2, y - 1)) && W.pipeRoute(s, r, [x + 2, y], to)) from = [x + 2, y]; }
+  expect(dispatch(s, { type: 'buildPipe', region: r, from: from!, to }).ok).toBe(true);
+  expect(W.fieldWater(s, r, key).points).toBeGreaterThan(0);
+  expect(W.fieldWater({ ...s }, r, key).need).toBe(Math.ceil(W.plotSide(f.ha) / 8));
+});

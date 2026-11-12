@@ -522,15 +522,25 @@ export function pipeStretch(w: RegionWorld, x: number, y: number): number[] {
   }
   return out.filter((id, i) => i === 0 || degree(id) < 3);
 }
+/** Land within 2 tiles of the river: the drawn river and its banks are wider than its tiles, so a line started on the bank takes water. */
+const banks = new Map<RegionId, Set<number>>();
+export function riverBank(r: RegionId): Set<number> {
+  const hit = banks.get(r);
+  if (hit) return hit;
+  const river = riverTiles(r), set = new Set<number>();
+  for (const id of river) { const [x, y] = tileAt(id); for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) { const n = tileId(x + dx, y + dy); if (inMap(x + dx, y + dy) && !river.has(n)) set.add(n); } }
+  banks.set(r, set);
+  return set;
+}
 /** The tier of water each line tile carries: the weakest stretch on its best way back to the river. Cached until lines change (touch). */
 const wetCache = new WeakMap<RegionWorld, { rev: number; tiers: Map<number, number> }>();
 export function wetTiers(s: GameState, r: RegionId): Map<number, number> {
   const w = worldOf(s, r), rev = revs.get(w) ?? 0, hit = wetCache.get(w);
   if (hit && hit.rev === rev) return hit.tiers;
-  const river = riverTiles(r), tiers = new Map<number, number>();
+  const bank = riverBank(r), tiers = new Map<number, number>();
   for (const t of [3, 2, 1]) { // flood the best tier first; a tile keeps the first (best) tier that reaches it
     const q: number[] = [], seen = new Set<number>();
-    for (const k of Object.keys(w.canals)) { const id = Number(k), [x, y] = tileAt(id); if (w.canals[id] >= t && STEPS.some(([dx, dy]) => inMap(x + dx, y + dy) && river.has(tileId(x + dx, y + dy)))) { seen.add(id); q.push(id); } }
+    for (const k of Object.keys(w.canals)) { const id = Number(k); if (w.canals[id] >= t && bank.has(id)) { seen.add(id); q.push(id); } }
     for (let h = 0; h < q.length; h++) { const [x, y] = tileAt(q[h]); for (const [dx, dy] of STEPS) { const nid = tileId(x + dx, y + dy); if (inMap(x + dx, y + dy) && w.canals[nid] >= t && !seen.has(nid)) { seen.add(nid); q.push(nid); } } }
     for (const id of seen) if (!tiers.has(id)) tiers.set(id, t);
   }
@@ -551,6 +561,6 @@ export function fieldWater(s: GameState, r: RegionId, key: string) {
     const along = y < p[1] || y >= p[1] + fp.d ? x > p[0] && tierAt(x - 1, y) : y > p[1] && tierAt(x, y - 1); // the tile before it on the same side
     if (!along) points++;
   }
-  return { points, need: Math.ceil(Math.max(fp.w, fp.d) / 6), tier };
+  return { points, need: Math.ceil(Math.max(fp.w, fp.d) / 8), tier };
 }
 export const hasWater = (s: GameState, r: RegionId, key: string) => fieldWater(s, r, key).points > 0;
