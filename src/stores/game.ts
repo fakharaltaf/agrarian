@@ -272,11 +272,11 @@ export function roadTap(at: [number, number] | null) {
   const R = store.roading;
   if (!R || !at) return;
   if (R.tool === 'draw') {
-    if (!R.from) { if (!(R.pipe ? pipeRoute : roadRoute)(store.game, R.region, at, at)) { toast(R.pipe ? 'Start a pipe on your own cleared land, beside the river or on another pipe.' : 'Start a road on your own cleared land or on an existing road.'); return; } return set({ roading: { ...R, from: at } }); }
+    if (!R.from) { if (!(R.pipe ? pipeRoute : roadRoute)(store.game, R.region, at, at)) { toast(R.pipe ? 'Start a ditch on your own cleared land, beside the river or on another water line.' : 'Start a road on your own cleared land or on an existing road.'); return; } return set({ roading: { ...R, from: at } }); }
     if (act(R.pipe ? { type: 'buildPipe', region: R.region, from: R.from, to: at } : { type: 'buildRoad', region: R.region, from: R.from, to: at })) set({ roading: { ...store.roading!, from: at } }); // keep drawing from here
     return;
   }
-  act(R.pipe ? { type: R.tool === 'upgrade' ? 'buryPipe' : 'removePipe', region: R.region, at } : { type: R.tool === 'upgrade' ? 'upgradeRoad' : 'removeRoad', region: R.region, at });
+  act(R.pipe ? { type: R.tool === 'upgrade' ? 'upgradePipe' : 'removePipe', region: R.region, at } : { type: R.tool === 'upgrade' ? 'upgradeRoad' : 'removeRoad', region: R.region, at });
 }
 export const moveGhost = (at: [number, number]) => store.placing && set({ placing: { ...store.placing, at } });
 /** Turn what is being placed a quarter turn clockwise (fields are square plots and do not turn). */

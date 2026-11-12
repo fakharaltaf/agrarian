@@ -15,6 +15,7 @@ import { duration, money, num, pct, pct0, price, stamp } from '../format';
 import { Bar, Card, Confirm, Info, Seg, Select, Swatch, Tip, usePref } from '../ui';
 import { unlockedRegions } from './shared';
 import { stageAtLeast } from '../../simulation/stages';
+import { fieldWater, WATER_LEVEL, WATER_TIERS } from '../../simulation/world';
 import { HOMESTEAD_MILL_PRICE, homesteadState } from '../../simulation/stages/homestead';
 
 
@@ -303,7 +304,7 @@ function SoilPanel({ s, f }: { s: GameState; f: Field }) {
           {(['n', 'p', 'k', 'organic'] as const).map((k) => <div key={k} className="kpi"><span>{{ n: 'Nitrogen', p: 'Phosph.', k: 'Potass.', organic: 'Organic' }[k]}</span><strong className="mono" style={{ fontSize: 14 }}>{pct0(f.soil[k] / (k === 'organic' ? 1 : 0.7))}</strong></div>)}
         </div>
       ) : <p className="faint small">Research soil testing to see nitrogen, phosphorus, potassium and organic matter.</p>}
-      <Meter label="Soil moisture" value={f.moisture} info={`Rain sets the soil's water level; heat dries it. ${f.crop ? `${GOODS[f.crop].name} grows best around ${pct0(CROPS[f.crop].water)}.` : ''} Irrigation tops it up to ${pct0(s.automation.policies.irrigateMin)} at a water cost.`} color="#5aa3c8" />
+      <Meter label="Soil moisture" value={f.moisture} info={`Rain sets the soil's water level; heat dries it. ${f.crop ? `${GOODS[f.crop].name} grows best around ${pct0(CROPS[f.crop].water)}.` : ''} ${waterNote(s, f)}`} color="#5aa3c8" />
       {f.pest > 0.05 && <Meter label="Pest pressure" value={f.pest} info={f.crop && CROPS[f.crop].perennial ? 'Pests build while the trees bear fruit, faster in heat. Each harvest halves them, and they die back while the orchard rests in winter.' : `Pests build while crops grow, faster in heat and in monocultures (this field has grown the same crop ${f.streak + 1}× in a row). Resting or rotating clears them.`} tone="down" />}
       {f.spreading ? <p className="small">🧪 {f.spreading === 'manure' ? 'Manure' : 'Fertiliser'} is waiting for your crew to spread it ({pct0(f.spreadWork)} done){f.crop ? ' — after the harvest' : ''}. Tractors do it fastest; it goes on before the next sowing.</p> : (
       <div className="row wrap">
@@ -355,7 +356,7 @@ export function BatchPanel({ s, fields }: { s: GameState; fields: Field[] }) {
               Spread {src === 'manure' ? 'manure' : 'fertiliser'} on all · {num(Math.min(need, held))}/{num(need)}{batchSpreadFee > 0 ? ` · up to ${money(batchSpreadFee)}` : ''}</button>;
           })}
           {fields.length < s.fields.length && <Confirm label={`Sell ${fields.length} fields · ${money(fields.reduce((n, f) => n + f.cost * 0.85, 0))}`} className="btn danger sm" title={`Sell ${fields.length} fields?`} body={<>You receive about <b>{money(fields.reduce((n, f) => n + f.cost * 0.85, 0))}</b> (85% of what you paid). Crops growing on them are lost.</>} confirmLabel="Sell" onConfirm={() => { for (const f of fields) act({ type: 'sellField', fieldId: f.id }); }} />}
-          {unirrigated.length > 0 && <Confirm label={`Irrigate ${unirrigated.length} · ${money(irrigationPrice(s, unirrigated.reduce((a, f) => a + f.ha, 0)))}`} title="Install irrigation?" body={`Equip ${unirrigated.length} fields with irrigation. Water is then bought whenever soil moisture falls below ${pct0(s.automation.policies.irrigateMin)}.`} onConfirm={() => act({ type: 'irrigate', fieldIds: unirrigated.map((f) => f.id) })} />}
+          {unirrigated.length > 0 && <Confirm label={`Irrigate ${unirrigated.length} · ${money(irrigationPrice(s, unirrigated.reduce((a, f) => a + f.ha, 0)))}`} title="Install irrigation?" body={`Equip ${unirrigated.length} fields with irrigation. ${s.legacyProgression ? `Water is then bought whenever soil moisture falls below ${pct0(s.automation.policies.irrigateMin)}.` : 'Then dig a ditch from the river to each with the 💧 tool: a ditch keeps them at 60%, a pipe 70%, a buried pipe 80%.'}`} onConfirm={() => act({ type: 'irrigate', fieldIds: unirrigated.map((f) => f.id) })} />}
         </div>
       </div>
     </Card>
@@ -473,4 +474,13 @@ export function RecentLog({ s }: { s: GameState }) {
       </ol>
     </Card>
   );
+}
+
+/** What irrigation does for this field: with the river lines, the tier that reaches it sets the level. */
+function waterNote(s: GameState, f: Field) {
+  if (!f.irrigated) return '';
+  if (s.legacyProgression) return `Irrigation tops it up to ${pct0(s.automation.policies.irrigateMin)} at a water cost.`;
+  const w = fieldWater(s, f.region, `field:${f.id}`);
+  if (!w.points) return 'Irrigated, but no water line reaches it: dig a ditch from the river with the 💧 tool.';
+  return `Its ${WATER_TIERS[w.tier].toLowerCase()} keeps it at ${pct0(WATER_LEVEL[w.tier])}${w.points < w.need ? `, slowly: ${w.points} of the ${w.need} water joins a field this size needs` : ''}.`;
 }

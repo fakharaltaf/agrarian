@@ -34,50 +34,48 @@ it('homestead sales to the trader and the mill are paid on the spot', () => {
   expect(s.cash).toBeGreaterThan(cash);
 });
 
-it('irrigation needs a channel from the river, dug over your own land', async () => {
-  const { chunksIn, clearRect, own, riverTiles, worldOf, placeProblem, tileAt } = await import('../simulation/world');
-  const s = createGame(503); post(s, 'prize', 100_000, 'fixture'); s.stageId = 'farm-business';
-  const f = s.fields[0];
-  expect(dispatch(s, { type: 'irrigate', fieldIds: [f.id] }).ok).toBe(false); // the river is beyond the valley
-  const w = worldOf(s, 'heartland');
-  own(w, chunksIn(-40, -8, 52, 24)); clearRect(w, -40, -8, 52, 24); // land down to the river
-  const cash = s.cash;
-  expect(dispatch(s, { type: 'irrigate', fieldIds: [f.id] }).ok).toBe(true);
-  expect(f.irrigated).toBe(true);
-  expect(Object.keys(w.canals).length).toBeGreaterThan(5);
-  expect(s.cash).toBeLessThan(cash);
-  const [rx, ry] = tileAt([...riverTiles('heartland')][100]);
-  expect(placeProblem(s, 'heartland', rx, ry, { w: 1, d: 1 })).not.toBeNull(); // nothing is built on the river
-});
-
-it('pipes follow their field, can be buried to free the land, and a field cut off from the river gets no water', async () => {
+it('water lines: irrigation is just the kit; you dig a ditch to the river, upgrade it to pipe then bury it, and the tier sets the moisture', async () => {
   const W = await import('../simulation/world');
   const s = createGame(504); post(s, 'prize', 100_000, 'fixture'); s.stageId = 'farm-business';
-  const f = s.fields[0], key = `field:${f.id}`, w = W.worldOf(s, 'heartland');
+  const f = s.fields[0], key = `field:${f.id}`, w = W.worldOf(s, 'heartland'), r = 'heartland' as const;
   W.own(w, W.chunksIn(-40, -8, 52, 24)); W.clearRect(w, -40, -8, 52, 24);
-  expect(dispatch(s, { type: 'irrigate', fieldIds: [f.id] }).ok).toBe(true);
-  const laid = [...(w.plinks?.[key] ?? [])];
-  expect(laid.length).toBeGreaterThan(3);
-  expect(W.hasWater(s, 'heartland', key)).toBe(true);
-  // a surface pipe takes its tile; buried, the tile is free again
-  const [px, py] = W.tileAt(laid[Math.floor(laid.length / 2)]);
-  expect(W.placeProblem(s, 'heartland', px, py, { w: 1, d: 1 })).toBe('water');
-  expect(dispatch(s, { type: 'buryPipe', region: 'heartland', at: [px, py] }).ok).toBe(true);
-  expect(w.canals[W.tileId(px, py)]).toBe(2);
-  expect(W.placeProblem(s, 'heartland', px, py, { w: 1, d: 1 })).not.toBe('water');
-  expect(W.hasWater(s, 'heartland', key)).toBe(true); // water still flows underground
-  // moving the field lifts its old pipe and lays a new one to where it went
-  const side = W.plotSide(f.ha), to = W.findSpot(s, 'heartland', { w: side, d: side })!;
-  expect(dispatch(s, { type: 'moveObject', region: 'heartland', key, at: to }).ok).toBe(true);
-  for (const id of laid) if (!(w.plinks?.[key] ?? []).includes(id)) expect(w.canals[id]).toBeUndefined();
-  expect(W.hasWater(s, 'heartland', key)).toBe(true);
-  // removing its pipe cuts it off, and the result says so
-  const mine = w.plinks?.[key] ?? [];
-  if (mine.length) {
-    const [mx, my] = W.tileAt(mine[0]);
-    const r = dispatch(s, { type: 'removePipe', region: 'heartland', at: [mx, my] });
-    expect(r.ok).toBe(true);
-    expect(W.hasWater(s, 'heartland', key)).toBe(false);
-    expect(r.ok && r.note).toMatch(/no water/);
-  }
+  const cash = s.cash, res = dispatch(s, { type: 'irrigate', fieldIds: [f.id] });
+  expect(res.ok && res.note).toMatch(/ditch/); // installed, but no water until a line reaches it
+  expect(cash - s.cash).toBe(Math.round(f.ha * 300 * s.macro.cpi));
+  expect(Object.keys(w.canals).length).toBe(0); // nothing laid by itself
+  expect(W.fieldWater(s, r, key).points).toBe(0);
+  // dig from a tile beside the river to the field's edge
+  const [px, py] = w.pos[key], to: [number, number] = [px - 1, py], river = W.riverTiles(r);
+  let from: [number, number] | undefined;
+  for (const id of river) { const [x, y] = W.tileAt(id); for (const [dx, dy] of [[1, 0], [-1, 0]]) if (!from && !river.has(W.tileId(x + dx, y + dy)) && W.pipeRoute(s, r, [x + dx, y + dy], to)) from = [x + dx, y + dy]; }
+  expect(from).toBeDefined();
+  expect(dispatch(s, { type: 'buildPipe', region: r, from: from!, to }).ok).toBe(true);
+  const fw = W.fieldWater(s, r, key);
+  expect(fw.tier).toBe(1); expect(fw.points).toBeGreaterThan(0);
+  expect(fw.need).toBe(Math.ceil(W.plotSide(f.ha) / 6));
+  expect(W.placeProblem(s, r, to[0], to[1], { w: 1, d: 1 })).toBe('water'); // a ditch takes its tile
+  expect(dispatch(s, { type: 'upgradePipe', region: r, at: to }).ok).toBe(true);
+  expect(W.fieldWater(s, r, key).tier).toBe(2);
+  expect(W.placeProblem(s, r, to[0], to[1], { w: 1, d: 1 })).toBe('water'); // so does a pipe
+  expect(dispatch(s, { type: 'upgradePipe', region: r, at: to }).ok).toBe(true);
+  expect(W.fieldWater(s, r, key).tier).toBe(3);
+  expect(W.placeProblem(s, r, to[0], to[1], { w: 1, d: 1 })).not.toBe('water'); // buried: the land is free
+  expect(dispatch(s, { type: 'upgradePipe', region: r, at: to }).ok).toBe(false);
+  // the tier sets how wet the field is kept
+  const { CROPS } = await import('../simulation/config');
+  const was = f.crop;
+  f.crop = Object.keys(CROPS).find((c) => !CROPS[c as keyof typeof CROPS].perennial) as typeof f.crop; f.moisture = 0;
+  for (let i = 0; i < 48; i++) step(s);
+  expect(f.moisture).toBeGreaterThan(W.WATER_LEVEL[3] - 0.1);
+  f.crop = was; // empty again, so it can move
+  // a moved field leaves its line behind and has to be joined up again
+  const lines = Object.keys(w.canals).length, side = W.plotSide(f.ha), spot = W.findSpot(s, r, { w: side, d: side })!;
+  expect(dispatch(s, { type: 'moveObject', region: r, key, at: spot }).ok).toBe(true);
+  expect(Object.keys(w.canals).length).toBe(lines);
+  if (!W.hasWater(s, r, key)) expect(W.fieldWater(s, r, key).points).toBe(0);
+  // removing the line warns about the fields it fed
+  dispatch(s, { type: 'moveObject', region: r, key, at: [px, py] });
+  const rm = dispatch(s, { type: 'removePipe', region: r, at: to });
+  expect(rm.ok && rm.note).toMatch(/no water/);
+  expect(W.hasWater(s, r, key)).toBe(false);
 });

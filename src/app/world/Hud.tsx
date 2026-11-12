@@ -9,8 +9,8 @@ import { known } from '../../simulation/core';
 import { buildingMargin } from '../../simulation/processing';
 import { DISCOVERIES, ERA_UNLOCK_TEXT, dailyGoals, dailyPrize, forecast, herdOf, homePlotPrice, housing, isManual, isReady, objective, chapterGate, gateProgress, type GateRow, PAGES, seedShortfall, upgradeCost } from '../../simulation/engine';
 import type { GameState } from '../../simulation/types';
-import { act, cancelPlacement, confirmPlacement, rotatePlacement, go, placementUse, setRoadTool, setZoneTool, startPlacement, stopProspect, stopRoads, stopZoning, type Zoning, useGame, usePageState, useStore, type Placement, type Roading } from '../../stores/game';
-import { IRRIGATION_CHANNEL_PRICE, PIPE_BURY_PRICE, pipeRoute, pipeStretch, cutsOff, footprintOf, forSaleAround, isRoad, MAP, ROAD_GRADES, ROAD_H, roadRoute, roadStretch, roadTilePrice, worldOf, patchesAround, placeProblem, plotSide, PROBLEM_TEXT } from '../../simulation/world';
+import { act, cancelPlacement, confirmPlacement, rotatePlacement, go, placementUse, setRoadTool, setZoneTool, startPipes, startPlacement, stopProspect, stopRoads, stopZoning, type Zoning, useGame, usePageState, useStore, type Placement, type Roading } from '../../stores/game';
+import { WATER_LEVEL, WATER_PRICE, WATER_TIERS, pipeRoute, pipeStretch, cutsOff, footprintOf, forSaleAround, isRoad, MAP, ROAD_GRADES, ROAD_H, roadRoute, roadStretch, roadTilePrice, worldOf, patchesAround, placeProblem, plotSide, PROBLEM_TEXT } from '../../simulation/world';
 import { buildingPrice, moveFee, parcelPrice } from '../../simulation/engine';
 import { homePrice } from '../../simulation/community-state';
 import { servicePrice } from '../../simulation/town-state';
@@ -248,6 +248,7 @@ export function Hud() {
           else if(kind==='movelot'&&lot){ const fp=footprintOf(s,lot.place); if(fp){ startPlacement({kind:'move',key:lot.place,region,w:fp.w,d:fp.d,label:lotName(lot),action:{type:'seeTip',tip:''}}); setLot(null); } }
           else if(kind==='plant'||kind==='harvest') act(kind==='harvest'?{type:'harvest',fieldId:id}:{type:'plant',fieldId:id,crop});
           else if(kind==='irrigate') act({type:'irrigate',fieldIds:[id]},'Irrigation installed.');
+          else if(kind==='pipes'){ startPipes(region); setSel([]); }
           else if(kind==='fertilise'){
             const f=s.fields.find(x=>x.id===id); if(!f)return;
             const plan=fertilisePlan(s,f);
@@ -324,21 +325,21 @@ function OilBar({ s, p }: { s: GameState; p: { region: RegionId; hover?: [number
 }
 
 function PipeBar({ s, r }: { s: GameState; r: Roading }) {
-  const w = worldOf(s, r.region), price = Math.round(IRRIGATION_CHANNEL_PRICE * s.macro.cpi), bury = Math.round(PIPE_BURY_PRICE * s.macro.cpi), h = r.hover;
+  const w = worldOf(s, r.region), price = (t: number) => Math.round(WATER_PRICE[t] * s.macro.cpi), pct = (t: number) => `${Math.round(WATER_LEVEL[t] * 100)}%`, h = r.hover;
   let hint: string;
   if (r.tool === 'draw') {
     const route = r.from && h ? pipeRoute(s, r.region, r.from, h) : null;
-    hint = !r.from ? 'Tap beside the river (or on a pipe) to start' : !h ? `Tap where it goes next · ${money(price)} a tile` : route ? `${route.length} tiles · ${money(price * route.length)} · tap to lay` : 'Can\'t get there: keep to your own cleared land';
+    hint = !r.from ? 'Tap beside the river (or on a line) to start a ditch' : !h ? `Tap where it goes next · ${money(price(1))} a tile · fields at ${pct(1)}` : route ? `${route.length} tiles of ditch · ${money(price(1) * route.length)} · tap to dig` : 'Can\'t get there: keep to your own cleared land';
   } else {
     const st = h ? pipeStretch(w, h[0], h[1]) : [];
-    if (!st.length) hint = r.tool === 'upgrade' ? 'Tap a pipe to bury it and free the land' : 'Tap a pipe to remove that run';
-    else if (r.tool === 'upgrade') { const n = st.filter((id) => w.canals[id] === 1).length; hint = n ? `Bury ${n} tiles · ${money(bury * n)} · the land is freed` : 'Already underground'; }
-    else hint = `Remove ${st.length} tiles of pipe`;
+    if (!st.length) hint = r.tool === 'upgrade' ? `Tap a line: ditch → pipe (${pct(2)}) → buried (${pct(3)}, frees the land)` : 'Tap a line to remove that run';
+    else if (r.tool === 'upgrade') { const t = Math.min(3, Math.min(...st.map((id) => w.canals[id])) + 1), n = st.filter((id) => w.canals[id] < t).length; hint = n ? `${t === 3 ? 'Bury' : 'Pipe'} ${n} tiles · ${money(price(t) * n)} · fields at ${pct(t)}${t === 3 ? ' · land freed' : ''}` : `Already ${WATER_TIERS[3].toLowerCase()}`; }
+    else hint = `Remove ${st.length} tiles of water line`;
   }
-  return <div className="placement-bar road-bar" role="dialog" aria-label="Irrigation pipes">
-    <div className="placement-info"><b>💧 Pipes</b><span className="muted">{hint}</span></div>
-    <div className="seg" role="group" aria-label="Pipe tool">
-      {(['draw', 'upgrade', 'remove'] as const).map((t) => <button key={t} className={`btn ${r.tool === t ? 'primary' : 'ghost'}`} aria-pressed={r.tool === t} onClick={() => setRoadTool(t)}>{t === 'draw' ? '✏ Draw' : t === 'upgrade' ? '⬇ Bury' : '✕ Remove'}</button>)}
+  return <div className="placement-bar road-bar" role="dialog" aria-label="Water lines">
+    <div className="placement-info"><b>💧 Water</b><span className="muted">{hint}</span></div>
+    <div className="seg" role="group" aria-label="Water line tool">
+      {(['draw', 'upgrade', 'remove'] as const).map((t) => <button key={t} className={`btn ${r.tool === t ? 'primary' : 'ghost'}`} aria-pressed={r.tool === t} onClick={() => setRoadTool(t)}>{t === 'draw' ? '✏ Dig' : t === 'upgrade' ? '⬆ Upgrade' : '✕ Remove'}</button>)}
     </div>
     <button className="btn ghost" onClick={() => stopRoads()}>Done</button>
   </div>;

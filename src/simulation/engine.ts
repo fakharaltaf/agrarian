@@ -10,7 +10,7 @@ import {
 } from './config';
 import { buildingDivision, clamp, debt, factoryCrop, equity, freeSpace, has, known, log, marketWage, nextId, post, random, round2, todayBook, lean } from './core';
 import { addGoods, canGrow, clearField, fertilizeField, fieldsTick, frostNight, harvestField, isManual, isReady, newField, plantField, spoilageDaily } from './agriculture';
-import { reconcileWorld, unlink, accessNote, cutsOff, buyable, chunksIn, connect, placedIn, touch, useOf, IRRIGATION_CHANNEL_PRICE, PIPE_BURY_PRICE, waterRoute, pipeTo, pipeRoute, pipeStretch, unpipe, hasWater, isRoad, MAP, ROAD_GRADES, ROAD_H, roadRoute, roadStretch, roadTilePrice, tileId, canPlaceNew, LAND_HA_PER_PATCH, landCost, own, ownedSet, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, clearCost, clearedSet, FOOTPRINT, footprintOf, forget, rotOf, turned, MOVE_DOWNTIME, placeNew, placeProblem, plotSide, PROBLEM_TEXT, seedWorld, TIMBER_PER_PATCH, worldOf } from './world';
+import { reconcileWorld, unlink, accessNote, cutsOff, buyable, chunksIn, connect, placedIn, touch, useOf, WATER_PRICE, WATER_TIERS, WATER_LEVEL, pipeRoute, pipeStretch, hasWater, isRoad, MAP, ROAD_GRADES, ROAD_H, roadRoute, roadStretch, roadTilePrice, tileId, canPlaceNew, LAND_HA_PER_PATCH, landCost, own, ownedSet, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, clearCost, clearedSet, FOOTPRINT, footprintOf, forget, rotOf, turned, MOVE_DOWNTIME, placeNew, placeProblem, plotSide, PROBLEM_TEXT, seedWorld, TIMBER_PER_PATCH, worldOf } from './world';
 import { buyAnimals, livestockDaily, sellAnimals } from './livestock';
 import { claimDaily, startDay } from './daily';
 import { createMarkets, drawWeather, executeBuy, executeSell, quoteBuy, macroDaily, marketsDaily, marketsTick, priceFromInv } from './markets';
@@ -297,22 +297,15 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       const fs = a.fieldIds.map((id) => field(s, id)).filter((f) => f && !f.irrigated) as NonNullable<ReturnType<typeof field>>[];
       const ha = fs.reduce((x, f) => x + f.ha, 0);
       if (!ha) return fail('Those fields are already irrigated.');
-      // from the new game on, water comes from the river along a pipe laid to each field
-      const channels: [number, number][] = [];
-      if (!s.legacyProgression) for (const f of fs) {
-        const route = waterRoute(s, f.region, `field:${f.id}`);
-        if (!route) return fail('The river is out of reach: buy and clear land down to the river first, or draw a pipe with the pipe tool.');
-        channels.push(...route);
-      }
-      const dig = Math.round(IRRIGATION_CHANNEL_PRICE * s.macro.cpi * channels.length);
-      const cost = irrigationPrice(s, ha) + dig;
-      if (cost > s.cash) return fail(`Irrigation for ${ha} ha costs $${cost.toLocaleString()}${dig ? ` (including ${channels.length} tiles of pipe)` : ''}.`);
-      post(s, 'irrigation', -cost, `Irrigation for ${ha} ha${dig ? ` · ${channels.length} tiles of pipe` : ''}`, fs[0].region);
-      if (!s.legacyProgression) for (const f of fs) pipeTo(s, f.region, `field:${f.id}`);
+      const cost = irrigationPrice(s, ha);
+      if (cost > s.cash) return fail(`Irrigation for ${ha} ha costs $${cost.toLocaleString()}.`);
+      post(s, 'irrigation', -cost, `Irrigation for ${ha} ha`, fs[0].region);
       fs.forEach((f) => (f.irrigated = true));
       // equipment is part of the land's book value
       fs.forEach((f) => (f.cost += cost * (f.ha / ha)));
-      return ok();
+      // from the new game on, water comes from the river along a ditch or pipe you lay to each field
+      const dry = s.legacyProgression ? 0 : fs.filter((f) => !hasWater(s, f.region, `field:${f.id}`)).length;
+      return ok(dry ? `Irrigation installed. Dig a ditch from the river to ${dry === 1 ? 'the field' : `the ${dry} fields`} with the 💧 tool to bring water.` : undefined);
     }
     case 'sell': {
       if (!s.legacyProgression && s.stageId === 'homestead') return fail('Meet the village trader first; the open market arrives with your first market day.');
@@ -518,7 +511,6 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       if (rot) (w.rot ??= {})[a.key] = rot; else if (w.rot) delete w.rot[a.key];
       unlink(s, a.region, a.key); // the old track goes, a new one comes
       connect(s, a.region, a.key);
-      if (fieldToMove?.irrigated && !s.legacyProgression) { unpipe(s, a.region, a.key); pipeTo(s, a.region, a.key); } // and its water pipe follows it
       const b = kind === 'b' ? s.buildings.find((x) => x.id === +id) : undefined;
       if (b) b.movedUntil = s.tick + MOVE_DOWNTIME;
       return ok(accessNote(s, a.region, a.key) ?? (b ? `Moved. It restarts in ${MOVE_DOWNTIME} hours.` : 'Moved.'));
@@ -575,37 +567,37 @@ export function dispatch(s: GameState, a: Action): ActionResult {
     case 'buildPipe': {
       if (!s.regions[a.region]?.unlocked) return fail('You have no operations there.');
       const tiles = pipeRoute(s, a.region, a.from, a.to);
-      if (!tiles) return fail('A pipe cannot get there: keep to your own cleared land and go around buildings.');
-      if (!tiles.length) return fail('There is already a pipe all the way.');
-      const cost = Math.round(IRRIGATION_CHANNEL_PRICE * s.macro.cpi * tiles.length);
-      if (cost > s.cash) return fail(`That pipe costs $${cost.toLocaleString()}.`);
-      post(s, 'irrigation', -cost, `Irrigation pipe (${tiles.length} tiles)`, a.region);
+      if (!tiles) return fail('A ditch cannot get there: keep to your own cleared land and go around buildings.');
+      if (!tiles.length) return fail('There is already a water line all the way.');
+      const cost = Math.round(WATER_PRICE[1] * s.macro.cpi * tiles.length);
+      if (cost > s.cash) return fail(`That ditch costs $${cost.toLocaleString()}.`);
+      post(s, 'irrigation', -cost, `Irrigation ditch (${tiles.length} tiles)`, a.region);
       const w = worldOf(s, a.region);
       for (const [x, y] of tiles) w.canals[tileId(x, y)] = 1;
       touch(w);
       return ok();
     }
-    case 'buryPipe': {
-      const w = worldOf(s, a.region), run = pipeStretch(w, a.at[0], a.at[1]), todo = run.filter((id) => w.canals[id] === 1);
-      if (!run.length) return fail('There is no pipe there.');
-      if (!todo.length) return fail('This pipe is already underground.');
-      const cost = Math.round(PIPE_BURY_PRICE * s.macro.cpi * todo.length);
-      if (cost > s.cash) return fail(`Burying it costs $${cost.toLocaleString()}.`);
-      post(s, 'irrigation', -cost, `Pipe buried (${todo.length} tiles)`, a.region);
-      for (const id of todo) w.canals[id] = 2;
+    case 'upgradePipe': {
+      const w = worldOf(s, a.region), run = pipeStretch(w, a.at[0], a.at[1]);
+      if (!run.length) return fail('There is no water line there.');
+      const tier = Math.min(3, Math.min(...run.map((id) => w.canals[id])) + 1), todo = run.filter((id) => w.canals[id] < tier);
+      if (!todo.length) return fail('This line is already a buried pipe.');
+      const cost = Math.round(WATER_PRICE[tier] * s.macro.cpi * todo.length);
+      if (cost > s.cash) return fail(`Upgrading it costs $${cost.toLocaleString()}.`);
+      post(s, 'irrigation', -cost, `${WATER_TIERS[tier]} (${todo.length} tiles)`, a.region);
+      for (const id of todo) w.canals[id] = tier;
       touch(w);
-      return ok(`Buried ${todo.length} tiles of pipe: the land is free to build on.`);
+      return ok(`${todo.length} tiles are now ${tier === 3 ? 'buried pipe: the land is free to build on' : 'pipe'}, and fields fed only through it are kept at ${Math.round(WATER_LEVEL[tier] * 100)}% moisture.`);
     }
     case 'removePipe': {
       const w = worldOf(s, a.region), run = pipeStretch(w, a.at[0], a.at[1]);
-      if (!run.length) return fail('There is no pipe there.');
+      if (!run.length) return fail('There is no water line there.');
       const wet = (f: { id: number; region: RegionId; irrigated: boolean }) => f.region === a.region && f.irrigated && hasWater(s, a.region, `field:${f.id}`);
       const before = s.fields.filter(wet).map((f) => f.id);
       for (const id of run) Reflect.deleteProperty(w.canals, id);
-      for (const k of Object.keys(w.plinks ?? {})) w.plinks![k] = w.plinks![k].filter((id) => !run.includes(id));
       touch(w);
       const dry = before.filter((id) => !wet(s.fields.find((f) => f.id === id)!));
-      return ok(`Removed ${run.length} tiles of pipe.${dry.length ? ` ${dry.length === 1 ? `Field ${dry[0]} has` : `${dry.length} fields have`} no water now: draw a new pipe to the river.` : ''}`);
+      return ok(`Removed ${run.length} tiles of water line.${dry.length ? ` ${dry.length === 1 ? `Field ${dry[0]} has` : `${dry.length} fields have`} no water now: dig a new ditch to the river.` : ''}`);
     }
     case 'removeRoad': {
       const w = worldOf(s, a.region), stretch = roadStretch(w, a.at[0], a.at[1]);

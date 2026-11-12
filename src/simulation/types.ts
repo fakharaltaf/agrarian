@@ -483,7 +483,7 @@ export type Action =
   | { type: 'removeRoad'; region: RegionId; at: [number, number] }
   | { type: 'upgradeRoad'; region: RegionId; at: [number, number] }
   | { type: 'buildPipe'; region: RegionId; from: [number, number]; to: [number, number] }
-  | { type: 'buryPipe'; region: RegionId; at: [number, number] }
+  | { type: 'upgradePipe'; region: RegionId; at: [number, number] }
   | { type: 'removePipe'; region: RegionId; at: [number, number] }
   | { type: 'openFutures'; good: GoodId; contracts: number; days: number }
   | { type: 'closeFutures'; positionId: number }

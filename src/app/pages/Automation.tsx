@@ -91,10 +91,10 @@ function PoliciesCard({ s }: { s: GameState }) {
           {P.sellDiscipline > 0 && <Labeled text="or storage over"><Seg label="Or storage above" value={P.sellStorageCap} onChange={(v) => setP({ sellStorageCap: v })} options={[0.7, 0.8, 0.85, 0.9, 0.95].map((v) => ({ v, label: `${Math.round(v * 100)}%` }))} /></Labeled>}
         </Policy>
 
-        <Policy title="Irrigation level" info="Irrigated fields are topped up every hour to this soil moisture. Higher means safer yields but a bigger water bill; regions with water caps may not reach it."
+        {s.legacyProgression && <Policy title="Irrigation level" info="Irrigated fields are topped up every hour to this soil moisture. Higher means safer yields but a bigger water bill; regions with water caps may not reach it."
           who="Automatic on irrigated fields — no manager needed.">
           <Seg label="Irrigate to" value={P.irrigateMin} onChange={(v) => setP({ irrigateMin: v })} options={[0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9].map((v) => ({ v, label: `${Math.round(v * 100)}%` }))} />
-        </Policy>
+        </Policy>}{/* otherwise the water line to each field sets its level */}
 
         {has(s, 'agAI') ? (
           <Policy title="Debt ceiling" info="Daily: while debt is above this share of total assets, up to half of the cash above the reserve goes to repaying loans early."

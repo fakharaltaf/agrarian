@@ -384,7 +384,7 @@ export const CONFIG = {
   overripeGrace: 12,
   overripeLoss: 0.004, // per tick after grace
   baseDryStorage: 400,
-  irrigationCostPerHa: 600,
+  irrigationCostPerHa: 300, // the ditches and pipes to the river are paid for separately
   irrigationWaterPerHa: 0.5, // units per ha per tick of top-up when dry
   demandScale: 4, // multiplies GoodDef.demand × population
   marketBuffer: 48, // market stock buffer = hours of demand; sets fundamental price
