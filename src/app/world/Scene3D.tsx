@@ -908,31 +908,50 @@ function animateFelling(R: Rig, s: GameState, t: number) {
   }
 }
 
-const ROAD_COL = [0, 0xc19a64, 0xb9b3a6, 0x5f6266], RUT_COL = [0, 0x9f7c4e, 0x99938a, 0], VERGE_COL = [0, 0x8a8a4c, 0x868a66, 0x80866a], SHOULDER_COL = [0, 0xb08c5a, 0xa8a295, 0x55575b];
+const ROAD_COL = [0, 0xc19a64, 0xb9b3a6, 0x5f6266], RUT_COL = [0, 0x8a6840, 0x8c877d, 0], VERGE_COL = [0, 0x8a8a4c, 0x868a66, 0x80866a], SHOULDER_COL = [0, 0xb08c5a, 0xa8a295, 0x55575b];
 type Band = [number, THREE.Color, number]; // offset (or radius), colour, opacity
 /** Flat ground decals (no sides, so nothing reads as cut card): ribbons along segments and round joints, with soft, fading edges. */
+/** Smooth noise in about −1…1 over the ground, so neighbouring pieces of road agree on where an edge wanders. */
+const wn = (x: number, z: number) => Math.sin(x * 1.9 + z * 0.7) * 0.5 + Math.sin(x * 0.63 - z * 1.3 + 1.7) * 0.35 + Math.sin(x * 3.7 + z * 2.9) * 0.15;
+/** step: cut the ribbon every so far; edge: how far the outer edges wander; meander: the whole ribbon wanders sideways; fade: how patchy its opacity is along the way. */
+type Wobble = { step?: number; edge?: number; meander?: number; fade?: number };
 class Decal {
   pos: number[] = []; col: number[] = []; uv: number[] = [];
   constructor(public y: number) {}
-  private v(x: number, z: number, [, c, a]: Band) { this.pos.push(x, this.y, z); this.col.push(c.r, c.g, c.b, a); this.uv.push(x * 0.5, z * 0.5); } // the texture lies in world space, so joints and junctions match
-  /** A ribbon from a to b; each band edge runs parallel to the centre line. */
-  seg(ax: number, az: number, bx: number, bz: number, bands: Band[]) {
-    const l = Math.hypot(bx - ax, bz - az) || 1, nx = -(bz - az) / l, nz = (bx - ax) / l;
-    for (let i = 0; i < bands.length - 1; i++) {
-      const p = bands[i], q = bands[i + 1];
-      this.v(ax + nx * p[0], az + nz * p[0], p); this.v(bx + nx * p[0], bz + nz * p[0], p); this.v(bx + nx * q[0], bz + nz * q[0], q);
-      this.v(ax + nx * p[0], az + nz * p[0], p); this.v(bx + nx * q[0], bz + nz * q[0], q); this.v(ax + nx * q[0], az + nz * q[0], q);
+  private vx(x: number, z: number, c: THREE.Color, a: number) { this.pos.push(x, this.y, z); this.col.push(c.r, c.g, c.b, a); this.uv.push(x * 0.5, z * 0.5); } // the texture lies in world space, so joints and junctions match
+  private v(x: number, z: number, [, c, a]: Band) { this.vx(x, z, c, a); }
+  /** A ribbon from a to b; each band edge runs alongside the centre line, wandering as asked. */
+  seg(ax: number, az: number, bx: number, bz: number, bands: Band[], o: Wobble = {}) {
+    const l = Math.hypot(bx - ax, bz - az) || 1, nx = -(bz - az) / l, nz = (bx - ax) / l, n = o.step ? Math.max(1, Math.ceil(l / o.step)) : 1;
+    const outer = Math.max(...bands.map((b) => Math.abs(b[0]))) || 1;
+    const at = (t: number, b: Band) => {
+      const cx = ax + (bx - ax) * t, cz = az + (bz - az) * t;
+      let off = b[0] + (o.meander ? o.meander * wn(cx * 0.8, cz * 0.8) : 0);
+      if (o.edge) off += Math.sign(b[0]) * o.edge * (Math.abs(b[0]) / outer) ** 4 * wn(cx + nx * b[0] * 2, cz + nz * b[0] * 2);
+      const a = b[2] * (o.fade ? 1 - o.fade * (0.5 + 0.5 * wn(cx * 1.3 + 5, cz * 1.3 - 2)) : 1);
+      this.vx(cx + nx * off, cz + nz * off, b[1], a);
+    };
+    for (let k = 0; k < n; k++) {
+      const t0 = k / n, t1 = (k + 1) / n;
+      for (let i = 0; i < bands.length - 1; i++) {
+        const p = bands[i], q = bands[i + 1];
+        at(t0, p); at(t1, p); at(t1, q);
+        at(t0, p); at(t1, q); at(t0, q);
+      }
     }
   }
-  /** A round patch: rings out from the centre (fills corners and junctions). */
-  disc(x: number, z: number, rings: Band[], sides = 14) {
+  /** A round patch: rings out from the centre (fills corners and junctions); the outer rings wander like a ribbon's edges. */
+  disc(x: number, z: number, rings: Band[], edge = 0, sides = 20) {
+    const outer = rings[rings.length - 1][0] || 1;
+    const p = (r: Band, c: number, s: number) => { const px = x + c * r[0], pz = z + s * r[0], k = edge * (r[0] / outer) ** 4 * wn(px * 1, pz * 1); return [x + c * (r[0] + k), z + s * (r[0] + k)] as const; };
     for (let k = 0; k < sides; k++) {
       const a0 = (k / sides) * Math.PI * 2, a1 = ((k + 1) / sides) * Math.PI * 2, c0 = Math.cos(a0), s0 = Math.sin(a0), c1 = Math.cos(a1), s1 = Math.sin(a1);
-      this.v(x, z, rings[0]); this.v(x + c0 * rings[0][0], z + s0 * rings[0][0], rings[0]); this.v(x + c1 * rings[0][0], z + s1 * rings[0][0], rings[0]);
+      const r0 = rings[0], A = p(r0, c0, s0), B = p(r0, c1, s1);
+      this.v(x, z, r0); this.v(A[0], A[1], r0); this.v(B[0], B[1], r0);
       for (let i = 0; i < rings.length - 1; i++) {
-        const p = rings[i], q = rings[i + 1];
-        this.v(x + c0 * p[0], z + s0 * p[0], p); this.v(x + c0 * q[0], z + s0 * q[0], q); this.v(x + c1 * q[0], z + s1 * q[0], q);
-        this.v(x + c0 * p[0], z + s0 * p[0], p); this.v(x + c1 * q[0], z + s1 * q[0], q); this.v(x + c1 * p[0], z + s1 * p[0], p);
+        const P = rings[i], Q = rings[i + 1], p0 = p(P, c0, s0), q0 = p(Q, c0, s0), q1 = p(Q, c1, s1), p1 = p(P, c1, s1);
+        this.v(p0[0], p0[1], P); this.v(q0[0], q0[1], Q); this.v(q1[0], q1[1], Q);
+        this.v(p0[0], p0[1], P); this.v(q1[0], q1[1], Q); this.v(p1[0], p1[1], P);
       }
     }
   }
@@ -963,45 +982,58 @@ function syncRoads(R: Rig, s: GameState) {
   if (sig === R.roadSig) return;
   R.roadSig = sig;
   clear(R.roadsG);
-  const C = (h: number) => new THREE.Color(h);
+  const C = (h: number) => new THREE.Color(h), GRASS = C(0x8d9a4c);
   const verge = new Decal(0.004), surface = new Decal(0.009), marks = new Decal(0.014);
-  // a cross-section: verge fading into the grass, a darker worn shoulder, the surface
-  const road = (g: number, half: number): { v: Band[]; s: Band[] } => ({
-    v: [[-half - 0.16, C(VERGE_COL[g]), 0], [-half - 0.03, C(VERGE_COL[g]), 0.3], [half + 0.03, C(VERGE_COL[g]), 0.3], [half + 0.16, C(VERGE_COL[g]), 0]],
-    s: [[-half, C(SHOULDER_COL[g]), 1], [-half + 0.14, C(ROAD_COL[g]), 1], [half - 0.14, C(ROAD_COL[g]), 1], [half, C(SHOULDER_COL[g]), 1]],
-  });
-  const rut = (g: number, o: number, wd: number): Band[] => [[o - wd, C(ROAD_COL[g]), 1], [o - wd / 3, C(RUT_COL[g]), 1], [o + wd / 3, C(RUT_COL[g]), 1], [o + wd, C(ROAD_COL[g]), 1]];
+  // a cross-section: a verge of worn grass, the surface fading in over a darker shoulder (no hard edge), and on farm tracks grass down the middle
+  const road = (g: number, half: number, o: { mid?: boolean; plain?: boolean } = {}): { v: Band[]; s: Band[] } => {
+    const sh = C(o.plain ? ROAD_COL[g] : SHOULDER_COL[g]), rd = C(ROAD_COL[g]), soft = g === 3 ? 0.03 : 0.07;
+    const mid: Band[] = o.mid ? [[-0.11, rd, 1], [-0.05, GRASS, 0.9], [0.05, GRASS, 0.9], [0.11, rd, 1]] : [];
+    return {
+      v: [[-half - 0.2, C(VERGE_COL[g]), 0], [-half, C(VERGE_COL[g]), 0.3], [half, C(VERGE_COL[g]), 0.3], [half + 0.2, C(VERGE_COL[g]), 0]],
+      s: [[-half - soft, sh, 0], [-half + soft, sh, 1], [-half + 0.2, rd, 1], ...mid, [half - 0.2, rd, 1], [half - soft, sh, 1], [half + soft, sh, 0]],
+    };
+  };
+  const ROADSIDE: Wobble = { step: 0.35, edge: 0.06 }, PAVED: Wobble = { step: 0.5 };
+  // wheel ruts: soft, darker, compacted paths that wander a little and come and go, not painted lines
+  const rut = (g: number, o: number, wd: number): Band[] => { const c = C(RUT_COL[g]); return [[o - wd, c, 0], [o - wd * 0.3, c, 0.6], [o + wd * 0.3, c, 0.6], [o + wd, c, 0]]; };
+  const RUTS: Wobble = { step: 0.3, meander: 0.03, fade: 0.55 };
   // the main road
   const g = w.main, cz = ROAD_Y + ROAD_H / 2, x0 = MAP.x0 - 300, x1 = MAP.x0 + MAP.w + 300, M = road(g, ROAD_H / 2 - 0.1);
-  verge.seg(x0, cz, x1, cz, M.v); surface.seg(x0, cz, x1, cz, M.s);
-  if (g < 3) for (const o of [-0.42, 0.42]) marks.seg(x0, cz, x1, cz, rut(g, o, 0.16));
+  verge.seg(x0, cz, x1, cz, M.v, g === 3 ? PAVED : ROADSIDE); surface.seg(x0, cz, x1, cz, M.s, g === 3 ? PAVED : ROADSIDE);
+  if (g < 3) for (const o of [-0.42, 0.42]) marks.seg(x0, cz, x1, cz, rut(g, o, 0.2), RUTS);
   else {
     for (const o of [-(ROAD_H / 2 - 0.3), ROAD_H / 2 - 0.3]) marks.seg(x0, cz, x1, cz, [[o - 0.03, C(0xe9e4d6), 1], [o + 0.03, C(0xe9e4d6), 1]]);
     for (let x = x0; x < x1; x += 2) marks.seg(x, cz, x + 0.9, cz, [[-0.04, C(0xf2d77a), 1], [0.04, C(0xf2d77a), 1]]);
   }
-  // tracks: a ribbon between each pair of neighbouring tiles (and onto the main road), a round joint on every tile
+  // tracks: a ribbon between each pair of neighbouring tiles (and onto the main road); a round patch only where they turn, meet or end
   const at = (x: number, y: number) => (isRoad(y) ? -1 : w.roads[tileId(x, y)] ?? 0);
   const HALF = 0.36, STEPS4 = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
   const linksAt = (x: number, y: number) => STEPS4.filter(([dx, dy]) => at(x + dx, y + dy) !== 0);
-  const through = (x: number, y: number) => { const d = linksAt(x, y); return d.length === 1 || (d.length === 2 && d[0][0] === -d[1][0] && d[0][1] === -d[1][1]); }; // ruts run on through it
+  const straight = (x: number, y: number) => { const d = linksAt(x, y); return d.length === 2 && d[0][0] === -d[1][0] && d[0][1] === -d[1][1]; };
+  const through = (x: number, y: number) => linksAt(x, y).length === 1 || straight(x, y); // ruts run on through it
   for (const k of ids) {
     const id = Number(k), [x, y] = tileAt(id), gr = w.roads[id], ax = x + 0.5, az = y + 0.5;
     const dirs = linksAt(x, y);
-    verge.disc(ax, az, [[HALF + 0.03, C(VERGE_COL[gr]), 0.3], [HALF + 0.16, C(VERGE_COL[gr]), 0]]);
-    surface.disc(ax, az, [[HALF - 0.14, C(ROAD_COL[gr]), 1], [HALF, C(SHOULDER_COL[gr]), 1]]);
+    if (!straight(x, y)) {
+      verge.disc(ax, az, [[HALF, C(VERGE_COL[gr]), 0.3], [HALF + 0.2, C(VERGE_COL[gr]), 0]], 0.06);
+      surface.disc(ax, az, [[HALF - 0.2, C(ROAD_COL[gr]), 1], [HALF - 0.07, C(SHOULDER_COL[gr]), 1], [HALF + 0.07, C(SHOULDER_COL[gr]), 0]], gr === 3 ? 0 : 0.06);
+    }
     for (const [dx, dy] of dirs) {
       const n = at(x + dx, y + dy);
       if (n > 0 && (dx < 0 || dy < 0)) continue; // each pair once, from its west or north tile
-      const sg = n > 0 ? Math.min(gr, n) : gr, S = road(sg, HALF), len = n === -1 ? 0.5 + 0.35 : 1; // onto the main road, up to its ruts
+      const main = n === -1, sg = n > 0 ? Math.min(gr, n) : gr, len = main ? 0.5 + 0.35 : 1; // onto the main road, up to its ruts
+      const S = road(sg, HALF, { mid: sg === 1 && !main, plain: main }), wob = sg === 3 ? PAVED : ROADSIDE; // where it joins the main road, no border to cut across it
       const bx = ax + dx * len, bz = az + dy * len;
-      verge.seg(ax, az, bx, bz, S.v); surface.seg(ax, az, bx, bz, S.s);
+      verge.seg(ax, az, bx, bz, S.v, wob); surface.seg(ax, az, bx, bz, S.s, wob);
       if (sg < 3) { // ruts stop short of corners and junctions
-        const s0 = through(x, y) ? 0 : 0.3, s1 = n === -1 ? 0.5 : through(x + dx, y + dy) ? len : len - 0.3;
-        for (const o of [-0.15, 0.15]) marks.seg(ax + dx * s0, az + dy * s0, ax + dx * s1, az + dy * s1, rut(sg, o, 0.08));
+        const s0 = through(x, y) ? 0 : 0.3, s1 = main ? 0.5 : through(x + dx, y + dy) ? len : len - 0.3;
+        for (const o of [-0.15, 0.15]) marks.seg(ax + dx * s0, az + dy * s0, ax + dx * s1, az + dy * s1, rut(sg, o, 0.1), RUTS);
       }
     }
   }
-  R.roadsG.add(verge.mesh(true), surface.mesh(false, roadGrain()), marks.mesh(false, roadGrain()), roadsideTufts(w, riverTiles(R.region)));
+  const layers = [verge.mesh(true), surface.mesh(true, roadGrain()), marks.mesh(true, roadGrain())];
+  layers.forEach((m, i) => { m.renderOrder = i; }); // drawn in order, each blending over the one below
+  R.roadsG.add(...layers, roadsideTufts(w, riverTiles(R.region)));
   // irrigation channels: one flat blue, like the river (no shadow on them: per-tile shadow edges drew a grid)
   const canalTiles = cids.map((k) => { const [x, y] = tileAt(Number(k)); return new THREE.Matrix4().makeTranslation(x + 0.5, 0.016, y + 0.5); });
   if (canalTiles.length) { const im = new THREE.InstancedMesh(cached('canal', () => new THREE.PlaneGeometry(1.02, 1.02).rotateX(-Math.PI / 2)), mat(0x5aa7c4, { rough: 0.7 }), canalTiles.length); canalTiles.forEach((m, i) => im.setMatrixAt(i, m)); im.frustumCulled = false; R.roadsG.add(im); }
