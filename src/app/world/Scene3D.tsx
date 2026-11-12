@@ -1,4 +1,4 @@
-import { SERVICE_DEFS, SERVICE_GROUPS, serviceJobs, serviceRadius, townOf, UTILITY_OF, heatAt, HEAT_FADE } from '../../simulation/town-state';
+import { SERVICE_DEFS, SERVICE_GROUPS, serviceJobs, serviceRadius, townOf, UTILITY_OF, heatAt } from '../../simulation/town-state';
 import type { ServiceType } from '../../simulation/types';
 import { communityOf, population, residentWorkers } from '../../simulation/community-state';
 // The 3D farm. A live, lit, low-poly picture of the simulation: everything shown is read from game state.
@@ -675,10 +675,13 @@ function syncGhost(R: Rig, s: GameState, P: Placement | null, forest: [number, n
     const rad = svcType && !UTILITY_OF[svcType] && svcType !== 'road' ? serviceRadius(svc ?? { type: svcType }) : undefined;
     if (svcType && rad) {
       const group = Object.values(SERVICE_GROUPS).find((g) => (g as readonly string[]).includes(svcType)) as readonly string[] | undefined ?? [svcType];
-      const glow = (x: number, z: number, r: number, strong: boolean) => { const m = mesh(cached('heat-disc', () => new THREE.CircleGeometry(1, 64).rotateX(-Math.PI / 2)), new THREE.MeshBasicMaterial({ color: strong ? 0x2f86c8 : 0x6aa8d4, map: heatTexture(), transparent: true, opacity: strong ? 0.75 : 0.4, depthWrite: false }), x, strong ? 0.06 : 0.05, z, false); m.scale.set(r * (1 + HEAT_FADE), 1, r * (1 + HEAT_FADE)); R.ghost.add(m); };
       const gx = P.at[0] + P.w / 2, gz = P.at[1] + P.d / 2, pos = worldOf(s, P.region).pos, heats: [number, number, number][] = [[gx, gz, rad]];
-      glow(gx, gz, rad, true);
-      for (const b of townOf(s).services) if (group.includes(b.type) && `svc:${b.id}` !== P.key) { const q = pos[`svc:${b.id}`]; if (q) { const r2 = serviceRadius(b); glow(q[0] + 1.5, q[1] + 1.5, r2, false); heats.push([q[0] + 1.5, q[1] + 1.5, r2]); } }
+      for (const b of townOf(s).services) if (group.includes(b.type) && `svc:${b.id}` !== P.key) { const q = pos[`svc:${b.id}`]; if (q) heats.push([q[0] + 1.5, q[1] + 1.5, serviceRadius(b)]); }
+      // a heat map in land patches, like the oil survey: deep blue where homes get full service, paling as it fades out
+      const reachAt = (x: number, z: number) => Math.max(...heats.map(([hx, hz, r2]) => heatAt(Math.hypot(x - hx, z - hz), r2)));
+      const cells: THREE.Matrix4[] = [], cols: THREE.Color[] = [];
+      for (let y = MAP.y0; y < MAP.y0 + MAP.h; y += CHUNK) for (let x = MAP.x0; x < MAP.x0 + MAP.w; x += CHUNK) { const v = reachAt(x + 2, y + 2); if (v < 0.03) continue; cells.push(new THREE.Matrix4().makeTranslation(x + 2, 0.06, y + 2)); cols.push(new THREE.Color().setHSL(0.6 - 0.07 * (1 - v), 0.8, 0.38 + 0.25 * (1 - v))); }
+      if (cells.length) { const im = new THREE.InstancedMesh(cached('oilheat', () => new THREE.BoxGeometry(CHUNK * 0.96, 0.02, CHUNK * 0.96)), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55, depthWrite: false }), cells.length); cells.forEach((m, k) => { im.setMatrixAt(k, m); im.setColorAt(k, cols[k]); }); im.frustumCulled = false; R.ghost.add(im); }
       // a marker over every home: green when fully served, amber at the fading edge, red when nothing reaches it
       const pin = cached('reach-pin', () => new THREE.OctahedronGeometry(0.32, 0));
       for (const [k, q] of Object.entries(pos)) {
@@ -1089,17 +1092,6 @@ function pipeworks(s: GameState, r: RegionId) {
   if (ditch.pos.length) { const m = ditch.mesh(true); m.renderOrder = 1; g.add(m); }
   inst(cached('pipe-post', () => merged(new THREE.BoxGeometry(0.05, H, 0.05).translate(0, H / 2, 0), new THREE.BoxGeometry(0.14, 0.03, 0.05).translate(0, H - 0.05, 0))), mat(PAL.woodDark), posts);
   return g;
-}
-/** A soft disc for a service's reach: solid out to its full reach, then fading to nothing. */
-let heatTex: THREE.Texture | null = null;
-function heatTexture() {
-  if (heatTex) return heatTex;
-  const c = document.createElement('canvas'); c.width = c.height = 128;
-  const x = c.getContext('2d')!, g = x.createRadialGradient(64, 64, 0, 64, 64, 64);
-  const full = 1 / (1 + HEAT_FADE); // solid to the full reach, then fading out
-  g.addColorStop(0, 'rgba(255,255,255,0.85)'); g.addColorStop(full, 'rgba(255,255,255,0.8)'); g.addColorStop(full + (1 - full) * 0.5, 'rgba(255,255,255,0.35)'); g.addColorStop(1, 'rgba(255,255,255,0)');
-  x.fillStyle = g; x.fillRect(0, 0, 128, 128);
-  return (heatTex = new THREE.CanvasTexture(c));
 }
 const NET_COLOUR: Record<NetKind, number> = { irrigation: 0x3f8fc8, power: 0xf2b82c, water: 0x5ab4e0, sewer: 0x8a7a4a };
 /** Where a utility network starts: the doorstep of each of its working buildings. */
