@@ -16,7 +16,7 @@ export type Footprint = { w: number; d: number };
 export interface ClearJob { chunk: number; hours: number }
 /** owned: patches the farm has bought (you can only clear, farm and build on your own land). */
 /** roads: grade (1 dirt, 2 gravel, 3 paved) by tile id; main: grade of the main road through the map. */
-export interface RegionWorld { cleared: number[]; owned: number[]; pos: Record<string, [number, number]>; queue: ClearJob[]; roads: Record<number, number>; main: number; /** water lines by tier (WATER_TIERS): 1 ditch, 2 pipe, 3 buried; the first two take the tile */ canals: Record<number, number>; zones: Record<number, Zone>; links: Record<string, number[]>; /** quarter turns (0–3) of each placed thing; its front faces +y at 0, then +x, −y, −x */ rot?: Record<string, number> }
+export interface RegionWorld { /** the town's utility lines by tier, like canals: power, water and sewer */ nets?: Partial<Record<UtilityNet, Record<number, number>>>; cleared: number[]; owned: number[]; pos: Record<string, [number, number]>; queue: ClearJob[]; roads: Record<number, number>; main: number; /** water lines by tier (WATER_TIERS): 1 ditch, 2 pipe, 3 buried; the first two take the tile */ canals: Record<number, number>; zones: Record<number, Zone>; links: Record<string, number[]>; /** quarter turns (0–3) of each placed thing; its front faces +y at 0, then +x, −y, −x */ rot?: Record<string, number> }
 /** res: homes only (no farming); ind: industrial plants. Unzoned land is farmland. */
 export type Zone = 'res' | 'ind';
 /** What a placement is, for zoning: homes need a residential zone; fields stay out of zones; farm buildings stay out of residential; industry needs an industrial zone. */
@@ -394,7 +394,7 @@ function frontSide(x: number, y: number, fp: Footprint, rot: number): [number, n
   const n = rot % 2 ? fp.d : fp.w;
   return Array.from({ length: n }, (_, i): [number, number] => [[x + i, y + fp.d], [x + fp.w, y + i], [x + i, y - 1], [x - 1, y + i]][rot % 4] as [number, number]);
 }
-function doorstep(x: number, y: number, fp: Footprint): [number, number][] {
+export function doorstep(x: number, y: number, fp: Footprint): [number, number][] {
   const out: [number, number][] = [];
   for (let i = 0; i < fp.w; i++) out.push([x + i, y - 1], [x + i, y + fp.d]);
   for (let j = 0; j < fp.d; j++) out.push([x - 1, y + j], [x + fp.w, y + j]);
@@ -530,22 +530,33 @@ export function riverTiles(r: RegionId): Set<number> {
 /** Water lines by tier: 1 a ditch dug in the soil, 2 a pipe on posts, 3 a buried pipe (its tile is free again). Each tier keeps the fields it feeds wetter. */
 export const WATER_TIERS = ['', 'Ditch', 'Pipe', 'Buried pipe'] as const, WATER_PRICE = [0, 5, 15, 25], WATER_LEVEL = [0, 0.6, 0.7, 0.8];
 /** Does a water line on this tile take the ground (ditches and surface pipes do, buried pipe does not)? */
-export const waterBlocks = (w: RegionWorld, id: number) => (w.canals[id] ?? 3) < 3;
+/** Line networks: irrigation from the river, and the town's utilities from their buildings. Each has its own tiers; the top tier is underground and frees the land. */
+export type UtilityNet = 'power' | 'water' | 'sewer';
+export type NetKind = 'irrigation' | UtilityNet;
+export const UTILITY_NETS: UtilityNet[] = ['power', 'water', 'sewer'];
+export const NET_TOP: Record<NetKind, number> = { irrigation: 3, power: 2, water: 2, sewer: 3 };
+export const NET_TIERS: Record<NetKind, readonly string[]> = { irrigation: WATER_TIERS, power: ['', 'Power line on pylons', 'Underground cable'], water: ['', 'Water pipe', 'Buried water main'], sewer: ['', 'Sewage ditch', 'Drainage pipe', 'Underground sewer'] };
+export const NET_PRICE: Record<NetKind, number[]> = { irrigation: WATER_PRICE, power: [0, 20, 60], water: [0, 15, 45], sewer: [0, 8, 25, 60] };
+/** How well a home on a utility line is served, by the weakest tier on its way to the building. */
+export const NET_QUALITY: Record<UtilityNet, number[]> = { power: [0, 0.8, 1], water: [0, 0.8, 1], sewer: [0, 0.6, 0.8, 1] };
+export const linesOf = (w: RegionWorld, kind: NetKind): Record<number, number> => (kind === 'irrigation' ? w.canals : ((w.nets ??= {})[kind] ??= {}));
+/** Does a line on this tile take the ground (every tier below underground does)? */
+export const waterBlocks = (w: RegionWorld, id: number) => (w.canals[id] ?? 3) < 3 || UTILITY_NETS.some((k) => { const t = w.nets?.[k]?.[id]; return !!t && t < NET_TOP[k]; });
 /** Where a pipe may run: your own cleared open land, under roads, and along other pipes. */
-function pipeGround(s: GameState, r: RegionId) {
-  const w = worldOf(s, r), open = openGround(s, r), owned = ownedSet(w);
-  return (x: number, y: number) => open(x, y) || (inMap(x, y) && owned.has(chunkAt(x, y)) && (isRoad(y) || !!w.roads[tileId(x, y)] || !!w.canals[tileId(x, y)]));
+function pipeGround(s: GameState, r: RegionId, kind: NetKind) {
+  const w = worldOf(s, r), open = openGround(s, r), owned = ownedSet(w), own = linesOf(w, kind);
+  return (x: number, y: number) => open(x, y) || (inMap(x, y) && owned.has(chunkAt(x, y)) && (isRoad(y) || !!w.roads[tileId(x, y)] || !!own[tileId(x, y)]));
 }
 /** A pipe drawn by hand, from one tile to another, over ground a pipe may cross. New tiles only; null if there is no way. */
-export function pipeRoute(s: GameState, r: RegionId, from: [number, number], to: [number, number]) {
-  const w = worldOf(s, r), can = pipeGround(s, r);
+export function pipeRoute(s: GameState, r: RegionId, from: [number, number], to: [number, number], kind: NetKind = 'irrigation') {
+  const own = linesOf(worldOf(s, r), kind), can = pipeGround(s, r, kind);
   if (!can(from[0], from[1]) || !can(to[0], to[1])) return null;
   const path = route(can, [from], (x, y) => x === to[0] && y === to[1]);
-  return path ? [...path, to].filter(([x, y]) => !w.canals[tileId(x, y)]) : null;
+  return path ? [...path, to].filter(([x, y]) => !own[tileId(x, y)]) : null;
 }
 /** The run of pipe at a tile, up to the next junction (like a stretch of road). */
-export function pipeStretch(w: RegionWorld, x: number, y: number): number[] {
-  const start = tileId(x, y), has = (a: number, b: number) => inMap(a, b) && !!w.canals[tileId(a, b)];
+export function pipeStretch(w: RegionWorld, x: number, y: number, kind: NetKind = 'irrigation'): number[] {
+  const own = linesOf(w, kind), start = tileId(x, y), has = (a: number, b: number) => inMap(a, b) && !!own[tileId(a, b)];
   if (!has(x, y)) return [];
   const degree = (id: number) => { const [a, b] = tileAt(id); return STEPS.filter(([dx, dy]) => has(a + dx, b + dy)).length; };
   if (degree(start) >= 3) return [start];
@@ -599,3 +610,15 @@ export function fieldWater(s: GameState, r: RegionId, key: string) {
   return { points, need: Math.ceil(Math.max(fp.w, fp.d) / 8), tier };
 }
 export const hasWater = (s: GameState, r: RegionId, key: string) => fieldWater(s, r, key).points > 0;
+
+/** A utility network seen from its building's doorstep: each line tile it reaches, with the weakest tier on the best way there and how far along the line it is. */
+export function netReach(w: RegionWorld, kind: UtilityNet, starts: [number, number][]) {
+  const own = linesOf(w, kind), tier = new Map<number, number>(), dist = new Map<number, number>();
+  for (let t = NET_TOP[kind]; t >= 1; t--) {
+    const q: number[] = [], d = new Map<number, number>();
+    for (const [x, y] of starts) { const id = tileId(x, y); if (inMap(x, y) && own[id] >= t && !d.has(id)) { d.set(id, 0); q.push(id); } }
+    for (let h = 0; h < q.length; h++) { const [x, y] = tileAt(q[h]); for (const [dx, dy] of STEPS) { const n = tileId(x + dx, y + dy); if (inMap(x + dx, y + dy) && own[n] >= t && !d.has(n)) { d.set(n, d.get(q[h])! + 1); q.push(n); } } }
+    for (const [id, v] of d) { if (!tier.has(id)) tier.set(id, t); if (t === 1) dist.set(id, v); }
+  }
+  return { tier, dist };
+}

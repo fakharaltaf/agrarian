@@ -1,4 +1,4 @@
-import { SERVICE_DEFS, SERVICE_GROUPS, SERVICE_RADIUS, serviceJobs, townOf } from '../../simulation/town-state';
+import { SERVICE_DEFS, SERVICE_GROUPS, serviceJobs, serviceRadius, townOf, UTILITY_OF, heatAt } from '../../simulation/town-state';
 import type { ServiceType } from '../../simulation/types';
 import { communityOf, population, residentWorkers } from '../../simulation/community-state';
 // The 3D farm. A live, lit, low-poly picture of the simulation: everything shown is read from game state.
@@ -15,7 +15,7 @@ import { featureEra, stageAtLeast } from '../../simulation/stages';
 import { preloadArt, artRevision, artModel, playClip } from './art';
 import { money, num, pct0 } from '../format';
 import { layoutRegion, type Layout, type Lot, type Plot } from './layout';
-import { CHUNK, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, LAND_HA_PER_PATCH, MAP, hasAccess, riverTiles, riverX, tileId, roadRoute, roadStretch, pipeRoute, pipeStretch, plotSide, fieldWater, wetTiers, SMOKE_R, tileAt, forSaleAround, landCost, ownedSet, ROAD_H, ROAD_Y, chunkAt, chunkOrigin, clearCost, clearedSet, isRoad, patchesAround, placeProblem, worldOf } from '../../simulation/world';
+import { CHUNK, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, LAND_HA_PER_PATCH, MAP, hasAccess, riverTiles, riverX, tileId, roadRoute, roadStretch, pipeRoute, pipeStretch, plotSide, fieldWater, wetTiers, SMOKE_R, linesOf, NET_TOP, UTILITY_NETS, netReach, doorstep, footprintOf, type NetKind, type UtilityNet, tileAt, forSaleAround, landCost, ownedSet, ROAD_H, ROAD_Y, chunkAt, chunkOrigin, clearCost, clearedSet, isRoad, patchesAround, placeProblem, worldOf } from '../../simulation/world';
 import { animal, buildCivic, buildCommunityHome, buildLot, box, cached, cyl, farmhand, hauler, mat, mesh, PAL, person, tree, vehicle, type Model } from './models';
 import { haulOf, MARKET_X, marketRoute } from '../../simulation/hauling';
 import { oilOf, oilReading, struckFields, SURVEY_R, surveyedAt } from '../../simulation/oil';
@@ -355,7 +355,8 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
         {featureEra(getGame(), 4) && <button data-coach="zones-btn" className={`icon-btn${zoning ? ' on' : ''}`} aria-label="Zones" title="Zones: residential and industrial land" onClick={() => zoning ? stopZoning() : startZoning(region)}>🏘</button>}
         {featureEra(getGame(), 4) && <button className={`icon-btn${prospect ? ' on' : ''}`} aria-label="Oil" title="Oil: survey and drill" onClick={() => prospect ? stopProspect() : startProspect(region)}>🛢</button>}
         <button data-coach="roads-btn" className={`icon-btn${roading && !roading.pipe ? ' on' : ''}`} aria-label="Roads" title="Roads: draw, upgrade or remove" onClick={() => roading && !roading.pipe ? stopRoads() : startRoads(region)}>🛤</button>
-        {featureEra(getGame(), 2) && <button className={`icon-btn${roading?.pipe ? ' on' : ''}`} aria-label="Water lines" title="Water lines: dig ditches, upgrade them to pipes and bury them" onClick={() => roading?.pipe ? stopRoads() : startPipes(region)}>💧</button>}
+        {townOf(getGame()).active && <button className={`icon-btn${roading?.pipe && roading.pipe !== 'irrigation' ? ' on' : ''}`} aria-label="Utilities" title="Town utilities: power, water and sewage lines" onClick={() => roading?.pipe && roading.pipe !== 'irrigation' ? stopRoads() : startPipes(region, 'power')}>🔌</button>}
+        {featureEra(getGame(), 2) && <button className={`icon-btn${roading?.pipe === 'irrigation' ? ' on' : ''}`} aria-label="Water lines" title="Water lines: dig ditches, upgrade them to pipes and bury them" onClick={() => roading?.pipe === 'irrigation' ? stopRoads() : startPipes(region)}>💧</button>}
       </div>
     </div>
   );
@@ -668,25 +669,22 @@ function syncGhost(R: Rig, s: GameState, P: Placement | null, forest: [number, n
       R.ghost.add(mesh(new THREE.RingGeometry(SMOKE_R - 0.25, SMOKE_R, 96).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xc0392b, transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthWrite: false }), P.at[0] + P.w / 2, 0.06, P.at[1] + P.d / 2, false));
       R.ghost.add(mesh(new THREE.CircleGeometry(SMOKE_R, 96).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x7a6a5a, transparent: true, opacity: 0.12, depthWrite: false }), P.at[0] + P.w / 2, 0.05, P.at[1] + P.d / 2, false));
     }
-    // a town service shows how far it reaches, with the reach of the ones already built of the same kind
-    const svcType = P.action.type === 'buildService' ? P.action.service : P.key?.startsWith('svc:') ? townOf(s).services.find((b) => `svc:${b.id}` === P.key)?.type : undefined;
-    const rad = svcType ? SERVICE_RADIUS[svcType] : undefined;
+    // a town service shows its reach as a heat map (full in the middle, fading to its edge), with the others of its kind; utilities reach homes by their lines instead
+    const svc = P.key?.startsWith('svc:') ? townOf(s).services.find((b) => `svc:${b.id}` === P.key) : undefined;
+    const svcType = P.action.type === 'buildService' ? P.action.service : svc?.type;
+    const rad = svcType && !UTILITY_OF[svcType] && svcType !== 'road' ? serviceRadius(svc ?? { type: svcType }) : undefined;
     if (svcType && rad) {
       const group = Object.values(SERVICE_GROUPS).find((g) => (g as readonly string[]).includes(svcType)) as readonly string[] | undefined ?? [svcType];
-      const ring = (x: number, z: number, r: number, strong: boolean) => {
-        R.ghost.add(mesh(new THREE.RingGeometry(r - (strong ? 0.18 : 0.1), r, 72).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: strong ? 0x2f86c8 : 0x6aa8d4, transparent: true, opacity: strong ? 0.85 : 0.5, side: THREE.DoubleSide, depthWrite: false }), x, 0.06, z, false));
-        if (strong) R.ghost.add(mesh(new THREE.CircleGeometry(r, 72).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x2f86c8, transparent: true, opacity: 0.1, depthWrite: false }), x, 0.05, z, false));
-      };
-      ring(P.at[0] + P.w / 2, P.at[1] + P.d / 2, rad, true);
-      const pos = worldOf(s, P.region).pos;
-      const others: [number, number, number][] = [];
-      for (const b of townOf(s).services) if (group.includes(b.type) && `svc:${b.id}` !== P.key) { const q = pos[`svc:${b.id}`]; if (q) { const r2 = SERVICE_RADIUS[b.type] ?? 10; ring(q[0] + 1.5, q[1] + 1.5, r2, false); others.push([q[0] + 1.5, q[1] + 1.5, r2]); } }
-      // a marker over every home: green when this or another of its kind reaches it, red when nothing does
-      const gx = P.at[0] + P.w / 2, gz = P.at[1] + P.d / 2, pin = cached('reach-pin', () => new THREE.OctahedronGeometry(0.32, 0));
+      const glow = (x: number, z: number, r: number, strong: boolean) => { const m = mesh(cached('heat-disc', () => new THREE.CircleGeometry(1, 64).rotateX(-Math.PI / 2)), new THREE.MeshBasicMaterial({ color: strong ? 0x2f86c8 : 0x6aa8d4, map: heatTexture(), transparent: true, opacity: strong ? 0.75 : 0.4, depthWrite: false }), x, strong ? 0.06 : 0.05, z, false); m.scale.set(r, 1, r); R.ghost.add(m); };
+      const gx = P.at[0] + P.w / 2, gz = P.at[1] + P.d / 2, pos = worldOf(s, P.region).pos, heats: [number, number, number][] = [[gx, gz, rad]];
+      glow(gx, gz, rad, true);
+      for (const b of townOf(s).services) if (group.includes(b.type) && `svc:${b.id}` !== P.key) { const q = pos[`svc:${b.id}`]; if (q) { const r2 = serviceRadius(b); glow(q[0] + 1.5, q[1] + 1.5, r2, false); heats.push([q[0] + 1.5, q[1] + 1.5, r2]); } }
+      // a marker over every home: green when fully served, amber at the fading edge, red when nothing reaches it
+      const pin = cached('reach-pin', () => new THREE.OctahedronGeometry(0.32, 0));
       for (const [k, q] of Object.entries(pos)) {
         if (!k.startsWith('home:')) continue;
-        const hx = q[0] + 1.5, hz = q[1] + 1.5, served = (hx - gx) ** 2 + (hz - gz) ** 2 <= rad * rad || others.some(([x, z, r2]) => (hx - x) ** 2 + (hz - z) ** 2 <= r2 * r2);
-        R.ghost.add(mesh(pin, new THREE.MeshBasicMaterial({ color: served ? 0x4cc35a : 0xe0533d }), hx, 2.6, hz, false));
+        const hx = q[0] + 1.5, hz = q[1] + 1.5, v = Math.max(...heats.map(([x, z, r2]) => heatAt(Math.hypot(hx - x, hz - z), r2)));
+        R.ghost.add(mesh(pin, new THREE.MeshBasicMaterial({ color: v >= 0.99 ? 0x4cc35a : v > 0 ? 0xf2b82c : 0xe0533d }), hx, 2.6, hz, false));
       }
     }
     return;
@@ -988,8 +986,8 @@ class Decal {
 /** Roads: the main road and every track, by grade (dirt, gravel, paved), as one soft-edged surface. */
 function syncRoads(R: Rig, s: GameState) {
   const w = worldOf(s, R.region), ids = Object.keys(w.roads);
-  const cids = Object.keys(w.canals);
-  const sig = `${R.region}:${w.main}:${ids.length}:${ids.reduce((a, k) => a + ((Number(k) * 31) % 1000003) * w.roads[Number(k)], 0)}:${cids.length}:${cids.reduce((a, k) => a + ((Number(k) * 17) % 100003) * w.canals[Number(k)], 0)}:${s.fields.length}`;
+  const cids = Object.keys(w.canals), nsig = UTILITY_NETS.map((k) => { const o = w.nets?.[k] ?? {}; return Object.keys(o).reduce((a, id) => a + ((Number(id) * 13) % 100019) * o[Number(id)], 0); }).join(',');
+  const sig = `${R.region}:${w.main}:${ids.length}:${ids.reduce((a, k) => a + ((Number(k) * 31) % 1000003) * w.roads[Number(k)], 0)}:${cids.length}:${cids.reduce((a, k) => a + ((Number(k) * 17) % 100003) * w.canals[Number(k)], 0)}:${s.fields.length}:${nsig}:${townOf(s).services.length}:${communityOf(s).homes.length}`;
   if (sig === R.roadSig) return;
   R.roadSig = sig;
   clear(R.roadsG);
@@ -1049,7 +1047,7 @@ function syncRoads(R: Rig, s: GameState) {
   const layers = [verge.mesh(true), surface.mesh(true, roadGrain()), grass.mesh(true, roadGrain()), marks.mesh(true, roadGrain())];
   layers.forEach((m, i) => { m.renderOrder = i; }); // drawn in order, each blending over the one below
   R.roadsG.add(...layers, roadsideTufts(w, riverTiles(R.region)));
-  R.roadsG.add(pipeworks(s, R.region));
+  R.roadsG.add(pipeworks(s, R.region), utilityworks(s, R.region));
 }
 /** Water lines: a ditch is a thin wet cut in the soil; a pipe is one thin pipe on low posts; both run from the river bank to each field's edge. Buried pipe (and any line under a road) is not drawn. */
 function pipeworks(s: GameState, r: RegionId) {
@@ -1092,6 +1090,75 @@ function pipeworks(s: GameState, r: RegionId) {
   inst(cached('pipe-post', () => merged(new THREE.BoxGeometry(0.05, H, 0.05).translate(0, H / 2, 0), new THREE.BoxGeometry(0.14, 0.03, 0.05).translate(0, H - 0.05, 0))), mat(PAL.woodDark), posts);
   return g;
 }
+/** A soft disc for a service's reach: solid in its inner half, fading to nothing at its edge. */
+let heatTex: THREE.Texture | null = null;
+function heatTexture() {
+  if (heatTex) return heatTex;
+  const c = document.createElement('canvas'); c.width = c.height = 128;
+  const x = c.getContext('2d')!, g = x.createRadialGradient(64, 64, 0, 64, 64, 64);
+  g.addColorStop(0, 'rgba(255,255,255,0.9)'); g.addColorStop(0.5, 'rgba(255,255,255,0.8)'); g.addColorStop(0.75, 'rgba(255,255,255,0.4)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+  x.fillStyle = g; x.fillRect(0, 0, 128, 128);
+  return (heatTex = new THREE.CanvasTexture(c));
+}
+const NET_COLOUR: Record<NetKind, number> = { irrigation: 0x3f8fc8, power: 0xf2b82c, water: 0x5ab4e0, sewer: 0x8a7a4a };
+/** Where a utility network starts: the doorstep of each of its working buildings. */
+function netSources(s: GameState, kind: UtilityNet) {
+  const w = worldOf(s, 'heartland'), out: [number, number][] = [];
+  for (const b of townOf(s).services) { if (UTILITY_OF[b.type] !== kind) continue; const p = w.pos[`svc:${b.id}`], fp = footprintOf(s, `svc:${b.id}`); if (p && fp) out.push(...doorstep(p[0], p[1], fp)); }
+  return out;
+}
+/** Line tiles joined to one of the network's buildings. */
+const liveLines = (s: GameState, kind: UtilityNet) => netReach(worldOf(s, 'heartland'), kind, netSources(s, kind)).tier;
+/** The town's utility lines. Power: wires on lattice pylons. Water: a pipe along the ground. Sewage: a murky ditch, then a concrete drain. Their top tier is underground and not drawn. */
+function utilityworks(s: GameState, r: RegionId) {
+  const g = new THREE.Group();
+  if (r !== 'heartland' || !townOf(s).active) return g;
+  const w = worldOf(s, r), homeTiles = new Set<number>();
+  for (const h of communityOf(s).homes) { const p = w.pos[`home:${h.id}`], fp = footprintOf(s, `home:${h.id}`); if (p && fp) for (let y = p[1]; y < p[1] + fp.d; y++) for (let x = p[0]; x < p[0] + fp.w; x++) homeTiles.add(tileId(x, y)); }
+  const D = [[1, 0], [0, 1], [-1, 0], [0, -1]] as const, q = new THREE.Quaternion(), Y = new THREE.Vector3(0, 1, 0);
+  const inst = (geo: THREE.BufferGeometry, m: THREE.Material, list: THREE.Matrix4[], shadow = true) => { if (!list.length) return; const im = new THREE.InstancedMesh(geo, m, list.length); list.forEach((x, i) => im.setMatrixAt(i, x)); im.castShadow = shadow; im.receiveShadow = true; im.frustumCulled = false; g.add(im); };
+  const rod = (list: THREE.Matrix4[], h: number) => (ax: number, az: number, bx: number, bz: number) => { q.setFromAxisAngle(Y, -Math.atan2(bz - az, bx - ax)); list.push(new THREE.Matrix4().compose(new THREE.Vector3((ax + bx) / 2, h, (az + bz) / 2), q, new THREE.Vector3(Math.hypot(bx - ax, bz - az), 1, 1))); };
+  const ditch = new Decal(0.013);
+  for (const kind of UTILITY_NETS) {
+    const own = w.nets?.[kind]; if (!own) continue;
+    const top = NET_TOP[kind], facTiles = new Set<number>();
+    for (const b of townOf(s).services) { if (UTILITY_OF[b.type] !== kind) continue; const p = w.pos[`svc:${b.id}`], fp = footprintOf(s, `svc:${b.id}`); if (p && fp) for (let y = p[1]; y < p[1] + fp.d; y++) for (let x = p[0]; x < p[0] + fp.w; x++) facTiles.add(tileId(x, y)); }
+    const onRoad = (x: number, y: number) => isRoad(y) || !!w.roads[tileId(x, y)];
+    const shown = (x: number, y: number) => { const t = own[tileId(x, y)]; return t && t < top && (kind === 'power' || !onRoad(x, y)) ? t : 0; }; // overhead wires cross roads; pipes and ditches go under them
+    const runs: THREE.Matrix4[] = [], joints: THREE.Matrix4[] = [], posts: THREE.Matrix4[] = [];
+    const H = kind === 'power' ? 1.55 : kind === 'water' ? 0.07 : 0.08, line = rod(runs, H);
+    for (const k of Object.keys(own)) {
+      const id = Number(k), [x, y] = tileAt(id), t = shown(x, y);
+      if (!t) continue;
+      const cx = x + 0.5, cz = y + 0.5, same = D.filter(([dx, dy]) => shown(x + dx, y + dy) === t).length;
+      const ditchy = kind === 'sewer' && t === 1;
+      if (ditchy) { const bank = new THREE.Color(0x6e5a3a), mud = new THREE.Color(0x3e3a26), slop = new THREE.Color(0x5d6440); ditch.disc(cx, cz, [[0.03, slop, 1], [0.06, mud, 1], [0.1, bank, 0.85], [0.14, bank, 0]]); }
+      let joins = 0;
+      for (const [dx, dy] of D) {
+        const nid = tileId(x + dx, y + dy), nt = shown(x + dx, y + dy);
+        const reach = nt === t ? 0.5 : own[nid] ? (same < 2 ? 0.5 : 0) : (homeTiles.has(nid) || facTiles.has(nid)) && same < 2 ? 0.5 : 0;
+        if (!reach) continue;
+        joins++;
+        if (ditchy) { const bank = new THREE.Color(0x6e5a3a), mud = new THREE.Color(0x3e3a26), slop = new THREE.Color(0x5d6440); ditch.seg(cx, cz, cx + dx * reach, cz + dy * reach, [[-0.14, bank, 0], [-0.1, bank, 0.85], [-0.06, mud, 1], [-0.03, slop, 1], [0.03, slop, 1], [0.06, mud, 1], [0.1, bank, 0.85], [0.14, bank, 0]], { step: 0.25, edge: 0.02 }); continue; }
+        if (nt === t) { if (dx > 0 || dy > 0) line(cx, cz, cx + dx, cz + dy); continue; }
+        line(cx, cz, cx + dx * reach, cz + dy * reach); joints.push(new THREE.Matrix4().makeTranslation(cx + dx * reach, H, cz + dy * reach));
+      }
+      if (ditchy) continue;
+      if (kind === 'power') { if (!onRoad(x, y) && (joins !== 2 || same < 2 || (x + y) % 3 === 0)) posts.push(new THREE.Matrix4().makeTranslation(cx, 0, cz)); else if (onRoad(x, y) && (x + y) % 3 === 0) posts.push(new THREE.Matrix4().makeTranslation(x + 0.06, 0, y + 0.06)); } // over a road the pylon stands at the roadside // a pylon at bends, ends and every third tile
+      else if (joins !== 2) joints.push(new THREE.Matrix4().makeTranslation(cx, H, cz));
+    }
+    if (kind === 'power') {
+      inst(cached('wire', () => new THREE.CylinderGeometry(0.012, 0.012, 1, 4).rotateZ(Math.PI / 2)), mat(0x2a2a2a), runs, false);
+      inst(cached('pylon', () => merged(new THREE.CylinderGeometry(0.03, 0.09, 1.6, 4).translate(0, 0.8, 0), new THREE.BoxGeometry(0.5, 0.04, 0.04).translate(0, 1.5, 0), new THREE.BoxGeometry(0.36, 0.03, 0.03).translate(0, 1.3, 0))), mat(0x8c9196, { metal: 0.3, rough: 0.6 }), posts);
+    } else {
+      const r0 = kind === 'water' ? 0.05 : 0.07, col = kind === 'water' ? 0x9fb8c8 : 0xa09f98;
+      inst(cached(`upipe${r0}`, () => new THREE.CylinderGeometry(r0, r0, 1, 8).rotateZ(Math.PI / 2)), mat(col, { rough: 0.6 }), runs);
+      inst(cached(`ujoint${r0}`, () => new THREE.CylinderGeometry(r0 * 1.4, r0 * 1.4, r0 * 2, 10)), mat(col - 0x101010, { rough: 0.6 }), joints);
+    }
+  }
+  if (ditch.pos.length) { const m = ditch.mesh(true); m.renderOrder = 1; g.add(m); }
+  return g;
+}
 /** Road mode: the route a new road would take, or the stretch that would be upgraded or removed. */
 function syncRoadPreview(R: Rig, s: GameState, Rd: Roading | null) {
   const sig = Rd ? `${Rd.tool}:${Rd.from}:${Rd.hover}:${R.roadSig}` : '';
@@ -1100,29 +1167,30 @@ function syncRoadPreview(R: Rig, s: GameState, Rd: Roading | null) {
   clear(R.roadPrev);
   if (!Rd) return;
   const w = worldOf(s, R.region);
-  if (Rd.pipe) { // every pipe shows while the tool is open, buried ones too, as a dashed line
-    const d = new Decal(0.03), col = new THREE.Color(0x3f8fc8);
-    for (const k of Object.keys(w.canals)) { const [x, y] = tileAt(Number(k)); if (w.canals[Number(k)] < 3 && !isRoad(y) && !w.roads[Number(k)]) continue;
-      for (const [dx, dy] of [[1, 0], [0, 1]] as const) if (w.canals[tileId(x + dx, y + dy)]) for (let t = 0; t < 1; t += 0.34) d.seg(x + 0.5 + dx * t, y + 0.5 + dy * t, x + 0.5 + dx * (t + 0.2), y + 0.5 + dy * (t + 0.2), [[-0.05, col, 0.9], [0.05, col, 0.9]]);
+  const kind = Rd.pipe, own = kind ? linesOf(w, kind) : null;
+  if (kind && own) { // every line of this network shows while the tool is open, underground ones too, as a dashed line
+    const d = new Decal(0.03), col = new THREE.Color(NET_COLOUR[kind]);
+    for (const k of Object.keys(own)) { const [x, y] = tileAt(Number(k)); if (own[Number(k)] < NET_TOP[kind] && !isRoad(y) && !w.roads[Number(k)]) continue;
+      for (const [dx, dy] of [[1, 0], [0, 1]] as const) if (own[tileId(x + dx, y + dy)]) for (let t = 0; t < 1; t += 0.34) d.seg(x + 0.5 + dx * t, y + 0.5 + dy * t, x + 0.5 + dx * (t + 0.2), y + 0.5 + dy * (t + 0.2), [[-0.05, col, 0.9], [0.05, col, 0.9]]);
       d.disc(x + 0.5, y + 0.5, [[0.07, col, 0.9]]); }
-    const wet = wetTiers(s, R.region), dry = new THREE.Color(0xe0533d);
-    for (const k of Object.keys(w.canals)) if (!wet.has(Number(k))) { const [x, y] = tileAt(Number(k)); d.disc(x + 0.5, y + 0.5, [[0.16, dry, 0.75], [0.24, dry, 0]]); } // a dry line: not joined to the river
+    const live = kind === 'irrigation' ? wetTiers(s, R.region) : liveLines(s, kind), dry = new THREE.Color(0xe0533d);
+    for (const k of Object.keys(own)) if (!live.has(Number(k))) { const [x, y] = tileAt(Number(k)); d.disc(x + 0.5, y + 0.5, [[0.16, dry, 0.75], [0.24, dry, 0]]); } // a dead line: not joined to its source
     if (d.pos.length) { const m = d.mesh(true); m.renderOrder = 2; R.roadPrev.add(m); }
   }
   let tiles: [number, number][] = [], ok = true;
   if (Rd.tool === 'draw') {
-    if (Rd.from && Rd.hover) { const r = (Rd.pipe ? pipeRoute : roadRoute)(s, R.region, Rd.from, Rd.hover); ok = !!r; tiles = r ?? [Rd.hover]; }
+    if (Rd.from && Rd.hover) { const r = kind ? pipeRoute(s, R.region, Rd.from, Rd.hover, kind) : roadRoute(s, R.region, Rd.from, Rd.hover); ok = !!r; tiles = r ?? [Rd.hover]; }
     else if (Rd.hover) tiles = [Rd.hover];
     if (Rd.from) { const m = mesh(cached('road-start', () => new THREE.CylinderGeometry(0.3, 0.3, 0.6, 12)), mat(0xffc94d, { emissive: 0x403000 }), Rd.from[0] + 0.5, 0.3, Rd.from[1] + 0.5, false); R.roadPrev.add(m); }
   } else if (Rd.hover) { // on the main road: the whole road, since that is what an upgrade covers
-    tiles = Rd.pipe ? pipeStretch(w, Rd.hover[0], Rd.hover[1]).map(tileAt) : isRoad(Rd.hover[1]) ? (Rd.tool === 'remove' ? [] : Array.from({ length: MAP.w * 2 }, (_, i) => [MAP.x0 + (i >> 1), ROAD_Y + (i & 1)] as [number, number])) : roadStretch(w, Rd.hover[0], Rd.hover[1]).map(tileAt);
+    tiles = kind ? pipeStretch(w, Rd.hover[0], Rd.hover[1], kind).map(tileAt) : isRoad(Rd.hover[1]) ? (Rd.tool === 'remove' ? [] : Array.from({ length: MAP.w * 2 }, (_, i) => [MAP.x0 + (i >> 1), ROAD_Y + (i & 1)] as [number, number])) : roadStretch(w, Rd.hover[0], Rd.hover[1]).map(tileAt);
     ok = tiles.length > 0;
   }
   // the planned road as one soft ribbon, the same shape the road will take: gold to build, blue to upgrade, red to remove or blocked
-  const col = new THREE.Color(!ok || Rd.tool === 'remove' ? 0xe0533d : Rd.tool === 'upgrade' ? (Rd.pipe ? 0x7d98a6 : 0x4aa0d0) : Rd.pipe ? 0x3f8fc8 : 0xffc94d);
+  const col = new THREE.Color(!ok || Rd.tool === 'remove' ? 0xe0533d : Rd.tool === 'upgrade' ? (kind ? 0x7d98a6 : 0x4aa0d0) : kind ? NET_COLOUR[kind] : 0xffc94d);
   const half = Rd.pipe ? 0.14 : 0.3; // a pipe plans as a narrow line, a road as its full width
   const plan = new Set(tiles.map(([x, y]) => tileId(x, y))), d = new Decal(0.03), band: Band[] = [[-half - 0.1, col, 0], [-half, col, 1], [half, col, 1], [half + 0.1, col, 0]]; // solid core, so overlaps don't show
-  const linked = (x: number, y: number) => plan.has(tileId(x, y)) || (Rd.tool === 'draw' && (Rd.pipe ? !!w.canals[tileId(x, y)] || riverTiles(R.region).has(tileId(x, y)) : isRoad(y) || !!w.roads[tileId(x, y)]));
+  const linked = (x: number, y: number) => plan.has(tileId(x, y)) || (Rd.tool === 'draw' && (kind && own ? !!own[tileId(x, y)] || (kind === 'irrigation' && riverTiles(R.region).has(tileId(x, y))) : isRoad(y) || !!w.roads[tileId(x, y)]));
   for (const [x, y] of tiles) {
     d.disc(x + 0.5, y + 0.5, [[half, col, 1], [half + 0.1, col, 0]]);
     for (const [dx, dy] of [[1, 0], [0, 1], [-1, 0], [0, -1]] as const) if (linked(x + dx, y + dy) && !(plan.has(tileId(x + dx, y + dy)) && (dx < 0 || dy < 0))) d.seg(x + 0.5, y + 0.5, x + 0.5 + dx, y + 0.5 + dy, band);
@@ -1667,7 +1735,7 @@ function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el
   if(selectedLot && !placing){
     const lot=L.lots.find(x=>x.key===selectedLot);
     if(lot){const [px,py]=project(lot.x+lot.w/2,2.5,lot.y+lot.d/2);
-      const label=lot.service?.type==='barracks'?'⚔ Nation':lot.service?.type==='watchtower'?'🗼 Region':lot.service&&['sanitation','lighting','police'].includes(lot.service.type)?'🛡 City':lot.key.startsWith('civic:')?'🏛 Town':lot.key.startsWith('community:')?'🏠 Families':lot.key==='crew'?'👒 Crew':lot.key==='office'?'⚙ Policies':lot.key==='market'?'🪙 Trade':lot.type==='house'||lot.type==='shed'?'📖 Books':BUILDINGS[lot.type].category==='storage'?'📦 Store':'⚙ Manage';
+      const label=lot.service&&(UTILITY_OF[lot.service.type]||['school','clinic','well'].includes(lot.service.type))?'⚙ Manage':lot.service?.type==='barracks'?'⚔ Nation':lot.service?.type==='watchtower'?'🗼 Region':lot.service&&['sanitation','lighting','police'].includes(lot.service.type)?'🛡 City':lot.key.startsWith('civic:')?'🏛 Town':lot.key.startsWith('community:')?'🏠 Families':lot.key==='crew'?'👒 Crew':lot.key==='office'?'⚙ Policies':lot.key==='market'?'🪙 Trade':lot.type==='house'||lot.type==='shed'?'📖 Books':BUILDINGS[lot.type].category==='storage'?'📦 Store':'⚙ Manage';
       want.push({key:'place-act',x:Math.max(100,Math.min(W-100,px)),y:Math.max(80,Math.min(H-30,py)),html:button('place:0',label)+(lot.type==='oilWell'?'':button('movelot:0','✥ Move'))+button('inspect:0','ⓘ'),cls:'wl-radial'});
     }
   }

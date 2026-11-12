@@ -9,9 +9,9 @@ import { DISTRICT_IDS } from '../types';
 import { GOODS, WORK_HOURS } from '../config';
 import { clamp, electricityPrice, log, marketWage, nextId, post, priceUsd, random, reservedStock, round2 } from '../core';
 import { communityOf, familiesHere, population, workingAdults, children, residentWorkers } from '../community-state';
-import { createTownState, districtPopulation, factoryJobs, localEmployment, payHouseholds, schoolChangeCost, SERVICE_DEFS, SERVICE_GROUPS, SERVICE_RADIUS, servicePrice, serviceJobs, townOf, townWorkforce } from '../town-state';
+import { createTownState, districtPopulation, factoryJobs, localEmployment, payHouseholds, schoolChangeCost, SERVICE_DEFS, SERVICE_GROUPS, servicePrice, serviceJobs, townOf, townWorkforce, UTILITY_OF, utilityFamilies, serviceRadius, heatAt, levelCapacity, canUpgradeService, levelOf, serviceUpgradePrice } from '../town-state';
 import { HOME_DEFS } from '../community-state';
-import { hasAccess, worldOf } from '../world';
+import { doorstep, footprintOf, hasAccess, netReach, NET_QUALITY, tileId, worldOf } from '../world';
 
 export const canStartTown = (s: GameState) => communityOf(s).active && !townOf(s).active && familiesHere(s)>=6 && communityOf(s).happiness>=.6 && communityOf(s).fed>=.9;
 export function serviceAvailable(s: GameState, type: ServiceType): boolean {
@@ -104,21 +104,42 @@ export function townDaily(s: GameState) {
     if(wages>0) payHouseholds(s,wages);
     b.staffed=jobs; b.funded=true; adults-=jobs; t.publicJobs+=jobs;
     const cover=t.coverage[b.district], ratio=needed ? jobs/needed : 1;
-    const capacity=d.capacity*b.count*ratio;
+    const capacity=d.capacity*b.count*ratio*levelCapacity(b);
     if(b.type==='school' && s.tick>=t.retrainingUntil) cover.school+=capacity;
     if(b.type==='well'||b.type==='waterworks') cover.water+=capacity;
     if(b.type==='clinic'||b.type==='hospital') cover.medical+=capacity;
     if(b.type==='road') cover.road=1;
   }
-  // Radius coverage: a family is served when its home stands within reach of a working service of that kind.
-  const w=worldOf(s,'heartland'),homes=c.homes.map(h=>{const p=w.pos[`home:${h.id}`];return p?{x:p[0]+1.5,y:p[1]+1.5,families:HOME_DEFS[h.tier].families*h.count}:null;}).filter(Boolean) as {x:number;y:number;families:number}[];
+  // Coverage. School, clinic and well reach homes as a heat map round the building (full in its inner half, fading to its
+  // edge; upgrades widen it). Power, water and sewage reach homes only along their lines, nearest homes first, up to the
+  // families the building can serve; the weakest line tier on the way sets how well.
+  const w=worldOf(s,'heartland');
+  const homes=c.homes.map(h=>{const p=w.pos[`home:${h.id}`],fp=footprintOf(s,`home:${h.id}`);return p&&fp?{x:p[0]+fp.w/2,y:p[1]+fp.d/2,door:doorstep(p[0],p[1],fp).map(([x,y])=>tileId(x,y)),families:HOME_DEFS[h.tier].families*h.count}:null;}).filter(Boolean) as {x:number;y:number;door:number[];families:number}[];
   const total=homes.reduce((n,h)=>n+h.families,0);
-  const reach=(types:readonly ServiceType[])=>{
-    if(!total)return 0;
-    const live=t.services.filter(b=>types.includes(b.type)&&b.active&&b.funded&&(SERVICE_DEFS[b.type].jobs===0||b.staffed>0)&&hasAccess(s,'heartland',`svc:${b.id}`)).map(b=>{const p=w.pos[`svc:${b.id}`];return p?{x:p[0]+1.5,y:p[1]+1.5,r:SERVICE_RADIUS[b.type]??10}:null;}).filter(Boolean) as {x:number;y:number;r:number}[];
-    return homes.reduce((n,h)=>n+(live.some(v=>(v.x-h.x)**2+(v.y-h.y)**2<=v.r*v.r)?h.families:0),0)/total;
+  const working=(b:typeof t.services[number])=>b.active&&b.funded&&(SERVICE_DEFS[b.type].jobs===0||b.staffed>0)&&hasAccess(s,'heartland',`svc:${b.id}`);
+  const heat=(types:readonly ServiceType[])=>{
+    const live=t.services.filter(b=>types.includes(b.type)&&working(b)).map(b=>{const p=w.pos[`svc:${b.id}`];return p?{x:p[0]+1.5,y:p[1]+1.5,r:serviceRadius(b)}:null;}).filter(Boolean) as {x:number;y:number;r:number}[];
+    return homes.map(h=>Math.max(0,...live.map(v=>heatAt(Math.hypot(v.x-h.x,v.y-h.y),v.r))));
   };
-  const cover={school:reach(SERVICE_GROUPS.school),water:reach(SERVICE_GROUPS.water),medical:reach(SERVICE_GROUPS.medical),sanitation:reach(SERVICE_GROUPS.sanitation),power:reach(SERVICE_GROUPS.power)};
+  const lines=(types:readonly ServiceType[])=>{
+    const q=homes.map(()=>0);
+    for(const b of t.services){
+      const kind=UTILITY_OF[b.type];
+      if(!kind||!types.includes(b.type))continue;
+      const cap=utilityFamilies(b)*(serviceJobs(s,b.type)?Math.min(1,b.staffed/(serviceJobs(s,b.type)*b.count)):1),p=w.pos[`svc:${b.id}`],fp=footprintOf(s,`svc:${b.id}`);
+      b.serving=[0,Math.round(utilityFamilies(b))];
+      if(!working(b)||!p||!fp)continue;
+      const net=netReach(w,kind,doorstep(p[0],p[1],fp));
+      const reached=homes.map((h,i)=>{let tier=0,dist=Infinity;for(const id of h.door){const t2=net.tier.get(id);if(t2){tier=Math.max(tier,t2);dist=Math.min(dist,net.dist.get(id)??Infinity);}}return {i,tier,dist};}).filter(x=>x.tier&&!q[x.i]).sort((x,y)=>x.dist-y.dist);
+      let used=0;
+      for(const {i,tier} of reached){const take=Math.min(homes[i].families,cap-used);if(take<=0)break;q[i]=NET_QUALITY[kind][tier]*take/homes[i].families;used+=take;}
+      b.serving=[Math.round(used),Math.round(cap)];
+    }
+    return q;
+  };
+  const share=(q:number[])=>total?homes.reduce((n,h,i)=>n+h.families*q[i],0)/total:0;
+  const wellQ=heat(['well']),pipedQ=lines(['waterTower','waterworks']);
+  const cover={school:share(heat(SERVICE_GROUPS.school)),water:share(wellQ.map((v,i)=>Math.max(v,pipedQ[i]))),medical:share(heat(SERVICE_GROUPS.medical)),sanitation:share(lines(SERVICE_GROUPS.sanitation)),power:share(lines(SERVICE_GROUPS.power))};
   for(const id of DISTRICT_IDS){const v=t.coverage[id];v.school=cover.school;v.water=cover.water;v.medical=cover.medical;v.road=1;}
   t.sanitation=cover.sanitation;t.power=cover.power;t.medical=cover.medical;
   const people=population(s);
@@ -161,7 +182,7 @@ function action(s: GameState,a:Action):ActionResult|null {
     log(s,'opportunity','Newcomers want to settle here too. Homes inside the reach of a school, a clinic and a water tower keep them healthy and happy.','town');
     return {ok:true};
   }
-  if(!['fundTown','setTownTax','buildService','toggleService','changeSchools','answerPetition'].includes(a.type))return null;
+  if(!['fundTown','setTownTax','buildService','upgradeService','toggleService','changeSchools','answerPetition'].includes(a.type))return null;
   if(!t.active)return fail('Begin the Town chapter first.');
   if(a.type==='fundTown') {
     if(!Number.isFinite(a.amount)||a.amount<=0||a.amount!==round2(a.amount))return fail('Use a positive amount in whole cents.');
@@ -181,6 +202,15 @@ function action(s: GameState,a:Action):ActionResult|null {
   if(a.type==='setTownTax') {
     if(![0,.05,.1,.15,.2,.25].includes(a.rate))return fail('Choose a tax rate from 0% to 25% in 5-point steps.');
     t.taxRate=a.rate;return {ok:true};
+  }
+  if(a.type==='upgradeService') {
+    const b=t.services.find(x=>x.id===a.serviceId);if(!b)return fail('Service not found.');
+    if(!canUpgradeService(b.type))return fail('This service has no upgrades.');
+    if(levelOf(b)>=3)return fail('Already at the top level.');
+    const cost=serviceUpgradePrice(s,b);if(s.cash<cost)return fail(`Upgrading costs $${cost.toLocaleString()}.`);
+    post(s,'building',-cost,`${SERVICE_DEFS[b.type].name} to level ${levelOf(b)+1}`,'heartland','corporate');
+    b.level=levelOf(b)+1;b.cost=round2(b.cost+cost);
+    return {ok:true,note:UTILITY_OF[b.type]?`It can now serve ${Math.round(utilityFamilies(b))} families along its lines.`:`It now reaches ${Math.round(serviceRadius(b))} tiles.`};
   }
   if(a.type==='toggleService') {const b=t.services.find(b=>b.id===a.serviceId);if(!b)return fail('Service not found.');b.active=!b.active;return {ok:true};}
   if(a.type==='changeSchools') {
@@ -229,6 +259,6 @@ function action(s: GameState,a:Action):ActionResult|null {
   return null;
 }
 export const town:StageModule={id:'town',title:'Town',legacyEras:[],eraUnlocks:{},
-  actionTypes:['startTown','fundTown','setTownTax','buildService','toggleService','changeSchools','answerPetition'],
+  actionTypes:['startTown','fundTown','setTownTax','buildService','upgradeService','toggleService','changeSchools','answerPetition'],
   tips:['town-budget','town-services'],discoveries:['townSchool','townClinic','townCrime'],
   tick:townDaily,handleAction:action,createState:()=>createTownState() as unknown as Record<string,unknown>};

@@ -61,6 +61,21 @@ export const townIndustryFactor = (s: GameState, r: RegionId) => {
 export function factoryJobs(s: GameState) {
   return s.buildings.reduce((n,b)=>n+(b.active && b.region==='heartland' ? Math.ceil(BUILDINGS[b.type].staffPerHour * (1+.3*(b.level-1))/12)*2 : 0),0);
 }
+/** Services that reach homes as a heat map round the building: full in the inner half, fading to nothing at the edge. */
+export const HEAT_SERVICES: ServiceType[] = ['school', 'clinic', 'well'];
+/** Services that reach homes only along their lines, and serve a set number of families. */
+export const UTILITY_OF: Partial<Record<ServiceType, import('./world').UtilityNet>> = { lighting: 'power', waterTower: 'water', waterworks: 'water', sanitation: 'sewer' };
+export const UTILITY_FAMILIES: Partial<Record<ServiceType, number>> = { lighting: 12, waterTower: 10, waterworks: 40, sanitation: 12 };
+/** Level 1–3: how far a heat-map service reaches, how many families a utility serves, and how much a service can take on. */
+const LEVEL_REACH = [1, 1.5, 2], LEVEL_FAMILIES = [1, 2, 3.5], LEVEL_CAPACITY = [1, 1.6, 2.2];
+export const levelOf = (b: { level?: number }) => Math.max(1, Math.min(3, b.level ?? 1));
+export const serviceRadius = (b: { type: ServiceType; level?: number }) => (SERVICE_RADIUS[b.type] ?? 10) * LEVEL_REACH[levelOf(b) - 1];
+export const utilityFamilies = (b: { type: ServiceType; level?: number; count: number }) => (UTILITY_FAMILIES[b.type] ?? 0) * b.count * LEVEL_FAMILIES[levelOf(b) - 1];
+export const levelCapacity = (b: { level?: number }) => LEVEL_CAPACITY[levelOf(b) - 1];
+export const canUpgradeService = (type: ServiceType) => HEAT_SERVICES.includes(type) || !!UTILITY_OF[type];
+export const serviceUpgradePrice = (s: GameState, b: { type: ServiceType; level?: number; count: number }) => Math.round(SERVICE_DEFS[b.type].cost * b.count * [0.8, 1.5][levelOf(b) - 1] * s.macro.cpi * 100) / 100;
+/** How well a heat-map service reaches a home this far from it. */
+export const heatAt = (d: number, r: number) => (d <= r / 2 ? 1 : Math.max(0, 2 - (2 * d) / r));
 export const servicePrice = (s: GameState, type: ServiceType) => Math.round(SERVICE_DEFS[type].cost*s.macro.cpi*100)/100;
 export const schoolChangeCost = (s: GameState) => Math.round(20000*s.macro.cpi*100)/100;
 export const townWorkforce = (s: GameState) => Math.max(0, workingAdults(s)-residentWorkers(s));

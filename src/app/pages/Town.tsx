@@ -1,8 +1,8 @@
-import { act, go, useGame } from '../../stores/game';
+import { act, go, startPipes, useGame } from '../../stores/game';
 import { money, num, pct0 } from '../format';
 import { Bar, Modal, PageHead } from '../ui';
 import { communityOf, familiesHere, homeFamilies, population } from '../../simulation/community-state';
-import { SERVICE_DEFS, SERVICE_RADIUS, servicePrice, townOf } from '../../simulation/town-state';
+import { SERVICE_DEFS, SERVICE_RADIUS, servicePrice, townOf, UTILITY_FAMILIES, UTILITY_OF } from '../../simulation/town-state';
 import { serviceAvailable, serviceDailyCost } from '../../simulation/stages/town';
 import type { ServiceType } from '../../simulation/types';
 import { portrait } from '../world/portrait';
@@ -29,7 +29,7 @@ export default function TownPage() {
     <div className="civ-intro"><img src={portrait('civic:school')} alt="" /><p>Word has spread about your settlement. Families from outside want to live here too, and they pay the housing tax like everyone else.</p></div>
     <ol className="civ-steps">
       <li><b>Free homes and a happy settlement</b> bring a newcomer family each day.</li>
-      <li><b>Water towers, schools, clinics, drains and power</b> each serve the homes within their reach. You see the circle as you place one.</li>
+      <li><b>Schools, clinics and wells</b> serve the homes around them, best close by. <b>Power, water towers and drains</b> serve only the homes their lines reach (🔌 on the map), up to what the building can take.</li>
       <li><b>The farm pays</b> for them; the housing tax and pay cut bring money back.</li>
     </ol>
   </Modal></div>;
@@ -43,7 +43,7 @@ export default function TownPage() {
   const weakest = open.filter((x) => x.type !== 'well').map((x) => ({ ...x, v: cover[x.cover] })).sort((a, b) => a.v - b.v)[0];
   const next = free <= 0 ? <NextStep icon="🏠" title="Newcomers need free homes" text="A family moves in each day while there is a free home and the town is happy." action={<button className="btn primary" onClick={() => go('community')}>Build homes</button>} />
     : c.happiness < 0.6 ? <NextStep icon="☹" tone="bad" title="Newcomers stay away" text={`Happiness is ${pct0(c.happiness)}; families come from 60%. Food, warmth and homes lift it.`} action={<button className="btn ghost" onClick={() => go('community')}>Settlement</button>} />
-    : weakest && weakest.v < 0.6 ? <NextStep icon={SERVICE_DEFS[weakest.type].icon} title={`Only ${pct0(weakest.v)} of homes have ${weakest.cover === 'education' ? 'a school' : weakest.cover === 'medical' ? 'a clinic' : weakest.cover === 'water' ? 'clean water' : weakest.cover === 'sanitation' ? 'drains' : 'power'} in reach`} text={`Place a ${SERVICE_DEFS[weakest.type].name.toLowerCase()} among the homes: it serves those within ${SERVICE_RADIUS[weakest.type] ?? 10} tiles.`} action={<button className="btn primary" disabled={servicePrice(s, weakest.type) > s.cash} onClick={() => place(weakest.type)}>Place</button>} />
+    : weakest && weakest.v < 0.6 ? <NextStep icon={SERVICE_DEFS[weakest.type].icon} title={`Only ${pct0(weakest.v)} of homes have ${weakest.cover === 'education' ? 'a school' : weakest.cover === 'medical' ? 'a clinic' : weakest.cover === 'water' ? 'clean water' : weakest.cover === 'sanitation' ? 'drains' : 'power'} in reach`} text={UTILITY_OF[weakest.type] && t.services.some((x) => x.type === weakest.type) ? 'Run its lines out to the homes, and upgrade it or build another once it is full.' : UTILITY_OF[weakest.type] ? `Place a ${SERVICE_DEFS[weakest.type].name.toLowerCase()}, then run its lines to the homes.` : `Place a ${SERVICE_DEFS[weakest.type].name.toLowerCase()} among the homes: it serves those within ${SERVICE_RADIUS[weakest.type] ?? 10} tiles, best close by.`} action={UTILITY_OF[weakest.type] && t.services.some((x) => x.type === weakest.type) ? <button className="btn primary" onClick={() => startPipes('heartland', UTILITY_OF[weakest.type]!)}>🔌 Lay lines</button> : <button className="btn primary" disabled={servicePrice(s, weakest.type) > s.cash} onClick={() => place(weakest.type)}>Place</button>} />
     : <NextStep icon="✓" tone="good" title="The town is well served" text={`${free} free home${free === 1 ? '' : 's'} · a newcomer family arrives each day.`} />;
 
   return <div className="stack town-page">
@@ -53,9 +53,9 @@ export default function TownPage() {
     <div className="civ-builds">{open.map(({ type, does, cover: key }) => {
       const d = SERVICE_DEFS[type], built = t.services.filter((b) => b.type === type).reduce((n, b) => n + b.count, 0), price = servicePrice(s, type);
       return <BuildCard key={type} img={portrait(`civic:${type}`)} fallback={d.icon} name={<>{d.name}{built > 0 && <small> ×{built}</small>}</>}
-        lines={[does, `Reaches ${SERVICE_RADIUS[type] ?? 10} tiles · ${d.jobs} staff · ${money(Math.round(serviceDailyCost(s, type)))}/day`, <Bar thin key="b" value={cover[key]} label={`${d.name} coverage`} color={cover[key] >= 0.7 ? 'var(--up)' : 'var(--gold)'} />]}
+        lines={[does, `${UTILITY_FAMILIES[type] ? `${UTILITY_FAMILIES[type]} families by its lines` : `Reaches ${SERVICE_RADIUS[type] ?? 10} tiles`} · ${d.jobs} staff · ${money(Math.round(serviceDailyCost(s, type)))}/day`, <Bar thin key="b" value={cover[key]} label={`${d.name} coverage`} color={cover[key] >= 0.7 ? 'var(--up)' : 'var(--gold)'} />]}
         action={<button className="btn primary" disabled={price > s.cash} onClick={() => place(type)}>Place · {money(price)}</button>} />;
     })}</div>
-    <p className="small muted civ-foot">Coverage is the share of families whose home is in reach. Services cost {money(Math.round(upkeep))}/day, paid by the farm. <button className="btn ghost sm" onClick={() => go('community')}>Housing tax & pay cut →</button></p>
+    <p className="small muted civ-foot">Coverage is the share of families served, weighted by how well. Services cost {money(Math.round(upkeep))}/day, paid by the farm. <button className="btn ghost sm" onClick={() => go('community')}>Housing tax & pay cut →</button></p>
   </div>;
 }

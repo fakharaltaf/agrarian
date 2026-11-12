@@ -10,7 +10,7 @@ import {
 } from './config';
 import { buildingDivision, clamp, debt, factoryCrop, equity, freeSpace, has, known, log, marketWage, nextId, post, random, round2, todayBook, lean } from './core';
 import { addGoods, canGrow, clearField, fertilizeField, fieldsTick, frostNight, harvestField, isManual, isReady, newField, plantField, spoilageDaily } from './agriculture';
-import { reconcileWorld, unlink, accessNote, cutsOff, buyable, chunksIn, connect, placedIn, touch, useOf, buildingUse, INDUSTRY_TO_GROW, WATER_PRICE, WATER_TIERS, WATER_LEVEL, pipeRoute, pipeStretch, hasWater, isRoad, MAP, ROAD_GRADES, ROAD_H, roadRoute, roadStretch, roadTilePrice, tileId, canPlaceNew, LAND_HA_PER_PATCH, landCost, own, ownedSet, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, clearCost, clearedSet, FOOTPRINT, footprintOf, forget, rotOf, turned, MOVE_DOWNTIME, placeNew, placeProblem, plotSide, PROBLEM_TEXT, seedWorld, TIMBER_PER_PATCH, worldOf } from './world';
+import { reconcileWorld, unlink, accessNote, cutsOff, buyable, chunksIn, connect, placedIn, touch, useOf, buildingUse, INDUSTRY_TO_GROW, WATER_LEVEL, NET_PRICE, NET_TIERS, NET_TOP, linesOf, pipeRoute, pipeStretch, hasWater, isRoad, MAP, ROAD_GRADES, ROAD_H, roadRoute, roadStretch, roadTilePrice, tileId, canPlaceNew, LAND_HA_PER_PATCH, landCost, own, ownedSet, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, clearCost, clearedSet, FOOTPRINT, footprintOf, forget, rotOf, turned, MOVE_DOWNTIME, placeNew, placeProblem, plotSide, PROBLEM_TEXT, seedWorld, TIMBER_PER_PATCH, worldOf } from './world';
 import { buyAnimals, livestockDaily, sellAnimals } from './livestock';
 import { claimDaily, startDay } from './daily';
 import { createMarkets, drawWeather, executeBuy, executeSell, quoteBuy, macroDaily, marketsDaily, marketsTick, priceFromInv } from './markets';
@@ -569,32 +569,34 @@ export function dispatch(s: GameState, a: Action): ActionResult {
     }
     case 'buildPipe': {
       if (!s.regions[a.region]?.unlocked) return fail('You have no operations there.');
-      const tiles = pipeRoute(s, a.region, a.from, a.to);
-      if (!tiles) return fail('A ditch cannot get there: keep to your own cleared land and go around buildings.');
-      if (!tiles.length) return fail('There is already a water line all the way.');
-      const cost = Math.round(WATER_PRICE[1] * s.macro.cpi * tiles.length);
-      if (cost > s.cash) return fail(`That ditch costs $${cost.toLocaleString()}.`);
-      post(s, 'irrigation', -cost, `Irrigation ditch (${tiles.length} tiles)`, a.region);
-      const w = worldOf(s, a.region);
-      for (const [x, y] of tiles) w.canals[tileId(x, y)] = 1;
+      const net = a.net ?? 'irrigation', name = NET_TIERS[net][1].toLowerCase(), tiles = pipeRoute(s, a.region, a.from, a.to, net);
+      if (!tiles) return fail(`A ${name} cannot get there: keep to your own cleared land and go around buildings.`);
+      if (!tiles.length) return fail('There is already a line all the way.');
+      const cost = Math.round(NET_PRICE[net][1] * s.macro.cpi * tiles.length);
+      if (cost > s.cash) return fail(`That ${name} costs $${cost.toLocaleString()}.`);
+      post(s, net === 'irrigation' ? 'irrigation' : 'building', -cost, `${net === 'irrigation' ? 'Irrigation ditch' : NET_TIERS[net][1]} (${tiles.length} tiles)`, a.region);
+      const w = worldOf(s, a.region), own = linesOf(w, net);
+      for (const [x, y] of tiles) own[tileId(x, y)] = 1;
       touch(w);
       return ok();
     }
     case 'upgradePipe': {
-      const w = worldOf(s, a.region), run = pipeStretch(w, a.at[0], a.at[1]);
-      if (!run.length) return fail('There is no water line there.');
-      const tier = Math.min(3, Math.min(...run.map((id) => w.canals[id])) + 1), todo = run.filter((id) => w.canals[id] < tier);
-      if (!todo.length) return fail('This line is already a buried pipe.');
-      const cost = Math.round(WATER_PRICE[tier] * s.macro.cpi * todo.length);
+      const net = a.net ?? 'irrigation', top = NET_TOP[net], w = worldOf(s, a.region), own = linesOf(w, net), run = pipeStretch(w, a.at[0], a.at[1], net);
+      if (!run.length) return fail('There is no line there.');
+      const tier = Math.min(top, Math.min(...run.map((id) => own[id])) + 1), todo = run.filter((id) => own[id] < tier);
+      if (!todo.length) return fail(`This line is already ${NET_TIERS[net][top].toLowerCase()}.`);
+      const cost = Math.round(NET_PRICE[net][tier] * s.macro.cpi * todo.length);
       if (cost > s.cash) return fail(`Upgrading it costs $${cost.toLocaleString()}.`);
-      post(s, 'irrigation', -cost, `${WATER_TIERS[tier]} (${todo.length} tiles)`, a.region);
-      for (const id of todo) w.canals[id] = tier;
+      post(s, net === 'irrigation' ? 'irrigation' : 'building', -cost, `${NET_TIERS[net][tier]} (${todo.length} tiles)`, a.region);
+      for (const id of todo) own[id] = tier;
       touch(w);
+      if (net !== 'irrigation') return ok(`${todo.length} tiles are now ${NET_TIERS[net][tier].toLowerCase()}${tier === top ? ': the land is free to build on' : ''}.`);
       return ok(`${todo.length} tiles are now ${tier === 3 ? 'buried pipe: the land is free to build on' : 'pipe'}, and fields fed only through it are kept at ${Math.round(WATER_LEVEL[tier] * 100)}% moisture.`);
     }
     case 'removePipe': {
-      const w = worldOf(s, a.region), run = pipeStretch(w, a.at[0], a.at[1]);
-      if (!run.length) return fail('There is no water line there.');
+      const net = a.net ?? 'irrigation', w = worldOf(s, a.region), run = pipeStretch(w, a.at[0], a.at[1], net);
+      if (!run.length) return fail('There is no line there.');
+      if (net !== 'irrigation') { const own = linesOf(w, net); for (const id of run) Reflect.deleteProperty(own, id); touch(w); return ok(`Removed ${run.length} tiles of ${NET_TIERS[net][1].toLowerCase()}. Homes beyond it lose the service.`); }
       const wet = (f: { id: number; region: RegionId; irrigated: boolean }) => f.region === a.region && f.irrigated && hasWater(s, a.region, `field:${f.id}`);
       const before = s.fields.filter(wet).map((f) => f.id);
       for (const id of run) Reflect.deleteProperty(w.canals, id);
@@ -959,7 +961,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
     case 'startNation': case 'launchCampaign': case 'trainArmy': case 'inviteAlly': case 'answerAid': case 'castVote': case 'setEmbargo': case 'hireSpies': case 'hireMercenaries': case 'mediate':
     case 'startRegion': case 'setBorder': case 'setRoute': case 'giftNeighbour': case 'signTreaty': case 'resolveRaid': case 'answerDemand':
     case 'setCityFunding': case 'startCity': case 'changePolice': case 'setZone': case 'trainPolice': case 'setJustice': case 'resolveCityCase':
-    case 'startTown': case 'fundTown': case 'setTownTax': case 'buildService': case 'toggleService': case 'changeSchools': case 'answerPetition':
+    case 'startTown': case 'fundTown': case 'setTownTax': case 'buildService': case 'upgradeService': case 'toggleService': case 'changeSchools': case 'answerPetition':
     case 'startSettlement': case 'buildHomes': case 'setLarder': case 'settleWorker': case 'setSettlementPay':
       return fail('Community actions are not available here.');
   }

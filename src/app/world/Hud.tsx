@@ -1,16 +1,16 @@
 import { bestCrop } from '../crops';
 import { DRILL_PRICE, wellField, oilReading, readingWord, struckFields, SURVEY_PRICE, SURVEY_R, surveyedAt } from '../../simulation/oil';
 import {cityActive} from '../../simulation/city-state';
-import { townOf } from '../../simulation/town-state';
+import { townOf, SERVICE_DEFS, UTILITY_OF, levelOf, serviceUpgradePrice, utilityFamilies, serviceRadius, canUpgradeService } from '../../simulation/town-state';
 // Everything that floats over the world: objective, selection panel, market, land, region switcher.
 import { useEffect, useRef, useState } from 'react';
 import { ANIMALS, ANIMAL_IDS, BUILDINGS, CONFIG, ERAS, GOODS, REGIONS, type CropId, type RegionId } from '../../simulation/config';
 import { known } from '../../simulation/core';
 import { buildingMargin } from '../../simulation/processing';
 import { DISCOVERIES, ERA_UNLOCK_TEXT, dailyGoals, dailyPrize, forecast, herdOf, homePlotPrice, housing, isManual, isReady, objective, chapterGate, gateProgress, type GateRow, PAGES, seedShortfall, upgradeCost } from '../../simulation/engine';
-import type { GameState } from '../../simulation/types';
-import { act, cancelPlacement, confirmPlacement, rotatePlacement, go, placementUse, setRoadTool, setSurveying, setZoneTool, startPipes, type Prospect, startPlacement, stopProspect, stopRoads, stopZoning, type Zoning, useGame, usePageState, useStore, type Placement, type Roading } from '../../stores/game';
-import { WATER_LEVEL, WATER_PRICE, WATER_TIERS, wetTiers, pipeRoute, pipeStretch, cutsOff, footprintOf, forSaleAround, isRoad, MAP, ROAD_GRADES, ROAD_H, roadRoute, roadStretch, roadTilePrice, worldOf, patchesAround, placeProblem, plotSide, PROBLEM_TEXT } from '../../simulation/world';
+import type { CivicService, GameState } from '../../simulation/types';
+import { act, cancelPlacement, confirmPlacement, rotatePlacement, go, placementUse, setRoadTool, setNet, setSurveying, setZoneTool, startPipes, type Prospect, startPlacement, stopProspect, stopRoads, stopZoning, type Zoning, useGame, usePageState, useStore, type Placement, type Roading } from '../../stores/game';
+import { WATER_LEVEL, WATER_PRICE, WATER_TIERS, wetTiers, NET_PRICE, NET_TIERS, NET_TOP, NET_QUALITY, linesOf, type UtilityNet, pipeRoute, pipeStretch, cutsOff, footprintOf, forSaleAround, isRoad, MAP, ROAD_GRADES, ROAD_H, roadRoute, roadStretch, roadTilePrice, worldOf, patchesAround, placeProblem, plotSide, PROBLEM_TEXT } from '../../simulation/world';
 import { buildingPrice, moveFee, parcelPrice } from '../../simulation/engine';
 import { homePrice } from '../../simulation/community-state';
 import { servicePrice } from '../../simulation/town-state';
@@ -255,13 +255,14 @@ export function Hud() {
             if(plan.buy&&!act({type:'buy',region:f.region,good:'fertilizer',qty:plan.buy}))return;
             act({type:'fertilize',fieldIds:[id],source:plan.source},plan.source==='manure'?'Manure is on its way to the field.':'Fertiliser is on its way to the field.');
           }
+          else if(kind==='place' && lot?.service && canUpgradeService(lot.service.type)){ setPanel(true); setJournal(false); }
           else if(kind==='place' && lot){
             const target=lot.service?.type==='barracks'?'nation':lot.service?.type==='watchtower'?'region':lot.service&&['sanitation','lighting','police'].includes(lot.service.type)?'city':lot.key.startsWith('civic:')?'town':lot.key.startsWith('community:')?'community':lot.key==='crew'?'workers':lot.key==='office'?'automation':lot.key==='market'?'markets':lot.type==='house'||lot.type==='shed'?'finance':LOT_PAGE[BUILDINGS[lot.type].category];
             if(target && PAGES.find(p=>p.id===target)?.unlocked(s))go(target);else {setPanel(true);setJournal(false);}
           } else {setPanel(true);setJournal(false); if(kind==='plan') requestAnimationFrame(()=>document.querySelector('[data-coach=plan-picker]')?.scrollIntoView({block:'center'}));}
         }} />
       {placing && <PlacementBar s={s} p={placing} />}
-      {roading && (roading.pipe ? <PipeBar s={s} r={roading} /> : <RoadBar s={s} r={roading} />)}
+      {roading && (roading.pipe === 'irrigation' ? <PipeBar s={s} r={roading} /> : roading.pipe ? <UtilityBar s={s} r={roading} /> : <RoadBar s={s} r={roading} />)}
       {prospect && <OilBar s={s} p={prospect} />}
       {zoning && <ZoneBar z={zoning} />}
       <div className={`hud-left${journal ? ' journal-open' : ''}`} hidden={page !== 'farm'}>
@@ -326,6 +327,33 @@ function OilBar({ s, p }: { s: GameState; p: Prospect }) {
     </div>
     <button className={`btn ${p.survey ? 'primary' : 'ghost'}`} disabled={survey > s.cash && !p.survey} onClick={() => setSurveying(!p.survey)}>{p.survey ? 'Cancel survey' : `Survey · ${money(survey)}`}</button>
     <button className="btn ghost" onClick={() => stopProspect()}>Done</button>
+  </div>;
+}
+
+const UTIL_LABEL: Record<UtilityNet, string> = { power: '⚡ Power', water: '🚰 Water', sewer: '🚿 Sewage' };
+/** The town's utility lines: power from the power station, water from the water tower, sewage to the sanitation works. */
+function UtilityBar({ s, r }: { s: GameState; r: Roading }) {
+  const net = r.pipe as UtilityNet, top = NET_TOP[net], names = NET_TIERS[net], own = linesOf(worldOf(s, r.region), net), h = r.hover;
+  const price = (t: number) => Math.round(NET_PRICE[net][t] * s.macro.cpi), q = (t: number) => `${Math.round(NET_QUALITY[net][t] * 100)}%`;
+  let hint: string;
+  if (r.tool === 'draw') {
+    const route = r.from && h ? pipeRoute(s, r.region, r.from, h, net) : null;
+    hint = !r.from ? `Tap beside its building (or on a line) to start · ${money(price(1))} a tile` : !h ? 'Tap where it goes next: run it to the homes' : route ? `${route.length} tiles · ${money(price(1) * route.length)} · tap to lay` : 'Can\'t get there: keep to your own cleared land';
+  } else {
+    const st = h ? pipeStretch(worldOf(s, r.region), h[0], h[1], net) : [];
+    if (!st.length) hint = r.tool === 'upgrade' ? names.slice(1).map((n, i) => `${n} ${q(i + 1)}`).join(' → ') : 'Tap a line to remove that run';
+    else if (r.tool === 'upgrade') { const t = Math.min(top, Math.min(...st.map((id) => own[id])) + 1), n = st.filter((id) => own[id] < t).length; hint = n ? `${names[t]} · ${n} tiles · ${money(price(t) * n)} · homes at ${q(t)}${t === top ? ' · land freed' : ''}` : `Already ${names[top].toLowerCase()}`; }
+    else hint = `Remove ${st.length} tiles`;
+  }
+  return <div className="placement-bar road-bar" role="dialog" aria-label="Utility lines">
+    <div className="placement-info"><b>{UTIL_LABEL[net]}</b><span className="muted">{hint}</span></div>
+    <div className="seg" role="group" aria-label="Which lines">
+      {(['power', 'water', 'sewer'] as const).map((k) => <button key={k} className={`btn ${net === k ? 'primary' : 'ghost'}`} aria-pressed={net === k} title={UTIL_LABEL[k]} aria-label={UTIL_LABEL[k]} onClick={() => setNet(k)}>{UTIL_LABEL[k].split(' ')[0]}</button>)}
+    </div>
+    <div className="seg" role="group" aria-label="Line tool">
+      {(['draw', 'upgrade', 'remove'] as const).map((t) => <button key={t} className={`btn ${r.tool === t ? 'primary' : 'ghost'}`} aria-pressed={r.tool === t} onClick={() => setRoadTool(t)}>{t === 'draw' ? '✏ Lay' : t === 'upgrade' ? '⬆ Upgrade' : '✕ Remove'}</button>)}
+    </div>
+    <button className="btn ghost" onClick={() => stopRoads()}>Done</button>
   </div>;
 }
 
@@ -453,9 +481,28 @@ function HerdInfo({ s, lot }: { s: GameState; lot: Lot }) {
   );
 }
 
+/** A town service: its level, how full it is (utilities) or how far it reaches (school, clinic, well), and what to do next. */
+function ServiceCard({ s, svc, onClose }: { s: GameState; svc: CivicService; onClose: () => void }) {
+  const d = SERVICE_DEFS[svc.type], net = UTILITY_OF[svc.type], lv = levelOf(svc), price = serviceUpgradePrice(s, svc), [used, cap] = svc.serving ?? [0, Math.round(utilityFamilies(svc))];
+  const full = !!net && cap > 0 && used >= cap;
+  return <Card title={<>{d.icon} {d.name} <span className="muted">· level {lv}</span></>} actions={<button className="icon-btn" onClick={onClose} aria-label="Close">✕</button>}>
+    <div className="stack s">
+      {net ? <><div className="row between small"><span className="muted">Families on its lines</span><b>{used} / {cap}</b></div><Bar value={cap ? used / cap : 0} label={`${used} / ${cap} families on its lines`} color={full ? 'var(--gold)' : 'var(--up)'} /></>
+        : <p className="small">Reaches <b>{Math.round(serviceRadius(svc))} tiles</b>: full service in the inner half, fading to the edge.</p>}
+      {full && <div className="callout warn">Full: upgrade it or build another to serve more homes.</div>}
+      <div className="row wrap">
+        {lv < 3 && <button className="btn primary sm" disabled={price > s.cash} onClick={() => act({ type: 'upgradeService', serviceId: svc.id })}>⬆ Level {lv + 1} · {money(price)}</button>}
+        {net && <button className="btn ghost sm" onClick={() => { startPipes('heartland', net); onClose(); }}>🔌 Lay lines</button>}
+        <button className="btn ghost sm" onClick={() => go('town')}>Town</button>
+      </div>
+    </div>
+  </Card>;
+}
+
 function LotPanel({ s, lot, region, onClose }: { s: GameState; lot: Lot; region: RegionId; onClose: () => void }) {
   if(lot.service?.type==='barracks')return <Card title="Barracks"><button className="btn primary" onClick={()=>go('nation')}>Open Nation</button></Card>;
   if(lot.service?.type==='watchtower')return <Card title="Watchtower & militia"><button className="btn primary" onClick={()=>go('region')}>Open Region map</button></Card>;
+  if(lot.service&&canUpgradeService(lot.service.type))return <ServiceCard s={s} svc={townOf(s).services.find((b)=>b.id===lot.service!.id)??lot.service} onClose={onClose} />;
   if(lot.service&&['sanitation','lighting','police'].includes(lot.service.type))return <Card title="City watch"><button className="btn primary" onClick={()=>go('city')}>Open City watch</button></Card>;
   if (lot.key.startsWith('civic:')) return <Card title="Town services"><button className="btn primary" onClick={() => go('town')}>Open Town hall</button></Card>;
   if (lot.key.startsWith('community:')) return <Card title="Your neighbourhood"><div className="community-strip"><span>🏘️ {population(s)} / {homeCapacity(s)}</span><span>☺ {pct0(communityOf(s).happiness)}</span></div><button className="btn primary" onClick={() => go('community')}>Homes & families</button></Card>;
