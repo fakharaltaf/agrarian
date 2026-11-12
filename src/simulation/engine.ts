@@ -502,6 +502,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       const [kind, id] = a.key.split(':');
       const fieldToMove = kind === 'field' ? s.fields.find((f) => f.id === +id) : undefined;
       if (fieldToMove && !fieldMovable(fieldToMove)) return fail('Harvest the field before moving it.');
+      if (kind === 'b' && s.buildings.find((x) => x.id === +id)?.type === 'oilWell') return fail('An oil well stays where it was drilled: demolish it and drill a new one instead.');
       const problem = placeProblem(s, a.region, a.at[0], a.at[1], fp, a.key);
       if (problem) return fail(PROBLEM_TEXT[problem]);
       const fee = moveFee(s, a.region, a.key);

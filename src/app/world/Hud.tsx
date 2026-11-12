@@ -1,5 +1,5 @@
 import { bestCrop } from '../crops';
-import { DRILL_PRICE, oilReading, readingWord, struckFields, SURVEY_PRICE, SURVEY_R, surveyedAt } from '../../simulation/oil';
+import { DRILL_PRICE, wellField, oilReading, readingWord, struckFields, SURVEY_PRICE, SURVEY_R, surveyedAt } from '../../simulation/oil';
 import {cityActive} from '../../simulation/city-state';
 import { townOf } from '../../simulation/town-state';
 // Everything that floats over the world: objective, selection panel, market, land, region switcher.
@@ -483,6 +483,8 @@ function LotPanel({ s, lot, region, onClose }: { s: GameState; lot: Lot; region:
   const margin = bs.reduce((a, b) => a + buildingMargin(b), 0);
   const reason = bs.find((b) => b.reason && b.reason !== 'Paused')?.reason;
   const page = LOT_PAGE[d.category];
+  const picked = bs.find((b) => `b:${b.id}` === lot.key) ?? bs[bs.length - 1]; // the one tapped on the map
+  const field = picked?.type === 'oilWell' ? wellField(s, picked) : undefined;
   return (
     <Card title={<>{d.name}{bs.length > 1 && <span className="muted"> ×{bs.length}</span>}</>} actions={<button className="icon-btn" onClick={onClose} aria-label="Close">✕</button>}>
       <div className="stack s">
@@ -501,6 +503,7 @@ function LotPanel({ s, lot, region, onClose }: { s: GameState; lot: Lot; region:
             <dt>Staff</dt><dd>{money(d.staffPerHour * s.macro.cpi * bs.length)}/h</dd>
           </dl>
         )}
+        {picked?.type === 'oilWell' && <div className={`callout ${field && field.left > 0 ? '' : 'warn'}`}>{field ? `This well draws on field ${field.i + 1}: ${num(field.left)} of ${num(field.reserve)} bbl left · ${field.wells.length} well${field.wells.length === 1 ? '' : 's'} (${field.balanced} balanced)` : 'No oil under this well: it pumps nothing. Demolish it.'}</div>}
         {reason && reason !== 'Idle' && <div className={`callout ${/Not enough|full|Disease/.test(reason) ? 'warn' : ''}`}>{reason}</div>}
         {d.category === 'livestock' && <HerdInfo s={s} lot={lot} />}
         {known(s, 'upgrades') && bs.map((b, i) => b.level < 3 && (
@@ -512,7 +515,7 @@ function LotPanel({ s, lot, region, onClose }: { s: GameState; lot: Lot; region:
         <div className="row wrap">
           {d.recipe && <button className="btn ghost sm" onClick={() => bs.forEach((b) => b.active === (active === bs.length) && act({ type: 'toggleBuilding', buildingId: b.id }))}>{active === bs.length ? 'Pause' : 'Resume'}{bs.length > 1 ? ' all' : ''}</button>}
           {page && <button className="btn ghost sm" onClick={() => go(page)}>Open {page}</button>}
-          {bs.length > 0 && <Confirm label="Demolish one" className="btn danger sm" title={`Demolish a ${d.name.toLowerCase()}?`} body={`You get back about ${money(Math.max(0, bs[0].cost - bs[0].depreciated) * 0.5)}. Stock that no longer fits is sold or lost.`} onConfirm={() => act({ type: 'demolish', buildingId: bs[bs.length - 1].id })} confirmLabel="Demolish" />}
+          {picked && <Confirm label={bs.length > 1 ? 'Demolish this one' : 'Demolish'} className="btn danger sm" title={`Demolish this ${d.name.toLowerCase()}?`} body={`The one you tapped on the map goes. You get back about ${money(Math.max(0, picked.cost - picked.depreciated) * 0.5)}. Stock that no longer fits is sold or lost.`} onConfirm={() => act({ type: 'demolish', buildingId: picked.id })} confirmLabel="Demolish" />}
         </div>
       </div>
     </Card>

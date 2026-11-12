@@ -42,10 +42,12 @@ export function oilFields(r: RegionId): OilField[] {
   fields.set(r, out);
   return out;
 }
-/** Chance (0–0.8) that a well drilled at this tile strikes oil. */
+/** A field reaches about two and a half of its radii out; beyond that there is no oil to strike or pump. */
+const REACH = 0.04;
+/** Chance (0–0.8) that a well drilled at this tile strikes oil: none off the fields. */
 export function oilChance(r: RegionId, x: number, y: number) {
   const v = oilFields(r).reduce((a, f) => a + Math.exp(-((x - f.x) ** 2 + (y - f.y) ** 2) / (2 * f.r * f.r)), 0);
-  return Math.min(0.8, 0.02 + v * 0.78);
+  return v < REACH ? 0 : Math.min(0.8, 0.02 + v * 0.78);
 }
 /** What a survey reads at a tile, in 4-tile blocks: real oil reads anywhere from half to one and a half times its odds, and about one block in fifteen gives a false show, so the map is a hint, not a promise. */
 export function oilReading(r: RegionId, x: number, y: number) {
@@ -58,10 +60,10 @@ export const readingWord = (v: number) => (v < 0.12 ? 'faint' : v < 0.3 ? 'weak'
 export const surveyed = (s: GameState, r: RegionId) => !!oilOf(s).surveys[r]?.length;
 export const surveyedAt = (s: GameState, r: RegionId, x: number, y: number) => (oilOf(s).surveys[r] ?? []).some(([cx, cy]) => (x - cx) ** 2 + (y - cy) ** 2 <= SURVEY_R * SURVEY_R);
 
-/** The field a well at this tile draws on: the one it sits most within. */
+/** The field a well at this tile draws on (the one it sits most within), or -1 if no field reaches it. */
 export function fieldAt(r: RegionId, x: number, y: number) {
-  let best = 0, score = -1;
-  oilFields(r).forEach((f, i) => { const v = Math.exp(-((x - f.x) ** 2 + (y - f.y) ** 2) / (2 * f.r * f.r)); if (v > score) { score = v; best = i; } });
+  let best = -1, score = REACH;
+  oilFields(r).forEach((f, i) => { const v = Math.exp(-((x - f.x) ** 2 + (y - f.y) ** 2) / (2 * f.r * f.r)); if (v >= score) { score = v; best = i; } });
   return best;
 }
 const wellTile = (s: GameState, b: Building) => { const p = worldOf(s, b.region).pos[`b:${b.id}`]; return p ? [p[0] + 1, p[1] + 1] : null; };
@@ -71,10 +73,10 @@ export function fieldState(s: GameState, r: RegionId, i: number) {
   const balanced = Math.max(1, Math.round(f.reserve / PER_WELL)), over = Math.max(0, wells.length - balanced);
   return { i, reserve: f.reserve, left: Math.max(0, f.reserve - (oilOf(s).drawn[`${r}:${i}`] ?? 0)), wells, balanced, drain: 1 + 0.6 * over / balanced };
 }
-/** The field under a well, or null if the well is not on the map. */
+/** The field under a well, or null if there is no oil under it (or it is not on the map). */
 export function wellField(s: GameState, b: Building) {
-  const t = wellTile(s, b);
-  return t ? fieldState(s, b.region, fieldAt(b.region, t[0], t[1])) : null;
+  const t = wellTile(s, b), i = t ? fieldAt(b.region, t[0], t[1]) : -1;
+  return i < 0 ? null : fieldState(s, b.region, i);
 }
 /** Fields the player has struck (they have at least one well). */
 export const struckFields = (s: GameState, r: RegionId) => oilFields(r).map((_, i) => fieldState(s, r, i)).filter((f) => f.wells.length);

@@ -102,6 +102,7 @@ function produce(s: GameState, b: Building, staff: number, cows = 0) {
   }
   const outMult = has(s, 'processEfficiency') ? 1.1 : 1;
   const oil = b.type === 'oilWell' ? wellField(s, b) : null; // a well pumps only what its field has left
+  if (b.type === 'oilWell' && !oil) { batches = 0; reason = 'No oil under this well'; }
   if (oil) { const most = oil.left / (oil.drain * (rec.outputs.oil ?? 1) * outMult); if (most < batches) { batches = Math.max(0, most); reason = 'The oil field is pumped dry'; } }
   const outUnits = Object.values(rec.outputs).reduce((a, q) => a + q! * outMult, 0);
   if (outUnits > 0) {

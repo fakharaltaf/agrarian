@@ -107,3 +107,18 @@ it('an older save loads into the new rules: whole-region surveys become surveys 
   expect(buildingUse(g, 'oilWell')).toBe('industry');
   expect(cin(px, py, fp.w, fp.d).every((c) => w.zones[c] === 'ind')).toBe(true);
 });
+
+it('a well off its field pumps nothing, and wells stay where they were drilled', async () => {
+  const { emptyProductionReport } = await import('../simulation/production-report');
+  const s = industry(608), r = 'heartland' as const, f = oilFields(r)[0], id = 8100;
+  s.buildings.push({ id, type: 'oilWell', region: r, active: true, level: 1, cost: 0, depreciated: 0, util: 0, reserved: 0, reason: '', productionReport: emptyProductionReport(), stats: { out: 0, inCost: 0, outValue: 0, opCost: 0 } });
+  const far: [number, number] = [Math.round(f.x + f.r * 4), Math.round(f.y)];
+  worldOf(s, r).pos[`b:${id}`] = far;
+  expect(oilChance(r, far[0] + 1, far[1] + 1)).toBe(0);
+  const oil = s.regions.heartland.inventory.oil;
+  for (let i = 0; i < 24; i++) step(s);
+  const b = s.buildings.find((x) => x.id === id)!;
+  expect(s.regions.heartland.inventory.oil).toBe(oil);
+  expect(b.reason).toMatch(/No oil|road/);
+  expect(dispatch(s, { type: 'moveObject', region: r, key: `b:${id}`, at: [Math.round(f.x) - 1, Math.round(f.y) - 1] })).toMatchObject({ ok: false });
+});
