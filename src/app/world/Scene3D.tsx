@@ -835,8 +835,9 @@ function syncDeco(R: Rig, L: Layout, s: GameState) {
     if (!owned.has(c)) continue;
     const ox = MAP.x0 + gxx * CHUNK, oy = MAP.y0 + gy * CHUNK;
     const edge = (nx: number, ny: number) => nx < 0 || ny < 0 || nx >= CHUNKS_X || ny >= CHUNKS_Y || !owned.has(ny * CHUNKS_X + nx);
-    // a tile of road or track on either side of the line leaves a gap: the fence never crosses or runs along a road
+    // the fence gives way where a road or track crosses the line (road on both sides) and along the main road; a track that only runs beside it keeps its fence
     const open = (tx: number, ty: number) => isRoad(ty) || w.roads[tileId(tx, ty)] !== undefined;
+    const gap = (ax: number, ay: number, bx: number, by: number) => (open(ax, ay) && open(bx, by)) || isRoad(ay) || isRoad(by);
     const side = (x: number, z: number, along: boolean, inX: number, inZ: number) => {
       let run = -1; // where a road crosses: stout posts either side and a five-bar gate swung open into the farm
       for (let i = 0; i <= CHUNK; i++) {
@@ -849,10 +850,10 @@ function syncDeco(R: Rig, L: Layout, s: GameState) {
           run = -1;
         }
         if (i === CHUNK) break;
-        if (along ? open(tx, ty - 1) || open(tx, ty) : open(tx - 1, ty) || open(tx, ty)) continue;
+        if (along ? gap(tx, ty - 1, tx, ty) : gap(tx - 1, ty, tx, ty)) continue;
         for (const ry of [0.13, 0.27]) rails.push(new THREE.Matrix4().compose(new THREE.Vector3(along ? tx + 0.5 : x, ry, along ? z : ty + 0.5), along ? flat : turn, one));
         posts.push(new THREE.Matrix4().makeTranslation(along ? tx : x, 0, along ? z : ty));
-        if (i === CHUNK - 1 || (along ? open(tx + 1, ty - 1) || open(tx + 1, ty) : open(tx - 1, ty + 1) || open(tx, ty + 1))) posts.push(new THREE.Matrix4().makeTranslation(along ? tx + 1 : x, 0, along ? z : ty + 1));
+        if (i === CHUNK - 1 || (along ? gap(tx + 1, ty - 1, tx + 1, ty) : gap(tx - 1, ty + 1, tx, ty + 1))) posts.push(new THREE.Matrix4().makeTranslation(along ? tx + 1 : x, 0, along ? z : ty + 1));
       }
     };
     if (edge(gxx, gy - 1)) side(ox + CHUNK / 2, oy, true, 0, 1);
