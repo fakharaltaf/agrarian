@@ -8,6 +8,7 @@ import { larderReserve } from './stages/settlement';
 import { BUILDINGS, COWS_PER_DAIRY_BATCH, GOODS, REGIONS, REGION_IDS, SUNRISE, SUNSET, type GoodId, type RegionId } from './config';
 import { buildingDivision, clamp, electricityPrice, execOn, freeSpace, has, hour, levelMult, throughput, post, priceUsd, round2, reserveCap, reservedStock, severity } from './core';
 import { addGoods } from './agriculture';
+import { avg30 } from './markets';
 import { drawOil, wellField } from './oil';
 import type { Building, GameState } from './types';
 
@@ -135,7 +136,7 @@ function produce(s: GameState, b: Building, staff: number, cows = 0) {
       x.reserved = Math.max(0, Math.min(x.reserved - take, inv[g], reserveCap(x)));
       used -= take;
     }
-    inCost += q * batches * priceUsd(s, b.region, g);
+    inCost += q * batches * (s.markets[b.region][g] ? avg30(s, b.region, g) : priceUsd(s, b.region, g)); // inputs at their 30-day average, so a line's verdict does not flip red and green with each day's crop price
   }
   for (const [g, q] of Object.entries(rec.outputs) as [GoodId, number][]) {
     addGoods(s, b.region, g, q * outMult * batches, quality);
