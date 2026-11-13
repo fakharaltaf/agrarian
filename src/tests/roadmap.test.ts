@@ -10,7 +10,7 @@ import { canAdvance, createGame, dispatch, newField, step } from '../simulation/
 import { BUILDINGS, CHAPTER_SALES, GOOD_IDS, OPEX_KINDS, REGION_IDS } from '../simulation/config';
 import { lineEcon } from '../simulation/lines';
 import { STAGES, STAGE_IDS, stageIdForEra, tickActiveStage } from '../simulation/stages';
-import { HOMESTEAD_MILL_PRICE, homesteadState, traderHaggleChance } from '../simulation/stages/homestead';
+import { HOMESTEAD_MILL_PRICE, HOMESTEAD_PRICES, homesteadState, traderHaggleChance } from '../simulation/stages/homestead';
 import { HOMESTEAD_SALES_GOAL } from '../simulation/progression';
 import { botAct } from './bot';
 import { createTownState, servicePrice, townOf } from '../simulation/town-state';
@@ -74,6 +74,11 @@ it('new Homestead uses a daily barter board and fixed wheat buyer before opening
   expect(s.regions.heartland.inventory.wheat).toBe(40 - offer.takeQty - 10);
   expect(s.markets.heartland.wheat!.inv).toBe(marketBefore + 10);
   expect(dispatch(s, { type: 'sellToMill', qty: 100 }).ok).toBe(false);
+  // corn and potatoes sell to the village too, at their own posted prices
+  s.regions.heartland.inventory.corn = 20; const before = s.cash;
+  expect(dispatch(s, { type: 'sellToMill', qty: 20, good: 'corn' }).ok).toBe(true);
+  expect(s.cash - before).toBeCloseTo(20 * HOMESTEAD_PRICES.corn!, 6);
+  expect(dispatch(s, { type: 'sellToMill', qty: 1, good: 'coffee' }).ok).toBe(false);
   expect(dispatch(s, { type: 'sell', region: 'heartland', good: 'wheat', qty: 1 }).ok).toBe(false);
   s.fields.push(newField(s, 'heartland', 1, 0), newField(s, 'heartland', 1, 0), newField(s, 'heartland', 1, 0));
   s.lifetime.sale = HOMESTEAD_SALES_GOAL;

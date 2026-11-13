@@ -4,6 +4,7 @@ import { buildingsIn, clamp, factoryCrop, reserveCap, freeSpace, has, log, post,
 import { executeSell } from './markets';
 import type { Field, GameState, HarvestBreakdown } from './types';
 import { fieldWater, WATER_LEVEL } from './world';
+import { HOMESTEAD_PRICES } from './stages/homestead';
 
 export function newField(s: GameState, region: RegionId, ha: number, cost: number): Field {
   const q = REGIONS[region].soil;
@@ -309,6 +310,13 @@ export function addGoods(s: GameState, r: RegionId, g: GoodId, qty: number, qual
   s.regions[r].inventory[g] += keep;
   const over = qty - keep;
   if (over <= 0) return;
+  if (!s.legacyProgression && s.stageId === 'homestead') { // no open market yet: the village takes what overflows, at a distress price, and the rest is lost
+    const price = (HOMESTEAD_PRICES[g] ?? 0) * 0.8;
+    if (price > 0) { post(s, 'sale', over * price, `Forced sale to the village: storage full (${Math.round(over)} ${GOODS[g].name} @ $${price.toFixed(2)})`, r, 'crops'); s.stats.forcedSales++; }
+    else s.stats.overflowLost += over;
+    warnOnce(s, `overflow-${r}`, 'warning', `The barn is full — ${Math.round(over)} ${GOODS[g].name.toLowerCase()} ${price > 0 ? `went to the village cheap, at $${price.toFixed(2)}` : 'was lost'}. Sell sooner or build storage.`, 'storage');
+    return;
+  }
   if (s.markets[r][g]) {
     s.regions[r].inventory[g] += over;
     const q = executeSell(s, r, g, over, `Forced sale: storage full (${Math.round(over)} ${GOODS[g].name})`);

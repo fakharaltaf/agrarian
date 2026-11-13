@@ -4,8 +4,11 @@ import { addGoods } from '../agriculture';
 import { freeSpace, log, post, random } from '../core';
 import { priceFromInv } from '../markets';
 import type { Action, ActionResult, GameState, HomesteadState } from '../types';
+import type { GoodId } from '../config';
 
-export const HOMESTEAD_MILL_PRICE = 2.25;
+/** What the village pays for each crop you can grow before the market opens: about three quarters of its market price. */
+export const HOMESTEAD_PRICES: Partial<Record<GoodId, number>> = { wheat: 2.25, corn: 1.9, potatoes: 1.5 };
+export const HOMESTEAD_MILL_PRICE = HOMESTEAD_PRICES.wheat!;
 
 export function createHomesteadState(): HomesteadState { return { day: -1, mood: 50, offers: [] }; }
 
@@ -29,9 +32,6 @@ export function refreshHomestead(s: GameState) {
   if (s.charters?.trader === 'fair') {
     for (const offer of offers) offer.give.qty = Math.ceil(offer.give.qty * 1.1);
   }
-  // A small outlet for the crops the trader introduced, at a deliberately modest exchange rate.
-  const crop = s.unlockedCrops.includes('corn') && s.unlockedCrops.includes('potatoes') ? (d % 2 ? 'corn' : 'potatoes') : s.unlockedCrops.includes('corn') ? 'corn' : s.unlockedCrops.includes('potatoes') ? 'potatoes' : null;
-  if (crop) offers.push({ id: `${crop}-buyer`, takeGood: crop, takeQty: crop === 'corn' ? 15 : 15, give: { kind: 'good', good: 'wheat', qty: crop === 'corn' ? 12 : 10 }, haggled: false, traded: false });
   t.offers = offers;
 }
 
@@ -66,19 +66,20 @@ function handleHomesteadAction(s: GameState, action: Action): ActionResult | nul
   if (s.legacyProgression) return fail('The village trader is only available on new progression saves.');
   const trader = stateOf(s);
   if (action.type === 'sellToMill') {
-    const qty = Math.floor(action.qty), stock = s.regions.heartland.inventory.wheat;
-    if (!Number.isFinite(qty) || qty < 1) return fail('Choose at least one wheat.');
-    if (qty > stock) return fail(`You have only ${Math.floor(stock)} wheat in the barn.`);
-    s.regions.heartland.inventory.wheat -= qty;
-    const market = s.markets.heartland.wheat!;
-    market.inv += qty;
-    market.price = priceFromInv(s, 'wheat', market);
-    const received = qty * HOMESTEAD_MILL_PRICE;
-    post(s, 'sale', received, `Village mill bought ${qty} wheat @ $${HOMESTEAD_MILL_PRICE.toFixed(2)}`, 'heartland', 'crops');
+    const good = action.good ?? 'wheat', price = HOMESTEAD_PRICES[good], name = GOODS[good]?.name.toLowerCase();
+    if (!price) return fail('The village does not buy that.');
+    const qty = Math.floor(action.qty), stock = s.regions.heartland.inventory[good];
+    if (!Number.isFinite(qty) || qty < 1) return fail(`Choose at least one ${name}.`);
+    if (qty > stock) return fail(`You have only ${Math.floor(stock)} ${name} in the barn.`);
+    s.regions.heartland.inventory[good] -= qty;
+    const market = s.markets.heartland[good];
+    if (market) { market.inv += qty; market.price = priceFromInv(s, good, market); }
+    const received = qty * price, buyer = good === 'potatoes' ? 'Village market' : 'Village mill';
+    post(s, 'sale', received, `${buyer} bought ${qty} ${name} @ $${price.toFixed(2)}`, 'heartland', 'crops');
     s.stats.sales++;
-    s.stats.peopleFed += (qty * GOODS.wheat.kcal) / (2000 * 365);
-    log(s, 'info', `The village mill took ${qty} wheat at its posted price: $${received.toFixed(2)}.`, 'farm');
-    return ok(`Sold ${qty} wheat · $${received.toFixed(2)}.`);
+    s.stats.peopleFed += (qty * GOODS[good].kcal) / (2000 * 365);
+    log(s, 'info', `The ${buyer.toLowerCase()} took ${qty} ${name} at its posted price: $${received.toFixed(2)}.`, 'farm');
+    return ok(`Sold ${qty} ${name} · $${received.toFixed(2)}.`);
   }
   if (action.type !== 'barter' && action.type !== 'haggle') return null;
   const offerId = action.offerId;

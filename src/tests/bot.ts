@@ -78,7 +78,7 @@ export function botAct(s: GameState, strategy: Strategy = 'balanced', civicPrior
       const mech = count(s, r, 'tractor') > 0 && count(s, r, 'harvester') > 0;
       const hands = s.workers.filter((w) => w.region === r && w.role === 'hand').length;
       const want = Math.ceil(ha / (mech ? 18 : 3.5));
-      if (hands < want && s.cash > 500) dispatch(s, { type: 'hire', region: r, role: 'hand', wageFactor: cityActive(s)?1.1:1.05 });
+      if (hands < want && (s.legacyProgression || ha >= 10) && s.cash > 2500 * (hands + 1)) dispatch(s, { type: 'hire', region: r, role: 'hand', wageFactor: cityActive(s)?1.1:1.05 }); // only once the farm is big enough to keep them busy, and with a few weeks' wages in the bank
       // A competent mechanised farm reassigns its labour budget instead of retaining
       // the entire old manual crew forever while buying and leasing machines.
       if (mech && hands > want) {
@@ -91,7 +91,7 @@ export function botAct(s: GameState, strategy: Strategy = 'balanced', civicPrior
       if (st.dry > st.cap.dry * 0.7 && stores < Math.ceil(ha / 10)) dispatch(s, { type: 'build', region: r, building: s.cash > 40000 ? 'silo' : 'barn' });
     }
     if (s.era >= 3 && ha > 0) {
-      if (ha >= (s.legacyProgression ? 15 : 6) && !s.workers.some((w) => w.region === r && w.role === 'manager') && s.cash > 8000) dispatch(s, { type: 'hire', region: r, role: 'manager', wageFactor: 1 });
+      if (ha >= (s.legacyProgression ? 15 : 12) && !s.workers.some((w) => w.region === r && w.role === 'manager') && s.cash > 8000) dispatch(s, { type: 'hire', region: r, role: 'manager', wageFactor: 1 });
       if (ha >= 12 && count(s, r, 'tractor') < Math.ceil(ha / 80)) dispatch(s, { type: 'buyMachine', region: r, machine: 'tractor', lease: s.cash < 30000 });
       if (ha >= 12 && count(s, r, 'harvester') < Math.ceil(ha / 70)) dispatch(s, { type: 'buyMachine', region: r, machine: 'harvester', lease: s.cash < 80000 });
     }
@@ -128,7 +128,8 @@ function bestCrop(s: GameState, r: RegionId): CropId {
   for (const c of s.unlockedCrops) {
     if ((c === 'coffee' && r !== 'tropics') || CROPS[c].perennial || (cold && !CROPS[c].frostHardy)) continue;
     const m = s.markets[r][c]!;
-    const val = (CROPS[c].yieldPerSeed * m.price - CROPS[c].seedCost) / CROPS[c].growthTicks;
+    const price = m.price;
+    const val = (CROPS[c].yieldPerSeed * price - CROPS[c].seedCost) / CROPS[c].growthTicks;
     if (val > v) (v = val), (best = c);
   }
   return best;
@@ -137,8 +138,7 @@ function bestCrop(s: GameState, r: RegionId): CropId {
 /** Sells in slices no bigger than a fifth of market depth, and only near or above the monthly average. */
 function sell(s: GameState) {
   if (!s.legacyProgression && s.stageId === 'homestead') {
-    const q = Math.floor(s.regions.heartland.inventory.wheat);
-    if (q >= 1) dispatch(s, { type: 'sellToMill', qty: q });
+    for (const g of ['wheat', 'corn', 'potatoes'] as const) { const q = Math.floor(s.regions.heartland.inventory[g]); if (q >= 1) dispatch(s, { type: 'sellToMill', qty: q, good: g }); }
     return;
   }
   for (const r of REGION_IDS) {

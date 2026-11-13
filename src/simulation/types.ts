@@ -413,7 +413,7 @@ export type Action =
   | { type: 'fertilize'; fieldIds: number[]; source: 'fertilizer' | 'manure' }
   | { type: 'irrigate'; fieldIds: number[] }
   | { type: 'sell'; region: RegionId; good: GoodId; qty: number }
-  | { type: 'sellToMill'; qty: number }
+  | { type: 'sellToMill'; qty: number; /** wheat if left out */ good?: GoodId }
   | { type: 'barter'; offerId: string }
   | { type: 'haggle'; offerId: string }
   | { type: 'chooseCharter'; charter: TraderCharter }

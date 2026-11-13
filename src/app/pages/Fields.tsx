@@ -16,7 +16,7 @@ import { Bar, Card, Confirm, Info, Seg, Select, Swatch, Tip, usePref } from '../
 import { unlockedRegions } from './shared';
 import { stageAtLeast } from '../../simulation/stages';
 import { fieldWater, WATER_LEVEL, WATER_TIERS } from '../../simulation/world';
-import { HOMESTEAD_MILL_PRICE, homesteadState } from '../../simulation/stages/homestead';
+import { HOMESTEAD_PRICES, homesteadState } from '../../simulation/stages/homestead';
 
 
 export function FieldsPage() {
@@ -387,18 +387,11 @@ export function SellCard({ s, r }: { s: GameState; r: RegionId }) {
 
 /** The Homestead trades through one village stall; prices and the full exchange arrive later. */
 export function HomesteadTraderCard({ s }: { s: GameState }) {
-  const [fraction, setFraction] = useState(1);
-  const state = homesteadState(s);
-  const wheat = Math.floor(s.regions.heartland.inventory.wheat);
-  const qty = Math.floor(wheat * fraction);
+  const state = homesteadState(s), inv = s.regions.heartland.inventory;
+  const crops = (Object.keys(HOMESTEAD_PRICES) as GoodId[]).filter((g) => g === 'wheat' || inv[g] >= 1); // wheat always, the others once you have some
   return <Card title={<>🧺 Village trader <span className="muted">{state.mood >= 65 ? '· friendly' : state.mood <= 35 ? '· wary' : '· neutral'}</span></>} coach="trader">
     <div className="stack s">
-      <div className="row between"><b>Mill buyer</b><span className="mono">${HOMESTEAD_MILL_PRICE.toFixed(2)} / wheat</span></div>
-      <div className="row wrap">
-        <Seg label="Wheat to sell" value={fraction} onChange={setFraction} options={[{ v: .25, label: '¼' }, { v: .5, label: '½' }, { v: 1, label: 'All' }]} />
-        <span className="mono">📦 {num(wheat)} wheat · +{money(qty * HOMESTEAD_MILL_PRICE)}</span>
-      </div>
-      <button className="btn primary" disabled={!qty} onClick={() => act({ type: 'sellToMill', qty })}>Sell {num(qty)} wheat</button>
+      {crops.map((g) => <VillageSale key={g} s={s} g={g} />)}
       <div className="trader-offers" aria-label="Today's barter offers">
         {state.offers.map((offer) => {
           const output = offer.give.kind === 'seed' ? `${num(offer.give.qty)} ${GOODS[offer.give.crop].name.toLowerCase()} seeds` : `${num(offer.give.qty)} ${GOODS[offer.give.good].name.toLowerCase()}`;
@@ -406,7 +399,7 @@ export function HomesteadTraderCard({ s }: { s: GameState }) {
             <span className="trader-amount">{num(offer.takeQty)} {GOOD_ICON[offer.takeGood] ?? '📦'} {GOODS[offer.takeGood].name.toLowerCase()}</span><span className="trader-arrow">↔</span><span className="trader-amount">{output}</span>
             {offer.traded ? <span className="pill">Done</span> : <div className="row wrap">
               {!offer.haggled && <button className="btn ghost sm" onClick={() => act({ type: 'haggle', offerId: offer.id })}>Haggle</button>}
-              <button className="btn gold sm" disabled={wheat < offer.takeQty || (offer.give.kind === 'good' && freeSpace(s, 'heartland', offer.give.good) < offer.give.qty)} onClick={() => act({ type: 'barter', offerId: offer.id })}>Trade</button>
+              <button className="btn gold sm" disabled={inv[offer.takeGood] < offer.takeQty || (offer.give.kind === 'good' && freeSpace(s, 'heartland', offer.give.good) < offer.give.qty)} onClick={() => act({ type: 'barter', offerId: offer.id })}>Trade</button>
             </div>}
           </article>;
         })}
@@ -414,6 +407,19 @@ export function HomesteadTraderCard({ s }: { s: GameState }) {
       <span className="faint small">Offers refresh each morning · one haggle per offer</span>
     </div>
   </Card>;
+}
+
+/** One crop the village buys at its posted price. */
+function VillageSale({ s, g }: { s: GameState; g: GoodId }) {
+  const [fraction, setFraction] = useState(1);
+  const have = Math.floor(s.regions.heartland.inventory[g]), qty = Math.floor(have * fraction), price = HOMESTEAD_PRICES[g]!, name = GOODS[g].name.toLowerCase();
+  return <div className="stack xs">
+    <div className="row between"><b>{GOOD_ICON[g] ?? '📦'} {GOODS[g].name}</b><span className="mono">${price.toFixed(2)} each · 📦 {num(have)}</span></div>
+    <div className="row wrap">
+      <Seg label={`${GOODS[g].name} to sell`} value={fraction} onChange={setFraction} options={[{ v: .25, label: '¼' }, { v: .5, label: '½' }, { v: 1, label: 'All' }]} />
+      <button className="btn primary" disabled={!qty} onClick={() => act({ type: 'sellToMill', qty, good: g })}>Sell {num(qty)} {name} · +{money(qty * price)}</button>
+    </div>
+  </div>;
 }
 
 function SellRow({ s, r, g }: { s: GameState; r: RegionId; g: GoodId }) {

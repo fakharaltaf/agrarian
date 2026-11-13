@@ -431,4 +431,4 @@ export const FINANCING_KINDS: LedgerKind[] = ['loanIn', 'loanRepay', 'sharesIssu
 export const OTHER_OPERATING: LedgerKind[] = ['interest', 'tax', 'futures', 'insurancePayout', 'prize'];
 
 /** Narrative chapter milestones; legacy ERAS retain their established gates. */
-export const CHAPTER_SALES = { homestead: 40_000, 'market-town': 120_000, 'farm-business': 500_000, industry: 3_000_000 } as const;
+export const CHAPTER_SALES = { homestead: 24_000, 'market-town': 110_000, 'farm-business': 500_000, industry: 3_000_000 } as const;
