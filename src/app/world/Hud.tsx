@@ -1,3 +1,4 @@
+import { homesReached, nuisanceOf, NUISANCE_LOOK, type NuisanceKind } from '../../simulation/nuisance';
 import { upgradeNeedsPower } from '../../simulation/stages/shared';
 import { bestCrop } from '../crops';
 import { DRILL_PRICE, wellField, oilReading, readingWord, struckFields, SURVEY_PRICE, SURVEY_R, surveyedAt } from '../../simulation/oil';
@@ -500,6 +501,21 @@ function ServiceCard({ s, svc, onClose }: { s: GameState; svc: CivicService; onC
   </Card>;
 }
 
+/** What a building does to the homes around it at its level: smell, noise, smoke, or fresh bread, and how many homes it reaches. */
+function NuisanceLine({ s, b }: { s: GameState; b: GameState['buildings'][number] }) {
+  const n = nuisanceOf(b.type, b.level), kinds = Object.entries(n) as [NuisanceKind, number][];
+  if (!kinds.length) return null;
+  const p = worldOf(s, b.region).pos[`b:${b.id}`], fp = footprintOf(s, `b:${b.id}`), homes = p && fp ? homesReached(s, b.type, b.level, p[0] + fp.w / 2, p[1] + fp.d / 2) : 0;
+  return <p className="small">{kinds.map(([k, r]) => <span key={k} className="pill" style={{ marginRight: 6 }}>{NUISANCE_LOOK[k].icon} {NUISANCE_LOOK[k].name} · {r} tiles</span>)}
+    {kinds.some(([k]) => k !== 'pleasant') && <span className="muted">{homes ? `${homes} home${homes === 1 ? '' : 's'} affected` : 'no homes nearby'}</span>}</p>;
+}
+/** The upgrade dialog says when the next level brings a new or wider nuisance. */
+function nuisanceChange(b: GameState['buildings'][number]) {
+  const now = nuisanceOf(b.type, b.level), next = nuisanceOf(b.type, b.level + 1);
+  const worse = (Object.entries(next) as [NuisanceKind, number][]).filter(([k, r]) => k !== 'pleasant' && r > (now[k] ?? 0));
+  return worse.length ? <> At level {b.level + 1}: {worse.map(([k, r]) => `${NUISANCE_LOOK[k].icon} ${NUISANCE_LOOK[k].name.toLowerCase()} reaches ${r} tiles`).join(', ')}, keep homes clear.</> : null;
+}
+
 function LotPanel({ s, lot, region, onClose }: { s: GameState; lot: Lot; region: RegionId; onClose: () => void }) {
   if(lot.service?.type==='barracks')return <Card title="Barracks"><button className="btn primary" onClick={()=>go('nation')}>Open Nation</button></Card>;
   if(lot.service?.type==='watchtower')return <Card title="Watchtower & militia"><button className="btn primary" onClick={()=>go('region')}>Open Region map</button></Card>;
@@ -537,6 +553,7 @@ function LotPanel({ s, lot, region, onClose }: { s: GameState; lot: Lot; region:
     <Card title={<>{d.name}{bs.length > 1 && <span className="muted"> ×{bs.length}</span>}</>} actions={<button className="icon-btn" onClick={onClose} aria-label="Close">✕</button>}>
       <div className="stack s">
         <p className="explain">{d.blurb}</p>
+        {picked && <NuisanceLine s={s} b={picked} />}
         {d.recipe ? (
           <dl className="facts">
             <dt>Running</dt><dd>{active} of {bs.length}</dd>
@@ -557,7 +574,7 @@ function LotPanel({ s, lot, region, onClose }: { s: GameState; lot: Lot; region:
         {known(s, 'upgrades') && bs.map((b, i) => b.level < 3 && (
           <div key={b.id} className="row between small">
             <span className="muted">{bs.length > 1 ? `#${i + 1} ` : ''}Level {b.level} → {b.level + 1}: {(() => { const now = throughput(b), next = throughput({ type: b.type, level: b.level + 1 }); return `+${Math.round((next / now - 1) * 100)}%`; })()} {d.recipe ? 'output' : d.category === 'livestock' ? 'space' : 'capacity'}</span>
-            {upgradeNeedsPower(s, b) ? <span className="faint small" title={upgradeNeedsPower(s, b)!}>⚡ Needs your own power</span> : <Confirm label={`Upgrade · ${money(upgradeCost(s, b))}`} className="btn ghost sm" disabled={upgradeCost(s, b) > s.cash} title={`Upgrade ${d.name.toLowerCase()} to level ${b.level + 1}?`} body={<>Costs <b>{money(upgradeCost(s, b))}</b>. {d.recipe ? 'More output per hour, but staff cost rises 30%.' : d.category === 'livestock' ? 'Room for more animals.' : 'More storage space.'}</>} onConfirm={() => act({ type: 'upgradeBuilding', buildingId: b.id })} confirmLabel="Upgrade" />}
+            {upgradeNeedsPower(s, b) ? <span className="faint small" title={upgradeNeedsPower(s, b)!}>⚡ Needs your own power</span> : <Confirm label={`Upgrade · ${money(upgradeCost(s, b))}`} className="btn ghost sm" disabled={upgradeCost(s, b) > s.cash} title={`Upgrade ${d.name.toLowerCase()} to level ${b.level + 1}?`} body={<>Costs <b>{money(upgradeCost(s, b))}</b>. {d.recipe ? 'More output per hour, but staff cost rises 30%.' : d.category === 'livestock' ? 'Room for more animals.' : 'More storage space.'}{nuisanceChange(b)}</>} onConfirm={() => act({ type: 'upgradeBuilding', buildingId: b.id })} confirmLabel="Upgrade" />}
           </div>
         ))}
         <div className="row wrap">

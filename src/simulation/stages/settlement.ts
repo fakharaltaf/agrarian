@@ -1,3 +1,4 @@
+import { nuisanceHappiness, settlementExposure } from '../nuisance';
 import { workingFactories } from './shared';
 import { accessNote, canPlaceNew, hasAccess, homeFootprint, placeNew } from '../world';
 import {releaseNeighbourJob} from '../employment';
@@ -81,7 +82,8 @@ export function settlementTick(s: GameState) {
   s.regions.heartland.inventory.fuel -= fuel;
   c.warm = fuelNeed ? fuel / fuelNeed : 1;
   const { housed } = wellbeing(s);
-  const target = clamp(0.55 * c.fed + 0.25 * housed + 0.2 * c.warm, 0, 1);
+  c.nuisance = settlementExposure(s); // smell and noise from the farm's buildings near the homes cost happiness; fresh bread lifts it
+  const target = clamp(0.55 * c.fed + 0.25 * housed + 0.2 * c.warm - nuisanceHappiness(c.nuisance), 0, 1);
   c.happiness += (target - c.happiness) * 0.2;
   if (c.homes.length) post(s, 'maintenance', -c.homes.reduce((n, h) => n + HOME_DEFS[h.tier].families * h.count * 0.5, 0) * s.macro.cpi, 'Community homes', 'heartland', 'corporate');
   // the housing tax: a share of the pay of every worker whose family lives here

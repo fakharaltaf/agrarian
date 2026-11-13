@@ -124,7 +124,8 @@ it('a well off its field pumps nothing, and wells stay where they were drilled',
 });
 
 it('a refinery is huge, turns crude into diesel, pulls the farm industrial, and smokes out the homes near it', async () => {
-  const { smokedShare, SMOKE_R, footprintOf } = await import('../simulation/world');
+  const { footprintOf } = await import('../simulation/world');
+  const { exposureAt, nuisanceSources } = await import('../simulation/nuisance');
   const s = industry(609), r = 'heartland' as const;
   s.regions.heartland.inventory.oil = 200;
   const lean = s.values.cleanIndustrial ?? 50;
@@ -136,9 +137,10 @@ it('a refinery is huge, turns crude into diesel, pulls the farm industrial, and 
   for (let i = 0; i < 6; i++) step(s);
   if (ref.reason !== 'No road access') { expect(s.regions.heartland.inventory.oil).toBeLessThan(200); expect(s.regions.heartland.inventory.fuel).toBeGreaterThan(fuel); }
   const [px, py] = worldOf(s, r).pos[`b:${ref.id}`], cx = px + fp.w / 2, cy = py + fp.d / 2;
-  expect(smokedShare(s, [{ x: cx + 5, y: cy, families: 3 }, { x: cx + SMOKE_R + 10, y: cy, families: 1 }])).toBeCloseTo(0.75);
+  expect(exposureAt(nuisanceSources(s), cx + 3, cy).smoke).toBeCloseTo(0.9); // close by: thick smoke
+  expect(exposureAt(nuisanceSources(s), cx + 40, cy).smoke).toBe(0); // beyond its 30 tiles
   ref.active = false; // a closed refinery stops smoking
-  expect(smokedShare(s, [{ x: cx + 5, y: cy, families: 3 }])).toBe(0);
+  expect(exposureAt(nuisanceSources(s), cx + 3, cy).smoke).toBe(0);
 });
 
 it('oil comes after the production houses, factories grow only on the farm\'s own power, and that power sets which way the farm leans', async () => {
@@ -185,4 +187,20 @@ it('once oil is struck, land near it costs up to 4x, easing back to normal furth
   expect(oilPremium(s, r, over)).toBeGreaterThan(3.5);
   expect(oilPremium(s, r, far)).toBe(1);
   expect(landCostOf(s, r, [over])).toBe(Math.round(landPrice(s, r, 0) * oilPremium(s, r, over)));
+});
+
+it('nuisance is rated per building and level: a village windmill and a bakery are good neighbours, a pigsty is not, and a big mill gets loud', async () => {
+  const { nuisanceOf, exposureAt, nuisanceHappiness } = await import('../simulation/nuisance');
+  expect(nuisanceOf('flourMill', 1)).toEqual({}); // a windmill
+  expect(nuisanceOf('flourMill', 3).noise).toBe(10); // a roller mill
+  expect(nuisanceOf('bakery', 1)).toEqual({ pleasant: 6 });
+  expect(nuisanceOf('barn', 1)).toEqual({});
+  expect(nuisanceOf('solar', 1)).toEqual({});
+  expect(nuisanceOf('pigsty', 2).smell).toBe(12);
+  expect(nuisanceOf('oilWell', 3)).toEqual(nuisanceOf('oilWell', 1)); // a well does not grow
+  const pig = { key: 'p', x: 0, y: 0, n: nuisanceOf('pigsty', 1) }, bread = { key: 'b', x: 0, y: 0, n: nuisanceOf('bakery', 1) };
+  const near = exposureAt([pig], 2, 0), far = exposureAt([pig], 12, 0);
+  expect(near.smell).toBeCloseTo(0.8); expect(far.smell).toBe(0);
+  expect(nuisanceHappiness(near)).toBeCloseTo(0.16); // 20 points at most
+  expect(nuisanceHappiness(exposureAt([bread], 0, 0))).toBeCloseTo(-0.05); // fresh bread cheers
 });

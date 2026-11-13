@@ -1,3 +1,4 @@
+import { nuisanceHappiness, NUISANCE_LOOK } from '../../simulation/nuisance';
 import { act, go, startZoning, useGame } from '../../stores/game';
 import { communityOf, familiesHere, HOME_DEFS, homeFamilies, homePrice, population } from '../../simulation/community-state';
 import { canStartTown } from '../../simulation/stages/town';
@@ -61,6 +62,8 @@ export default function CommunityPage() {
       <StatTile icon="🔥" value={cold ? pct0(c.warm) : '—'} label={cold ? 'warmth' : 'mild weather'} tone={cold ? toneOf(c.warm) : 'none'} />
       <StatTile icon="☺" value={pct0(c.happiness)} label="happiness" tone={toneOf(c.happiness, 0.7, 0.5)} />
     </div>
+    {c.nuisance && nuisanceHappiness(c.nuisance) > 0.01 && <p className="small muted">{(['smell', 'noise', 'smoke'] as const).filter((k) => c.nuisance![k] > 0.02).map((k) => `${NUISANCE_LOOK[k].icon} ${NUISANCE_LOOK[k].name.toLowerCase()}`).join(' · ')} near the homes costs about {pct0(nuisanceHappiness(c.nuisance))} happiness. Keep pigsties, biogas and big mills away from them.</p>}
+    {c.nuisance && c.nuisance.pleasant > 0.05 && nuisanceHappiness(c.nuisance) <= 0.01 && <p className="small muted">🍞 The bakery's fresh bread cheers the homes nearby.</p>}
     {next}
     {townOf(s).active && <button className="btn ghost civ-link" onClick={() => go('town')}>🏛 Town hall: schools, water, clinics →</button>}
     <Card title="Build homes" info="Homes only stand on land zoned residential. Each needs a road; a track is laid for it.">

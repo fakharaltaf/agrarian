@@ -1,3 +1,4 @@
+import { homesExposed, nuisanceOf, nuisanceSources, NUISANCE_LOOK, type NuisanceKind } from '../../simulation/nuisance';
 import { oilOpen } from '../../simulation/stages/shared';
 import { SERVICE_DEFS, SERVICE_GROUPS, serviceJobs, serviceRadius, townOf, UTILITY_OF, heatAt } from '../../simulation/town-state';
 import type { ServiceType } from '../../simulation/types';
@@ -16,7 +17,7 @@ import { featureEra, stageAtLeast } from '../../simulation/stages';
 import { preloadArt, artRevision, artModel, playClip } from './art';
 import { money, num, pct0 } from '../format';
 import { layoutRegion, type Layout, type Lot, type Plot } from './layout';
-import { CHUNK, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, LAND_HA_PER_PATCH, MAP, hasAccess, riverTiles, riverX, tileId, roadRoute, roadStretch, pipeRoute, pipeStretch, plotSide, fieldWater, wetTiers, SMOKE_R, linesOf, NET_TOP, UTILITY_NETS, netReach, doorstep, footprintOf, type NetKind, type UtilityNet, tileAt, forSaleAround,  ownedSet, ROAD_H, ROAD_Y, chunkAt, chunkOrigin, clearCost, clearedSet, isRoad, patchesAround, placeProblem, worldOf } from '../../simulation/world';
+import { CHUNK, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, LAND_HA_PER_PATCH, MAP, hasAccess, riverTiles, riverX, tileId, roadRoute, roadStretch, pipeRoute, pipeStretch, plotSide, fieldWater, wetTiers, linesOf, NET_TOP, UTILITY_NETS, netReach, doorstep, footprintOf, type NetKind, type UtilityNet, tileAt, forSaleAround,  ownedSet, ROAD_H, ROAD_Y, chunkAt, chunkOrigin, clearCost, clearedSet, isRoad, patchesAround, placeProblem, worldOf } from '../../simulation/world';
 import { animal, buildCivic, buildCommunityHome, buildLot, box, cached, cyl, farmhand, hauler, mat, mesh, PAL, person, tree, vehicle, type Model } from './models';
 import { haulOf, MARKET_X, marketRoute } from '../../simulation/hauling';
 import { landCostOf, oilOf, oilPremium, oilReading, struckFields, SURVEY_R, surveyedAt } from '../../simulation/oil';
@@ -664,12 +665,22 @@ function syncGhost(R: Rig, s: GameState, P: Placement | null, forest: [number, n
       const arrow = mesh(cached('doorarrow', () => new THREE.ConeGeometry(0.32, 0.55, 3).rotateX(Math.PI / 2).scale(1, 0.15, 1)), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, depthWrite: false }), P.at[0] + fx + ox * 0.45, 0.28, P.at[1] + fz + oz * 0.45, false);
       arrow.rotation.y = Math.atan2(ox, oz); R.ghost.add(arrow);
     }
-    // a refinery shows how far its smoke reaches: homes inside it lose health
-    const refining = (P.action.type === 'build' && P.action.building === 'refinery') || (P.key?.startsWith('b:') && s.buildings.find((b) => `b:${b.id}` === P.key)?.type === 'refinery');
-    if (refining) {
-      R.ghost.add(mesh(new THREE.RingGeometry(SMOKE_R - 0.25, SMOKE_R, 96).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xc0392b, transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthWrite: false }), P.at[0] + P.w / 2, 0.06, P.at[1] + P.d / 2, false));
-      R.ghost.add(mesh(new THREE.CircleGeometry(SMOKE_R, 96).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x7a6a5a, transparent: true, opacity: 0.12, depthWrite: false }), P.at[0] + P.w / 2, 0.05, P.at[1] + P.d / 2, false));
+    // nuisance: a building shows how far its smell, noise or smoke reaches at its level, with a marker over each home it would trouble;
+    // placing homes shows the rings already around the farm's buildings
+    const placedB = P.key?.startsWith('b:') ? s.buildings.find((b) => `b:${b.id}` === P.key) : undefined;
+    const nType = P.action.type === 'build' ? P.action.building : placedB?.type, own = nType ? nuisanceOf(nType, placedB?.level ?? 1) : {};
+    const ring = (x: number, z: number, r: number, color: number, strong: boolean) => {
+      R.ghost.add(mesh(new THREE.RingGeometry(r - (strong ? 0.22 : 0.12), r, 72).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: strong ? 0.85 : 0.55, side: THREE.DoubleSide, depthWrite: false }), x, 0.07, z, false));
+      if (strong) R.ghost.add(mesh(new THREE.CircleGeometry(r, 72).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.1, depthWrite: false }), x, 0.06, z, false));
+    };
+    const cx = P.at[0] + P.w / 2, cz = P.at[1] + P.d / 2;
+    for (const [k, r] of Object.entries(own) as [NuisanceKind, number][]) ring(cx, cz, r, NUISANCE_LOOK[k].color, true);
+    const harm = Math.max(own.smell ?? 0, own.noise ?? 0, own.smoke ?? 0);
+    if (harm) for (const h of homesExposed(getGame(), [{ key: 'ghost', x: cx, y: cz, n: own }])) {
+      const v = Math.min(1, h.e.smell + h.e.noise + h.e.smoke);
+      if (v > 0) R.ghost.add(mesh(cached('reach-pin', () => new THREE.OctahedronGeometry(0.32, 0)), new THREE.MeshBasicMaterial({ color: v > 0.5 ? 0xe0533d : 0xf2b82c }), h.x, 2.6, h.y, false));
     }
+    if (P.action.type === 'buildHomes' || P.key?.startsWith('home:')) for (const src of nuisanceSources(s, P.region)) for (const [k, r] of Object.entries(src.n) as [NuisanceKind, number][]) ring(src.x, src.y, r, NUISANCE_LOOK[k].color, false);
     // a town service shows its reach as a heat map (full in the middle, fading to its edge), with the others of its kind; utilities reach homes by their lines instead
     const svc = P.key?.startsWith('svc:') ? townOf(s).services.find((b) => `svc:${b.id}` === P.key) : undefined;
     const svcType = P.action.type === 'buildService' ? P.action.service : svc?.type;

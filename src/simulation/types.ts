@@ -305,6 +305,7 @@ export interface CommunityHome { id: number; tier: HomeTier; count: number; cost
 export interface HouseholdCohort { id: number; name: string; households: number; adults: number; children: number }
 export interface SettlementState {
   active: boolean;
+  /** what the homes live with, averaged over families (0–1 each): smell, noise, smoke, and the bakery's fresh bread */ nuisance?: { smell: number; noise: number; smoke: number; pleasant: number };
   /** Settlement pay policy (0–0.2 each): a pay cut for workers whose families live here, and a housing tax on them. */
   payCut?: number; housingTax?: number;
   /** Worker id → their family's cohort id. Only employees' families live in the settlement. */

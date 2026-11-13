@@ -124,15 +124,6 @@ export function placedIn(s: GameState, r: RegionId): Placed[] {
   return out;
 }
 
-/** How far a refinery's smoke reaches (tiles from its middle): families living inside it lose health. */
-export const SMOKE_R = 30;
-/** Share of the town's families living in a working refinery's smoke. */
-export function smokedShare(s: GameState, homes: { x: number; y: number; families: number }[]) {
-  const total = homes.reduce((n, h) => n + h.families, 0), w = worldOf(s, 'heartland');
-  if (!total) return 0;
-  const stacks = s.buildings.filter((b) => b.type === 'refinery' && b.active && b.region === 'heartland' && w.pos[`b:${b.id}`]).map((b) => { const p = w.pos[`b:${b.id}`], fp = footprintOf(s, `b:${b.id}`)!; return [p[0] + fp.w / 2, p[1] + fp.d / 2]; });
-  return homes.reduce((n, h) => n + (stacks.some(([x, y]) => (x - h.x) ** 2 + (y - h.y) ** 2 <= SMOKE_R * SMOKE_R) ? h.families : 0), 0) / total;
-}
 /** Saves from before industrial zoning: land under plants already standing becomes industrial, unless homes or fields share it. */
 export function zoneStandingIndustry(s: GameState) {
   for (const b of s.buildings) {
