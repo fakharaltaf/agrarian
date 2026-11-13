@@ -1102,7 +1102,7 @@ function netSources(s: GameState, kind: UtilityNet) {
 }
 /** Line tiles joined to one of the network's buildings. */
 const liveLines = (s: GameState, kind: UtilityNet) => netReach(worldOf(s, 'heartland'), kind, netSources(s, kind)).tier;
-const BANK = new THREE.Color(0x6e5a3a), MUD = new THREE.Color(0x3e3624), SLOP = new THREE.Color(0x5a6240);
+const SPOIL = new THREE.Color(0x7a6244);
 /** The town's utility lines. Power: wires on lattice pylons. Water: a pipe along the ground. Sewage: a murky ditch, then a concrete drain. Their top tier is underground and not drawn. */
 function utilityworks(s: GameState, r: RegionId) {
   const g = new THREE.Group();
@@ -1113,6 +1113,17 @@ function utilityworks(s: GameState, r: RegionId) {
   const inst = (geo: THREE.BufferGeometry, m: THREE.Material, list: THREE.Matrix4[], shadow = true) => { if (!list.length) return; const im = new THREE.InstancedMesh(geo, m, list.length); list.forEach((x, i) => im.setMatrixAt(i, x)); im.castShadow = shadow; im.receiveShadow = true; im.frustumCulled = false; g.add(im); };
   const rod = (list: THREE.Matrix4[], h: number) => (ax: number, az: number, bx: number, bz: number) => { q.setFromAxisAngle(Y, -Math.atan2(bz - az, bx - ax)); list.push(new THREE.Matrix4().compose(new THREE.Vector3((ax + bx) / 2, h, (az + bz) / 2), q, new THREE.Vector3(Math.hypot(bx - ax, bz - az), 1, 1))); };
   const ditch = new Decal(0.013);
+  // an open sewer: a timber-lined channel of murky water with scum on it, dug spoil along both banks
+  const boards: THREE.Matrix4[] = [], slop: THREE.Matrix4[] = [], scum: THREE.Matrix4[] = [], qq = new THREE.Quaternion();
+  const piece = (list: THREE.Matrix4[], x: number, y: number, z: number, ang: number, sx: number, sy: number, sz: number) => { qq.setFromAxisAngle(Y, ang); list.push(new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), qq, new THREE.Vector3(sx, sy, sz))); };
+  const sewerRun = (cx: number, cz: number, dx: number, dy: number, reach: number) => {
+    const mx = cx + (dx * reach) / 2, mz = cz + (dy * reach) / 2, ang = -Math.atan2(dy, dx), nx = -dy, nz = dx;
+    for (const side of [-1, 1]) piece(boards, mx + nx * side * 0.115, 0.035, mz + nz * side * 0.115, ang, reach + 0.03, 1, 1);
+    piece(slop, mx, 0.022, mz, ang, reach, 1, 1);
+    const h = Math.abs(Math.sin(cx * 12.9898 + cz * 78.233 + dx * 3 + dy * 7) * 43758.5453) % 1; // the same scum every time the town redraws
+    if (h < 0.6) piece(scum, cx + dx * reach * (0.2 + h), 0.032, cz + dy * reach * (0.2 + h) + (h - 0.3) * 0.06, h * 6, 0.6 + h, 1, 0.7 + h * 0.5);
+  };
+  const sewerCorner = (cx: number, cz: number) => piece(slop, cx, 0.022, cz, 0, 0.23, 1, 1); // fills the water across bends and junctions
   for (const kind of UTILITY_NETS) {
     const own = w.nets?.[kind]; if (!own) continue;
     const top = NET_TOP[kind], facTiles = new Set<number>();
@@ -1126,14 +1137,14 @@ function utilityworks(s: GameState, r: RegionId) {
       if (!t) continue;
       const cx = x + 0.5, cz = y + 0.5, same = D.filter(([dx, dy]) => shown(x + dx, y + dy) === t).length;
       const ditchy = kind === 'sewer' && t === 1;
-      if (ditchy) ditch.disc(cx, cz, [[0.06, SLOP, 1], [0.11, MUD, 1], [0.17, BANK, 0.9], [0.23, BANK, 0]]);
+      if (ditchy) { ditch.disc(cx, cz, [[0.12, SPOIL, 0], [0.13, SPOIL, 0.95], [0.2, SPOIL, 0.95], [0.3, SPOIL, 0]], 0.04); sewerCorner(cx, cz); }
       let joins = 0;
       for (const [dx, dy] of D) {
         const nid = tileId(x + dx, y + dy), nt = shown(x + dx, y + dy);
         const reach = nt === t ? 0.5 : own[nid] ? (same < 2 ? 0.5 : 0) : (homeTiles.has(nid) || facTiles.has(nid)) && same < 2 ? 0.5 : 0;
         if (!reach) continue;
         joins++;
-        if (ditchy) { ditch.seg(cx, cz, cx + dx * reach, cz + dy * reach, [[-0.23, BANK, 0], [-0.17, BANK, 0.9], [-0.11, MUD, 1], [-0.06, SLOP, 1], [0.06, SLOP, 1], [0.11, MUD, 1], [0.17, BANK, 0.9], [0.23, BANK, 0]], { step: 0.25, edge: 0.03 }); continue; }
+        if (ditchy) { ditch.seg(cx, cz, cx + dx * reach, cz + dy * reach, [[-0.3, SPOIL, 0], [-0.2, SPOIL, 0.95], [-0.13, SPOIL, 0.95], [-0.12, SPOIL, 0], [0.12, SPOIL, 0], [0.13, SPOIL, 0.95], [0.2, SPOIL, 0.95], [0.3, SPOIL, 0]], { step: 0.25, edge: 0.04 }); sewerRun(cx, cz, dx, dy, reach); continue; } // spoil on the banks only, so the water shows
         if (nt === t) { if (dx > 0 || dy > 0) line(cx, cz, cx + dx, cz + dy); continue; }
         line(cx, cz, cx + dx * reach, cz + dy * reach); joints.push(new THREE.Matrix4().makeTranslation(cx + dx * reach, H, cz + dy * reach));
       }
@@ -1151,7 +1162,10 @@ function utilityworks(s: GameState, r: RegionId) {
       inst(cached(`usaddle${r0}`, () => new THREE.BoxGeometry(0.16, H - r0 * 0.5, 0.12).translate(0, (H - r0 * 0.5) / 2, 0)), mat(0xb4b0a6), posts);
     }
   }
-  if (ditch.pos.length) { const m = ditch.mesh(true); m.renderOrder = 1; g.add(m); }
+  if (ditch.pos.length) { const m = ditch.mesh(true, roadGrain()); m.renderOrder = 1; g.add(m); }
+  inst(cached('sewer-board', () => new THREE.BoxGeometry(1, 0.07, 0.04)), mat(PAL.woodDark), boards);
+  inst(cached('sewer-slop', () => new THREE.BoxGeometry(1, 0.012, 0.2)), mat(0x5f5b2c, { rough: 0.2, metal: 0.15 }), slop, false); // a wet sheen catches the light
+  inst(cached('sewer-scum', () => new THREE.CylinderGeometry(0.05, 0.05, 0.006, 7)), mat(0x9c9868, { rough: 0.9 }), scum, false);
   return g;
 }
 /** Road mode: the route a new road would take, or the stretch that would be upgraded or removed. */
