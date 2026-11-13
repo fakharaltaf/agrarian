@@ -172,3 +172,17 @@ it('oil comes after the production houses, factories grow only on the farm\'s ow
   expect(dispatch(s, { type: 'upgradeBuilding', buildingId: mill.id })).toMatchObject({ ok: true, note: expect.stringMatching(/industrial/) });
   expect(s.values.cleanIndustrial).toBeGreaterThan(lean2);
 });
+
+it('once oil is struck, land near it costs up to 4x, easing back to normal further out', async () => {
+  const { oilPremium, landCostOf } = await import('../simulation/oil');
+  const { chunkAt, landPrice } = await import('../simulation/world');
+  const { emptyProductionReport } = await import('../simulation/production-report');
+  const s = industry(611), r = 'heartland' as const, f = oilFields(r)[0];
+  const over = chunkAt(Math.round(f.x), Math.round(f.y)), far = chunkAt(Math.round(f.x + f.r * 8), Math.round(f.y));
+  expect(oilPremium(s, r, over)).toBe(1); // nobody knows yet
+  s.buildings.push({ id: 9950, type: 'oilWell', region: r, active: true, level: 1, cost: 0, depreciated: 0, util: 0, reserved: 0, reason: '', productionReport: emptyProductionReport(), stats: { out: 0, inCost: 0, outValue: 0, opCost: 0 } });
+  worldOf(s, r).pos['b:9950'] = [Math.round(f.x) - 1, Math.round(f.y) - 1];
+  expect(oilPremium(s, r, over)).toBeGreaterThan(3.5);
+  expect(oilPremium(s, r, far)).toBe(1);
+  expect(landCostOf(s, r, [over])).toBe(Math.round(landPrice(s, r, 0) * oilPremium(s, r, over)));
+});

@@ -2,7 +2,7 @@
 // (roughly: the reading is noisy, so some warm patches are false and some fields read faint); drilling there usually
 // strikes, drilling blind rarely does. A strike becomes a working oil well that draws on its field's reserve. Each field
 // suits a balanced number of wells; more than that drops its pressure and wastes oil, so it runs dry sooner.
-import { MAP, worldOf } from './world';
+import { CHUNK, MAP, chunkOrigin, landPrice, worldOf } from './world';
 import type { RegionId } from './config';
 import type { Building, GameState } from './types';
 
@@ -87,3 +87,17 @@ export function drawOil(s: GameState, b: Building, barrels: number) {
   const k = `${b.region}:${f.i}`, O = oilOf(s);
   O.drawn[k] = (O.drawn[k] ?? 0) + barrels * f.drain;
 }
+/** Once oil is struck it is no secret: land near a field that has (or had) wells costs up to 4× its price right over the oil, easing back to normal three field-widths away. */
+export function oilPremium(s: GameState, r: RegionId, chunk: number) {
+  const [ox, oy] = chunkOrigin(chunk), x = ox + CHUNK / 2, y = oy + CHUNK / 2, O = oilOf(s);
+  let best = 1;
+  oilFields(r).forEach((f, i) => {
+    const known = s.buildings.some((b) => b.type === 'oilWell' && b.region === r && wellField(s, b)?.i === i) || (O.drawn[`${r}:${i}`] ?? 0) > 0;
+    if (!known) return;
+    const near = Math.max(0, 1 - Math.hypot(x - f.x, y - f.y) / (f.r * 6));
+    best = Math.max(best, 1 + 3 * near * near);
+  });
+  return best;
+}
+/** What these patches cost to buy, each patch at its place in the queue and with its oil premium. */
+export const landCostOf = (s: GameState, r: RegionId, chunks: number[]) => chunks.reduce((a, c, i) => a + Math.round(landPrice(s, r, i) * oilPremium(s, r, c)), 0);

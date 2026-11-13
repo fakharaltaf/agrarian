@@ -1,7 +1,7 @@
 import { FOOD_FACTORY } from './core';
 import { energyMix, oilOpen, upgradeNeedsPower } from './stages/shared';
 import { bestRetailCentre } from './facility-levels';
-import { DRILL_PRICE, oilChance, oilOf, SURVEY_PRICE, SURVEY_R, surveyedAt } from './oil';
+import { DRILL_PRICE, oilChance, oilOf, SURVEY_PRICE, SURVEY_R, surveyedAt, landCostOf } from './oil';
 import { haulDaily, haulOf, haulTick, usesCarts, VEHICLES } from './hauling';
 import { emptyProductionReport } from './production-report';
 import { payHouseholds } from './town-state';
@@ -12,7 +12,7 @@ import {
 } from './config';
 import { buildingDivision, clamp, debt, factoryCrop, equity, freeSpace, has, known, log, marketWage, nextId, post, random, round2, todayBook, lean } from './core';
 import { addGoods, canGrow, clearField, fertilizeField, fieldsTick, frostNight, harvestField, isManual, isReady, newField, plantField, spoilageDaily } from './agriculture';
-import { reconcileWorld, unlink, accessNote, cutsOff, buyable, chunksIn, connect, placedIn, touch, useOf, buildingUse, INDUSTRY_TO_GROW, WATER_LEVEL, NET_PRICE, NET_TIERS, NET_TOP, linesOf, pipeRoute, pipeStretch, hasWater, isRoad, MAP, ROAD_GRADES, ROAD_H, roadRoute, roadStretch, roadTilePrice, tileId, canPlaceNew, LAND_HA_PER_PATCH, landCost, own, ownedSet, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, clearCost, clearedSet, FOOTPRINT, footprintOf, forget, rotOf, turned, MOVE_DOWNTIME, placeNew, placeProblem, plotSide, PROBLEM_TEXT, seedWorld, TIMBER_PER_PATCH, worldOf } from './world';
+import { reconcileWorld, unlink, accessNote, cutsOff, buyable, chunksIn, connect, placedIn, touch, useOf, buildingUse, INDUSTRY_TO_GROW, WATER_LEVEL, NET_PRICE, NET_TIERS, NET_TOP, linesOf, pipeRoute, pipeStretch, hasWater, isRoad, MAP, ROAD_GRADES, ROAD_H, roadRoute, roadStretch, roadTilePrice, tileId, canPlaceNew, LAND_HA_PER_PATCH,  own, ownedSet, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, clearCost, clearedSet, FOOTPRINT, footprintOf, forget, rotOf, turned, MOVE_DOWNTIME, placeNew, placeProblem, plotSide, PROBLEM_TEXT, seedWorld, TIMBER_PER_PATCH, worldOf } from './world';
 import { buyAnimals, livestockDaily, sellAnimals } from './livestock';
 import { claimDaily, startDay } from './daily';
 import { createMarkets, drawWeather, executeBuy, executeSell, quoteBuy, macroDaily, marketsDaily, marketsTick, priceFromInv } from './markets';
@@ -652,7 +652,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       if (!Array.isArray(a.chunks) || a.chunks.length > 25) return fail('Buy at most 25 patches at a time.');
       const w = worldOf(s, a.region), chunks = buyable(w, [...new Set(a.chunks)].filter(Number.isInteger));
       if (!chunks.length) return fail('Land you buy must join land you already own.');
-      const cost = landCost(s, a.region, chunks.length);
+      const cost = landCostOf(s, a.region, chunks); // land near struck oil costs more
       if (cost > s.cash) return fail(`That land costs $${cost.toLocaleString()}.`);
       post(s, 'land', -cost, `Land: ${chunks.length} patch${chunks.length === 1 ? '' : 'es'} (${chunks.length * LAND_HA_PER_PATCH} ha)`, a.region);
       own(w, chunks);

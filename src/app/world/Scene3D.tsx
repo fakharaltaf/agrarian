@@ -16,10 +16,10 @@ import { featureEra, stageAtLeast } from '../../simulation/stages';
 import { preloadArt, artRevision, artModel, playClip } from './art';
 import { money, num, pct0 } from '../format';
 import { layoutRegion, type Layout, type Lot, type Plot } from './layout';
-import { CHUNK, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, LAND_HA_PER_PATCH, MAP, hasAccess, riverTiles, riverX, tileId, roadRoute, roadStretch, pipeRoute, pipeStretch, plotSide, fieldWater, wetTiers, SMOKE_R, linesOf, NET_TOP, UTILITY_NETS, netReach, doorstep, footprintOf, type NetKind, type UtilityNet, tileAt, forSaleAround, landCost, ownedSet, ROAD_H, ROAD_Y, chunkAt, chunkOrigin, clearCost, clearedSet, isRoad, patchesAround, placeProblem, worldOf } from '../../simulation/world';
+import { CHUNK, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, LAND_HA_PER_PATCH, MAP, hasAccess, riverTiles, riverX, tileId, roadRoute, roadStretch, pipeRoute, pipeStretch, plotSide, fieldWater, wetTiers, SMOKE_R, linesOf, NET_TOP, UTILITY_NETS, netReach, doorstep, footprintOf, type NetKind, type UtilityNet, tileAt, forSaleAround,  ownedSet, ROAD_H, ROAD_Y, chunkAt, chunkOrigin, clearCost, clearedSet, isRoad, patchesAround, placeProblem, worldOf } from '../../simulation/world';
 import { animal, buildCivic, buildCommunityHome, buildLot, box, cached, cyl, farmhand, hauler, mat, mesh, PAL, person, tree, vehicle, type Model } from './models';
 import { haulOf, MARKET_X, marketRoute } from '../../simulation/hauling';
-import { oilOf, oilReading, struckFields, SURVEY_R, surveyedAt } from '../../simulation/oil';
+import { landCostOf, oilOf, oilPremium, oilReading, struckFields, SURVEY_R, surveyedAt } from '../../simulation/oil';
 
 /** Graphics quality chosen in Settings (per browser). Low turns off shadows and high-DPI rendering. */
 export const graphicsQuality = (): 'high' | 'low' => {
@@ -1729,8 +1729,9 @@ function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el
       want.push({ ...at, html: one || nine ? (one ? button('clear1:0', `🪓 Clear patch · $${num(clearCost(s))}`) : '') + (nine > 1 ? button('clear9:0', `🪓 Clear ${nine} · $${num(clearCost(s) * nine)}`) : '') + button('placecancel:0', '✕') : `<span class="wl-grow">Already being cleared</span>${button('placecancel:0', '✕')}` });
     } else {
       // land beyond the farm's boundary: buy it first (it must join land you own)
-      const one = forSaleAround(s, R.region, forestAt[0], forestAt[1], 1).length, nine = forSaleAround(s, R.region, forestAt[0], forestAt[1], 3).length;
-      want.push({ ...at, html: one || nine ? (one ? button('buy1:0', `🏷 Buy ${LAND_HA_PER_PATCH} ha · $${num(landCost(s, R.region, 1))}`) : '') + (nine > 1 ? button('buy9:0', `🏷 Buy ${nine * LAND_HA_PER_PATCH} ha · $${num(landCost(s, R.region, nine))}`) : '') + button('placecancel:0', '✕') : `<span class="wl-grow">Not for sale yet: buy the land next to yours first</span>${button('placecancel:0', '✕')}` });
+      const ones = forSaleAround(s, R.region, forestAt[0], forestAt[1], 1), nines = forSaleAround(s, R.region, forestAt[0], forestAt[1], 3), one = ones.length, nine = nines.length;
+      const oil = ones.length ? oilPremium(s, R.region, ones[0]) : 1, oilTag = oil >= 1.05 ? ` · 🛢 ×${oil.toFixed(1)}` : ''; // near struck oil, land is dear
+      want.push({ ...at, html: one || nine ? (one ? button('buy1:0', `🏷 Buy ${LAND_HA_PER_PATCH} ha · $${num(landCostOf(s, R.region, ones))}${oilTag}`) : '') + (nine > 1 ? button('buy9:0', `🏷 Buy ${nine * LAND_HA_PER_PATCH} ha · $${num(landCostOf(s, R.region, nines))}`) : '') + button('placecancel:0', '✕') : `<span class="wl-grow">Not for sale yet: buy the land next to yours first</span>${button('placecancel:0', '✕')}` });
     }
   }
   const queue = worldOf(s, R.region).queue;
