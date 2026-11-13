@@ -1743,7 +1743,7 @@ function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el
       // land beyond the farm's boundary: buy it first (it must join land you own)
       const ones = forSaleAround(s, R.region, forestAt[0], forestAt[1], 1), nines = forSaleAround(s, R.region, forestAt[0], forestAt[1], 3), one = ones.length, nine = nines.length;
       const oil = ones.length ? oilPremium(s, R.region, ones[0]) : 1, oilTag = oil >= 1.05 ? ` · 🛢 ×${oil.toFixed(1)}` : ''; // near struck oil, land is dear
-      want.push({ ...at, html: one || nine ? (one ? button('buy1:0', `🏷 Buy ${LAND_HA_PER_PATCH} ha · $${num(landCostOf(s, R.region, ones))}${oilTag}`) : '') + (nine > 1 ? button('buy9:0', `🏷 Buy ${nine * LAND_HA_PER_PATCH} ha · $${num(landCostOf(s, R.region, nines))}`) : '') + button('placecancel:0', '✕') : `<span class="wl-grow">Not for sale yet: buy the land next to yours first</span>${button('placecancel:0', '✕')}` });
+      want.push({ ...at, html: one || nine ? (one ? button('buy1:0', `🏷 Buy ${LAND_HA_PER_PATCH} ha · $${num(landCostOf(s, R.region, ones))}${oilTag}`) : '') + (nine > 1 ? button('buy9:0', `🏷 Buy ${nine * LAND_HA_PER_PATCH} ha · $${num(landCostOf(s, R.region, nines))}`) : '') + button('placecancel:0', '✕') : `<span class="wl-grow">Not for sale yet: buy land next to yours or on the main road first</span>${button('placecancel:0', '✕')}` });
     }
   }
   const queue = worldOf(s, R.region).queue;

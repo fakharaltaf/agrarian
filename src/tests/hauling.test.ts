@@ -92,3 +92,17 @@ it('a ditch started on the river bank (the drawn river is wider than its tiles) 
   expect(W.fieldWater(s, r, key).points).toBeGreaterThan(0);
   expect(W.fieldWater({ ...s }, r, key).need).toBe(Math.ceil(W.plotSide(f.ha) / 8));
 });
+
+it('land on the main road is for sale even away from the farm, and land joining it after that', async () => {
+  const W = await import('../simulation/world');
+  const s = createGame(505); post(s, 'prize', 1_000_000, 'fixture');
+  const w = W.worldOf(s, 'heartland'), far = W.chunkAt(W.MAP.x0 + W.MAP.w - 6, W.ROAD_Y + 4), inland = W.chunkAt(W.MAP.x0 + W.MAP.w - 6, W.ROAD_Y + 20);
+  expect(W.onMainRoad(far)).toBe(true);
+  expect(W.ownedSet(w).has(far)).toBe(false);
+  expect(dispatch(s, { type: 'buyLand', region: 'heartland', chunks: [inland] }).ok).toBe(false); // off the road and away from the farm
+  expect(dispatch(s, { type: 'buyLand', region: 'heartland', chunks: [far] }).ok).toBe(true);
+  expect(W.ownedSet(w).has(far)).toBe(true);
+  const next = far + W.CHUNKS_X; // the patch behind it, away from the road
+  expect(W.onMainRoad(next)).toBe(false);
+  expect(dispatch(s, { type: 'buyLand', region: 'heartland', chunks: [next] }).ok).toBe(true); // joins the new roadside patch
+});

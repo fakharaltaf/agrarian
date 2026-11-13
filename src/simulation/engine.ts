@@ -651,7 +651,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       if (!s.regions[a.region]?.unlocked) return fail('You have no operations there.');
       if (!Array.isArray(a.chunks) || a.chunks.length > 25) return fail('Buy at most 25 patches at a time.');
       const w = worldOf(s, a.region), chunks = buyable(w, [...new Set(a.chunks)].filter(Number.isInteger));
-      if (!chunks.length) return fail('Land you buy must join land you already own.');
+      if (!chunks.length) return fail('Land you buy must join land you already own or the main road.');
       const cost = landCostOf(s, a.region, chunks); // land near struck oil costs more
       if (cost > s.cash) return fail(`That land costs $${cost.toLocaleString()}.`);
       post(s, 'land', -cost, `Land: ${chunks.length} patch${chunks.length === 1 ? '' : 'es'} (${chunks.length * LAND_HA_PER_PATCH} ha)`, a.region);

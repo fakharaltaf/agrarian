@@ -86,9 +86,12 @@ export function landFrontier(s: GameState, r: RegionId, n: number) {
   return out.sort((a, b) => a[1] - b[1] || a[0] - b[0]).slice(0, n).map((x) => x[0]);
 }
 /** Which of these patches can be bought together: each must join land already owned (or another patch in the same deal). */
+/** A patch on the main road (it holds or borders the road): the road gives it access, so it is for sale even away from the farm. */
+export const onMainRoad = (c: number) => { const oy = MAP.y0 + Math.floor(c / CHUNKS_X) * CHUNK; return oy <= ROAD_Y + ROAD_H && oy + CHUNK >= ROAD_Y; };
+/** Patches you may buy: next to land you own or on the main road, and anything bought with them that joins up to those. */
 export function buyable(w: RegionWorld, chunks: number[]) {
   const owned = new Set(w.owned), want = new Set(chunks.filter((c) => c >= 0 && c < CHUNKS_X * CHUNKS_Y && !owned.has(c))), out: number[] = [];
-  for (let grew = true; grew;) { grew = false; for (const c of want) if (neighbours(c).some((x) => owned.has(x))) { owned.add(c); want.delete(c); out.push(c); grew = true; } }
+  for (let grew = true; grew;) { grew = false; for (const c of want) if (onMainRoad(c) || neighbours(c).some((x) => owned.has(x))) { owned.add(c); want.delete(c); out.push(c); grew = true; } }
   return out;
 }
 export const isRoad = (y: number) => y >= ROAD_Y && y < ROAD_Y + ROAD_H;
