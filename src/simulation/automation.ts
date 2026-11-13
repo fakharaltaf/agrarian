@@ -6,7 +6,7 @@ import { caravanReserve } from './region-state';
 // through the same primitives as the player, and never below the cash reserve.
 import { ANIMALS, BUILDINGS, CONFIG, CROPS, DAYS_PER_YEAR, GOODS, GOOD_IDS, MACHINES, REGIONS, REGION_IDS, TICKS_PER_DAY, WORK_END, WORK_START, type CropId, type GoodId, type RegionId } from './config';
 import { canGrow, expectedYield, readyAt, fertility, fertilizeField, soilAdequacy, spreadingCost, spreadNeed, warnOnce } from './agriculture';
-import { buildingsIn, clamp, freeSpace, levelMult, reservedStock, debt, execOn, has, hour, log, nextId, post, priceUsd, seasonOf, seedCost, stored, totalAssets } from './core';
+import { buildingsIn, clamp, freeSpace, throughput, reservedStock, debt, execOn, has, hour, log, nextId, post, priceUsd, seasonOf, seedCost, stored, totalAssets } from './core';
 import { affordableBuy, avg30, closedPort, executeBuy, executeSell, forecast, marketDepth } from './markets';
 import { CONTRACT_SIZE, FUTURES_GOODS, openFutures, futuresPrice, closeFutures } from './finance';
 import { autoBudget, machineRate, serviceCost, service } from './operations';
@@ -146,7 +146,7 @@ export function millValue(s: GameState, r: RegionId, c: CropId) {
     const rec = BUILDINGS[b.type].recipe;
     const per = rec?.inputs[c];
     if (!b.active || !rec || !per) continue;
-    const perHour = per * rec.batchesPerHour * levelMult(b.level) * townIndustryFactor(s,b.region);
+    const perHour = per * rec.batchesPerHour * throughput(b) * townIndustryFactor(s,b.region);
     if (s.regions[r].inventory[c] > perHour * 48) continue; // two days of stock already waiting
     const out = Object.entries(rec.outputs).reduce((a, [g, q]) => a + (s.markets[r][g as GoodId]?.price ?? 0) * q!, 0);
     best = Math.max(best, (out - BUILDINGS[b.type].staffPerHour * s.macro.cpi / (rec.batchesPerHour * townIndustryFactor(s,b.region))) / per);

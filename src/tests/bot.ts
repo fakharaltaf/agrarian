@@ -101,7 +101,7 @@ export function botAct(s: GameState, strategy: Strategy = 'balanced', civicPrior
     const parcel = strategy === 'volume' ? 25 : s.cash > 300000 ? 25 : 5;
     const cap = strategy === 'volume' ? 3000 : civic ? 600 : 1200;
     // grow the land first; the lab and mill chain only once the farm is big enough to carry them
-    const needsChain = !s.legacyProgression && s.stageId === 'industry' && totalHa(s) >= 80 && (!hasB(s, 'heartland', 'lab') || (strategy !== 'volume' && !hasB(s, 'heartland', 'flourMill')));
+    const needsChain = !s.legacyProgression && s.stageId === 'industry' && totalHa(s) >= 80 && (!hasB(s, 'heartland', 'lab') || !hasB(s, 'heartland', 'flourMill') || (!s.legacyProgression && !hasB(s, 'heartland', 'bakery')));
     if (civicReady && !needsChain && s.cash > parcelPrice(s, 'heartland', parcel) * 1.5 + 15000 && totalHa(s) < cap) dispatch(s, { type: 'buyParcel', region: 'heartland', ha: parcel });
     for (const l of s.loans) if (s.cash > 100000) dispatch(s, { type: 'repayLoan', loanId: l.id, amount: Math.min(l.balance, s.cash - 80000) });
   }
@@ -109,11 +109,14 @@ export function botAct(s: GameState, strategy: Strategy = 'balanced', civicPrior
     if (!hasB(s, 'heartland', 'lab') && s.cash > 45000 && (s.legacyProgression || totalHa(s) >= 80)) dispatch(s, { type: 'build', region: 'heartland', building: 'lab' });
     if (!s.research.active) for (const t of ['farmSoftware', 'improvedSeeds', 'soilTesting', 'mech2', 'solar', 'processEfficiency', 'routeOptimization', 'dripIrrigation', 'predictiveMaintenance', 'coldChain', 'advancedLab'])
       if (dispatch(s, { type: 'research', tech: t }).ok) break;
+    // every strategy runs a chain in Industry (it is what the chapter asks for): a mill, then a bakery fed by it
+    if (!hasB(s, 'heartland', 'flourMill') && s.cash > 37500) dispatch(s, { type: 'build', region: 'heartland', building: 'flourMill' });
+    if (!s.legacyProgression && hasB(s, 'heartland', 'flourMill') && !hasB(s, 'heartland', 'bakery') && s.cash > 55000) dispatch(s, { type: 'build', region: 'heartland', building: 'bakery' });
+    P.supplyFactories = true;
     if (strategy !== 'volume') {
-      if (!hasB(s, 'heartland', 'flourMill') && s.cash > 37500) dispatch(s, { type: 'build', region: 'heartland', building: 'flourMill' });
       if (strategy === 'processor') for (const b of ['feedMill', 'warehouse', 'bakery', 'ranch'] as BuildingType[]) if (!hasB(s, 'heartland', b) && s.cash > 150000) dispatch(s, { type: 'build', region: 'heartland', building: b });
     }
-    if (s.tick % 6 === 0) for (const g of ['flour', 'feed', 'bread', 'meat', 'milk'] as GoodId[]) if (s.regions.heartland.inventory[g] > 10) dispatch(s, { type: 'sell', region: 'heartland', good: g, qty: Math.min(s.regions.heartland.inventory[g], s.markets.heartland[g]!.d0) });
+    if (s.tick % 6 === 0) for (const g of ['flour', 'feed', 'bread', 'meat', 'milk'] as GoodId[]) if (s.regions.heartland.inventory[g] > (g === 'flour' && hasB(s, 'heartland', 'bakery') ? 2000 : 10)) dispatch(s, { type: 'sell', region: 'heartland', good: g, qty: Math.min(s.regions.heartland.inventory[g], s.markets.heartland[g]!.d0) });
   }
   if (s.era >= 6 && civicReady) {
     for (const r of ['river', 'tropics'] as RegionId[]) if (!s.regions[r].unlocked && s.cash > 250000) dispatch(s, { type: 'unlockRegion', region: r });

@@ -1,8 +1,9 @@
+import { workingFactories } from './shared';
 import { accessNote, canPlaceNew, hasAccess, homeFootprint, placeNew } from '../world';
 import {releaseNeighbourJob} from '../employment';
 import type { StageModule } from './types';
 import type { Action, ActionResult, GameState } from '../types';
-import { CHAPTER_SALES, BUILDINGS, GOODS, type GoodId } from '../config';
+import { CHAPTER_SALES, BUILDINGS, GOODS, type GoodId, INDUSTRY_FACTORY_SALES } from '../config';
 import { clamp, freeSpace, log, marketWage, nextId, post, reservedStock, round2 } from '../core';
 import { localEmployment, townOf } from '../town-state';
 import { executeBuy, quoteBuy } from '../markets';
@@ -21,7 +22,8 @@ export function canStartSettlement(s: GameState) {
   return !communityOf(s).active && (s.legacyProgression ? s.era >= 4 : s.stageId === 'industry')
     && (s.lifetime.sale ?? 0) + (s.lifetime.contract ?? 0) >= CHAPTER_SALES.industry
     && s.workers.filter(w => w.role === 'hand').length >= 2
-    && (s.machines.some(m => m.type !== 'truck') || s.buildings.some(b => BUILDINGS[b.type].category === 'processing'));
+    && (s.legacyProgression ? s.machines.some(m => m.type !== 'truck') || s.buildings.some(b => BUILDINGS[b.type].category === 'processing')
+      : workingFactories(s) >= 2 && (s.stats.factorySales ?? 0) >= INDUSTRY_FACTORY_SALES); // Industry is about factories: a working chain and its goods sold
 }
 const available = (s: GameState, g: GoodId) => Math.max(0, s.regions.heartland.inventory[g] - reservedStock(s, 'heartland', g));
 /** Policy allocation is updated by the engine, never by UI reads. */

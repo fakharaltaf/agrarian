@@ -1,6 +1,7 @@
+import { workingFactories } from './stages/shared';
 // Eras, unlocks, objectives and milestones. Progress comes from measurable business results.
 import { worldOf } from './world';
-import { CHAPTER_SALES, BUILDINGS, CROPS, CROP_IDS, ERAS, GOODS, REGION_IDS, type CropId } from './config';
+import { CHAPTER_SALES, BUILDINGS, CROPS, CROP_IDS, ERAS, GOODS, REGION_IDS, type CropId, INDUSTRY_FACTORY_SALES } from './config';
 import { equity, has, log, stored } from './core';
 import { fertility, growth, isReady } from './agriculture';
 import { topShare } from './corporate';
@@ -226,7 +227,7 @@ export function chapterGate(s: GameState): GateRow[] | null {
     case 'homestead': return [row('Fields', s.fields.length, 4), row('Sales', sales, HOMESTEAD_SALES_GOAL, 'money')];
     case 'market-town': return [{ ...row('Fields', s.fields.length, 12), either: true }, { ...row('Sales', sales, CHAPTER_SALES['market-town'], 'money'), either: true }];
     case 'farm-business': return [row('Farm hands', hands, 2), row('Sales', sales, CHAPTER_SALES['farm-business'], 'money')];
-    case 'industry': return [row('Sales', sales, CHAPTER_SALES.industry, 'money'), row('Tractor or factory', s.machines.some((m) => m.type !== 'truck') || s.buildings.some((b) => BUILDINGS[b.type].category === 'processing') ? 1 : 0, 1), row('Farm hands', hands, 2)];
+    case 'industry': return [row('Sales', sales, CHAPTER_SALES.industry, 'money'), row('Production houses working', workingFactories(s), 2), row('Factory goods sold', s.stats.factorySales ?? 0, INDUSTRY_FACTORY_SALES, 'money'), row('Farm hands', hands, 2)];
     case 'settlement': return [row('Families settled', familiesHere(s), 6), row('Happiness', c.happiness, .6, 'pct'), row('Fed', c.fed, .9, 'pct')];
     case 'town': return [row('Residents', population(s), 400), row('Schooling', t.education, .6, 'pct'), row('Health', t.health, .7, 'pct'), row('Fed', c.fed, .9, 'pct')];
     case 'city': {
@@ -320,11 +321,13 @@ export function objective(s: GameState): { title: string; hint: string; page?: s
       if (s.eraReady) return { title: 'Your workers want their families nearby', hint: 'Settlement is the next chapter. Your farm and factories keep running.', page: 'overview' };
       const ip = moneyProgress(sales, CHAPTER_SALES.industry);
       if (!s.machines.some((m) => m.type !== 'truck')) return { title: 'Buy or lease your first tractor', hint: `One tractor does the work of several hands. ${ip}.`, page: 'equipment' };
-      if (!s.buildings.some((b) => BUILDINGS[b.type].category === 'processing')) return { title: 'Build your first mill', hint: `Processing adds value to crops, but it needs steady inputs and labour. ${ip}.`, page: 'production' };
+      const fs = moneyProgress(s.stats.factorySales ?? 0, INDUSTRY_FACTORY_SALES);
+      if (!s.buildings.some((b) => BUILDINGS[b.type].category === 'processing' && b.type !== 'oilWell')) return { title: 'Build your first mill', hint: `A flour mill turns wheat into flour worth about twice as much. Industry asks for two working production houses and ${fs} of factory goods sold.`, page: 'production' };
       if (!s.buildings.some((b) => b.type === 'lab') && sales < 1_200_000) return { title: 'Build a research station', hint: `Research cuts costs and opens new crops and machines. ${ip}.`, page: 'production' };
       if (!s.research.active && !s.research.done.length && sales < 1_600_000) return { title: 'Start your first research project', hint: `Pick something that fixes today’s biggest cost. ${ip}.`, page: 'research' };
       if (!s.futures.length && !s.contracts.some((c) => c.accepted) && sales < 2_000_000) return { title: 'Lock in a price', hint: `A supply contract or a futures hedge protects you from price swings. ${ip}.`, page: 'markets' };
-      if (s.buildings.filter((b) => BUILDINGS[b.type].category === 'processing').length < 2 && sales < 2_500_000) return { title: 'Add a second factory', hint: `A feed mill or bakery turns one chain into a business. ${ip}.`, page: 'production' };
+      if (workingFactories(s) < 2) return { title: 'Get two production houses working', hint: `A bakery after your mill turns flour into bread worth twice as much again. ${workingFactories(s)}/2 working · factory goods ${fs}.`, page: 'production' };
+      if ((s.stats.factorySales ?? 0) < INDUSTRY_FACTORY_SALES) return { title: `Sell factory goods · ${fs}`, hint: `Upgrades double a line's output. ${ip}.`, page: 'production' };
       return { title: `Grow into industry · ${ip}`, hint: 'Build a reliable farm-to-factory chain before moving on.', page: 'production' };
     }
     if (s.eraReady) return { title: `Next chapter: ${STAGES[NEXT_STAGE[s.stageId]!]?.title ?? 'Frontier'}`, hint: 'You choose when to move on. Your farm keeps operating.', page: 'overview' };

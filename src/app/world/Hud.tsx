@@ -5,7 +5,7 @@ import { townOf, SERVICE_DEFS, UTILITY_OF, levelOf, serviceUpgradePrice, utility
 // Everything that floats over the world: objective, selection panel, market, land, region switcher.
 import { useEffect, useRef, useState } from 'react';
 import { ANIMALS, ANIMAL_IDS, BUILDINGS, CONFIG, ERAS, GOODS, REGIONS, type CropId, type RegionId } from '../../simulation/config';
-import { known } from '../../simulation/core';
+import { known, throughput } from '../../simulation/core';
 import { buildingMargin } from '../../simulation/processing';
 import { DISCOVERIES, ERA_UNLOCK_TEXT, dailyGoals, dailyPrize, forecast, herdOf, homePlotPrice, housing, isManual, isReady, objective, chapterGate, gateProgress, type GateRow, PAGES, seedShortfall, upgradeCost } from '../../simulation/engine';
 import type { CivicService, GameState } from '../../simulation/types';
@@ -555,7 +555,7 @@ function LotPanel({ s, lot, region, onClose }: { s: GameState; lot: Lot; region:
         {d.category === 'livestock' && <HerdInfo s={s} lot={lot} />}
         {known(s, 'upgrades') && bs.map((b, i) => b.level < 3 && (
           <div key={b.id} className="row between small">
-            <span className="muted">{bs.length > 1 ? `#${i + 1} ` : ''}Level {b.level} → {b.level + 1}: {b.level === 1 ? '+80%' : '+40%'} {d.recipe ? 'output' : d.category === 'livestock' ? 'space' : 'capacity'}</span>
+            <span className="muted">{bs.length > 1 ? `#${i + 1} ` : ''}Level {b.level} → {b.level + 1}: {(() => { const now = throughput(b), next = throughput({ type: b.type, level: b.level + 1 }); return `+${Math.round((next / now - 1) * 100)}%`; })()} {d.recipe ? 'output' : d.category === 'livestock' ? 'space' : 'capacity'}</span>
             <Confirm label={`Upgrade · ${money(upgradeCost(s, b))}`} className="btn ghost sm" disabled={upgradeCost(s, b) > s.cash} title={`Upgrade ${d.name.toLowerCase()} to level ${b.level + 1}?`} body={<>Costs <b>{money(upgradeCost(s, b))}</b>. {d.recipe ? 'More output per hour, but staff cost rises 30%.' : d.category === 'livestock' ? 'Room for more animals.' : 'More storage space.'}</>} onConfirm={() => act({ type: 'upgradeBuilding', buildingId: b.id })} confirmLabel="Upgrade" />
           </div>
         ))}

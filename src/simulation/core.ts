@@ -15,6 +15,9 @@ export const seasonOf = (s: GameState) => SEASONS[Math.floor((((Math.floor(s.tic
 export const known = (s: GameState, id: string) => s.discovered.includes(id);
 /** Upgrade levels multiply what a building holds or makes. */
 export const levelMult = (level: number) => [1, 1.8, 2.5][Math.max(0, Math.min(2, (level || 1) - 1))];
+/** A food factory's throughput by level: each upgrade doubles it, so a line keeps up with a growing farm. Oil, energy and storage keep levelMult. */
+export const throughput = (b: { type: string; level: number }) => (FOOD_FACTORY.has(b.type) ? [1, 2, 4][Math.max(0, Math.min(2, (b.level || 1) - 1))] : levelMult(b.level));
+const FOOD_FACTORY = new Set(['flourMill', 'bakery', 'feedMill', 'ranch', 'dairy', 'creamery', 'oilPress', 'sugarMill', 'winery']);
 export const nextId = (s: GameState) => s.nextId++;
 
 /** mulberry32 step; state lives on GameState so saves replay identically. */
@@ -211,7 +214,7 @@ export const factoryCrop = (b: Building): CropId | null => {
 /** Most a factory holds in reserve: a week at full capacity. Surplus harvest stays free to sell. */
 export const reserveCap = (b: Building) => {
   const rec = BUILDINGS[b.type].recipe!;
-  return Object.values(rec.inputs)[0]! * rec.batchesPerHour * levelMult(b.level) * 24 * 7;
+  return Object.values(rec.inputs)[0]! * rec.batchesPerHour * throughput(b) * 24 * 7;
 };
 
 /** Stock of a good held for factories in a region (never more than is actually in store). Pass a factory to leave out its own share and that of its same-type siblings, which share one pool. */

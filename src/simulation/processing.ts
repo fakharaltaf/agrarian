@@ -6,7 +6,7 @@ import { larderReserve } from './stages/settlement';
 // Factories, energy and building upkeep. One production model for every industry:
 // batches = min(capacity, scarcest input, output room, power) — Leontief, like a real line.
 import { BUILDINGS, COWS_PER_DAIRY_BATCH, GOODS, REGIONS, REGION_IDS, SUNRISE, SUNSET, type GoodId, type RegionId } from './config';
-import { buildingDivision, clamp, electricityPrice, execOn, freeSpace, has, hour, levelMult, post, priceUsd, round2, reserveCap, reservedStock, severity } from './core';
+import { buildingDivision, clamp, electricityPrice, execOn, freeSpace, has, hour, levelMult, throughput, post, priceUsd, round2, reserveCap, reservedStock, severity } from './core';
 import { addGoods } from './agriculture';
 import { drawOil, wellField } from './oil';
 import type { Building, GameState } from './types';
@@ -82,7 +82,7 @@ function produce(s: GameState, b: Building, staff: number, cows = 0) {
   const rec = def.recipe!;
   const reg = s.regions[b.region];
   const inv = reg.inventory;
-  const cap = rec.batchesPerHour * levelMult(b.level) * townIndustryFactor(s, b.region);
+  const cap = rec.batchesPerHour * throughput(b) * townIndustryFactor(s, b.region);
   let batches = cap;
   let reason = '';
   if ((b.type === 'ranch' || b.type === 'dairy') && severity(s, 'livestockDisease', b.region) > 0) {

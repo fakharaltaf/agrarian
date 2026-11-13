@@ -52,15 +52,15 @@ export const GOODS: Record<GoodId, GoodDef> = {
   coffee: G('coffee', 'Coffee', 'crop', 14, 'dry', 0.002, 0.002, 0.7, 1.0, 45, 100, '#6B4A35'),
   apples: G('apples', 'Apples', 'crop', 1.3, 'cold', 0.004, 0.03, 0.6, 0.6, 320, 520, '#C8463A'),
   grapes: G('grapes', 'Grapes', 'crop', 2.4, 'cold', 0.01, 0.06, 0.7, 0.8, 160, 690, '#6B3A6E'),
-  flour: G('flour', 'Flour', 'processed', 5.5, 'dry', 0.003, 0.003, 0.35, 0.1, 130, 3600, '#EFE4C8', { inputs: { wheat: 1.25 } }),
-  bread: G('bread', 'Bread', 'processed', 5.5, 'dry', 0.15, 0.15, 0.4, 0.3, 160, 2600, '#C68A4E', { inputs: { flour: 0.6 } }),
+  flour: G('flour', 'Flour', 'processed', 7.5, 'dry', 0.003, 0.003, 0.35, 0.1, 130, 3600, '#EFE4C8', { inputs: { wheat: 1.25 } }),
+  bread: G('bread', 'Bread', 'processed', 9, 'dry', 0.15, 0.15, 0.4, 0.3, 160, 2600, '#C68A4E', { inputs: { flour: 0.6 } }),
   feed: G('feed', 'Livestock feed', 'processed', 3.2, 'dry', 0.002, 0.002, 0.4, 0.2, 260, 0, '#B2A160', { inputs: { corn: 1 } }),
-  meat: G('meat', 'Meat', 'processed', 55, 'cold', 0.01, 0.25, 0.8, 1.0, 14, 2500, '#B85C50', { inputs: { feed: 10 } }),
+  meat: G('meat', 'Meat', 'processed', 64, 'cold', 0.01, 0.25, 0.8, 1.0, 14, 2500, '#B85C50', { inputs: { feed: 10 } }),
   milk: G('milk', 'Milk', 'processed', 4.5, 'cold', 0.04, 0.3, 0.5, 0.4, 150, 650, '#F4F1E8', { inputs: { feed: 0.83 } }),
-  cheese: G('cheese', 'Cheese', 'processed', 55, 'cold', 0.002, 0.05, 0.9, 1.0, 10, 4000, '#E8C25A', { inputs: { milk: 9 } }),
-  butter: G('butter', 'Butter', 'processed', 14, 'cold', 0.005, 0.1, 0.7, 0.7, 12, 7000, '#F2DC8C', { inputs: { milk: 3 } }),
-  soyoil: G('soyoil', 'Soybean oil', 'processed', 22, 'dry', 0.001, 0.001, 0.5, 0.4, 25, 8800, '#D9B95B', { inputs: { soybeans: 2.6 } }),
-  soymeal: G('soymeal', 'Soybean meal', 'processed', 4, 'dry', 0.003, 0.003, 0.5, 0.3, 80, 0, '#A89060', { inputs: { soybeans: 0.6 } }),
+  cheese: G('cheese', 'Cheese', 'processed', 85, 'cold', 0.002, 0.05, 0.9, 1.0, 10, 4000, '#E8C25A', { inputs: { milk: 9 } }),
+  butter: G('butter', 'Butter', 'processed', 20, 'cold', 0.005, 0.1, 0.7, 0.7, 12, 7000, '#F2DC8C', { inputs: { milk: 3 } }),
+  soyoil: G('soyoil', 'Soybean oil', 'processed', 34, 'dry', 0.001, 0.001, 0.5, 0.4, 25, 8800, '#D9B95B', { inputs: { soybeans: 2.6 } }),
+  soymeal: G('soymeal', 'Soybean meal', 'processed', 6, 'dry', 0.003, 0.003, 0.5, 0.3, 80, 0, '#A89060', { inputs: { soybeans: 0.6 } }),
   sugar: G('sugar', 'Sugar', 'processed', 14, 'dry', 0, 0, 0.4, 0.3, 40, 3900, '#F7F4EE', { inputs: { sugarcane: 5 } }),
   greens: G('greens', 'Fresh greens', 'processed', 6, 'cold', 0.03, 0.3, 0.9, 1.1, 40, 200, '#6FAF5A'),
   timber: G('timber', 'Timber', 'processed', 3, 'dry', 0, 0, 0.6, 0.8, 30, 0, '#A07850'),
@@ -269,12 +269,12 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
   warehouse: { type: 'warehouse', name: 'Warehouse', category: 'storage', price: 60000, staffPerHour: 6, dry: 60000, minEra: 4, blurb: 'Industrial dry storage for processed goods and bulk grain.' },
   flourMill: { type: 'flourMill', name: 'Flour mill', category: 'processing', price: 25000, staffPerHour: 60, recipe: { inputs: { wheat: 10 }, outputs: { flour: 8 }, kwh: 15, batchesPerHour: 6 }, minEra: 4, blurb: 'Wheat → flour.' },
   bakery: { type: 'bakery', name: 'Bakery', category: 'processing', price: 40000, staffPerHour: 60, recipe: { inputs: { flour: 6 }, outputs: { bread: 10 }, kwh: 40, batchesPerHour: 8 }, minEra: 4, blurb: 'Flour → bread. Bread goes stale fast: sell it daily.' },
-  feedMill: { type: 'feedMill', name: 'Feed mill', category: 'processing', price: 18000, staffPerHour: 45, recipe: { inputs: { corn: 10 }, outputs: { feed: 10 }, kwh: 10, batchesPerHour: 8 }, minEra: 4, blurb: 'Corn → livestock feed.' },
+  feedMill: { type: 'feedMill', name: 'Feed mill', category: 'processing', price: 18000, staffPerHour: 45, recipe: { inputs: { corn: 10 }, outputs: { feed: 16 }, kwh: 10, batchesPerHour: 8 }, minEra: 4, blurb: 'Corn → livestock feed.' },
   ranch: { type: 'ranch', name: 'Cattle ranch', category: 'processing', price: 60000, staffPerHour: 50, recipe: { inputs: { feed: 20 }, outputs: { meat: 2, manure: 6 }, kwh: 10, batchesPerHour: 2 }, minEra: 4, blurb: 'Feed → meat, with manure as a by-product.' },
   dairy: { type: 'dairy', name: 'Dairy farm', category: 'processing', price: 50000, staffPerHour: 45, recipe: { inputs: { feed: 6.25 }, outputs: { milk: 15, manure: 1.875 }, kwh: 12, batchesPerHour: 4 }, minEra: 4, blurb: 'Milks your own cows by machine: up to 120 cows per dairy eat the same feed as in the cowshed but give 50% more milk. Needs cows in cowsheds in the same region.' },
   creamery: { type: 'creamery', name: 'Creamery', category: 'processing', price: 45000, staffPerHour: 50, recipe: { inputs: { milk: 10 }, outputs: { cheese: 1, butter: 0.6 }, kwh: 18, batchesPerHour: 6 }, minEra: 4, blurb: 'Milk → cheese and butter.' },
   oilPress: { type: 'oilPress', name: 'Oilseed press', category: 'processing', price: 35000, staffPerHour: 35, recipe: { inputs: { soybeans: 10 }, outputs: { soyoil: 2, soymeal: 7.5 }, kwh: 20, batchesPerHour: 5 }, minEra: 4, blurb: 'Soybeans → oil and meal.' },
-  sugarMill: { type: 'sugarMill', name: 'Sugar mill', category: 'processing', price: 30000, staffPerHour: 55, recipe: { inputs: { sugarcane: 10 }, outputs: { sugar: 2 }, kwh: 25, batchesPerHour: 5 }, minEra: 4, blurb: 'Cane → sugar. Cut cane spoils in days.' },
+  sugarMill: { type: 'sugarMill', name: 'Sugar mill', category: 'processing', price: 30000, staffPerHour: 40, recipe: { inputs: { sugarcane: 10 }, outputs: { sugar: 2 }, kwh: 25, batchesPerHour: 10 }, minEra: 4, blurb: 'Cane → sugar. Cut cane spoils in days.' },
   biogas: { type: 'biogas', name: 'Biogas plant', category: 'energy', price: 28000, staffPerHour: 4, recipe: { inputs: { manure: 10 }, outputs: {}, kwh: -100, batchesPerHour: 4 }, research: 'biogas', minEra: 4, blurb: 'Manure → electricity for your region.' },
   windTurbine: { type: 'windTurbine', name: 'Wind turbine', category: 'energy', price: 45000, staffPerHour: 2, windKw: 90, minEra: 4, blurb: 'Clean power day and night whenever the wind blows; windier regions make more. Surplus sells to the grid at half price.' },
   oilWell: { type: 'oilWell', name: 'Oil well', category: 'processing', price: 40000, staffPerHour: 40, recipe: { inputs: {}, outputs: { oil: 3 }, kwh: 20, batchesPerHour: 1 }, minEra: 4, blurb: 'Pumps crude oil. Only found by drilling where the survey says oil lies.' },
@@ -285,7 +285,7 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
   pigsty: { type: 'pigsty', name: 'Pigsty', category: 'livestock', price: 6000, staffPerHour: 0, minEra: 2, blurb: 'Houses 40 pigs per level. Pigs put on meat every day they are fed.' },
   cowshed: { type: 'cowshed', name: 'Cowshed', category: 'livestock', price: 14000, staffPerHour: 2, minEra: 3, blurb: 'Houses 20 dairy cows per level. Milk needs cold storage or a quick sale.' },
   sheepfold: { type: 'sheepfold', name: 'Sheepfold', category: 'livestock', price: 5000, staffPerHour: 0, minEra: 2, blurb: 'Houses 50 sheep per level. Sheep grow wool on very little feed.' },
-  winery: { type: 'winery', name: 'Winery', category: 'processing', price: 55000, staffPerHour: 45, recipe: { inputs: { grapes: 10 }, outputs: { wine: 6 }, kwh: 10, batchesPerHour: 4 }, minEra: 4, blurb: 'Grapes → wine. Premium grapes make premium wine.' },
+  winery: { type: 'winery', name: 'Winery', category: 'processing', price: 55000, staffPerHour: 45, recipe: { inputs: { grapes: 10 }, outputs: { wine: 6 }, kwh: 10, batchesPerHour: 6 }, minEra: 4, blurb: 'Grapes → wine. Premium grapes make premium wine.' },
   distribution: { type: 'distribution', name: 'Distribution centre', category: 'commerce', price: 80000, staffPerHour: 60, minEra: 4, blurb: 'One retail channel per region: +12% on processed sales, rising to15% and18% when upgraded. Extra centres do not stack.' },
   lab: { type: 'lab', name: 'Research station', category: 'research', price: 30000, staffPerHour: 50, minEra: 4, blurb: 'Runs one research project at a time.' },
   lab2: { type: 'lab2', name: 'Advanced laboratory', category: 'research', price: 150000, staffPerHour: 120, research: 'advancedLab', minEra: 5, blurb: 'Required for advanced research; projects run twice as fast.' },
@@ -431,4 +431,8 @@ export const FINANCING_KINDS: LedgerKind[] = ['loanIn', 'loanRepay', 'sharesIssu
 export const OTHER_OPERATING: LedgerKind[] = ['interest', 'tax', 'futures', 'insurancePayout', 'prize'];
 
 /** Narrative chapter milestones; legacy ERAS retain their established gates. */
+/** What a farm's production houses make (not crude oil or diesel, not manure): the goods the Industry chapter asks you to sell. */
+export const FACTORY_GOODS: ReadonlySet<string> = new Set(['flour', 'bread', 'feed', 'meat', 'milk', 'cheese', 'butter', 'soyoil', 'soymeal', 'sugar', 'wine', 'greens']);
+/** Factory goods a farm sells before Industry hands over to Settlement. */
+export const INDUSTRY_FACTORY_SALES = 400_000;
 export const CHAPTER_SALES = { homestead: 24_000, 'market-town': 110_000, 'farm-business': 500_000, industry: 3_000_000 } as const;
