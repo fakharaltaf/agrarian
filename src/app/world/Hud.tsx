@@ -338,7 +338,7 @@ function UtilityBar({ s, r }: { s: GameState; r: Roading }) {
   let hint: string;
   if (r.tool === 'draw') {
     const route = r.from && h ? pipeRoute(s, r.region, r.from, h, net) : null;
-    hint = !r.from ? `Tap beside its building (or on a line) to start · ${money(price(1))} a tile` : !h ? 'Tap where it goes next: run it to the homes' : route ? `${route.length} tiles · ${money(price(1) * route.length)} · tap to lay` : 'Can\'t get there: keep to your own cleared land';
+    hint = !r.from ? `Tap its building (or a line) to start · ${money(price(1))} a tile` : !h ? 'Tap a home (or a spot) to run the line there' : route ? `${route.length} tiles · ${money(price(1) * route.length)} · tap to lay` : 'Can\'t get there: keep to your own cleared land';
   } else {
     const st = h ? pipeStretch(worldOf(s, r.region), h[0], h[1], net) : [];
     if (!st.length) hint = r.tool === 'upgrade' ? names.slice(1).map((n, i) => `${n} ${q(i + 1)}`).join(' → ') : 'Tap a line to remove that run';

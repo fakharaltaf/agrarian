@@ -1102,6 +1102,7 @@ function netSources(s: GameState, kind: UtilityNet) {
 }
 /** Line tiles joined to one of the network's buildings. */
 const liveLines = (s: GameState, kind: UtilityNet) => netReach(worldOf(s, 'heartland'), kind, netSources(s, kind)).tier;
+const BANK = new THREE.Color(0x6e5a3a), MUD = new THREE.Color(0x3e3624), SLOP = new THREE.Color(0x5a6240);
 /** The town's utility lines. Power: wires on lattice pylons. Water: a pipe along the ground. Sewage: a murky ditch, then a concrete drain. Their top tier is underground and not drawn. */
 function utilityworks(s: GameState, r: RegionId) {
   const g = new THREE.Group();
@@ -1119,34 +1120,35 @@ function utilityworks(s: GameState, r: RegionId) {
     const onRoad = (x: number, y: number) => isRoad(y) || !!w.roads[tileId(x, y)];
     const shown = (x: number, y: number) => { const t = own[tileId(x, y)]; return t && t < top && (kind === 'power' || !onRoad(x, y)) ? t : 0; }; // overhead wires cross roads; pipes and ditches go under them
     const runs: THREE.Matrix4[] = [], joints: THREE.Matrix4[] = [], posts: THREE.Matrix4[] = [];
-    const H = kind === 'power' ? 1.55 : kind === 'water' ? 0.07 : 0.08, line = rod(runs, H);
+    const H = kind === 'power' ? 1.55 : kind === 'water' ? 0.09 : 0.09, line = rod(runs, H);
     for (const k of Object.keys(own)) {
       const id = Number(k), [x, y] = tileAt(id), t = shown(x, y);
       if (!t) continue;
       const cx = x + 0.5, cz = y + 0.5, same = D.filter(([dx, dy]) => shown(x + dx, y + dy) === t).length;
       const ditchy = kind === 'sewer' && t === 1;
-      if (ditchy) { const bank = new THREE.Color(0x6e5a3a), mud = new THREE.Color(0x3e3a26), slop = new THREE.Color(0x5d6440); ditch.disc(cx, cz, [[0.03, slop, 1], [0.06, mud, 1], [0.1, bank, 0.85], [0.14, bank, 0]]); }
+      if (ditchy) ditch.disc(cx, cz, [[0.06, SLOP, 1], [0.11, MUD, 1], [0.17, BANK, 0.9], [0.23, BANK, 0]]);
       let joins = 0;
       for (const [dx, dy] of D) {
         const nid = tileId(x + dx, y + dy), nt = shown(x + dx, y + dy);
         const reach = nt === t ? 0.5 : own[nid] ? (same < 2 ? 0.5 : 0) : (homeTiles.has(nid) || facTiles.has(nid)) && same < 2 ? 0.5 : 0;
         if (!reach) continue;
         joins++;
-        if (ditchy) { const bank = new THREE.Color(0x6e5a3a), mud = new THREE.Color(0x3e3a26), slop = new THREE.Color(0x5d6440); ditch.seg(cx, cz, cx + dx * reach, cz + dy * reach, [[-0.14, bank, 0], [-0.1, bank, 0.85], [-0.06, mud, 1], [-0.03, slop, 1], [0.03, slop, 1], [0.06, mud, 1], [0.1, bank, 0.85], [0.14, bank, 0]], { step: 0.25, edge: 0.02 }); continue; }
+        if (ditchy) { ditch.seg(cx, cz, cx + dx * reach, cz + dy * reach, [[-0.23, BANK, 0], [-0.17, BANK, 0.9], [-0.11, MUD, 1], [-0.06, SLOP, 1], [0.06, SLOP, 1], [0.11, MUD, 1], [0.17, BANK, 0.9], [0.23, BANK, 0]], { step: 0.25, edge: 0.03 }); continue; }
         if (nt === t) { if (dx > 0 || dy > 0) line(cx, cz, cx + dx, cz + dy); continue; }
         line(cx, cz, cx + dx * reach, cz + dy * reach); joints.push(new THREE.Matrix4().makeTranslation(cx + dx * reach, H, cz + dy * reach));
       }
       if (ditchy) continue;
       if (kind === 'power') { if (!onRoad(x, y) && (joins !== 2 || same < 2 || (x + y) % 3 === 0)) posts.push(new THREE.Matrix4().makeTranslation(cx, 0, cz)); else if (onRoad(x, y) && (x + y) % 3 === 0) posts.push(new THREE.Matrix4().makeTranslation(x + 0.06, 0, y + 0.06)); } // over a road the pylon stands at the roadside // a pylon at bends, ends and every third tile
-      else if (joins !== 2) joints.push(new THREE.Matrix4().makeTranslation(cx, H, cz));
+      else { if (joins !== 2) joints.push(new THREE.Matrix4().makeTranslation(cx, H, cz)); if (!onRoad(x, y)) posts.push(new THREE.Matrix4().makeTranslation(cx, 0, cz)); } // a concrete saddle under the pipe on every tile
     }
     if (kind === 'power') {
       inst(cached('wire', () => new THREE.CylinderGeometry(0.012, 0.012, 1, 4).rotateZ(Math.PI / 2)), mat(0x2a2a2a), runs, false);
       inst(cached('pylon', () => merged(new THREE.CylinderGeometry(0.03, 0.09, 1.6, 4).translate(0, 0.8, 0), new THREE.BoxGeometry(0.5, 0.04, 0.04).translate(0, 1.5, 0), new THREE.BoxGeometry(0.36, 0.03, 0.03).translate(0, 1.3, 0))), mat(0x8c9196, { metal: 0.3, rough: 0.6 }), posts);
     } else {
-      const r0 = kind === 'water' ? 0.05 : 0.07, col = kind === 'water' ? 0x9fb8c8 : 0xa09f98;
-      inst(cached(`upipe${r0}`, () => new THREE.CylinderGeometry(r0, r0, 1, 8).rotateZ(Math.PI / 2)), mat(col, { rough: 0.6 }), runs);
-      inst(cached(`ujoint${r0}`, () => new THREE.CylinderGeometry(r0 * 1.4, r0 * 1.4, r0 * 2, 10)), mat(col - 0x101010, { rough: 0.6 }), joints);
+      const r0 = kind === 'water' ? 0.055 : 0.07, col = kind === 'water' ? 0x4f86b0 : 0x9a968c;
+      inst(cached(`upipe${r0}`, () => new THREE.CylinderGeometry(r0, r0, 1, 12).rotateZ(Math.PI / 2)), mat(col, { rough: 0.45, metal: kind === 'water' ? 0.25 : 0 }), runs);
+      inst(cached(`ujoint${r0}`, () => new THREE.CylinderGeometry(r0 * 1.25, r0 * 1.25, r0 * 2, 12)), mat(kind === 'water' ? 0x3b6a8e : 0x86827a, { rough: 0.5 }), joints);
+      inst(cached(`usaddle${r0}`, () => new THREE.BoxGeometry(0.16, H - r0 * 0.5, 0.12).translate(0, (H - r0 * 0.5) / 2, 0)), mat(0xb4b0a6), posts);
     }
   }
   if (ditch.pos.length) { const m = ditch.mesh(true); m.renderOrder = 1; g.add(m); }

@@ -742,7 +742,7 @@ export function buildCivic(type: string, w: number, d: number): Model {
     for(let i=0;i<Math.min(18,Math.ceil(d/2));i++)group.add(box(.06,.02,.4,PAL.white,w/2,.15,.4+i*2));
     group.add(box(.08,1.8,.08,PAL.wood,.2,.1,.5),sphere(.16,0xffd889,.2,2,.5,{emissive:0x806020}));
   } else if(type==='well'&&artModel('well',1,1)) {
-    prop(group,'well',w-.3,d-.3,w/2,d/2);
+    prop(group,'well',1.5,1.5,w/2,d/2); // a well is a small thing: the rest of its plot is the yard round it
   } else if(type==='well'||type==='waterworks') {
     group.add(cyl(type==='well'?.55:1,1,PAL.creamDark,w/2,.1,d/2));
     group.add(cyl(type==='well'?.42:.85,.04,0x65a8bb,w/2,1.1,d/2));

@@ -550,9 +550,15 @@ function pipeGround(s: GameState, r: RegionId, kind: NetKind) {
 /** A pipe drawn by hand, from one tile to another, over ground a pipe may cross. New tiles only; null if there is no way. */
 export function pipeRoute(s: GameState, r: RegionId, from: [number, number], to: [number, number], kind: NetKind = 'irrigation') {
   const own = linesOf(worldOf(s, r), kind), can = pipeGround(s, r, kind);
-  if (!can(from[0], from[1]) || !can(to[0], to[1])) return null;
-  const path = route(can, [from], (x, y) => x === to[0] && y === to[1]);
-  return path ? [...path, to].filter(([x, y]) => !own[tileId(x, y)]) : null;
+  // a tap on a building or a field means its edge: the line starts beside it, or runs up to it
+  const lotAt = (p: [number, number]) => (can(p[0], p[1]) ? null : placedIn(s, r).find((q) => p[0] >= q.x && p[0] < q.x + q.w && p[1] >= q.y && p[1] < q.y + q.d) ?? null);
+  const fromLot = lotAt(from), toLot = lotAt(to);
+  if ((!can(from[0], from[1]) && !fromLot) || (!can(to[0], to[1]) && !toLot)) return null;
+  const starts = fromLot ? doorstep(fromLot.x, fromLot.y, fromLot).filter(([x, y]) => inMap(x, y) && can(x, y)) : [from];
+  const arrived = (x: number, y: number) => (toLot ? x >= toLot.x && x < toLot.x + toLot.w && y >= toLot.y && y < toLot.y + toLot.d : x === to[0] && y === to[1]);
+  if (fromLot && toLot && fromLot.key === toLot.key) return starts.length ? [] : null; // tapped the building it starts from
+  const path = route(can, starts, arrived);
+  return path ? (toLot ? path : [...path, to]).filter(([x, y]) => !own[tileId(x, y)]) : null;
 }
 /** The run of pipe at a tile, up to the next junction (like a stretch of road). */
 export function pipeStretch(w: RegionWorld, x: number, y: number, kind: NetKind = 'irrigation'): number[] {

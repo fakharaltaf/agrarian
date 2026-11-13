@@ -45,6 +45,11 @@ it('a clinic reaches homes as a fading heat map; a water tower serves only homes
   // lay a pipe from the tower's door to every home
   const tower = t.services.find((b) => b.type === 'waterTower')!, tp = w.pos[`svc:${tower.id}`], tfp = W.footprintOf(s, `svc:${tower.id}`)!;
   const from = W.doorstep(tp[0], tp[1], tfp).find(([x, y]) => W.pipeRoute(s, 'heartland', [x, y], [x, y], 'water'))!;
+  // a tap on the tower and a tap on a house: the line runs from beside one to beside the other
+  const h0 = communityOf(s).homes[0], hp = w.pos[`home:${h0.id}`];
+  const tapped = W.pipeRoute(s, 'heartland', [tp[0] + 1, tp[1] + 1], [hp[0] + 1, hp[1] + 1], 'water');
+  expect(tapped?.length).toBeGreaterThan(0);
+  expect(tapped!.some(([x, y]) => x >= hp[0] && x < hp[0] + 3 && y >= hp[1] && y < hp[1] + 3)).toBe(false); // never over the house
   let laid = 0;
   for (const h of communityOf(s).homes) {
     const p = w.pos[`home:${h.id}`], fp = W.footprintOf(s, `home:${h.id}`); if (!p || !fp) continue;
