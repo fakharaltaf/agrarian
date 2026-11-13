@@ -140,3 +140,35 @@ it('a refinery is huge, turns crude into diesel, pulls the farm industrial, and 
   ref.active = false; // a closed refinery stops smoking
   expect(smokedShare(s, [{ x: cx + 5, y: cy, families: 3 }])).toBe(0);
 });
+
+it('oil comes after the production houses, factories grow only on the farm\'s own power, and that power sets which way the farm leans', async () => {
+  const { oilOpen } = await import('../simulation/stages/shared');
+  const { chunkAt, footprintOf } = await import('../simulation/world');
+  const s = industry(610); s.legacyProgression = false; s.stageId = 'industry'; if (!s.discovered.includes('upgrades')) s.discovered.push('upgrades');
+  expect(oilOpen(s)).toBe(false);
+  expect(dispatch(s, { type: 'surveyOil', region: 'heartland', at: [0, 0] })).toMatchObject({ ok: false, error: expect.stringMatching(/production houses/) });
+  // two production houses at work open oil
+  for (const t of ['flourMill', 'bakery'] as const) expect(dispatch(s, { type: 'build', region: 'heartland', building: t }).ok).toBe(true);
+  const mills = s.buildings.filter((b) => b.type === 'flourMill' || b.type === 'bakery');
+  for (const b of mills) b.util = 0.9;
+  expect(oilOpen(s)).toBe(true);
+  // the mill stands on industrial land so only power is in the way
+  const mill = mills[0], w = worldOf(s, 'heartland'), [mx, my] = w.pos[`b:${mill.id}`], fp = footprintOf(s, `b:${mill.id}`)!;
+  dispatch(s, { type: 'zoneLand', region: 'heartland', chunks: chunksIn(mx, my, fp.w, fp.d), zone: 'ind' });
+  expect(w.zones[chunkAt(mx, my)]).toBe('ind');
+  expect(dispatch(s, { type: 'upgradeBuilding', buildingId: mill.id })).toMatchObject({ ok: false, error: expect.stringMatching(/own power/) });
+  // a wind turbine powers it, and a factory run on clean power pulls the farm green
+  const { findSpot } = await import('../simulation/world');
+  const lot = findSpot(s, 'heartland', { w: 8, d: 8 }, false, 'building')!;
+  dispatch(s, { type: 'zoneLand', region: 'heartland', chunks: chunksIn(lot[0], lot[1], 8, 8), zone: 'ind' });
+  expect(dispatch(s, { type: 'build', region: 'heartland', building: 'windTurbine' }).ok).toBe(true);
+  const lean = s.values.cleanIndustrial ?? 50;
+  const up = dispatch(s, { type: 'upgradeBuilding', buildingId: mill.id });
+  expect(up).toMatchObject({ ok: true, note: expect.stringMatching(/green/) });
+  expect(s.values.cleanIndustrial).toBeLessThan(lean);
+  // run on oil instead and it pulls the other way
+  for (let i = 0; i < 2; i++) s.buildings.push({ ...s.buildings.find((b) => b.type === 'windTurbine')!, id: 9900 + i, type: 'oilWell' });
+  const lean2 = s.values.cleanIndustrial ?? 50;
+  expect(dispatch(s, { type: 'upgradeBuilding', buildingId: mill.id })).toMatchObject({ ok: true, note: expect.stringMatching(/industrial/) });
+  expect(s.values.cleanIndustrial).toBeGreaterThan(lean2);
+});

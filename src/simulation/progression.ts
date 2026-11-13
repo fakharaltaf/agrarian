@@ -1,4 +1,4 @@
-import { workingFactories } from './stages/shared';
+import { energyMix, workingFactories } from './stages/shared';
 // Eras, unlocks, objectives and milestones. Progress comes from measurable business results.
 import { worldOf } from './world';
 import { CHAPTER_SALES, BUILDINGS, CROPS, CROP_IDS, ERAS, GOODS, REGION_IDS, type CropId, INDUSTRY_FACTORY_SALES } from './config';
@@ -327,6 +327,8 @@ export function objective(s: GameState): { title: string; hint: string; page?: s
       if (!s.research.active && !s.research.done.length && sales < 1_600_000) return { title: 'Start your first research project', hint: `Pick something that fixes today’s biggest cost. ${ip}.`, page: 'research' };
       if (!s.futures.length && !s.contracts.some((c) => c.accepted) && sales < 2_000_000) return { title: 'Lock in a price', hint: `A supply contract or a futures hedge protects you from price swings. ${ip}.`, page: 'markets' };
       if (workingFactories(s) < 2) return { title: 'Get two production houses working', hint: `A bakery after your mill turns flour into bread worth twice as much again. ${workingFactories(s)}/2 working · factory goods made ${fs}.`, page: 'production' };
+      const mix = energyMix(s);
+      if (!mix.oil && !mix.clean && (s.stats.factoryMade ?? 0) < INDUSTRY_FACTORY_SALES) return { title: 'Power your production houses', hint: `Upgrades need the farm's own energy. Oil is open now (🛢): rich, but the farm leans industrial. Wind, solar or biogas keep it green. Factory goods made ${fs}.`, page: 'production' };
       if ((s.stats.factoryMade ?? 0) < INDUSTRY_FACTORY_SALES) return { title: `Make factory goods · ${fs}`, hint: `Upgrades double a line's output. ${ip}.`, page: 'production' };
       return { title: `Grow into industry · ${ip}`, hint: 'Build a reliable farm-to-factory chain before moving on.', page: 'production' };
     }

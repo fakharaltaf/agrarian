@@ -17,7 +17,7 @@ export const known = (s: GameState, id: string) => s.discovered.includes(id);
 export const levelMult = (level: number) => [1, 1.8, 2.5][Math.max(0, Math.min(2, (level || 1) - 1))];
 /** A food factory's throughput by level: each upgrade doubles it, so a line keeps up with a growing farm. Oil, energy and storage keep levelMult. */
 export const throughput = (b: { type: string; level: number }) => (FOOD_FACTORY.has(b.type) ? [1, 2, 4][Math.max(0, Math.min(2, (b.level || 1) - 1))] : levelMult(b.level));
-const FOOD_FACTORY = new Set(['flourMill', 'bakery', 'feedMill', 'ranch', 'dairy', 'creamery', 'oilPress', 'sugarMill', 'winery']);
+export const FOOD_FACTORY: ReadonlySet<string> = new Set(['flourMill', 'bakery', 'feedMill', 'ranch', 'dairy', 'creamery', 'oilPress', 'sugarMill', 'winery']);
 export const nextId = (s: GameState) => s.nextId++;
 
 /** mulberry32 step; state lives on GameState so saves replay identically. */

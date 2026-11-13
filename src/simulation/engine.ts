@@ -1,3 +1,5 @@
+import { FOOD_FACTORY } from './core';
+import { energyMix, oilOpen, upgradeNeedsPower } from './stages/shared';
 import { bestRetailCentre } from './facility-levels';
 import { DRILL_PRICE, oilChance, oilOf, SURVEY_PRICE, SURVEY_R, surveyedAt } from './oil';
 import { haulDaily, haulOf, haulTick, usesCarts, VEHICLES } from './hauling';
@@ -518,7 +520,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       return ok(accessNote(s, a.region, a.key) ?? (b ? `Moved. It restarts in ${MOVE_DOWNTIME} hours.` : 'Moved.'));
     }
     case 'surveyOil': {
-      if (!featureEra(s, 4)) return fail('Oil exploration opens with Industry.');
+      if (!oilOpen(s)) return fail(s.legacyProgression || !stageAtLeast(s, 'industry') ? 'Oil exploration opens with Industry.' : 'Oil comes after your production houses: get two of them working first.');
       if (!s.regions[a.region]?.unlocked) return fail('You have no operations there.');
       if (!Array.isArray(a.at) || a.at.length !== 2) return fail('Choose where to survey.');
       if (surveyedAt(s, a.region, a.at[0], a.at[1])) return fail('That ground is already surveyed: pick an area outside the last survey.');
@@ -529,7 +531,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       return ok(`The survey is in for ${SURVEY_R * 2} tiles around that spot. Readings are rough: warmer ground is likelier, but not certain.`);
     }
     case 'drillOil': {
-      if (!featureEra(s, 4)) return fail('Oil exploration opens with Industry.');
+      if (!oilOpen(s)) return fail(s.legacyProgression || !stageAtLeast(s, 'industry') ? 'Oil exploration opens with Industry.' : 'Oil comes after your production houses: get two of them working first.');
       const at = a.at, problem = placeProblem(s, a.region, at[0], at[1], { w: 2, d: 2 }, undefined, s.legacyProgression ? 'building' : 'industry');
       if (problem) return fail(PROBLEM_TEXT[problem]);
       const cost = Math.round(DRILL_PRICE * s.macro.cpi);
@@ -905,10 +907,18 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       if (buildingUse(s, b.type, b.level + 1) === 'industry' && placeProblem(s, b.region, ...(worldOf(s, b.region).pos[`b:${b.id}`] ?? [NaN, NaN]), footprintOf(s, `b:${b.id}`) ?? { w: 1, d: 1 }, `b:${b.id}`, 'industry') === 'zone')
         return fail(`${BUILDINGS[b.type].name}s grow into ${INDUSTRY_TO_GROW.has(b.type) ? 'industrial plants' : 'bigger plants'} only on industrial land: zone the land under it industrial (🏘 Zones), or move it there.`);
       const cost = upgradeCost(s, b);
+      const power = upgradeNeedsPower(s, b);
+      if (power) return fail(`${BUILDINGS[b.type].name}s grow only on the farm's own power. ${power}`);
       if (cost > s.cash) return fail(`Upgrading costs $${Math.round(cost).toLocaleString()}.`);
       post(s, 'building', -cost, `Upgrade ${BUILDINGS[b.type].name} to level ${b.level + 1}`, b.region, buildingDivision(b.type));
       b.level++;
       b.cost += cost;
+      // a bigger factory runs on whatever powers the farm, and that shapes its character
+      if (!s.legacyProgression && FOOD_FACTORY.has(b.type)) {
+        const m = energyMix(s), side = m.oil > m.clean ? 1 : m.clean > m.oil ? -1 : 0;
+        if (side) lean(s, 'cleanIndustrial', 4 * side);
+        return ok(`${BUILDINGS[b.type].name} is now level ${b.level}.${side > 0 ? ' It runs on your oil: the farm leans industrial.' : side < 0 ? ' It runs on clean power: the farm leans green.' : ''}`);
+      }
       return ok(`${BUILDINGS[b.type].name} is now level ${b.level}.`);
     }
     case 'upgradeMachine': {
