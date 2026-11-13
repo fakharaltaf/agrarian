@@ -459,8 +459,8 @@ function GateRows({ s }: { s: GameState }) {
     <div className="gate-head"><span>Next: {next ? STAGES[next].title : 'chapter'}</span><b>{rows.some((r) => r.either) ? 'either' : `${done}/${rows.length}`}</b></div>
     <div className="gate-compact"><Bar thin value={gateProgress(rows)} color="var(--gold)" label="Progress to the next chapter" /></div>
     {rows.map((r) => <div className={`gate-row${r.done ? ' done' : ''}`} key={r.label}>
-      <span>{r.done ? '✓' : r.either ? '◇' : '○'} {r.label}</span><b>{r.atMost ? `${gateValue(r, r.now)} ≤ ${gateValue(r, r.target)}` : `${gateValue(r, Math.min(r.now, r.target))} / ${gateValue(r, r.target)}`}</b>
-      <Bar thin value={r.done ? 1 : r.atMost ? Math.min(1, r.target / Math.max(1e-9, r.now)) : Math.min(1, r.now / Math.max(1e-9, r.target))} color={r.done ? 'var(--up)' : 'var(--gold)'} label={r.label} />
+      <span>{r.done ? '✓' : r.either ? '◇' : '○'} {r.label}</span><b>{r.pending ? `— / ${gateValue(r, r.target)}` : r.atMost ? `${gateValue(r, r.now)} ≤ ${gateValue(r, r.target)}` : `${gateValue(r, Math.min(r.now, r.target))} / ${gateValue(r, r.target)}`}</b>
+      <Bar thin value={r.pending ? 0 : r.done ? 1 : r.atMost ? Math.min(1, r.target / Math.max(1e-9, r.now)) : Math.min(1, r.now / Math.max(1e-9, r.target))} color={r.done ? 'var(--up)' : 'var(--gold)'} label={r.label} />
     </div>)}
   </div>;
 }

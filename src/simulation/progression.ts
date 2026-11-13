@@ -217,7 +217,7 @@ const CROP_UNLOCK: Record<CropId, string> = {
 
 // ---------------------------------------------------------------- chapter gates (one source for the HUD and the gate)
 
-export interface GateRow { label: string; now: number; target: number; fmt: 'n' | 'pct' | 'money'; done: boolean; either?: boolean; atMost?: boolean }
+export interface GateRow { label: string; now: number; target: number; fmt: 'n' | 'pct' | 'money'; done: boolean; either?: boolean; atMost?: boolean; /** nothing to measure yet (e.g. happiness before anyone lives here) */ pending?: boolean }
 const row = (label: string, now: number, target: number, fmt: GateRow['fmt'] = 'n', atMost = false): GateRow => ({ label, now, target, fmt, atMost, done: atMost ? now <= target : now >= target });
 /** What the current chapter needs before the next one opens, as rows with live values. Null when there is no next chapter gate. */
 export function chapterGate(s: GameState): GateRow[] | null {
@@ -228,7 +228,8 @@ export function chapterGate(s: GameState): GateRow[] | null {
     case 'market-town': return [{ ...row('Fields', s.fields.length, 12), either: true }, { ...row('Sales', sales, CHAPTER_SALES['market-town'], 'money'), either: true }];
     case 'farm-business': return [row('Farm hands', hands, 2), row('Sales', sales, CHAPTER_SALES['farm-business'], 'money')];
     case 'industry': return [row('Sales', sales, CHAPTER_SALES.industry, 'money'), row('Production houses working', workingFactories(s), 2), row('Factory goods made', s.stats.factoryMade ?? 0, INDUSTRY_FACTORY_SALES, 'money'), row('Farm hands', hands, 2)];
-    case 'settlement': return [row('Families settled', familiesHere(s), 6), row('Happiness', c.happiness, .6, 'pct'), row('Fed', c.fed, .9, 'pct')];
+    case 'settlement': { const none = familiesHere(s) === 0, wait = (r: GateRow): GateRow => (none ? { ...r, done: false, pending: true } : r); // no families yet: happiness and food have no one to measure
+      return [row('Families settled', familiesHere(s), 6), wait(row('Happiness', c.happiness, .6, 'pct')), wait(row('Fed', c.fed, .9, 'pct'))]; }
     case 'town': return [row('Residents', population(s), 400), row('Schooling', t.education, .6, 'pct'), row('Health', t.health, .7, 'pct'), row('Fed', c.fed, .9, 'pct')];
     case 'city': {
       if (cityOf(s).threatAt >= 0) return [row('Caravans have arrived', 1, 1)];
