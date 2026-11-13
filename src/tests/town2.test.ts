@@ -83,3 +83,20 @@ it('newcomer families settle once there is a town, and pay the housing tax', () 
   expect(communityOf(s).cohorts.some((g) => g.name.includes('newcomers'))).toBe(true);
   expect((s.lifetime.rent ?? 0) - rent).toBeGreaterThan(0);
 });
+
+it('utility lines share tiles: a water pipe runs alongside and across a sewage ditch', async () => {
+  const W = await import('../simulation/world');
+  const s = settled(); dispatch(s, { type: 'startTown' });
+  const w = worldOf(s, 'heartland');
+  let a: [number, number] | null = null; // a free straight run of 5 tiles
+  for (let y = 8; y < 30 && !a; y++) for (let x = 12; x < 30 && !a; x++) if ([0, 1, 2, 3, 4].every((i) => !W.placeProblem(s, 'heartland', x + i, y, { w: 1, d: 1 }))) a = [x, y];
+  expect(a).not.toBeNull();
+  const [x, y] = a!;
+  expect(dispatch(s, { type: 'buildPipe', region: 'heartland', from: [x, y], to: [x + 4, y], net: 'sewer' }).ok).toBe(true);
+  expect(W.placeProblem(s, 'heartland', x + 2, y, { w: 1, d: 1 })).toBe('water'); // the ditch still takes the ground from buildings
+  const along = W.pipeRoute(s, 'heartland', [x, y], [x + 4, y], 'water');
+  expect(along?.length).toBe(5); // right on top of the ditch's tiles, side by side
+  expect(dispatch(s, { type: 'buildPipe', region: 'heartland', from: [x, y], to: [x + 4, y], net: 'water' }).ok).toBe(true);
+  expect(Object.keys(W.linesOf(w, 'sewer')).length).toBe(5);
+  expect(Object.keys(W.linesOf(w, 'water')).length).toBe(5);
+});

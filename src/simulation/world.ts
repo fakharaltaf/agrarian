@@ -545,7 +545,9 @@ export const waterBlocks = (w: RegionWorld, id: number) => (w.canals[id] ?? 3) <
 /** Where a pipe may run: your own cleared open land, under roads, and along other pipes. */
 function pipeGround(s: GameState, r: RegionId, kind: NetKind) {
   const w = worldOf(s, r), open = openGround(s, r), owned = ownedSet(w), own = linesOf(w, kind);
-  return (x: number, y: number) => open(x, y) || (inMap(x, y) && owned.has(chunkAt(x, y)) && (isRoad(y) || !!w.roads[tileId(x, y)] || !!own[tileId(x, y)]));
+  // a utility line may share a tile with the other utilities' lines: they run side by side, or cross
+  const shared = (id: number) => !!own[id] || (kind !== 'irrigation' && UTILITY_NETS.some((k) => !!w.nets?.[k]?.[id]));
+  return (x: number, y: number) => open(x, y) || (inMap(x, y) && owned.has(chunkAt(x, y)) && (isRoad(y) || !!w.roads[tileId(x, y)] || shared(tileId(x, y))));
 }
 /** A pipe drawn by hand, from one tile to another, over ground a pipe may cross. New tiles only; null if there is no way. */
 export function pipeRoute(s: GameState, r: RegionId, from: [number, number], to: [number, number], kind: NetKind = 'irrigation') {
