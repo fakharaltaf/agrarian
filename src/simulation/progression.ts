@@ -325,7 +325,6 @@ export function objective(s: GameState): { title: string; hint: string; page?: s
       if (!s.buildings.some((b) => BUILDINGS[b.type].category === 'processing' && b.type !== 'oilWell')) return { title: 'Build your first mill', hint: `A flour mill turns wheat into flour worth about twice as much. Industry asks for two working production houses and ${fs} of factory goods made.`, page: 'production' };
       if (!s.buildings.some((b) => b.type === 'lab') && sales < 1_200_000) return { title: 'Build a research station', hint: `Research cuts costs and opens new crops and machines. ${ip}.`, page: 'production' };
       if (!s.research.active && !s.research.done.length && sales < 1_600_000) return { title: 'Start your first research project', hint: `Pick something that fixes today’s biggest cost. ${ip}.`, page: 'research' };
-      if (!s.futures.length && !s.contracts.some((c) => c.accepted) && sales < 2_000_000) return { title: 'Lock in a price', hint: `A supply contract or a futures hedge protects you from price swings. ${ip}.`, page: 'markets' };
       if (workingFactories(s) < 2) return { title: 'Get two production houses working', hint: `A bakery after your mill turns flour into bread worth twice as much again. ${workingFactories(s)}/2 working · factory goods made ${fs}.`, page: 'production' };
       const mix = energyMix(s);
       if (!mix.oil && !mix.clean && (s.stats.factoryMade ?? 0) < INDUSTRY_FACTORY_SALES) return { title: 'Power your production houses', hint: `Upgrades need the farm's own energy. Oil is open now (🛢): rich, but the farm leans industrial. Wind, solar or biogas keep it green. Factory goods made ${fs}.`, page: 'production' };
@@ -348,7 +347,6 @@ export function objective(s: GameState): { title: string; hint: string; page?: s
   if (s.era < 4) return { title: 'Reach $500,000 in sales', hint: 'Buy 5 ha parcels — larger fields must be worked by hired hands and machines.', page: 'fields' };
   if (!s.buildings.some((b) => BUILDINGS[b.type].category === 'processing')) return { title: 'Build your first processing facility', hint: 'A flour mill turns wheat into flour. It only pays when it runs near capacity.', page: 'production' };
   if (s.era < 5) return { title: 'Reach $3,000,000 in sales', hint: 'Watch for bottlenecks in the production chain.', page: 'production' };
-  if (!s.futures.length && !s.contracts.some((c) => c.accepted)) return { title: 'Lock in a price', hint: 'Accept a supply contract or hedge with futures on the Markets page.', page: 'markets' };
   if (s.era < 6) return { title: 'Reach $12,000,000 in sales', hint: 'Research can transform your costs — start a project.', page: 'research' };
   if (REGION_IDS.filter((r) => s.regions[r].unlocked).length < 2) return { title: 'Expand into a second region', hint: 'Each region has different land prices, climate, wages and demand.', page: 'world' };
   if (s.era < 7) return { title: 'Reach $60,000,000 in sales or 3,000 ha', hint: 'Ship goods to where prices are highest, net of freight and tariffs.', page: 'logistics' };
