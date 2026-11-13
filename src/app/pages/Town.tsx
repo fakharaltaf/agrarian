@@ -7,6 +7,10 @@ import { serviceAvailable, serviceDailyCost } from '../../simulation/stages/town
 import type { ServiceType } from '../../simulation/types';
 import { portrait } from '../world/portrait';
 import { BuildCard, NextStep, StatTile, toneOf } from './civic';
+import { GOODS, type GoodId } from '../../simulation/config';
+import { TOWN_ORDER_PREMIUM } from '../../simulation/stages/town';
+
+const ORDER_ICON: Partial<Record<GoodId, string>> = { bread: '🍞', milk: '🥛', cheese: '🧀', butter: '🧈' };
 
 type Cover = 'education' | 'water' | 'medical' | 'sanitation' | 'power';
 /** What each service does for the homes inside its reach. */
@@ -50,6 +54,11 @@ export default function TownPage() {
     <PageHead title="Town" sub={`${num(population(s))} people · ${familiesHere(s)} worker families · ${newcomers} newcomer${newcomers === 1 ? '' : 's'}`} />
     <div className="civ-tiles five">{TILES.map((x) => <StatTile key={x.cover} icon={x.icon} value={pct0(cover[x.cover])} label={x.label} tone={toneOf(cover[x.cover], 0.7, 0.4)} />)}</div>
     {next}
+    {t.orders && t.orders.length > 0 && <div className="row wrap small town-orders" title={`The town's shops buy from your stores each morning at ${Math.round((TOWN_ORDER_PREMIUM - 1) * 100)}% over the market. Bread comes from a bakery, milk from a dairy, cheese and butter from a creamery.`}>
+      <b>🛒 Town shops today</b>
+      {t.orders.map((o) => <span key={o.good} className={`pill ${o.sold >= o.want ? 'up' : o.sold > 0 ? '' : 'down'}`}>{ORDER_ICON[o.good] ?? ''} {num(o.sold)}/{num(o.want)} {GOODS[o.good].name.toLowerCase()}</span>)}
+      <span className="mono">+{money(t.orders.reduce((n, o) => n + o.value, 0))}</span>
+    </div>}
     <div className="civ-builds">{open.map(({ type, does, cover: key }) => {
       const d = SERVICE_DEFS[type], built = t.services.filter((b) => b.type === type).reduce((n, b) => n + b.count, 0), price = servicePrice(s, type);
       return <BuildCard key={type} img={portrait(`civic:${type}`)} fallback={d.icon} name={<>{d.name}{built > 0 && <small> ×{built}</small>}</>}

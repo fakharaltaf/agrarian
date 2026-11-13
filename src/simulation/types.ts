@@ -334,6 +334,7 @@ export interface TownState {
   active: boolean; enteredAt: number; charter: SchoolCharter | null; retrainingUntil: number;
   cash: number; companyAdvance: number; ledger: LedgerEntry[]; lifetime: Partial<Record<LedgerKind, number>>; books: DayBook[];
   taxRate: number; taxableIncome: number; lastTax: number; lastCost: number; lastDay: number;
+  /** yesterday's food order from the town's shops: what it wanted and what your stores sold it */ orders?: { good: GoodId; want: number; sold: number; value: number }[];
   services: CivicService[]; coverage: Record<DistrictId, DistrictCoverage>;
   publicJobs: number; industrialJobs: number; factoryShare: number;
   health: number; education: number; water: number; roads: number;

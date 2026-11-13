@@ -6,7 +6,8 @@ import { cityActive, cityOf } from '../city-state';
 import type { StageModule } from './types';
 import type { Action, ActionResult, DistrictId, GameState, SchoolCharter, ServiceType } from '../types';
 import { DISTRICT_IDS } from '../types';
-import { GOODS, WORK_HOURS } from '../config';
+import { larderReserve } from './settlement';
+import { GOODS, WORK_HOURS, type GoodId } from '../config';
 import { clamp, electricityPrice, log, marketWage, nextId, post, priceUsd, random, reservedStock, round2 } from '../core';
 import { communityOf, familiesHere, population, workingAdults, children, residentWorkers } from '../community-state';
 import { createTownState, districtPopulation, factoryJobs, localEmployment, payHouseholds, schoolChangeCost, SERVICE_DEFS, SERVICE_GROUPS, servicePrice, serviceJobs, townOf, townWorkforce, UTILITY_OF, utilityFamilies, serviceRadius, heatAt, levelCapacity, canUpgradeService, levelOf, serviceUpgradePrice } from '../town-state';
@@ -58,11 +59,31 @@ function setCharter(s: GameState, charter: SchoolCharter) {
   s.values.traditionProgress=clamp(s.values.traditionProgress+(charter==='public'?8:4),0,100);
   s.values.prosperityFairness=clamp(s.values.prosperityFairness+(charter==='public'?6:-6),0,100);
 }
+/** What the town's shops order each day, per resident: bread, milk, cheese and butter from your production houses. */
+export const TOWN_ORDER: Partial<Record<GoodId, number>> = { bread: 0.6, milk: 0.5, cheese: 0.06, butter: 0.05 };
+/** The shops pay this much over the market for a steady local supply. */
+export const TOWN_ORDER_PREMIUM = 1.2;
+/** Each morning the town's shops buy what they need from your stores (above the settlement's larder) at a premium, as a supply contract. */
+export function townOrders(s: GameState) {
+  const t = townOf(s), people = population(s), inv = s.regions.heartland.inventory;
+  t.orders = (Object.entries(TOWN_ORDER) as [GoodId, number][]).map(([good, per]) => {
+    const want = Math.floor(people * per), spare = Math.max(0, inv[good] - larderReserve(s, good)), sold = Math.floor(Math.min(want, spare));
+    const value = round2(sold * priceUsd(s, 'heartland', good) * TOWN_ORDER_PREMIUM);
+    if (sold > 0) {
+      inv[good] -= sold;
+      post(s, 'contract', value, `Town shops bought ${sold} ${GOODS[good].name.toLowerCase()}`, 'heartland', good === 'milk' ? 'livestock' : 'processing');
+      s.stats.factorySales = (s.stats.factorySales ?? 0) + value;
+      s.stats.sales++;
+    }
+    return { good, want, sold, value };
+  });
+}
 /** Allocation is deterministic and shared by coverage/paid salaries/available hires. */
 export function townDaily(s: GameState) {
   const t=townOf(s), c=communityOf(s), today=Math.floor(s.tick/24);
   if(!t.active || s.tick%24!==0 || t.lastDay===today) return;
   t.lastDay=today;
+  townOrders(s);
   const tax=0; // no town treasury: services are paid by the farm and recovered through the settlement's housing tax and pay cut
   t.taxableIncome=0; t.lastTax=tax;
   if(tax>0) { c.householdCash=Math.max(0,round2(c.householdCash-tax)); post(s,'residentTax',tax,'Household income tax','heartland','corporate','town'); }
