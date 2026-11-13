@@ -1118,12 +1118,12 @@ function utilityworks(s: GameState, r: RegionId) {
   // an open sewer: a timber-lined channel of murky water with scum on it, dug spoil along both banks
   const boards: THREE.Matrix4[] = [], slop: THREE.Matrix4[] = [], scum: THREE.Matrix4[] = [], qq = new THREE.Quaternion();
   const piece = (list: THREE.Matrix4[], x: number, y: number, z: number, ang: number, sx: number, sy: number, sz: number) => { qq.setFromAxisAngle(Y, ang); list.push(new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), qq, new THREE.Vector3(sx, sy, sz))); };
-  const sewerRun = (cx: number, cz: number, dx: number, dy: number, reach: number) => {
-    const mx = cx + (dx * reach) / 2, mz = cz + (dy * reach) / 2, ang = -Math.atan2(dy, dx), nx = -dy, nz = dx;
-    for (const side of [-1, 1]) piece(boards, mx + nx * side * 0.07, 0.03, mz + nz * side * 0.07, ang, reach + 0.03, 1, 1);
-    piece(slop, mx, 0.022, mz, ang, reach, 1, 1);
-    const h = Math.abs(Math.sin(cx * 12.9898 + cz * 78.233 + dx * 3 + dy * 7) * 43758.5453) % 1; // the same scum every time the town redraws
-    if (h < 0.6) piece(scum, cx + dx * reach * (0.2 + h), 0.032, cz + dy * reach * (0.2 + h) + (h - 0.3) * 0.06, h * 6, 0.6 + h, 1, 0.7 + h * 0.5);
+  const sewerRun = (ax: number, az: number, bx: number, bz: number) => {
+    const len = Math.hypot(bx - ax, bz - az) || 0.001, mx = (ax + bx) / 2, mz = (az + bz) / 2, ang = -Math.atan2(bz - az, bx - ax), nx = -(bz - az) / len, nz = (bx - ax) / len;
+    for (const side of [-1, 1]) piece(boards, mx + nx * side * 0.07, 0.03, mz + nz * side * 0.07, ang, len + 0.03, 1, 1);
+    piece(slop, mx, 0.022, mz, ang, len, 1, 1);
+    const h = Math.abs(Math.sin(ax * 12.9898 + az * 78.233 + bx * 3 + bz * 7) * 43758.5453) % 1; // the same scum every time the town redraws
+    if (h < 0.6) piece(scum, ax + (bx - ax) * (0.2 + h), 0.032, az + (bz - az) * (0.2 + h), h * 6, 0.6 + h, 1, 0.7 + h * 0.5);
   };
   const sewerCorner = (cx: number, cz: number) => piece(slop, cx, 0.022, cz, 0, 0.14, 1, 1); // fills the water across bends and junctions
   for (const kind of UTILITY_NETS) {
@@ -1131,28 +1131,37 @@ function utilityworks(s: GameState, r: RegionId) {
     const top = NET_TOP[kind], facTiles = new Set<number>();
     for (const b of townOf(s).services) { if (UTILITY_OF[b.type] !== kind) continue; const p = w.pos[`svc:${b.id}`], fp = footprintOf(s, `svc:${b.id}`); if (p && fp) for (let y = p[1]; y < p[1] + fp.d; y++) for (let x = p[0]; x < p[0] + fp.w; x++) facTiles.add(tileId(x, y)); }
     const onRoad = (x: number, y: number) => isRoad(y) || !!w.roads[tileId(x, y)];
-    const shown = (x: number, y: number) => { const t = own[tileId(x, y)]; return t && t < top && (kind === 'power' || !onRoad(x, y)) ? t : 0; }; // overhead wires cross roads; pipes and ditches go under them
+    // overhead wires cross roads; a pipe or ditch following a road runs along its edge, one that only crosses a road dips under it
+    const along = (x: number, y: number) => onRoad(x, y) && D.some(([dx, dy]) => !!own[tileId(x + dx, y + dy)] && onRoad(x + dx, y + dy));
+    const shown = (x: number, y: number) => { const t = own[tileId(x, y)]; return t && t < top && (kind === 'power' || !onRoad(x, y) || along(x, y)) ? t : 0; };
+    /** Where the line runs through a tile: its own side of open ground, or the edge of a road it follows (the near edge of the two-lane main road; water and sewage on opposite edges of a track). */
+    const spot = (x: number, y: number): [number, number] => {
+      if (kind === 'power' || !onRoad(x, y)) return [x + 0.5 + SIDE[kind][0], y + 0.5 + SIDE[kind][1]];
+      const main = isRoad(y), sg = main ? (y === ROAD_Y ? -1 : 1) : kind === 'water' ? -1 : 1, m = main ? (kind === 'water' ? 0.43 : 0.33) : 0.42;
+      return [x + 0.5 + sg * m, y + 0.5 + sg * m];
+    };
     const runs: THREE.Matrix4[] = [], joints: THREE.Matrix4[] = [], posts: THREE.Matrix4[] = [];
     const H = kind === 'power' ? 1.55 : kind === 'water' ? 0.1 : 0.065, line = rod(runs, H);
     for (const k of Object.keys(own)) {
       const id = Number(k), [x, y] = tileAt(id), t = shown(x, y);
       if (!t) continue;
-      const [ox, oz] = SIDE[kind], cx = x + 0.5 + ox, cz = y + 0.5 + oz, same = D.filter(([dx, dy]) => shown(x + dx, y + dy) === t).length;
+      const [cx, cz] = spot(x, y), same = D.filter(([dx, dy]) => shown(x + dx, y + dy) === t).length;
       const ditchy = kind === 'sewer' && t === 1;
       if (ditchy) { ditch.disc(cx, cz, [[0.07, SPOIL, 0], [0.08, SPOIL, 0.95], [0.12, SPOIL, 0.95], [0.18, SPOIL, 0]], 0.02); sewerCorner(cx, cz); }
       let joins = 0;
+      const mid = ([bx, bz]: [number, number]): [number, number] => [(cx + bx) / 2, (cz + bz) / 2];
       for (const [dx, dy] of D) {
         const nid = tileId(x + dx, y + dy), nt = shown(x + dx, y + dy);
         const reach = nt === t ? 0.5 : own[nid] ? (same < 2 ? 0.5 : 0) : (homeTiles.has(nid) || facTiles.has(nid)) && same < 2 ? 0.5 : 0;
         if (!reach) continue;
         joins++;
-        if (ditchy) { ditch.seg(cx, cz, cx + dx * reach, cz + dy * reach, [[-0.18, SPOIL, 0], [-0.12, SPOIL, 0.95], [-0.08, SPOIL, 0.95], [-0.07, SPOIL, 0], [0.07, SPOIL, 0], [0.08, SPOIL, 0.95], [0.12, SPOIL, 0.95], [0.18, SPOIL, 0]], { step: 0.25, edge: 0.02 }); sewerRun(cx, cz, dx, dy, reach); continue; } // spoil on the banks only, so the water shows
-        if (nt === t) { if (dx > 0 || dy > 0) line(cx, cz, cx + dx, cz + dy); continue; }
+        if (ditchy) { const [ex, ez] = nt === t ? mid(spot(x + dx, y + dy)) : [cx + dx * reach, cz + dy * reach]; ditch.seg(cx, cz, ex, ez, [[-0.18, SPOIL, 0], [-0.12, SPOIL, 0.95], [-0.08, SPOIL, 0.95], [-0.07, SPOIL, 0], [0.07, SPOIL, 0], [0.08, SPOIL, 0.95], [0.12, SPOIL, 0.95], [0.18, SPOIL, 0]], { step: 0.25, edge: 0.02 }); sewerRun(cx, cz, ex, ez); continue; } // spoil on the banks only, so the water shows
+        if (nt === t) { if (dx > 0 || dy > 0) { const [bx, bz] = spot(x + dx, y + dy); line(cx, cz, bx, bz); } continue; }
         line(cx, cz, cx + dx * reach, cz + dy * reach); joints.push(new THREE.Matrix4().makeTranslation(cx + dx * reach, H, cz + dy * reach));
       }
       if (ditchy) continue;
       if (kind === 'power') { if (!onRoad(x, y) && (joins !== 2 || same < 2 || (x + y) % 3 === 0)) posts.push(new THREE.Matrix4().makeTranslation(cx, 0, cz)); else if (onRoad(x, y) && (x + y) % 3 === 0) posts.push(new THREE.Matrix4().makeTranslation(x + 0.06, 0, y + 0.06)); } // over a road the pylon stands at the roadside // a pylon at bends, ends and every third tile
-      else { if (joins !== 2) joints.push(new THREE.Matrix4().makeTranslation(cx, H, cz)); if (!onRoad(x, y)) posts.push(new THREE.Matrix4().makeTranslation(cx, 0, cz)); } // a concrete saddle under the pipe on every tile
+      else { if (joins !== 2) joints.push(new THREE.Matrix4().makeTranslation(cx, H, cz)); posts.push(new THREE.Matrix4().makeTranslation(cx, 0, cz)); } // a concrete saddle under the pipe on every tile
     }
     if (kind === 'power') {
       inst(cached('wire', () => new THREE.CylinderGeometry(0.012, 0.012, 1, 4).rotateZ(Math.PI / 2)), mat(0x2a2a2a), runs, false);
