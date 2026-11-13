@@ -72,7 +72,6 @@ export function townOrders(s: GameState) {
     if (sold > 0) {
       inv[good] -= sold;
       post(s, 'contract', value, `Town shops bought ${sold} ${GOODS[good].name.toLowerCase()}`, 'heartland', good === 'milk' ? 'livestock' : 'processing');
-      s.stats.factorySales = (s.stats.factorySales ?? 0) + value;
       s.stats.sales++;
     }
     return { good, want, sold, value };

@@ -107,7 +107,7 @@ it('the town shops buy bread, milk, cheese and butter each morning at a premium,
   const { population } = await import('../simulation/community-state');
   const s = settled(); dispatch(s, { type: 'startTown' });
   const inv = s.regions.heartland.inventory; inv.bread = 1000; inv.cheese = 0;
-  const cash = s.cash, fs = s.stats.factorySales ?? 0, price = priceUsd(s, 'heartland', 'bread');
+  const cash = s.cash, price = priceUsd(s, 'heartland', 'bread');
   townOrders(s);
   const bread = townOf(s).orders!.find((o) => o.good === 'bread')!, cheese = townOf(s).orders!.find((o) => o.good === 'cheese')!;
   expect(bread.want).toBe(Math.floor(population(s) * 0.6));
@@ -115,5 +115,4 @@ it('the town shops buy bread, milk, cheese and butter each morning at a premium,
   expect(bread.value).toBeCloseTo(bread.sold * price * TOWN_ORDER_PREMIUM, 1);
   expect(cheese.sold).toBe(0); // none in store
   expect(s.cash - cash).toBeCloseTo(townOf(s).orders!.reduce((n, o) => n + o.value, 0), 1);
-  expect((s.stats.factorySales ?? 0) - fs).toBeGreaterThan(0); // counts toward the factory goods goal
 });

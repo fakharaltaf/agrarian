@@ -10,7 +10,7 @@ import type { Division } from './types';
 // so price impact and its slow recovery fall out of the same model.
 import {
   CONFIG, CROPS, DAYS_PER_YEAR, GOODS, GRAINS, REGIONS, REGION_IDS, SAME_COUNTRY, TICKS_PER_DAY, TICKS_PER_YEAR, TRADEABLE,
-  distance, type CropId, type GoodId, type RegionId, FACTORY_GOODS } from './config';
+  distance, type CropId, type GoodId, type RegionId } from './config';
 import { activeEvents, clamp, day, fuelPrice, freeSpace, gauss, has, hour, log, post, random, refPrice, round2, severity, leaning } from './core';
 import { qualityMult } from './agriculture';
 import type { GameState, Market } from './types';
@@ -389,7 +389,6 @@ export function executeSell(s: GameState, r: RegionId, g: GoodId, qty: number, m
   if((q.retailQty??0)>0){s.regions[r].retailToday[g]=(s.regions[r].retailToday[g]??0)+q.retailQty!;recordRetailPremium(s,r,q.retailValue??0);}
   if (!carted) useHaul(s, r, q.qty); // your own vehicles replace hired haulage
   s.stats.sales++;
-  if (FACTORY_GOODS.has(g)) s.stats.factorySales = (s.stats.factorySales ?? 0) + q.gross; // the Industry chapter's goal
   s.stats.peopleFed += (q.qty * GOODS[g].kcal) / (2000 * 365);
   return q;
 }

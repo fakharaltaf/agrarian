@@ -5,7 +5,7 @@ import { payHouseholds, townOf, townIndustryFactor } from './town-state';
 import { larderReserve } from './stages/settlement';
 // Factories, energy and building upkeep. One production model for every industry:
 // batches = min(capacity, scarcest input, output room, power) — Leontief, like a real line.
-import { BUILDINGS, COWS_PER_DAIRY_BATCH, GOODS, REGIONS, REGION_IDS, SUNRISE, SUNSET, type GoodId, type RegionId } from './config';
+import { BUILDINGS, COWS_PER_DAIRY_BATCH, FACTORY_GOODS, GOODS, REGIONS, REGION_IDS, SUNRISE, SUNSET, type GoodId, type RegionId } from './config';
 import { buildingDivision, clamp, electricityPrice, execOn, freeSpace, has, hour, levelMult, throughput, post, priceUsd, round2, reserveCap, reservedStock, severity } from './core';
 import { addGoods } from './agriculture';
 import { avg30 } from './markets';
@@ -142,6 +142,7 @@ function produce(s: GameState, b: Building, staff: number, cows = 0) {
     addGoods(s, b.region, g, q * outMult * batches, quality);
     s.stats.produced[g] = (s.stats.produced[g] ?? 0) + q * outMult * batches;
     if (oil && g === 'oil') drawOil(s, b, q * outMult * batches);
+    if (FACTORY_GOODS.has(g)) s.stats.factoryMade = (s.stats.factoryMade ?? 0) + q * outMult * batches * priceUsd(s, b.region, g); // Industry's goal: what your production houses make (not what animals give)
     outValue += q * outMult * batches * priceUsd(s, b.region, g);
   }
   const kwh = rec.kwh * batches * (has(s, 'foodTech') && rec.kwh > 0 ? 0.7 : 1);

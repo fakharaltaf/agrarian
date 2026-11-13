@@ -431,8 +431,8 @@ export const FINANCING_KINDS: LedgerKind[] = ['loanIn', 'loanRepay', 'sharesIssu
 export const OTHER_OPERATING: LedgerKind[] = ['interest', 'tax', 'futures', 'insurancePayout', 'prize'];
 
 /** Narrative chapter milestones; legacy ERAS retain their established gates. */
-/** What a farm's production houses make (not crude oil or diesel, not manure): the goods the Industry chapter asks you to sell. */
+/** What a farm's food production houses make (not crude oil or diesel, not manure): the goods the Industry chapter asks you to make. */
 export const FACTORY_GOODS: ReadonlySet<string> = new Set(['flour', 'bread', 'feed', 'meat', 'milk', 'cheese', 'butter', 'soyoil', 'soymeal', 'sugar', 'wine', 'greens']);
-/** Factory goods a farm sells before Industry hands over to Settlement. */
+/** Worth of factory goods a farm makes before Industry hands over to Settlement. */
 export const INDUSTRY_FACTORY_SALES = 400_000;
 export const CHAPTER_SALES = { homestead: 24_000, 'market-town': 110_000, 'farm-business': 500_000, industry: 3_000_000 } as const;

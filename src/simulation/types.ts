@@ -388,7 +388,7 @@ export interface GameState {
   charters: { trader: TraderCharter | null };
   /** Four visible axes from 0 (left label) to 100 (right label). */
   values: TownValues;
-  stats: { harvests: number; sales: number; plantings: number; produced: Partial<Record<GoodId, number>>; spoiled: number; peopleFed: number; forcedSales: number; overflowLost: number; maxEquity: number; crisisSurvived: boolean; /** factory goods sold, $ (Industry's goal) */ factorySales?: number };
+  stats: { harvests: number; sales: number; plantings: number; produced: Partial<Record<GoodId, number>>; spoiled: number; peopleFed: number; forcedSales: number; overflowLost: number; maxEquity: number; crisisSurvived: boolean; /** worth of the goods your food production houses made, at market (Industry's goal) */ factoryMade?: number };
   unlockedCrops: CropId[];
   milestones: string[];
   seenTips: string[];

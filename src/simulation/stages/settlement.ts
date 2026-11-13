@@ -23,7 +23,7 @@ export function canStartSettlement(s: GameState) {
     && (s.lifetime.sale ?? 0) + (s.lifetime.contract ?? 0) >= CHAPTER_SALES.industry
     && s.workers.filter(w => w.role === 'hand').length >= 2
     && (s.legacyProgression ? s.machines.some(m => m.type !== 'truck') || s.buildings.some(b => BUILDINGS[b.type].category === 'processing')
-      : workingFactories(s) >= 2 && (s.stats.factorySales ?? 0) >= INDUSTRY_FACTORY_SALES); // Industry is about factories: a working chain and its goods sold
+      : workingFactories(s) >= 2 && (s.stats.factoryMade ?? 0) >= INDUSTRY_FACTORY_SALES); // Industry is about factories: a working chain and what it makes
 }
 const available = (s: GameState, g: GoodId) => Math.max(0, s.regions.heartland.inventory[g] - reservedStock(s, 'heartland', g));
 /** Policy allocation is updated by the engine, never by UI reads. */
@@ -129,7 +129,7 @@ export function settlementTick(s: GameState) {
 function action(s: GameState, a: Action): ActionResult | null {
   const c = communityOf(s), fail = (error: string): ActionResult => ({ ok: false, error });
   if (a.type === 'startSettlement') {
-    if (!canStartSettlement(s)) return fail(`Mechanise or process your harvest, employ two hands and reach $${CHAPTER_SALES.industry.toLocaleString()} in sales first.`);
+    if (!canStartSettlement(s)) return fail(s.legacyProgression ? `Mechanise or process your harvest, employ two hands and reach $${CHAPTER_SALES.industry.toLocaleString()} in sales first.` : `Get two production houses working, make $${INDUSTRY_FACTORY_SALES.toLocaleString()} of factory goods, employ two hands and reach $${CHAPTER_SALES.industry.toLocaleString()} in sales first.`);
     c.active = true; c.charter = null; c.enteredAt = s.tick;
     s.stageId = 'settlement'; if (!s.legacyProgression) s.era = 5;
     s.eraReady = false;
