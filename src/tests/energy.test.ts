@@ -204,3 +204,16 @@ it('nuisance is rated per building and level: a village windmill and a bakery ar
   expect(nuisanceHappiness(near)).toBeCloseTo(0.16); // 20 points at most
   expect(nuisanceHappiness(exposureAt([bread], 0, 0))).toBeCloseTo(-0.05); // fresh bread cheers
 });
+
+it('crude and diesel live in tanks, not barns, and a refinery stops when its tank is full', async () => {
+  const { freeSpace, stored, tankCap } = await import('../simulation/core');
+  const s = industry(612), inv = s.regions.heartland.inventory;
+  const dry = stored(s, 'heartland').dry;
+  inv.fuel = 4000;
+  expect(stored(s, 'heartland').dry).toBe(dry); // diesel takes no barn space
+  expect(tankCap(s, 'heartland', 'fuel')).toBe(5000);
+  expect(freeSpace(s, 'heartland', 'fuel')).toBe(1000);
+  expect(freeSpace(s, 'heartland', 'oil')).toBe(0); // no wells, no crude tanks
+  expect(dispatch(s, { type: 'build', region: 'heartland', building: 'refinery' }).ok).toBe(true);
+  expect(tankCap(s, 'heartland', 'fuel')).toBe(45000);
+});

@@ -19,7 +19,7 @@ export type CropId = 'wheat' | 'corn' | 'potatoes' | 'soybeans' | 'rice' | 'suga
 export type ProcessedId = 'flour' | 'bread' | 'feed' | 'meat' | 'milk' | 'cheese' | 'butter' | 'soyoil' | 'soymeal' | 'sugar' | 'greens' | 'eggs' | 'wool' | 'wine' | 'timber' | 'oil';
 export type InputId = 'fertilizer' | 'fuel' | 'manure';
 export type GoodId = CropId | ProcessedId | InputId;
-export type StorageClass = 'dry' | 'cold';
+export type StorageClass = 'dry' | 'cold' | 'tank'; // tank: crude and diesel, held in the tanks at wells, the refinery and the farm's diesel tank
 
 export interface GoodDef {
   id: GoodId;
@@ -64,12 +64,12 @@ export const GOODS: Record<GoodId, GoodDef> = {
   sugar: G('sugar', 'Sugar', 'processed', 14, 'dry', 0, 0, 0.4, 0.3, 40, 3900, '#F7F4EE', { inputs: { sugarcane: 5 } }),
   greens: G('greens', 'Fresh greens', 'processed', 6, 'cold', 0.03, 0.3, 0.9, 1.1, 40, 200, '#6FAF5A'),
   timber: G('timber', 'Timber', 'processed', 3, 'dry', 0, 0, 0.6, 0.8, 30, 0, '#A07850'),
-  oil: G('oil', 'Crude oil', 'processed', 60, 'dry', 0, 0, 0.35, 0.5, 120, 0, '#2B2B2B'),
+  oil: G('oil', 'Crude oil', 'processed', 60, 'tank', 0, 0, 0.35, 0.5, 120, 0, '#2B2B2B'),
   eggs: G('eggs', 'Eggs (trays)', 'processed', 3.5, 'cold', 0.01, 0.04, 0.4, 0.3, 120, 2100, '#F1E3C6'),
   wool: G('wool', 'Wool', 'processed', 9, 'dry', 0, 0, 0.6, 0.7, 20, 0, '#E9E4D8'),
   wine: G('wine', 'Wine', 'processed', 9, 'dry', 0, 0, 0.9, 1.2, 30, 850, '#7A2A3A', { inputs: { grapes: 1.7 } }),
   fertilizer: G('fertilizer', 'Fertilizer', 'input', 1.5, 'dry', 0, 0, 0.4, 0.2, 260, 0, '#8E8E7A'),
-  fuel: G('fuel', 'Diesel', 'input', 1.0, 'dry', 0, 0, 0.3, 0.4, 900, 0, '#55606A'),
+  fuel: G('fuel', 'Diesel', 'input', 1.0, 'tank', 0, 0, 0.3, 0.4, 900, 0, '#55606A'),
   manure: G('manure', 'Manure', 'input', 0.3, 'dry', 0.01, 0.01, 1, 0, 0, 0, '#6F5338', { tradeable: false }),
 };
 export const GOOD_IDS = Object.keys(GOODS) as GoodId[];

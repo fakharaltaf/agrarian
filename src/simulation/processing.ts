@@ -109,12 +109,12 @@ function produce(s: GameState, b: Building, staff: number, cows = 0) {
   if (outUnits > 0) {
     // A batch uses up its inputs before the outputs need room, so only the net growth per storage
     // type needs free space (a mill turning 10 wheat into 8 flour frees space, it never needs it).
-    const net = { dry: 0, cold: 0 };
-    for (const [g, q] of Object.entries(rec.outputs) as [GoodId, number][]) net[GOODS[g].storage === 'cold' ? 'cold' : 'dry'] += q * outMult;
-    for (const [g, q] of Object.entries(rec.inputs) as [GoodId, number][]) net[GOODS[g].storage === 'cold' ? 'cold' : 'dry'] -= q;
+    const net = { dry: 0, cold: 0, tank: 0 };
+    for (const [g, q] of Object.entries(rec.outputs) as [GoodId, number][]) net[GOODS[g].storage === 'cold' ? 'cold' : GOODS[g].storage === 'tank' ? 'tank' : 'dry'] += q * outMult;
+    for (const [g, q] of Object.entries(rec.inputs) as [GoodId, number][]) net[GOODS[g].storage === 'cold' ? 'cold' : GOODS[g].storage === 'tank' ? 'tank' : 'dry'] -= q;
     let room = Infinity;
     for (const [g] of Object.entries(rec.outputs) as [GoodId, number][]) {
-      const k = GOODS[g].storage === 'cold' ? 'cold' : 'dry';
+      const k = GOODS[g].storage === 'cold' ? 'cold' : GOODS[g].storage === 'tank' ? 'tank' : 'dry';
       if (net[k] > 0) room = Math.min(room, freeSpace(s, b.region, g) / net[k]);
     }
     if (room < batches) {

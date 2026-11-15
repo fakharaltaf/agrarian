@@ -233,7 +233,7 @@ function BuyCard({ s, r }: { s: GameState; r: RegionId }) {
         </div>
         <div className="row wrap small muted" style={{ gap: 14 }}>
           <span>Held here <b className="mono">{num(s.regions[r].inventory[g])}</b></span>
-          <span>Free {GOODS[g].storage === 'cold' ? 'cold + dry' : 'dry'} space <b className="mono">{num(space)}</b></span>
+          <span>Free {GOODS[g].storage === 'cold' ? 'cold + dry' : GOODS[g].storage === 'tank' ? 'tank' : 'dry'} space <b className="mono">{num(space)}</b></span>
         </div>
         {q.qty > 0 && (
           <dl className="facts">

@@ -140,13 +140,20 @@ export function capacity(s: GameState, r: RegionId) {
   return { dry, cold };
 }
 
-/** Units held per storage class. Cold goods overflow into dry space (and spoil faster there). */
+/** Tank space for crude or diesel: 500 bbl at each oil well, 2,000 bbl and 40,000 L at a refinery, and the farm's own 5,000 L diesel tank. */
+export function tankCap(s: GameState, r: RegionId, g: GoodId) {
+  let cap = g === 'fuel' && r === 'heartland' ? 5000 : 0;
+  for (const b of buildingsIn(s, r)) cap += g === 'oil' ? (b.type === 'oilWell' ? 500 : b.type === 'refinery' ? 2000 : 0) : b.type === 'refinery' ? 40000 : 0;
+  return cap;
+}
+/** Units held per storage class. Cold goods overflow into dry space (and spoil faster there); crude and diesel live in tanks. */
 export function stored(s: GameState, r: RegionId) {
   const inv = s.regions[r].inventory;
   let dry = 0, cold = 0;
   for (const g in inv) {
     const q = inv[g as GoodId];
     if (!q) continue;
+    if (GOODS[g as GoodId].storage === 'tank') continue;
     if (GOODS[g as GoodId].storage === 'cold') cold += q;
     else dry += q;
   }
@@ -158,6 +165,7 @@ export function stored(s: GameState, r: RegionId) {
 export function freeSpace(s: GameState, r: RegionId, g: GoodId) {
   const st = stored(s, r);
   const dryFree = Math.max(0, st.cap.dry - st.dry);
+  if (GOODS[g].storage === 'tank') return Math.max(0, tankCap(s, r, g) - s.regions[r].inventory[g]);
   return GOODS[g].storage === 'cold' ? Math.max(0, st.cap.cold - st.cold) + dryFree : dryFree;
 }
 
