@@ -6,7 +6,7 @@ import { caravanReserve } from './region-state';
 // through the same primitives as the player, and never below the cash reserve.
 import { ANIMALS, BUILDINGS, CONFIG, CROPS, DAYS_PER_YEAR, GOODS, GOOD_IDS, MACHINES, REGIONS, REGION_IDS, TICKS_PER_DAY, WORK_END, WORK_START, type CropId, type GoodId, type RegionId } from './config';
 import { canGrow, expectedYield, readyAt, fertility, fertilizeField, soilAdequacy, spreadingCost, spreadNeed, warnOnce } from './agriculture';
-import { buildingsIn, clamp, freeSpace, throughput, reservedStock, debt, execOn, has, hour, log, nextId, post, priceUsd, seasonOf, seedCost, stored, totalAssets } from './core';
+import { buildingsIn, clamp, freeSpace, throughput, reservedStock, debt, execOn, has, hour, log, nextId, post, priceUsd, seasonOf, seedCost, stored, totalAssets, tankCap } from './core';
 import { affordableBuy, avg30, closedPort, executeBuy, executeSell, forecast, marketDepth } from './markets';
 import { CONTRACT_SIZE, FUTURES_GOODS, openFutures, futuresPrice, closeFutures } from './finance';
 import { autoBudget, machineRate, serviceCost, service } from './operations';
@@ -241,12 +241,14 @@ function sellRound(s: GameState, r: RegionId, midday: boolean) {
   let coldPrep = coldShort;
   const coldSpill = st.coldOverflow > 1; // chilled goods out of the cold store rot fast: sell them every hour until they fit
   const feedKeep = s.herds.reduce((a, h) => a + (h.region === r ? h.count * ANIMALS[h.animal].feedPerDay * 3 : 0), 0);
-  const ordered = GOOD_IDS.filter(g => s.markets[r][g] && GOODS[g].kind !== 'input')
+  const refining = s.buildings.some((b) => b.region === r && b.type === 'refinery'); // diesel is the farm's to sell once it makes its own
+  const sells = (g: GoodId) => GOODS[g].kind !== 'input' || (g === 'fuel' && refining);
+  const ordered = GOOD_IDS.filter(g => s.markets[r][g] && sells(g))
     .map(g => ({ g, score: s.markets[r][g]!.price / Math.max(0.01, avg30(s, r, g)) }))
     .sort((a, b) => b.score - a.score).map(x => x.g);
   for (const g of ordered) {
-    const q = s.regions[r].inventory[g] - contractsNeed(s, r, g) - reservedStock(s, r, g) - (r === 'heartland' ? larderReserve(s, g) + caravanReserve(s, g) : 0) - (FEEDS.includes(g) ? feedKeep : 0);
-    if (q < 1 || !s.markets[r][g] || GOODS[g].kind === 'input') continue;
+    const q = s.regions[r].inventory[g] - (g === 'fuel' ? 5000 : 0) - contractsNeed(s, r, g) - reservedStock(s, r, g) - (r === 'heartland' ? larderReserve(s, g) + caravanReserve(s, g) : 0) - (FEEDS.includes(g) ? feedKeep : 0);
+    if (q < 1 || !s.markets[r][g] || !sells(g)) continue;
     const perishable = GOODS[g].spoilProper > 0.02;
     // midday: send surplus to whichever region pays at least 10% more after freight and tariff, sold there on arrival
     if ((midday || perishable) && P.autoExport && s.era >= 6) {
@@ -266,12 +268,13 @@ function sellRound(s: GameState, r: RegionId, midday: boolean) {
     const good = s.markets[r][g]!.price >= P.sellDiscipline * avg30(s, r, g);
     const cold = GOODS[g].storage === 'cold';
     const overflow = cold ? stored(s, r).coldOverflow : Infinity;
-    const relief = Math.min(q, excess, overflow, marketDepth(s, r, g) * 0.15);
+    const tank = GOODS[g].storage === 'tank'; // crude and diesel: keep the tanks under half full, so wells and the refinery never stop
+    const relief = Math.min(q, tank ? Math.max(0, s.regions[r].inventory[g] - tankCap(s, r, g) * 0.5) : excess, overflow, marketDepth(s, r, g) * 0.15);
     const prep = cold && coldPrep > 0 ? Math.min(q, coldPrep, marketDepth(s, r, g) * 0.15) : 0;
     const planned = Math.max(perishable ? q : (coldSpill && cold) || (midday && good) ? q * 0.25 : relief, prep);
     if (planned >= 1) {
       const sold = executeSell(s, r, g, planned, `Manager sales: ${GOODS[g].name}`).qty;
-      excess = Math.max(0, excess - Math.min(sold, overflow));
+      if (!tank) excess = Math.max(0, excess - Math.min(sold, overflow));
       if (cold) coldPrep = Math.max(0, coldPrep - sold);
     }
   }
