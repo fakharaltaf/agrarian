@@ -24,7 +24,7 @@ import { Bar, Card, Confirm, Modal, Select, usePref } from '../ui';
 import { AdvisorPill } from '../Advisor';
 import { Scene3D, fertilisePlan, lotName, type WorldPick } from './Scene3D';
 import { layoutRegion, type Lot } from './layout';
-import { communityOf, population, homeCapacity } from '../../simulation/community-state';
+import { communityOf, familiesHere, homeCapacity, homeFamilies } from '../../simulation/community-state';
 
 function EraBanner({ s }: { s: GameState }) {
   const [open, setOpen] = useState(false);
@@ -522,7 +522,7 @@ function LotPanel({ s, lot, region, onClose }: { s: GameState; lot: Lot; region:
   if(lot.service&&canUpgradeService(lot.service.type))return <ServiceCard s={s} svc={townOf(s).services.find((b)=>b.id===lot.service!.id)??lot.service} onClose={onClose} />;
   if(lot.service&&['sanitation','lighting','police'].includes(lot.service.type))return <Card title="City watch"><button className="btn primary" onClick={()=>go('city')}>Open City watch</button></Card>;
   if (lot.key.startsWith('civic:')) return <Card title="Town services"><button className="btn primary" onClick={() => go('town')}>Open Town hall</button></Card>;
-  if (lot.key.startsWith('community:')) return <Card title="Your neighbourhood"><div className="community-strip"><span>🏘️ {population(s)} / {homeCapacity(s)}</span><span>☺ {pct0(communityOf(s).happiness)}</span></div><button className="btn primary" onClick={() => go('community')}>Homes & families</button></Card>;
+  if (lot.key.startsWith('community:')) return <Card title="Your neighbourhood"><div className="community-strip"><span title="Families living here / families your homes can take">🏘️ {familiesHere(s)} / {homeFamilies(s)} families</span><span>☺ {pct0(communityOf(s).happiness)}</span></div><button className="btn primary" onClick={() => go('community')}>Homes & families</button></Card>;
   if(lot.key==='market') return s.legacyProgression || stageAtLeast(s, 'market-town') ? <SellCard s={s} r={region}/> : <HomesteadTraderCard s={s}/>;
   if (lot.type === 'house' || lot.type === 'shed') {
     const hands = s.workers.filter((w) => w.role === 'hand').length;

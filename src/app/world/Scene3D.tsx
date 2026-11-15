@@ -2,7 +2,7 @@ import { homesExposed, nuisanceOf, nuisanceSources, NUISANCE_LOOK, type Nuisance
 import { oilOpen } from '../../simulation/stages/shared';
 import { SERVICE_DEFS, SERVICE_GROUPS, serviceJobs, serviceRadius, townOf, UTILITY_OF, heatAt } from '../../simulation/town-state';
 import type { ServiceType } from '../../simulation/types';
-import { communityOf, population, residentWorkers } from '../../simulation/community-state';
+import { communityOf, familiesHere, population, residentWorkers } from '../../simulation/community-state';
 // The 3D farm. A live, lit, low-poly picture of the simulation: everything shown is read from game state.
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
@@ -1853,7 +1853,7 @@ function plotText(s: GameState, p: Plot) {
 function lotText(s: GameState, lot: Lot) {
   if(lot.key==='civic:hall')return ['Town hall','Schools, healthcare and the public treasury'];
   if(lot.service){const b=lot.service,d=SERVICE_DEFS[b.type];return [d.name,`${b.staffed}/${serviceJobs(s,b.type)*b.count} staff`,!b.active?'Paused':b.funded?'Working':'Needs funding or staff'];}
-  if(lot.key.startsWith('community:'))return ['Families',`${population(s)} residents`];
+  if(lot.key.startsWith('community:'))return ['Families',`${familiesHere(s)} families`];
   if (lot.type === 'house') return ['Farmhouse', s.workers.length ? `${s.workers.length} people on the payroll` : 'Home'];
   if (lot.type === 'shed') return ['Regional office'];
   const d = BUILDINGS[lot.type];
