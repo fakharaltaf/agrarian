@@ -8,7 +8,7 @@ import { CHAPTER_SALES, BUILDINGS, GOODS, type GoodId, INDUSTRY_FACTORY_SALES } 
 import { clamp, freeSpace, log, marketWage, nextId, post, reservedStock, round2 } from '../core';
 import { localEmployment, townOf } from '../town-state';
 import { executeBuy, quoteBuy } from '../markets';
-import { communityOf, createSettlementState, familiesHere, familySize, HOME_DEFS, homePrice, homeCapacity, households, population, availableResidents, recruitableResidents } from '../community-state';
+import { communityOf, createSettlementState, familySize, HOME_DEFS, homePrice, homeCapacity, households, population, availableResidents, recruitableResidents } from '../community-state';
 import { CONFIG, WORK_HOURS } from '../config';
 
 export const COMMUNITY_FOOD: GoodId[] = ['bread', 'wheat', 'corn', 'rice', 'potatoes', 'apples', 'grapes', 'milk', 'eggs', 'meat', 'cheese', 'flour'];
@@ -98,7 +98,10 @@ export function settlementTick(s: GameState) {
   // families of your employees move in while there are free homes (two a day)
   // a home nobody can reach by road takes no family
   const reachable = c.homes.filter((h) => hasAccess(s, 'heartland', `home:${h.id}`)).reduce((n, h) => n + HOME_DEFS[h.tier].families * h.count, 0);
-  let free = reachable - familiesHere(s), moved = 0;
+  // every family takes a home, newcomers too; when homes are lost, newcomers leave first (your workers' families keep theirs)
+  const workerFams = new Set(Object.values(fam));
+  for (let over = households(s) - reachable, i = c.cohorts.length - 1; over > 0 && i >= 0; i--) if (!workerFams.has(c.cohorts[i].id)) { over -= c.cohorts[i].households; c.cohorts.splice(i, 1); if (over <= 0) log(s, 'warning', 'Newcomer families moved away: there are not enough homes for them.', 'community'); }
+  let free = reachable - households(s), moved = 0;
   for (const w of s.workers) {
     if (free <= 0 || moved >= 2) break;
     if (w.region !== 'heartland' || fam[w.id] !== undefined) continue;

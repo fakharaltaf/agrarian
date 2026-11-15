@@ -2,7 +2,7 @@ import { expect, it } from 'vitest';
 import { createGame, dispatch, step } from '../simulation/engine';
 import { CHAPTER_SALES } from '../simulation/config';
 import { post } from '../simulation/core';
-import { communityOf, familiesHere } from '../simulation/community-state';
+import { communityOf, familiesHere, HOME_DEFS, households } from '../simulation/community-state';
 import { townOf } from '../simulation/town-state';
 import { chunksIn, clearRect, own, placeProblem, worldOf } from '../simulation/world';
 
@@ -81,7 +81,11 @@ it('newcomer families settle once there is a town, and pay the housing tax', () 
   day(s, 3);
   expect(communityOf(s).cohorts.length).toBeGreaterThan(before);
   expect(communityOf(s).cohorts.some((g) => g.name.includes('newcomers'))).toBe(true);
-  expect((s.lifetime.rent ?? 0) - rent).toBeGreaterThan(0);
+  expect((s.lifetime.rent ?? 0) - rent).toBeGreaterThan(0);  day(s, 30); // newcomers stop once every home is taken
+  const homes = communityOf(s).homes.reduce((n, h) => n + HOME_DEFS[h.tier].families * h.count, 0);
+  expect(households(s)).toBeLessThanOrEqual(homes);
+  communityOf(s).homes.splice(0, 1); day(s, 1); // homes lost: newcomers leave until everyone fits
+  expect(households(s)).toBeLessThanOrEqual(communityOf(s).homes.reduce((n, h) => n + HOME_DEFS[h.tier].families * h.count, 0));
 });
 
 it('utility lines share tiles: a water pipe runs alongside and across a sewage ditch', async () => {

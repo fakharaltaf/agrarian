@@ -1,6 +1,6 @@
 import { nuisanceHappiness, NUISANCE_LOOK } from '../../simulation/nuisance';
 import { act, go, startZoning, useGame } from '../../stores/game';
-import { communityOf, familiesHere, HOME_DEFS, homeFamilies, homePrice, population } from '../../simulation/community-state';
+import { communityOf, familiesHere, HOME_DEFS, homeFamilies, homePrice, households, population } from '../../simulation/community-state';
 import { canStartTown } from '../../simulation/stages/town';
 import { townOf } from '../../simulation/town-state';
 import { foodDays } from '../../simulation/stages/settlement';
@@ -38,7 +38,7 @@ export default function CommunityPage() {
     </ol>
   </Modal></div>;
 
-  const here = familiesHere(s), room = homeFamilies(s), pop = population(s), free = room - here;
+  const here = familiesHere(s), room = homeFamilies(s), pop = population(s), free = room - households(s);
   const waiting = s.workers.filter((w) => w.region === 'heartland' && (c.families ?? {})[w.id] === undefined).length;
   const food = foodDays(s), cold = s.regions.heartland.temp < 10, zoned = Object.values(worldOf(s, 'heartland').zones).includes('res');
   const b = budget(s), net = b.back - b.cost;
@@ -57,7 +57,7 @@ export default function CommunityPage() {
   return <div className="stack community-page">
     <PageHead title="Your settlement" sub={`${here} famil${here === 1 ? 'y' : 'ies'} · ${num(pop)} people`} />
     <div className="civ-tiles four">
-      <StatTile icon="🏠" value={`${here}/${room}`} label="homes filled" tone={waiting > free ? 'ok' : 'good'} />
+      <StatTile icon="🏠" value={`${households(s)}/${room}`} label="homes filled" tone={waiting > free ? 'ok' : 'good'} />
       <StatTile icon="🍞" value={food >= 99 ? '99+' : num(food, 1)} label="days of food" tone={toneOf(food, 5, 2)} />
       <StatTile icon="🔥" value={cold ? pct0(c.warm) : '—'} label={cold ? 'warmth' : 'mild weather'} tone={cold ? toneOf(c.warm) : 'none'} />
       <StatTile icon="☺" value={pct0(c.happiness)} label="happiness" tone={toneOf(c.happiness, 0.7, 0.5)} />
