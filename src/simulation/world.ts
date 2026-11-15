@@ -22,7 +22,7 @@ export type Zone = 'res' | 'ind';
 /** What a placement is, for zoning: homes need a residential zone; fields stay out of zones; farm buildings stay out of residential; industry needs an industrial zone. */
 export type Use = 'home' | 'field' | 'building' | 'industry';
 /** Plants that belong on industrial land from the start. */
-export const INDUSTRY_ONLY: ReadonlySet<BuildingType> = new Set(['biogas', 'windTurbine', 'oilWell', 'refinery', 'solar', 'distribution']);
+export const INDUSTRY_ONLY: ReadonlySet<BuildingType> = new Set(['biogas', 'windTurbine', 'oilWell', 'refinery', 'oilTank', 'solar', 'distribution']);
 /** Workshops that start anywhere off residential land, but grow past their first level only on industrial land. */
 export const INDUSTRY_TO_GROW: ReadonlySet<BuildingType> = new Set(['flourMill', 'bakery', 'feedMill', 'ranch', 'dairy', 'creamery', 'oilPress', 'sugarMill', 'winery']);
 /** The zoning a building at this level needs (the older progression keeps the plain farm rule). */
@@ -41,7 +41,7 @@ export type WorldState = Partial<Record<RegionId, RegionWorld>>;
 
 /** Tiles each building occupies (x × y). */
 export const FOOTPRINT: Record<BuildingType | 'house' | 'shed', [number, number]> = {
-  house: [3, 3], shed: [2, 2], barn: [3, 2], silo: [2, 2], coldStore: [3, 2], warehouse: [5, 3], flourMill: [2, 2], bakery: [2, 2],
+  house: [3, 3], shed: [2, 2], barn: [3, 2], silo: [2, 2], coldStore: [3, 2], warehouse: [5, 3], oilTank: [3, 3], flourMill: [2, 2], bakery: [2, 2],
   feedMill: [3, 2], ranch: [5, 4], dairy: [5, 3], creamery: [3, 2], oilPress: [3, 2], sugarMill: [3, 2], biogas: [3, 3], solar: [5, 3],
   verticalFarm: [2, 2], windTurbine: [2, 2], oilWell: [2, 2], refinery: [12, 8], distribution: [5, 3], lab: [3, 2], lab2: [4, 3], coop: [3, 3], pigsty: [4, 3], cowshed: [5, 4], sheepfold: [5, 4], winery: [3, 3],
 };

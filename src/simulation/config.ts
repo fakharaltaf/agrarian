@@ -237,7 +237,7 @@ export const MACHINES: Record<MachineType, MachineDef> = {
 };
 
 export type BuildingType =
-  | 'barn' | 'silo' | 'coldStore' | 'warehouse' | 'coop' | 'pigsty' | 'cowshed' | 'sheepfold' | 'winery'
+  | 'barn' | 'silo' | 'coldStore' | 'warehouse' | 'oilTank' | 'coop' | 'pigsty' | 'cowshed' | 'sheepfold' | 'winery'
   | 'flourMill' | 'bakery' | 'feedMill' | 'ranch' | 'dairy' | 'creamery' | 'oilPress' | 'sugarMill'
   | 'biogas' | 'solar' | 'windTurbine' | 'oilWell' | 'refinery' | 'verticalFarm' | 'distribution' | 'lab' | 'lab2';
 
@@ -254,6 +254,7 @@ export interface BuildingDef {
   price: number;
   staffPerHour: number; // USD/h, paid every hour the building is active
   dry?: number; cold?: number; // storage capacity added
+  tank?: { oil: number; fuel: number }; // tank space: crude in bbl, diesel in litres
   coldKwh?: number; // kWh per hour for refrigeration
   recipe?: Recipe;
   solarKw?: number; // kWh per daylight hour at solar index 1
@@ -267,6 +268,7 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
   silo: { type: 'silo', name: 'Grain silo', category: 'storage', price: 12000, staffPerHour: 1, dry: 10000, minEra: 2, blurb: 'Large dry storage; halves grain spoilage in the region.' },
   coldStore: { type: 'coldStore', name: 'Cold store', category: 'storage', price: 9000, staffPerHour: 1, cold: 3000, coldKwh: 6, minEra: 2, blurb: 'Refrigerated storage for potatoes, milk, meat, cheese and greens. Uses electricity.' },
   warehouse: { type: 'warehouse', name: 'Warehouse', category: 'storage', price: 60000, staffPerHour: 6, dry: 60000, minEra: 4, blurb: 'Industrial dry storage for processed goods and bulk grain.' },
+  oilTank: { type: 'oilTank', name: 'Oil tank', category: 'storage', price: 30000, staffPerHour: 2, tank: { oil: 1500, fuel: 30000 }, minEra: 4, blurb: 'Steel tanks for crude and diesel, so wells and the refinery keep running. Industrial land only.' },
   flourMill: { type: 'flourMill', name: 'Flour mill', category: 'processing', price: 25000, staffPerHour: 60, recipe: { inputs: { wheat: 10 }, outputs: { flour: 8 }, kwh: 15, batchesPerHour: 6 }, minEra: 4, blurb: 'Wheat → flour.' },
   bakery: { type: 'bakery', name: 'Bakery', category: 'processing', price: 40000, staffPerHour: 60, recipe: { inputs: { flour: 6 }, outputs: { bread: 10 }, kwh: 40, batchesPerHour: 8 }, minEra: 4, blurb: 'Flour → bread. Bread goes stale fast: sell it daily.' },
   feedMill: { type: 'feedMill', name: 'Feed mill', category: 'processing', price: 18000, staffPerHour: 45, recipe: { inputs: { corn: 10 }, outputs: { feed: 16 }, kwh: 10, batchesPerHour: 8 }, minEra: 4, blurb: 'Corn → livestock feed.' },
@@ -277,8 +279,8 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
   sugarMill: { type: 'sugarMill', name: 'Sugar mill', category: 'processing', price: 30000, staffPerHour: 40, recipe: { inputs: { sugarcane: 10 }, outputs: { sugar: 2 }, kwh: 25, batchesPerHour: 10 }, minEra: 4, blurb: 'Cane → sugar. Cut cane spoils in days.' },
   biogas: { type: 'biogas', name: 'Biogas plant', category: 'energy', price: 28000, staffPerHour: 4, recipe: { inputs: { manure: 10 }, outputs: {}, kwh: -100, batchesPerHour: 4 }, research: 'biogas', minEra: 4, blurb: 'Manure → electricity for your region.' },
   windTurbine: { type: 'windTurbine', name: 'Wind turbine', category: 'energy', price: 45000, staffPerHour: 2, windKw: 90, minEra: 4, blurb: 'Clean power day and night whenever the wind blows; windier regions make more. Surplus sells to the grid at half price.' },
-  oilWell: { type: 'oilWell', name: 'Oil well', category: 'processing', price: 40000, staffPerHour: 40, recipe: { inputs: {}, outputs: { oil: 3 }, kwh: 20, batchesPerHour: 1 }, minEra: 4, blurb: 'Pumps crude oil. Only found by drilling where the survey says oil lies.' },
-  refinery: { type: 'refinery', name: 'Oil refinery', category: 'processing', price: 600000, staffPerHour: 300, recipe: { inputs: { oil: 10 }, outputs: { fuel: 1100 }, kwh: 400, batchesPerHour: 2 }, minEra: 4, blurb: 'Turns crude oil into diesel on a huge site. Its smoke harms the health of families living within 30 tiles, and every refinery pulls the farm industrial.' },
+  oilWell: { type: 'oilWell', name: 'Oil well', category: 'processing', price: 40000, staffPerHour: 40, recipe: { inputs: {}, outputs: { oil: 3 }, kwh: 20, batchesPerHour: 1 }, tank: { oil: 500, fuel: 0 }, minEra: 4, blurb: 'Pumps crude oil. Only found by drilling where the survey says oil lies.' },
+  refinery: { type: 'refinery', name: 'Oil refinery', category: 'processing', price: 600000, staffPerHour: 300, recipe: { inputs: { oil: 10 }, outputs: { fuel: 1100 }, kwh: 400, batchesPerHour: 2 }, tank: { oil: 2000, fuel: 40000 }, minEra: 4, blurb: 'Turns crude oil into diesel on a huge site. Its smoke harms the health of families living within 30 tiles, and every refinery pulls the farm industrial.' },
   solar: { type: 'solar', name: 'Solar farm', category: 'energy', price: 50000, staffPerHour: 2, solarKw: 120, research: 'solar', minEra: 4, blurb: 'Free daytime electricity; surplus sells to the grid at half price.' },
   verticalFarm: { type: 'verticalFarm', name: 'Vertical farm', category: 'processing', price: 250000, staffPerHour: 80, recipe: { inputs: {}, outputs: { greens: 20 }, kwh: 200, batchesPerHour: 4 }, research: 'verticalFarming', minEra: 7, blurb: 'Weatherproof greens grown on electricity.' },
   coop: { type: 'coop', name: 'Chicken coop', category: 'livestock', price: 2500, staffPerHour: 0, minEra: 2, blurb: 'Houses 100 hens per level. Hens lay a tray of eggs a day when fed and healthy.' },

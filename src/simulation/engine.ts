@@ -469,6 +469,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       if (d.research && !has(s, d.research)) return fail(`Requires research: ${TECH[d.research].name}.`);
       if (!s.regions[a.region].unlocked) return fail('Expand into this region first.');
       if (a.building === 'oilWell') return fail('Oil wells are found by drilling: use the oil survey on the map.');
+      if (a.building === 'oilTank' && !oilOpen(s)) return fail('Oil tanks open with oil: get two production houses working first.');
       const greenBuild = a.building === 'solar' || a.building === 'windTurbine' || a.building === 'biogas';
       const gate = BUILDING_GATE[a.building];
       if (gate && !known(s, gate)) return fail('Not available yet.');

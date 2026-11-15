@@ -217,3 +217,20 @@ it('crude and diesel live in tanks, not barns, and a refinery stops when its tan
   expect(dispatch(s, { type: 'build', region: 'heartland', building: 'refinery' }).ok).toBe(true);
   expect(tankCap(s, 'heartland', 'fuel')).toBe(45000);
 });
+
+it('an oil tank stores crude and diesel once oil opens, and grows with its level', async () => {
+  const { tankCap } = await import('../simulation/core');
+  const { oilOpen } = await import('../simulation/stages/shared');
+  const { emptyProductionReport } = await import('../simulation/production-report');
+  const s = industry(613);
+  if (!oilOpen(s)) {
+    expect(dispatch(s, { type: 'build', region: 'heartland', building: 'oilTank' }).ok).toBe(false);
+    s.buildings.push({ id: 99001, type: 'oilWell', region: 'heartland', active: true, level: 1, cost: 0, depreciated: 0, util: 0, reserved: 0, reason: '', productionReport: emptyProductionReport(), stats: { out: 0, inCost: 0, outValue: 0, opCost: 0 } });
+  }
+  const oil = tankCap(s, 'heartland', 'oil'), fuel = tankCap(s, 'heartland', 'fuel');
+  expect(dispatch(s, { type: 'build', region: 'heartland', building: 'oilTank' }).ok).toBe(true);
+  expect(tankCap(s, 'heartland', 'oil')).toBe(oil + 1500);
+  expect(tankCap(s, 'heartland', 'fuel')).toBe(fuel + 30000);
+  s.buildings.find((b) => b.type === 'oilTank')!.level = 2;
+  expect(tankCap(s, 'heartland', 'oil')).toBe(oil + 2700);
+});

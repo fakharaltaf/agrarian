@@ -140,10 +140,10 @@ export function capacity(s: GameState, r: RegionId) {
   return { dry, cold };
 }
 
-/** Tank space for crude or diesel: 500 bbl at each oil well, 2,000 bbl and 40,000 L at a refinery, and the farm's own 5,000 L diesel tank. */
+/** Tank space for crude or diesel: the tanks at wells, a refinery and oil tanks (by level), and the farm's own 5,000 L diesel tank. */
 export function tankCap(s: GameState, r: RegionId, g: GoodId) {
   let cap = g === 'fuel' && r === 'heartland' ? 5000 : 0;
-  for (const b of buildingsIn(s, r)) cap += g === 'oil' ? (b.type === 'oilWell' ? 500 : b.type === 'refinery' ? 2000 : 0) : b.type === 'refinery' ? 40000 : 0;
+  for (const b of buildingsIn(s, r)) { const t = BUILDINGS[b.type].tank; if (t && (g === 'oil' || g === 'fuel')) cap += t[g] * (b.type === 'oilTank' ? levelMult(b.level) : 1); }
   return cap;
 }
 /** Units held per storage class. Cold goods overflow into dry space (and spoil faster there); crude and diesel live in tanks. */

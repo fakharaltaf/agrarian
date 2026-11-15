@@ -363,6 +363,13 @@ export function buildLot(type: Lot['type'], w: number, d: number, variant = ''):
       g.add(rotor); sails = rotor;
       break;
     }
+    case 'oilTank': { // two squat white tanks in a bund, a ladder and a pipe
+      g.add(box(w - 0.1, 0.12, d - 0.1, 0x6b6b66, w / 2, 0, d / 2, { rough: 1 }));
+      for (const [x, z] of [[0.95, 0.95], [2.05, 2.05]]) g.add(cyl(0.8, 1.1, 0xdcdcd2, x, 0.12, z, 18), cyl(0.82, 0.05, 0xb9b9ae, x, 1.22, z, 18));
+      g.add(box(0.06, 1.1, 0.25, PAL.metalDark, 1.78, 0.12, 0.95)); // ladder
+      g.add(box(1.3, 0.08, 0.08, PAL.metalDark, 1.5, 0.3, 1.5)); // pipe between the tanks
+      break;
+    }
     case 'oilWell': {
       g.add(box(w - 0.2, 0.08, d - 0.2, 0x3a3a3a, w / 2, 0, d / 2, { rough: 1 }));
       for (const z of [0.7, 1.3]) { const leg = box(0.08, 1.3, 0.08, 0x2f3b46, 0.9, 0, z); leg.rotation.x = z < 1 ? 0.18 : -0.18; g.add(leg); } // A-frame

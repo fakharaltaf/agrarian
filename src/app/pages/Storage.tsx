@@ -4,9 +4,12 @@ import type { GameState } from '../../simulation/types';
 import { act, useGame } from '../../stores/game';
 import { money, num, pct0, price } from '../format';
 import { Bar, Card, Confirm, Info, Kpi, PageHead, Select, Table, usePref } from '../ui';
+import { oilOpen } from '../../simulation/stages/shared';
 import { BuildMany, GoodName, unlockedRegions } from './shared';
 
 const STORAGE = BUILDING_TYPES.filter((t) => BUILDINGS[t].category === 'storage');
+/** What one building adds, e.g. "+1,200 dry" or "1,500 bbl crude + 30,000 L diesel". */
+const holds = (t: (typeof STORAGE)[number], n = 1) => { const d = BUILDINGS[t]; return d.tank ? `${num(n * d.tank.oil)} bbl crude + ${num(n * d.tank.fuel)} L diesel` : `${num(n * (d.dry ?? d.cold ?? 0))} ${d.cold ? 'cold' : 'dry'}`; };
 
 /** Daily spoilage rate per good, mirroring agriculture.spoilageDaily. */
 function spoilRate(s: GameState, r: RegionId, g: GoodId, improperShare: number) {
@@ -102,7 +105,7 @@ function Inventory({ s, r }: { s: GameState; r: RegionId }) {
       <Table rows={rows} rowKey={(x) => x.g} initialSort={{ key: 'value', dir: -1 }} empty="Nothing in storage here. Harvests and factory output land here first." cols={[
         { key: 'g', label: 'Good', sort: (x) => GOODS[x.g].name, render: (x) => <GoodName g={x.g} /> },
         { key: 'q', label: 'Quantity', align: 'r', sort: (x) => x.qty, render: (x) => num(x.qty) },
-        { key: 'c', label: 'Storage', render: (x) => <span className={`pill ${GOODS[x.g].storage === 'cold' ? 'accent' : ''}`}>{GOODS[x.g].storage === 'cold' ? 'Cold' : 'Dry'}</span> },
+        { key: 'c', label: 'Storage', render: (x) => <span className={`pill ${GOODS[x.g].storage === 'cold' ? 'accent' : ''}`}>{GOODS[x.g].storage === 'cold' ? 'Cold' : GOODS[x.g].storage === 'tank' ? 'Tank' : 'Dry'}</span> },
         { key: 'r', label: 'Spoilage / day', align: 'r', sort: (x) => x.rate, render: (x) => {
           const d = GOODS[x.g];
           const bd: [string, string][] = d.storage === 'cold'
@@ -122,8 +125,8 @@ function Inventory({ s, r }: { s: GameState; r: RegionId }) {
 }
 
 function BuildCard({ s, r }: { s: GameState; r: RegionId }) {
-  const avail = STORAGE.filter((t) => s.era >= BUILDINGS[t].minEra && (!BUILDINGS[t].research || has(s, BUILDINGS[t].research!)));
-  const locked = STORAGE.filter((t) => !avail.includes(t));
+  const avail = STORAGE.filter((t) => s.era >= BUILDINGS[t].minEra && (!BUILDINGS[t].research || has(s, BUILDINGS[t].research!)) && (t !== 'oilTank' || oilOpen(s)));
+  const locked = STORAGE.filter((t) => !avail.includes(t) && t !== 'oilTank');
   return (
     <Card title="Build storage" info="Running costs are charged every hour the building stands, full or empty.">
       <div className="stack">
@@ -132,7 +135,7 @@ function BuildCard({ s, r }: { s: GameState; r: RegionId }) {
           return (
             <div key={t} className="row between wrap" style={{ gap: 10 }}>
               <div className="stack s" style={{ flex: '1 1 200px' }}>
-                <b>{d.name} <span className="muted small">+{num(d.dry ?? d.cold ?? 0)} {d.cold ? 'cold' : 'dry'}</span></b>
+                <b>{d.name} <span className="muted small">+{holds(t)}</span></b>
                 <span className="small muted">{d.blurb}{d.staffPerHour ? ` Staff ${price(d.staffPerHour * s.macro.cpi)}/h.` : ''}{d.coldKwh ? ` ${d.coldKwh} kWh/h of power.` : ''}</span>
               </div>
               <BuildMany s={s} r={r} t={t} />
@@ -162,9 +165,9 @@ function Buildings({ s, r }: { s: GameState; r: RegionId }) {
             const refund = Math.round(Math.max(0, b.cost - b.depreciated) * 0.5);
             return (
               <div key={t} className="row between wrap">
-                <span><b>{list.length} × {d.name}</b> <span className="muted small">{num(list.length * (d.dry ?? d.cold ?? 0))} {d.cold ? 'cold' : 'dry'}</span></span>
+                <span><b>{list.length} × {d.name}</b> <span className="muted small">{holds(t, list.length)}</span></span>
                 <Confirm label="Demolish one" className="btn danger sm" title={`Demolish a ${d.name.toLowerCase()}?`} confirmLabel="Demolish"
-                  body={<>You get back {money(refund)} (half its book value). Capacity drops by {num(d.dry ?? d.cold ?? 0)} {d.cold ? 'cold' : 'dry'} units; anything that no longer fits is force-sold at market or lost.</>}
+                  body={<>You get back {money(refund)} (half its book value). Capacity drops by {holds(t)}; anything that no longer fits is force-sold at market or lost.</>}
                   onConfirm={() => act({ type: 'demolish', buildingId: b.id }, `${d.name} demolished.`)} />
               </div>
             );
