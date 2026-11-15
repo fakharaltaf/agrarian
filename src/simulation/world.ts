@@ -488,6 +488,14 @@ export function roadStretch(w: RegionWorld, x: number, y: number): number[] {
   const start = tileId(x, y);
   if (!inMap(x, y) || !w.roads[start]) return [];
   const degree = (id: number) => { const [a, b] = tileAt(id); return STEPS.filter(([dx, dy]) => isRoadTile(w, a + dx, b + dy)).length; };
+  // tracks laid side by side make one wide road: a tap on it takes the whole wide road, not the single tracks branching off it
+  const own = (a: number, b: number) => inMap(a, b) && !!w.roads[tileId(a, b)];
+  const inBlock = (a: number, b: number) => own(a, b) && [[1, 1], [1, -1], [-1, 1], [-1, -1]].some(([i, j]) => own(a + i, b) && own(a, b + j) && own(a + i, b + j));
+  if (inBlock(x, y)) {
+    const out = [start], seen = new Set(out);
+    for (let h = 0; h < out.length; h++) { const [a, b] = tileAt(out[h]); for (const [dx, dy] of STEPS) { const nid = tileId(a + dx, b + dy); if (!seen.has(nid) && inBlock(a + dx, b + dy)) { seen.add(nid); out.push(nid); } } }
+    return out;
+  }
   if (STEPS.filter(([dx, dy]) => isRoadTile(w, x + dx, y + dy)).length >= 3) return [start]; // a junction: just this tile
   const out = [start], seen = new Set(out);
   for (let h = 0; h < out.length; h++) {

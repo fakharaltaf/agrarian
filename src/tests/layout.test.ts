@@ -193,3 +193,13 @@ it('buildings can be turned when placed or moved; the footprint turns and the tr
   // the map draws it turned
   expect(layoutRegion(s, 'heartland').lots.find((l) => l.place === key)).toMatchObject({ w: 3, d: 2, rot: 2 });
 });
+
+it('two tracks side by side are one wide road: upgrading it takes the whole width and length, not a branching track', async () => {
+  const W = await import('../simulation/world');
+  const { post } = await import('../simulation/core');
+  const s = createGame(2026); post(s, 'prize', 500000, 'fixture'); step(s);
+  for (const y of [-6, -5]) expect(dispatch(s, { type: 'buildRoad', region: 'heartland', from: [-10, y], to: [6, y] }).ok).toBe(true);
+  const w = W.worldOf(s, 'heartland'), wide = Object.keys(w.roads).map(Number).filter((id) => { const y = W.tileAt(id)[1]; return y === -6 || y === -5; });
+  expect(dispatch(s, { type: 'upgradeRoad', region: 'heartland', at: [0, -6] }).ok).toBe(true);
+  expect(wide.every((id) => w.roads[id] === 2)).toBe(true);
+});

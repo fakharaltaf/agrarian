@@ -1035,6 +1035,9 @@ function syncRoads(R: Rig, s: GameState) {
   const linksAt = (x: number, y: number) => STEPS4.filter(([dx, dy]) => at(x + dx, y + dy) !== 0);
   const straight = (x: number, y: number) => { const d = linksAt(x, y); return d.length === 2 && d[0][0] === -d[1][0] && d[0][1] === -d[1][1]; };
   const through = (x: number, y: number) => linksAt(x, y).length === 1 || straight(x, y); // ruts run on through it
+  // gravel and paved tracks laid side by side merge into one wide road: no verge or ruts between them
+  const hard = (x: number, y: number) => (w.roads[tileId(x, y)] ?? 0) >= 2;
+  const wide = (x: number, y: number, dx: number, dy: number) => hard(x, y) && (hard(x + dy, y + dx) || hard(x - dy, y - dx) || hard(x + dx + dy, y + dy + dx) || hard(x + dx - dy, y + dy - dx));
   for (const k of ids) {
     const id = Number(k), [x, y] = tileAt(id), gr = w.roads[id], ax = x + 0.5, az = y + 0.5;
     const dirs = linksAt(x, y);
@@ -1050,13 +1053,19 @@ function syncRoads(R: Rig, s: GameState) {
       const bx = ax + dx * len, bz = az + dy * len;
       verge.seg(ax, az, bx, bz, S.v, wob); surface.seg(ax, az, bx, bz, S.s, wob);
       if (main) mouths.push([ax + dx * 0.5, az + dy * 0.5, sg]);
-      if (sg < 3) { // ruts and the grass between them run on through straight tiles and fade out at bends, junctions and ends
+      if (sg < 3 && !(n > 0 && wide(x, y, dx, dy))) { // ruts and the grass between them run on through straight tiles and fade out at bends, junctions and ends
         const in0 = through(x, y), in1 = !main && through(x + dx, y + dy), s0 = in0 ? 0 : 0.15, s1 = main ? 0.55 : in1 ? len : len - 0.15;
         const ends: [number, number] = [in0 ? 0 : 0.3, in1 ? 0 : 0.3], p0x = ax + dx * s0, p0z = az + dy * s0, p1x = ax + dx * s1, p1z = az + dy * s1;
         for (const o of [-0.15, 0.15]) marks.seg(p0x, p0z, p1x, p1z, rut(sg, o, 0.1), { ...RUTS, ends });
         if (sg === 1 && !main) grass.seg(p0x, p0z, p1x, p1z, [[-0.08, GRASS, 0], [-0.03, GRASS, 0.85], [0.03, GRASS, 0.85], [0.08, GRASS, 0]], { step: 0.3, fade: 0.35, ends });
       }
     }
+  }
+  for (const k of ids) { // fill each 2×2 block of hard road solid, so parallel tracks read as one surface
+    const [x, y] = tileAt(Number(k));
+    if (!hard(x, y) || !hard(x + 1, y) || !hard(x, y + 1) || !hard(x + 1, y + 1)) continue;
+    const c = C(ROAD_COL[Math.min(w.roads[tileId(x, y)], w.roads[tileId(x + 1, y)], w.roads[tileId(x, y + 1)], w.roads[tileId(x + 1, y + 1)])]);
+    surface.seg(x + 0.5, y + 1, x + 1.5, y + 1, [[-0.5, c, 1], [0.5, c, 1]]);
   }
   // where a track meets the main road its mouth widens into a soft rounded fan, so the corners are not cut square
   for (const [mx, mz, mg] of mouths) surface.disc(mx, mz, [[0.5, C(ROAD_COL[Math.min(mg, g)]), 1], [0.82, C(ROAD_COL[Math.min(mg, g)]), 0]], 0.05, 24);
