@@ -1125,6 +1125,16 @@ function syncRoads(R: Rig, s: GameState) {
     const c = C(ROAD_COL[Math.min(w.roads[tileId(x, y)], w.roads[tileId(x + 1, y)], w.roads[tileId(x, y + 1)], w.roads[tileId(x + 1, y + 1)])]);
     surface.seg(x + 0.5, y + 1, x + 1.5, y + 1, [[-0.5, c, 1], [0.5, c, 1]]);
   }
+  // a paved road two lanes wide is a two-way road: white dashes down the middle, where its lanes meet (none across junctions)
+  const paved = (x: number, y: number) => (w.roads[tileId(x, y)] ?? 0) >= 3, WHITE = C(0xe9e4d6), dash: Band[] = [[-0.035, WHITE, 1], [0.035, WHITE, 1]];
+  for (const k of ids) {
+    const [x, y] = tileAt(Number(k));
+    if (!paved(x, y)) continue;
+    // running north–south: this tile and the one east of it, with road ahead or behind, and no third lane beside them
+    if (paved(x + 1, y) && !paved(x - 1, y) && !paved(x + 2, y) && ((paved(x, y - 1) && paved(x + 1, y - 1)) || (paved(x, y + 1) && paved(x + 1, y + 1)))) marks.seg(x + 1, y + 0.2, x + 1, y + 0.8, dash);
+    // running east–west: this tile and the one south of it
+    if (paved(x, y + 1) && !paved(x, y - 1) && !paved(x, y + 2) && ((paved(x - 1, y) && paved(x - 1, y + 1)) || (paved(x + 1, y) && paved(x + 1, y + 1)))) marks.seg(x + 0.2, y + 1, x + 0.8, y + 1, dash);
+  }
   // where a track meets the main road its mouth widens into a soft rounded fan, so the corners are not cut square
   for (const [mx, mz, mg] of mouths) surface.disc(mx, mz, [[0.5, C(ROAD_COL[Math.min(mg, g)]), 1], [0.82, C(ROAD_COL[Math.min(mg, g)]), 0]], 0.05, 24);
   const layers = [verge.mesh(true), surface.mesh(true, roadGrain()), grass.mesh(true, roadGrain()), marks.mesh(true, roadGrain())];
