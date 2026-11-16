@@ -51,6 +51,8 @@ export function resolveCase(s:GameState,answer:JusticePolicy):ActionResult {
 export const GST_RATES=[0,.05,.1];
 /** Families may spend this share of their savings in a day, so spending settles where it matches wages. */
 export const SPEND_SHARE=.05;
+/** What each resident in a mall's reach spends there a day on things the farm does not make. */
+export const MALL_SPEND=3;
 /** A day at the shops: families in each shop's reach buy its goods out of their savings, your stock first (at the local premium) and imports for the rest; GST on all of it comes to the farm. */
 export function cityTrade(s:GameState){
   const v=cityOf(s),c=communityOf(s),inv=s.regions.heartland.inventory,people=population(s),smug=v.case?.kind==='smuggling'?.7:1;
@@ -66,6 +68,9 @@ export function cityTrade(s:GameState){
       ours+=value;imports+=rest;budget-=value+rest;
     }
   }
+  // a mall sells more than food: clothes, tools and treats, all brought in, all taxed
+  const mall=townOf(s).services.find(b=>b.type==='mall'&&b.active&&b.staffed>0);
+  if(mall){const other=round2(Math.min(Math.max(0,budget),people*shopReach(s,mall.kinds?.[0]??'shopGeneral')/1.25*MALL_SPEND*s.macro.cpi*(1+.1*((mall.kinds?.length??1)-1))));imports+=other;budget-=other;}
   const spend=round2(ours+imports),gst=round2(spend*v.gst);
   c.householdCash=Math.max(0,round2(c.householdCash-spend-gst));
   if(gst>0)post(s,'gst',gst,'GST from city shops','heartland','corporate');
@@ -115,6 +120,7 @@ function setCharter(s:GameState,charter:NonNullable<ReturnType<typeof cityOf>['c
 }
 function action(s:GameState,a:Action):ActionResult|null {
   const types=['startCity','changePolice','trainPolice','setJustice','resolveCityCase','setGst'];
+  // (mergeService is handled by the Town stage, with the other service actions)
   if(!types.includes(a.type))return null;
   const v=cityOf(s),t=townOf(s),fail=(error:string):ActionResult=>({ok:false,error});
   if(a.type==='startCity'||a.type==='changePolice') {

@@ -117,7 +117,7 @@ export function baseFootprint(s: GameState, key: string): Footprint | null {
   if (kind === 'field') { const f = s.fields.find((x) => x.id === +id); return f ? { w: plotSide(f.ha), d: plotSide(f.ha) } : null; }
   if (kind === 'b') { const b = s.buildings.find((x) => x.id === +id); if (!b) return null; const [w, d] = FOOTPRINT[b.type]; return { w, d }; }
   if (kind === 'home') { const h = (s.stageState.settlement?.homes as CommunityHome[] | undefined)?.find((x) => x.id === +id); return h ? homeFootprint(h) : null; }
-  if (kind === 'svc') return SERVICE_FOOTPRINT;
+  if (kind === 'svc') { const z = (s.stageState.town as { services?: { id: number; size?: number }[] } | undefined)?.services?.find((x) => x.id === +id)?.size ?? 1, n = z >= 4 ? 15 : z === 2 ? 7 : 3; return { w: n, d: n }; }
   if (key === 'farmhouse') return { w: 3, d: 3 };
   if (key === 'shed') return { w: 2, d: 2 };
   if (key === 'market' || key === 'crew' || key === 'office') return { w: key === 'market' ? 2 : 3, d: key === 'market' ? 2 : 3 };

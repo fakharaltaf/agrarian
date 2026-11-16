@@ -134,3 +134,39 @@ it('Shops stand only on commercial land, and commercial land takes nothing else'
   expect(dispatch(s, { type: 'zoneLand', region: 'heartland', chunks, zone: 'farm' }).ok).toBe(false); // the shop is in the way
   expect(w.zones[chunks[0]]).toBe('com');
 });
+
+it('Four shops of a kind in a square merge into a market, four markets into the mall; undo splits them again', async () => {
+  const W = await import('../simulation/world');
+  const { mergeGroup, serviceName, serviceRadius } = await import('../simulation/town-state');
+  const { dispatchEdit, undoEdit } = await import('../simulation/undo');
+  const s = ready(); dispatch(s, { type: 'startCity', charter: 'watch' });
+  const t = townOf(s), w = W.worldOf(s, 'heartland'), o: [number, number] = [W.MAP.x0 + 40, W.MAP.y0 + 8]; // open country, given to the farm for the test
+  const chunks = [...new Set(Array.from({ length: 225 }, (_, i) => W.chunkAt(o[0] + (i % 15), o[1] + Math.floor(i / 15))))];
+  w.owned = [...new Set([...w.owned, ...chunks])]; w.cleared = [...new Set([...w.cleared, ...chunks])]; W.touch(w);
+  expect(dispatch(s, { type: 'zoneLand', region: 'heartland', chunks, zone: 'com' }).ok).toBe(true);
+  const kinds = ['shopBaker', 'shopDairy', 'shopButcher', 'shopGrocer'] as const, markets: number[] = [];
+  kinds.forEach((kind, q) => {
+    const qo: [number, number] = [o[0] + (q % 2) * 8, o[1] + Math.floor(q / 2) * 8], ids: number[] = [];
+    for (let k = 0; k < 4; k++) {
+      { const res = dispatch(s, { type: 'buildService', service: kind, district: 'farmgate', at: [qo[0] + (k % 2) * 4, qo[1] + Math.floor(k / 2) * 4] }); if (!res.ok) console.log('FAIL', kind, k, res.error); expect(res.ok).toBe(true); }
+      ids.push(t.services.at(-1)!.id);
+      if (k === 2) { expect(mergeGroup(s, ids[0])!.members.length).toBe(3); expect(dispatch(s, { type: 'mergeService', serviceId: ids[0] }).ok).toBe(false); } // three is not enough
+    }
+    const cash = s.cash, g = mergeGroup(s, ids[3])!; expect(g.complete).toBe(true);
+    const { r, edit } = dispatchEdit(s, { type: 'mergeService', serviceId: ids[3] }); expect(r.ok).toBe(true);
+    const m = t.services.find((b) => b.id === ids[3])!;
+    expect(cash - s.cash).toBe(g.price); expect(m.size).toBe(2); expect(w.pos[`svc:${m.id}`]).toEqual(qo); expect(W.footprintOf(s, `svc:${m.id}`)).toEqual({ w: 7, d: 7 });
+    expect(t.services.filter((b) => b.type === kind).length).toBe(1); expect(serviceRadius(m)).toBe(18);
+    if (q === 0) { // undo puts the four shops back where they stood, and the money
+      expect(serviceName(m)).toBe("Bakers' hall");
+      undoEdit(s, edit!); expect(t.services.filter((b) => b.type === kind).length).toBe(4); expect(s.cash).toBeCloseTo(cash, 2); expect(W.footprintOf(s, `svc:${ids[0]}`)).toEqual({ w: 3, d: 3 });
+      expect(dispatch(s, { type: 'mergeService', serviceId: ids[3] }).ok).toBe(true);
+    }
+    markets.push(ids[3]);
+  });
+  expect(dispatch(s, { type: 'mergeService', serviceId: markets[1] }).ok).toBe(true);
+  const mall = t.services.find((b) => b.id === markets[1])!;
+  expect(mall.type).toBe('mall'); expect(mall.kinds!.sort()).toEqual([...kinds].sort()); expect(w.pos[`svc:${mall.id}`]).toEqual(o); expect(W.footprintOf(s, `svc:${mall.id}`)).toEqual({ w: 15, d: 15 });
+  expect(t.services.filter((b) => b.type.startsWith('shop')).length).toBe(0);
+  expect(parseSave(JSON.stringify({ game: s })).game).toEqual(s);
+});

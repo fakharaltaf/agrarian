@@ -13,6 +13,7 @@ export const SERVICE_DEFS: Record<ServiceType, { name: string; icon: string; cos
   shopButcher: {name:'Butcher',icon:'🥩',cost:16000,capacity:1e12,jobs:2,kwh:5},
   shopGrocer: {name:'Greengrocer',icon:'🍎',cost:12000,capacity:1e12,jobs:2,kwh:2},
   shopGeneral: {name:'General store',icon:'🧺',cost:15000,capacity:1e12,jobs:2,kwh:2},
+  mall: {name:'Mall',icon:'🏬',cost:250000,capacity:1e12,jobs:20,kwh:60},
   school: { name: 'School', icon: '📚', cost: 30000, capacity: 80, jobs: 4, kwh: 8 },
   well: { name: 'Well', icon: '💧', cost: 8000, capacity: 100, jobs: 1, kwh: 0 },
   clinic: { name: 'Clinic', icon: '♥', cost: 45000, capacity: 150, jobs: 3, kwh: 16 },
@@ -33,6 +34,30 @@ export const SHOP_GOODS: Record<ShopType, Partial<Record<GoodId, number>>> = {
 };
 export const SHOP_TYPES = Object.keys(SHOP_GOODS) as ShopType[];
 export const isShop = (t: ServiceType): t is ShopType => t in SHOP_GOODS;
+/** Four shops of a kind in a 2×2 block merge into its market; four markets into the mall. */
+export const MARKET_NAME: Record<ShopType, string> = { shopBaker: "Bakers' hall", shopDairy: 'Dairy hall', shopButcher: 'Meat market', shopGrocer: "Farmers' market", shopGeneral: 'Commercial market' };
+export const svcSize = (b: { size?: number }) => b.size ?? 1;
+/** Tiles a side: a shop is 3; a market takes its four shops and the lanes between them (7); the mall its four markets (15). */
+export const svcSide = (b: { size?: number }) => (svcSize(b) >= 4 ? 15 : svcSize(b) === 2 ? 7 : 3);
+export const serviceName = (b: { type: ServiceType; size?: number }) => (isShop(b.type) && svcSize(b) >= 2 ? MARKET_NAME[b.type] : SERVICE_DEFS[b.type].name);
+/** A market draws a quarter more custom than shops do; a mall a little more again for each extra trade inside. */
+export const shopPull = (b: { type: ServiceType; size?: number; kinds?: ShopType[] }) => (b.type === 'mall' ? 1.25 * (1 + 0.05 * Math.max(0, (b.kinds?.length ?? 1) - 1)) : svcSize(b) >= 2 ? 1.25 : 1);
+export const sellsKind = (b: { type: ServiceType; kinds?: ShopType[] }, kind: ShopType) => b.type === kind || (b.type === 'mall' && !!b.kinds?.includes(kind));
+/** What merging costs: a quarter of what the four cost to build. */
+export const mergePrice = (group: { cost: number }[]) => Math.round(group.reduce((n, b) => n + b.cost, 0) * 0.25);
+/** The best square of four this shop (or market) could merge in, each a lane apart: who is already in place, and where the block starts. */
+export function mergeGroup(s: GameState, id: number) {
+  const t = townOf(s), b = t.services.find((x) => x.id === id), pos = (s.world?.heartland?.pos ?? {}) as Record<string, [number, number]>, p = b && pos[`svc:${b.id}`];
+  if (!b || !p || !isShop(b.type) || svcSize(b) > 2) return null;
+  const step = svcSide(b) + 1, fits = (x: typeof b) => isShop(x.type) && svcSize(x) === svcSize(b) && (svcSize(b) === 2 || x.type === b.type);
+  let best: { origin: [number, number]; members: typeof t.services; step: number } | null = null;
+  for (const i of [0, 1]) for (const j of [0, 1]) {
+    const o: [number, number] = [p[0] - i * step, p[1] - j * step];
+    const members = [0, 1, 2, 3].map((k) => t.services.find((x) => fits(x) && pos[`svc:${x.id}`]?.[0] === o[0] + (k % 2) * step && pos[`svc:${x.id}`]?.[1] === o[1] + Math.floor(k / 2) * step)).filter(Boolean) as typeof t.services;
+    if (!best || members.length > best.members.length) best = { origin: o, members, step };
+  }
+  return best && { ...best, complete: best.members.length === 4, into: svcSize(b) === 2 ? 'Mall' : MARKET_NAME[b.type as ShopType], price: mergePrice(best.members) };
+}
 export const SERVICE_GROUPS = { school: ['school'], medical: ['clinic', 'hospital'], water: ['well', 'waterworks', 'waterTower'], sanitation: ['sanitation'], power: ['lighting'] } as const;
 export const DISTRICT_NAMES: Record<DistrictId, string> = { farmgate: 'Farmgate', orchard: 'Orchard', heights: 'Heights' };
 export function createTownState(): TownState {
@@ -82,7 +107,7 @@ export const UTILITY_FAMILIES: Partial<Record<ServiceType, number>> = { lighting
 /** Level 1–3: how far a heat-map service reaches, how many families a utility serves, and how much a service can take on. */
 const LEVEL_REACH = [1, 1.5, 2], LEVEL_FAMILIES = [1, 2, 3.5], LEVEL_CAPACITY = [1, 1.6, 2.2];
 export const levelOf = (b: { level?: number }) => Math.max(1, Math.min(3, b.level ?? 1));
-export const serviceRadius = (b: { type: ServiceType; level?: number }) => (SERVICE_RADIUS[b.type] ?? 10) * LEVEL_REACH[levelOf(b) - 1];
+export const serviceRadius = (b: { type: ServiceType; level?: number; size?: number }) => (b.type === 'mall' ? 60 : (SERVICE_RADIUS[b.type] ?? 10) * (svcSize(b) >= 2 ? 1.8 : 1)) * LEVEL_REACH[levelOf(b) - 1];
 export const utilityFamilies = (b: { type: ServiceType; level?: number; count: number }) => (UTILITY_FAMILIES[b.type] ?? 0) * b.count * LEVEL_FAMILIES[levelOf(b) - 1];
 export const levelCapacity = (b: { level?: number }) => LEVEL_CAPACITY[levelOf(b) - 1];
 export const canUpgradeService = (type: ServiceType) => HEAT_SERVICES.includes(type) || !!UTILITY_OF[type];
