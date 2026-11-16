@@ -182,7 +182,7 @@ const pallet = (g: THREE.Group, x: number, z: number, c: number) => { g.add(box(
 export interface Model { group: THREE.Group; smoke: THREE.Vector3[]; sails?: THREE.Object3D; pen?: { x0: number; z0: number; x1: number; z1: number }; windows: THREE.Mesh[] }
 
 /** Builds the model for a lot; positions are relative to the lot origin. */
-export function buildLot(type: Lot['type'], w: number, d: number, variant = ''): Model {
+export function buildLot(type: Lot['type'], w: number, d: number, variant = '', level = 1): Model {
   const g = new THREE.Group();
   const smoke: THREE.Vector3[] = [];
   let sails: THREE.Object3D | undefined;
@@ -257,27 +257,68 @@ export function buildLot(type: Lot['type'], w: number, d: number, variant = ''):
       shed(g, 1.6, 1.2, 1.1, PAL.cream, PAL.roofGrey, 0.2, 0.4, { door: 'house' });
       break;
     case 'barn':
+      if (level > 1) { // the barn makes room for a machine lean-to (level 2), then steel grain bins (level 3)
+        if (!prop(g, 'barn', w - 1.0, d - 0.1, (w - 1.0) / 2 + 0.05, d / 2)) shed(g, w - 1.2, 1.6, 1.4, PAL.barnRed, PAL.roofGrey, 0.1, 0.2, { door: 'barn', windows: 1, roofH: 0.95 });
+        if (level === 2) {
+          g.add(box(0.8, 0.85, d - 0.5, 0x8c979b, w - 0.5, 0, d / 2 - 0.05)); leanTo(g, 0.8, d - 0.4, 1.0, 0.75, PAL.roofGrey, w - 0.9, 0.2);
+          g.add(box(0.6, 0.6, 0.04, PAL.metalDark, w - 0.5, 0, d - 0.29)); // open machine bay
+          for (const z of [0.35, 0.65]) g.add(box(0.28, 0.2, 0.22, PAL.hay, w - 0.25, 0, d - z + 0.25));
+        } else { silo(g, w - 0.48, 0.55, 0.4, 2.0); silo(g, w - 0.48, d - 0.5, 0.4, 1.7); g.add(box(0.1, 0.1, d - 1.0, PAL.metalDark, w - 0.48, 1.75, d / 2)); }
+        break;
+      }
       shed(g, 2.6, 1.6, 1.4, PAL.barnRed, PAL.roofGrey, 0.2, 0.2, { door: 'barn', windows: 2, roofH: 0.95 });
       for (const [hx, hz] of [[2.75, 1.95], [2.55, 1.85]]) g.add(box(0.3, 0.22, 0.2, PAL.hay, hx, 0, hz));
       break;
     case 'silo':
+      if (level > 1) { // the old silo gets steel company: a second bin and a catwalk, then a bucket elevator over three bins
+        if (level === 3) { silo(g, 0.5, 1.5, 0.38, 2.3); g.add(box(0.26, 3.3, 0.26, 0xc0392b, 0.45, 0, 0.45)); g.add(box(0.36, 0.3, 0.36, PAL.metalDark, 0.45, 3.3, 0.45));
+          for (const [x, z] of [[1.5, 0.5], [0.5, 1.5]]) { const sp = box(0.06, 0.06, Math.hypot(x - 0.45, z - 0.45) + 0.1, PAL.metal, (x + 0.45) / 2, 2.9, (z + 0.45) / 2); sp.lookAt(x, 2.6, z); g.add(sp); } } // a bucket elevator with spouts to the bins
+        silo(g, level === 3 ? 1.5 : 0.6, level === 3 ? 0.5 : 0.6, 0.42, level === 2 ? 2.1 : 2.4);
+        if (!prop(g, 'silo', 1.2, 1.2, 1.3, 1.3)) silo(g, 1.4, 1.4, 0.42, 2.3); // the old silo in front
+        if (level === 2) g.add(box(0.12, 0.05, 1.1, PAL.metalDark, 1.0, 2.15, 1.0)); // catwalk
+        break;
+      }
       silo(g, 0.6, 0.7); silo(g, 1.4, 1.2, 0.4, 2.1);
       break;
-    case 'coldStore':
-      shed(g, 2.6, 1.6, 1.2, PAL.white, PAL.roofBlue, 0.2, 0.2, { door: 'roller', roofH: 0.4 });
-      g.add(box(0.5, 0.3, 0.3, PAL.metal, 2.3, 1.2 + 0.2, 0.9)); // cooling unit
-      for (let i = 0; i < 9; i++) g.add(box(0.03, 1.05, 0.02, 0xd9dcdc, 0.35 + i * 0.29, 0.12, 1.82)); // ribbed cladding
+    case 'coldStore': {
+      const wallH = [1.2, 1.45, 1.7][level - 1] ?? 1.2; // each level stacks the racks higher and adds a cooling unit
+      shed(g, 2.6, 1.6, wallH, PAL.white, PAL.roofBlue, 0.2, 0.2, { door: 'roller', roofH: 0.4 });
+      for (let i = 0; i < level; i++) g.add(box(0.45, 0.3, 0.3, PAL.metal, 2.3 - i * 0.6, wallH + 0.2, 0.9)); // cooling units
+      for (let i = 0; i < 9; i++) g.add(box(0.03, wallH - 0.15, 0.02, 0xd9dcdc, 0.35 + i * 0.29, 0.12, 1.82)); // ribbed cladding
       g.add(box(2.6, 0.3, 0.35, PAL.stoneDark, 1.5, 0, 2.0)); // loading dock
+      if (level === 3) g.add(box(0.35, 0.5, 0.25, 0x6a7a86, 0.45, 0, 2.0)); // backup generator
       break;
+    }
     case 'warehouse':
-    case 'distribution':
+    case 'distribution': {
+      const wallH = [1.5, 1.9, 2.3][level - 1] ?? 1.5;
       pad();
-      shed(g, w - 0.4, d - 0.6, 1.5, type === 'warehouse' ? 0xd7d2c4 : 0xc9d6df, type === 'warehouse' ? PAL.roofGrey : PAL.roofBlue, 0.2, 0.2, { door: 'roller', windows: 3, roofH: 0.5 });
-      if (type === 'distribution') g.add(box(1.0, 0.6, 0.5, 0x3f6f9a, w - 1.0, 0, d - 0.3)); // a parked lorry box
+      shed(g, w - 0.4, d - 0.6, wallH, type === 'warehouse' ? 0xd7d2c4 : 0xc9d6df, type === 'warehouse' ? PAL.roofGrey : PAL.roofBlue, 0.2, 0.2, { door: 'roller', windows: 3, roofH: 0.5 });
+      if (level > 1) for (let i = 0; i < level + 1; i++) g.add(cyl(0.12, 0.22, PAL.metal, 0.9 + i * ((w - 1.8) / level), wallH + 0.4, (d - 0.6) / 2 + 0.2, 8)); // roof vents
+      if (type === 'distribution') for (let i = 0; i < level; i++) g.add(box(1.0, 0.6, 0.5, [0x3f6f9a, 0xb0603a, 0x5c8a4a][i], w - 1.0 - i * 1.25, 0, d - 0.3)); // a lorry per level
       g.add(box(w - 1.2, 0.28, 0.35, PAL.stoneDark, w / 2, 0, d - 0.2)); // loading dock
       [0xd8aa54, 0x9a6b44, 0xc9b49a].forEach((c, i) => pallet(g, 0.6 + i * 0.45, d - 0.35, c));
+      if (level === 3 && type === 'warehouse') { g.add(box(0.3, 0.25, 0.4, 0xe0b23a, 2.4, 0, d - 0.3), box(0.04, 0.5, 0.04, PAL.metalDark, 2.4, 0.25, d - 0.12)); pallet(g, 3.4, d - 0.35, 0xd8aa54); pallet(g, 3.85, d - 0.35, 0x9a6b44); } // forklift and more stock
       break;
+    }
     case 'flourMill': {
+      if (level === 3) { // a roller mill: a concrete mill house with its own grain bin, loud and busy
+        pad();
+        g.add(box(1.25, 2.5, 1.0, 0xd9d4c7, 0.75, 0, 0.75), box(1.33, 0.1, 1.08, PAL.metalDark, 0.75, 2.5, 0.75));
+        for (let f = 0; f < 3; f++) for (let i = 0; i < 3; i++) { const win = box(0.2, 0.22, 0.03, PAL.window, 0.4 + i * 0.35, 0.45 + f * 0.75, 1.26); win.userData.window = true; g.add(win); }
+        g.add(box(0.5, 0.6, 0.04, PAL.metalDark, 0.75, 0, 1.27));
+        silo(g, 1.62, 0.5, 0.3, 2.3);
+        const belt = box(0.12, 0.08, 1.1, PAL.metal, 1.62, 2.0, 1.1); belt.rotation.x = 0.5; g.add(belt);
+        g.add(box(0.5, 0.35, 0.4, 0x3f6f9a, 1.6, 0, 1.65)); // flour lorry
+        smoke.push(new THREE.Vector3(0.45, 2.75, 0.5));
+        break;
+      }
+      if (level === 2) { // the windmill keeps turning, with a brick engine house and its chimney beside it
+        if (!prop(g, 'mill', 1.5, 1.5, 0.75, 1.2)) { g.add(cyl(0.55, 2.0, PAL.stone, 0.7, 0, 1.3, 10, 0.45)); g.add(cone(0.52, 0.6, PAL.roofBrown, 0.7, 2.0, 1.3, 10)); }
+        shed(g, 0.75, 0.7, 0.9, PAL.brick, PAL.roofGrey, 1.15, 0.1, { door: 'house', windows: 1, roofH: 0.35 }); // the engine house behind
+        smoke.push(chimney(g, 1.8, 0.3, 0.9, 1.0));
+        break;
+      }
       g.add(cyl(0.75, 2.2, PAL.stone, 1, 0, 1, 10, 0.6));
       g.add(cone(0.72, 0.7, PAL.roofBrown, 1, 2.2, 1, 10));
       g.add(box(0.3, 0.55, 0.05, PAL.door, 1, 0, 1.68));
@@ -295,41 +336,60 @@ export function buildLot(type: Lot['type'], w: number, d: number, variant = ''):
       break;
     }
     case 'bakery':
+      if (level === 3) { // a bakery works: a tall insulated hall, two steel oven flues and a delivery van
+        pad();
+        shed(g, 1.7, 1.3, 1.6, PAL.cream, PAL.roofBlue, 0.15, 0.2, { door: 'roller', windows: 2, roofH: 0.35 });
+        for (const x of [0.5, 1.0]) { g.add(cyl(0.09, 0.8, PAL.metal, x, 1.75, 0.55, 8)); smoke.push(new THREE.Vector3(x, 2.6, 0.55)); }
+        g.add(box(0.6, 0.4, 0.3, PAL.white, 1.45, 0, 1.82), box(0.2, 0.25, 0.3, 0x3f6f9a, 1.05, 0, 1.82));
+        break;
+      }
       pad(PAL.creamDark);
       shed(g, 1.6, 1.4, 1.2, PAL.brick, PAL.roofBrown, 0.2, 0.3, { door: 'house', windows: 2 });
       smoke.push(chimney(g, 0.5, 0.7, 1.2, 0.9));
       awning(g, 1.5, 0.25, 0.95, 1.5);
       g.add(box(0.6, 0.35, 0.25, PAL.wood, 1.45, 0, 1.95)); for (let i = 0; i < 3; i++) g.add(sphere(0.07, 0xc68a4e, 1.25 + i * 0.2, 0.42, 1.95)); // bread on the stall
+      if (level === 2) { smoke.push(chimney(g, 1.45, 0.6, 1.2, 0.9)); g.add(box(0.4, 0.3, 0.3, 0x5c8a4a, 0.45, 0, 1.85)); } // a second oven and a delivery cart
       break;
     case 'feedMill':
+      { const th = [2.6, 3.1, 3.6][level - 1] ?? 2.6; // the mixing tower grows and more bins line up
       shed(g, 1.8, 1.5, 1.3, 0xd8c9a0, PAL.roofGrey, 0.2, 0.3, { door: 'roller' });
-      g.add(box(0.5, 2.6, 0.5, 0xd8c9a0, 2.4, 0, 0.8));
-      g.add(gable(0.5, 0.5, 0.3, PAL.roofGrey, 2.4, 2.6, 0.8));
+      g.add(box(0.5, th, 0.5, 0xd8c9a0, 2.4, 0, 0.8));
+      g.add(gable(0.5, 0.5, 0.3, PAL.roofGrey, 2.4, th, 0.8));
       silo(g, 2.5, 1.6, 0.25, 1.5);
-      break;
+      if (level > 1) silo(g, 2.78, 0.28, 0.2, 1.6);
+      if (level === 3) { silo(g, 2.05, 1.7, 0.22, 1.5); const belt = box(0.1, 0.08, 1.1, PAL.metal, 1.75, 1.75, 0.8); belt.rotation.z = Math.PI / 2; belt.rotation.y = Math.PI / 2; g.add(belt); }
+      break; }
     case 'ranch':
     case 'dairy':
-      shed(g, 2.4, 1.4, 1.2, type === 'dairy' ? PAL.white : PAL.barnRed, PAL.roofGrey, w - 2.6, 0.2, { door: 'barn', windows: 2 });
+      shed(g, 2.4, 1.4, level === 3 ? 1.5 : 1.2, type === 'dairy' ? PAL.white : PAL.barnRed, PAL.roofGrey, w - 2.6, 0.2, { door: 'barn', windows: 2 });
+      if (level > 1) silo(g, w - 0.38, d - 0.45, 0.28, 1.9); // a feed silo, then a second and a water tank
+      if (level === 3) { silo(g, w - 1.0, d - 0.45, 0.28, 1.7); g.add(cyl(0.3, 0.55, type === 'dairy' ? PAL.metal : 0x4f6b45, w - 1.85, 0, d - 0.45, 12)); }
       fenceRect(g, w - 3, d - 0.4, 0.15, 0.2);
       pen = { x0: 0.4, z0: 0.4, x1: w - 3.1, z1: d - 0.4 };
       break;
     case 'creamery':
       pad();
-      shed(g, 1.8, 1.4, 1.2, PAL.white, PAL.roofBlue, 0.2, 0.3, { door: 'house' });
-      g.add(cyl(0.3, 1.2, PAL.metal, 2.5, 0, 0.8, 12));
+      shed(g, 1.8, 1.4, [1.2, 1.4, 1.6][level - 1] ?? 1.2, PAL.white, PAL.roofBlue, 0.2, 0.3, { door: 'house' });
+      g.add(cyl(0.3, [1.2, 1.6, 2.0][level - 1] ?? 1.2, PAL.metal, 2.5, 0, 0.8, 12)); // the milk silo grows
+      if (level > 1) g.add(cyl(0.17, level === 3 ? 1.7 : 1.3, PAL.metal, 2.8, 0, 0.3, 10));
+      if (level === 3) g.add(cyl(0.17, 1.5, PAL.metal, 2.2, 0, 0.25, 10));
       smoke.push(chimney(g, 0.4, 0.6, 1.2, 0.6));
       for (let i = 0; i < 3; i++) { g.add(cyl(0.08, 0.22, PAL.metal, 2.2 + i * 0.2, 0, 1.75, 10)); g.add(cyl(0.05, 0.05, PAL.metalDark, 2.2 + i * 0.2, 0.22, 1.75, 8)); } // milk churns
       break;
     case 'oilPress':
-      shed(g, 1.8, 1.4, 1.2, 0xd9c48a, PAL.roofBrown, 0.2, 0.3, { door: 'roller' });
-      g.add(cyl(0.32, 1.1, 0xd9b95b, 2.4, 0, 0.6, 12)); g.add(cyl(0.32, 1.1, 0xd9b95b, 2.4, 0, 1.4, 12));
-      smoke.push(chimney(g, 1.6, 0.6, 1.2, 0.7));
+      { const wh = [1.2, 1.4, 1.6][level - 1] ?? 1.2, th = [1.1, 1.5, 1.9][level - 1] ?? 1.1;
+      shed(g, 1.8, 1.4, wh, 0xd9c48a, PAL.roofBrown, 0.2, 0.3, { door: 'roller' });
+      g.add(cyl(0.32, th, 0xd9b95b, 2.4, 0, 0.6, 12)); g.add(cyl(0.32, th, 0xd9b95b, 2.4, 0, 1.4, 12)); // oil tanks, taller with each level
+      smoke.push(chimney(g, 1.6, 0.6, wh, 0.7));
+      if (level === 3) { smoke.push(chimney(g, 0.6, 0.6, wh, 0.9)); g.add(box(0.7, 0.08, 0.08, PAL.metalDark, 2.4, th, 1.0)); } }
       barrel(g, 2.3, 1.95, 0xd9b95b); barrel(g, 2.6, 1.95, 0xd9b95b);
       break;
     case 'sugarMill':
-      shed(g, 2.4, 1.5, 1.3, PAL.stone, PAL.roofGrey, 0.2, 0.3, { door: 'roller' });
-      g.add(cyl(0.18, 2.6, PAL.brick, 2.75, 0, 0.6, 8));
-      smoke.push(new THREE.Vector3(2.75, 2.7, 0.6));
+      { const ch = [2.6, 3.1, 3.6][level - 1] ?? 2.6;
+      shed(g, 2.4, 1.5, [1.3, 1.5, 1.7][level - 1] ?? 1.3, PAL.stone, PAL.roofGrey, 0.2, 0.3, { door: 'roller' });
+      g.add(cyl(0.18, ch, PAL.brick, 2.75, 0, 0.6, 8));
+      smoke.push(new THREE.Vector3(2.75, ch + 0.1, 0.6));
+      if (level === 3) { g.add(cyl(0.15, ch - 0.4, PAL.brick, 2.75, 0, 1.2, 8)); smoke.push(new THREE.Vector3(2.75, ch - 0.3, 1.2)); } } // a second boiler stack
       for (let i = 0; i < 6; i++) { const cane = cyl(0.03, 0.7, 0x8fae4a, 0, 0, 0, 5); cane.rotation.z = Math.PI / 2; cane.position.set(2.4, 0.04 + Math.floor(i / 3) * 0.06, 1.75 + (i % 3) * 0.07); g.add(cane); } // cut cane
       break;
     case 'biogas': // two concrete digesters under green gas-holder domes, a pipe rack, a flare stack and a manure pit
@@ -344,29 +404,40 @@ export function buildLot(type: Lot['type'], w: number, d: number, variant = ''):
       g.add(cyl(0.05, 1.7, PAL.metalDark, 2.7, 0, 2.5, 8), cyl(0.09, 0.12, 0x3a3a3a, 2.7, 1.7, 2.5, 8)); // flare stack
       g.add(box(1.1, 0.05, 0.7, 0x6e5537, 0.85, 0.02, 2.3), box(1.2, 0.18, 0.06, PAL.stone, 0.85, 0, 1.95)); // manure pit
       smoke.push(new THREE.Vector3(2.7, 1.9, 2.5));
+      if (level > 1) { g.add(box(0.9, 0.5, 0.42, 0x4f6b45, 2.35, 0.05, 0.35), box(0.06, 0.3, 0.06, PAL.metalDark, 2.6, 0.55, 0.3)); } // a gas engine in its container
+      if (level === 3) { g.add(cyl(0.38, 0.45, 0xb9b3a6, 1.95, 0.05, 2.35, 14)); g.add(mesh(cached('dome0.37', () => new THREE.SphereGeometry(0.37, 14, 7, 0, Math.PI * 2, 0, Math.PI / 2)), mat(0x4f6b45, { rough: 0.7 }), 1.95, 0.5, 2.35)); } // a third digester
       break;
-    case 'solar':
-      for (let r = 0; r < 3; r++) for (let c = 0; c < 4; c++) {
-        const p = box(0.95, 0.04, 0.6, PAL.solar, 0.7 + c * 1.15, 0.45, 0.5 + r * 0.9, { rough: 0.3, metal: 0.5 });
+    case 'solar': { // a small array, then a full field, then a dense field with a battery store
+      const rows = level === 1 ? 2 : 3, cols = level === 3 ? 4 : 4, h = level === 3 ? 0.6 : 0.45;
+      for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+        const p = box(level === 3 ? 1.05 : 0.95, 0.04, 0.6, PAL.solar, 0.7 + c * 1.15, h, 0.5 + r * 0.9, { rough: 0.3, metal: 0.5 });
         p.rotation.x = -0.45;
         g.add(p);
-        g.add(box(0.05, 0.45, 0.05, PAL.metalDark, 0.7 + c * 1.15, 0, 0.5 + r * 0.9));
+        g.add(box(0.05, h, 0.05, PAL.metalDark, 0.7 + c * 1.15, 0, 0.5 + r * 0.9));
       }
+      if (level > 1) g.add(box(0.35, 0.5, 0.3, PAL.white, w - 0.25, 0, d - 0.35)); // inverter cabinet
+      if (level === 3) g.add(box(0.35, 0.55, 1.2, 0xdcdcd2, w - 0.25, 0, 0.9), box(0.37, 0.04, 1.22, PAL.metalDark, w - 0.25, 0.55, 0.9)); // battery store
       break;
+    }
     case 'windTurbine': {
+      const th = [3.6, 4.4, 5.2][level - 1] ?? 3.6, bl = [1.5, 1.9, 2.3][level - 1] ?? 1.5; // taller towers and longer blades catch more wind
       g.add(box(1.2, 0.1, 1.2, PAL.stone, 1, 0, 1)); // foundation
-      g.add(cyl(0.14, 3.6, PAL.white, 1, 0.1, 1, 12, 0.08)); // tapering tower
-      g.add(box(0.5, 0.22, 0.24, PAL.white, 1, 3.65, 0.95)); // nacelle
-      const rotor = new THREE.Group(); rotor.position.set(1, 3.76, 1.12);
+      g.add(cyl(0.14 + level * 0.02, th, PAL.white, 1, 0.1, 1, 12, 0.08)); // tapering tower
+      g.add(box(0.5 + level * 0.06, 0.22, 0.24, PAL.white, 1, th + 0.05, 0.95)); // nacelle
+      const rotor = new THREE.Group(); rotor.position.set(1, th + 0.16, 1.12);
       rotor.add(sphere(0.08, PAL.white, 0, 0, 0));
-      for (let i = 0; i < 3; i++) { const blade = new THREE.Group(); blade.rotation.z = (i * Math.PI * 2) / 3; blade.add(mesh(cached('turbineBlade', () => new THREE.BoxGeometry(0.1, 1.5, 0.03)), mat(PAL.white), 0, 0.78, 0)); rotor.add(blade); }
+      for (let i = 0; i < 3; i++) { const blade = new THREE.Group(); blade.rotation.z = (i * Math.PI * 2) / 3; blade.add(mesh(cached(`turbineBlade${bl}`, () => new THREE.BoxGeometry(0.1, bl, 0.03)), mat(PAL.white), 0, bl / 2 + 0.03, 0)); rotor.add(blade); }
+      if (level > 1) g.add(box(0.3, 0.35, 0.25, PAL.white, 1.6, 0.1, 1.6)); // transformer
       g.add(rotor); sails = rotor;
       break;
     }
     case 'oilTank': { // two squat white tanks in a bund, a ladder and a pipe
+      const th = [1.1, 1.4, 1.7][level - 1] ?? 1.1;
       g.add(box(w - 0.1, 0.12, d - 0.1, 0x6b6b66, w / 2, 0, d / 2, { rough: 1 }));
-      for (const [x, z] of [[0.95, 0.95], [2.05, 2.05]]) g.add(cyl(0.8, 1.1, 0xdcdcd2, x, 0.12, z, 18), cyl(0.82, 0.05, 0xb9b9ae, x, 1.22, z, 18));
-      g.add(box(0.06, 1.1, 0.25, PAL.metalDark, 1.78, 0.12, 0.95)); // ladder
+      for (const [x, z] of [[0.95, 0.95], [2.05, 2.05]]) g.add(cyl(0.8, th, 0xdcdcd2, x, 0.12, z, 18), cyl(0.82, 0.05, 0xb9b9ae, x, th + 0.12, z, 18));
+      if (level > 1) g.add(cyl(0.5, th - 0.2, 0xdcdcd2, 2.35, 0.12, 0.65, 16), cyl(0.52, 0.05, 0xb9b9ae, 2.35, th - 0.08, 0.65, 16)); // a third tank
+      if (level === 3) g.add(cyl(0.5, th - 0.2, 0xdcdcd2, 0.65, 0.12, 2.35, 16), box(1.6, 0.05, 0.2, PAL.metalDark, 1.5, th + 0.15, 1.5)); // a fourth, and a catwalk over the tops
+      g.add(box(0.06, th, 0.25, PAL.metalDark, 1.78, 0.12, 0.95)); // ladder
       g.add(box(1.3, 0.08, 0.08, PAL.metalDark, 1.5, 0.3, 1.5)); // pipe between the tanks
       break;
     }
@@ -399,19 +470,21 @@ export function buildLot(type: Lot['type'], w: number, d: number, variant = ''):
       g.add(cyl(0.12, 6.4, 0xb04a3a, w - 0.8, 0.06, 1.0, 8), cyl(0.2, 0.25, PAL.metalDark, w - 0.8, 6.46, 1.0, 8)); // flare stack
       g.add(cone(0.22, 0.7, 0xffa53a, w - 0.8, 6.7, 1.0, 8)); // the flare
       smoke.push(new THREE.Vector3(6.2, 4.6, 6.4), new THREE.Vector3(7.8, 4.2, 7.0), new THREE.Vector3(w - 0.8, 7.4, 1.0));
+      if (level > 1) { g.add(cyl(0.34, 4.2, 0xc9ccd0, 1.2, 0.06, 6.7, 12)); for (let y = 1; y < 4.2; y += 1.2) g.add(cyl(0.48, 0.04, PAL.metalDark, 1.2, y, 6.7, 12)); } // more columns
+      if (level === 3) { g.add(cyl(0.4, 5.6, 0xc9ccd0, 5.2, 0.06, 6.7, 12)); for (let y = 1; y < 5.6; y += 1.2) g.add(cyl(0.54, 0.04, PAL.metalDark, 5.2, y, 6.7, 12)); g.add(cyl(0.22, 3.0, 0x8a8f96, 8.6, 1.9, 6.4, 10)); smoke.push(new THREE.Vector3(8.6, 5.0, 6.4)); }
       break;
     }
     case 'verticalFarm': { // a glass tower: steel frame, floors of greens under violet grow lights, plant room on the roof
-      const fw = 1.6, H = 3.4, cx = w / 2, cz = d / 2;
+      const floors = [6, 8, 10][level - 1] ?? 6, fw = 1.6, H = floors * 0.567, cx = w / 2, cz = d / 2; // more floors of greens each level
       g.add(box(fw + 0.2, 0.08, fw + 0.2, PAL.stoneDark, cx, 0, cz));
       g.add(box(fw, H, fw, 0xa9d4de, cx, 0.08, cz, { opacity: 0.35, rough: 0.1 }));
-      for (let i = 0; i < 6; i++) {
+      for (let i = 0; i < floors; i++) {
         const y = 0.3 + i * 0.52;
         g.add(box(fw - 0.12, 0.05, fw - 0.12, PAL.metalDark, cx, y, cz), box(fw - 0.2, 0.1, fw - 0.2, 0x5faf4a, cx, y + 0.05, cz));
         const glow = box(fw - 0.2, 0.02, fw - 0.2, 0xc07ae0, cx, y + 0.42, cz, { emissive: 0x6a2a8a }); glow.userData.window = true; g.add(glow);
       }
       for (const [dx, dz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) g.add(box(0.07, H, 0.07, PAL.metalDark, cx + (dx * fw) / 2, 0.08, cz + (dz * fw) / 2));
-      for (let i = 1; i <= 6; i++) g.add(box(fw + 0.04, 0.04, fw + 0.04, PAL.metalDark, cx, 0.08 + i * (H / 6) - 0.02, cz));
+      for (let i = 1; i <= floors; i++) g.add(box(fw + 0.04, 0.04, fw + 0.04, PAL.metalDark, cx, 0.08 + i * (H / floors) - 0.02, cz));
       g.add(box(fw + 0.1, 0.1, fw + 0.1, PAL.metalDark, cx, H + 0.08, cz), box(0.7, 0.35, 0.5, PAL.white, cx - 0.3, H + 0.18, cz - 0.3));
       g.add(cyl(0.18, 0.3, PAL.metal, cx + 0.45, H + 0.18, cz + 0.4, 10));
       break;
@@ -423,17 +496,24 @@ export function buildLot(type: Lot['type'], w: number, d: number, variant = ''):
       g.add(sphere(0.55, 0xdfe8ee, w - 0.6, 0.9, 0.7, { rough: 0.3, metal: 0.2 }));
       g.add(cyl(0.5, 0.9, PAL.white, w - 0.6, 0, 0.7, 12));
       g.add(box(0.03, 0.8, 0.03, PAL.metalDark, 0.6, 1.5, 0.6)); g.add(box(0.3, 0.03, 0.03, PAL.metalDark, 0.6, 2.2, 0.6)); // antenna
+      if (level > 1) { const dish = cyl(0.3, 0.06, PAL.white, 0, 0, 0, 14); dish.rotation.x = -0.7; dish.position.set(1.3, 1.85, 0.8); g.add(dish, box(0.05, 0.4, 0.05, PAL.metalDark, 1.3, 1.45, 0.8)); } // a satellite dish
+      if (level === 3) { g.add(box(0.06, 2.6, 0.06, PAL.metalDark, 0.25, 0, 0.3)); for (const y of [1.2, 2.0]) g.add(box(0.4, 0.03, 0.03, PAL.metalDark, 0.25, y, 0.3)); } // a radio mast
       break;
     case 'coop':
-      {const coop=artModel('coop',1.4,1);if(coop){coop.position.add(new THREE.Vector3(.2,0,.2));g.add(coop);}else shed(g, 1.4, 1.0, 0.8, PAL.barnRed, PAL.roofBrown, 0.2, 0.2, { door: 'house', windows: 1 });}
+      if (level === 3) { shed(g, w - 1.0, 0.95, 0.7, PAL.white, PAL.roofGrey, 0.2, 0.2, { door: 'house', windows: 4, roofH: 0.3 }); for (let i = 0; i < 3; i++) g.add(cyl(0.07, 0.2, PAL.metal, 0.6 + i * 0.6, 0.95, 0.65, 8)); silo(g, w - 0.4, 0.6, 0.24, 1.4); } // a long poultry house with its feed bin
+      else {const coop=artModel('coop',1.4,1);if(coop){coop.position.add(new THREE.Vector3(.2,0,.2));g.add(coop);}else shed(g, 1.4, 1.0, 0.8, PAL.barnRed, PAL.roofBrown, 0.2, 0.2, { door: 'house', windows: 1 });
+        if (level === 2) { shed(g, 0.9, 0.75, 0.6, PAL.barnRed, PAL.roofBrown, 1.8, 0.25, { door: 'house', windows: 0, roofH: 0.35 }); g.add(cyl(0.1, 0.35, PAL.metal, 2.25, 0, 1.6, 8)); } } // a second house and a feeder
       fenceRect(g, w - 0.3, d - 1.4, 0.15, 1.25, 0.25);
       pen = { x0: 0.3, z0: 1.4, x1: w - 0.3, z1: d - 0.25 };
       break;
     case 'pigsty':
       // low stone sty with a lean-to roof, a muddy run and a feed trough
+      if (level === 3) { g.add(box(1.3, 0.75, d - 0.5, 0xc9c2b2, 0.85, 0, d / 2)); g.add(gable(1.3, d - 0.5, 0.45, PAL.roofGrey, 0.85, 0.75, d / 2)); for (const z of [0.7, 1.5, 2.3]) g.add(box(0.2, 0.2, 0.2, PAL.metalDark, 0.85, 1.05, z)); } // a pig barn with roof fans
+      else {
       g.add(box(1.3, 0.6, 1.0, PAL.stone, 0.85, 0, 0.75, { rough: 1 }));
       leanTo(g, 1.3, 1.15, 0.85, 0.6, PAL.roofBrown, 0.2, 0.2);
       g.add(box(0.32, 0.4, 0.04, PAL.door, 0.85, 0, 1.27));
+      if (level === 2) { g.add(box(1.3, 0.6, 1.0, PAL.stone, 0.85, 0, 1.95, { rough: 1 })); leanTo(g, 1.3, 1.15, 0.85, 0.6, PAL.roofBrown, 0.2, 1.4); } } // a second sty
       g.add(box(w - 2, 0.03, d - 0.6, 0x6e5537, (w + 1.6) / 2, 0, d / 2)); // mud
       fenceRect(g, w - 1.8, d - 0.4, 1.7, 0.2, 0.26);
       trough(g, w - 0.8, 0.55, 0.7, false);
@@ -446,6 +526,8 @@ export function buildLot(type: Lot['type'], w: number, d: number, variant = ''):
       g.add(box(0.1, 1.0, sd, PAL.wood, sx, 0, sz + sd / 2), box(0.1, 1.0, sd, PAL.wood, sx + sw, 0, sz + sd / 2));
       for (let i = 1; i < 4; i++) g.add(box(0.09, 0.8, 0.09, PAL.woodDark, sx + (i * sw) / 4, 0, sz + sd));
       leanTo(g, sw, sd + 0.1, 1.25, 0.85, 0x8c979b, sx, sz);
+      if (level > 1) silo(g, w - 0.25, 0.6, 0.2, 1.9); // feed silo, then a second
+      if (level === 3) silo(g, 0.25, 0.6, 0.2, 1.7);
       g.add(box(sw - 0.15, 0.03, sd - 0.1, PAL.hay, sx + sw / 2, 0, sz + sd / 2, { rough: 1 }));
       for (const hx of [sx + 0.45, sx + 0.85]) g.add(box(0.35, 0.25, 0.25, PAL.hay, hx, 0, sz + 0.35));
       fenceRect(g, w - 0.3, d - 1.85, 0.15, 1.7);
@@ -461,17 +543,20 @@ export function buildLot(type: Lot['type'], w: number, d: number, variant = ''):
       g.add(box(1.7, 0.75, 0.08, PAL.wood, 1.2, 0, 0.32));
       leanTo(g, 1.7, 1.05, 0.95, 0.75, PAL.roofGreen, 0.35, 0.3);
       g.add(box(1.5, 0.03, 0.8, PAL.hay, 1.2, 0, 0.8, { rough: 1 }));
-      g.add(box(0.6, 0.4, 0.26, PAL.woodDark, w - 0.8, 0, 0.6), box(0.5, 0.12, 0.2, PAL.hay, w - 0.8, 0.4, 0.6));
+      if (level === 3) shed(g, 1.2, 0.85, 0.8, PAL.wood, PAL.roofGreen, w - 1.45, 0.3, { door: 'barn', windows: 0, roofH: 0.4 }); // a shearing shed
+      else g.add(box(0.6, 0.4, 0.26, PAL.woodDark, w - 0.8, 0, 0.6), box(0.5, 0.12, 0.2, PAL.hay, w - 0.8, 0.4, 0.6));
+      if (level > 1) { trough(g, w - 0.9, d - 0.5); for (const x of [0.6, 0.95]) g.add(box(0.3, 0.22, 0.25, 0xeee6d2, x, 0, d - 0.45)); } // a water trough and wool bales
       pen = { x0: 0.5, z0: 1.5, x1: w - 0.5, z1: d - 0.5 };
       break;
     case 'winery':
       pad(PAL.creamDark);
-      shed(g, 2.2, 1.6, 1.3, PAL.stone, PAL.roofRed, 0.2, 0.3, { door: 'barn', windows: 2 });
-      for (let i = 0; i < 3; i++) { const b = cyl(0.17, 0.4, PAL.woodDark, 0.6 + i * 0.45, 0, 2.4, 10); b.rotation.z = Math.PI / 2; b.position.y = 0.18; g.add(b); }
+      shed(g, 2.2, 1.6, level === 3 ? 1.6 : 1.3, PAL.stone, PAL.roofRed, 0.2, 0.3, { door: 'barn', windows: 2 });
+      for (let i = 0; i < 3 + (level === 3 ? 2 : 0); i++) { const b = cyl(0.17, 0.4, PAL.woodDark, 0.6 + (i % 3) * 0.45, 0, 2.4 + Math.floor(i / 3) * 0.35, 10); b.rotation.z = Math.PI / 2; b.position.y = 0.18; g.add(b); }
+      for (let i = 0; i < (level - 1) * 2; i++) g.add(cyl(0.17, 1.1, PAL.metal, 2.72, 0, 0.5 + i * 0.5, 10)); // steel fermentation tanks
       break;
   }
   const ids: Partial<Record<Lot['type'], ArtId>>={house:'farmhouse',shed:'shed',barn:'barn',silo:'silo',flourMill:'mill'};
-  const art=ids[type] && !variant && artModel(ids[type]!, w, d);
+  const art=ids[type] && !variant && level === 1 && artModel(ids[type]!, w, d);
   if(art){g.clear();g.add(art);smoke.length=0;sails=undefined;}
   const windows: THREE.Mesh[] = [];
   g.traverse((o) => { if ((o as THREE.Mesh).isMesh && o.userData.window) windows.push(o as THREE.Mesh); });

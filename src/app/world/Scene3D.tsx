@@ -455,13 +455,11 @@ function syncLots(R: Rig, L: Layout) {
   R.pick = R.pick.filter((o) => o.userData.kind !== 'lot');
   for (const lot of L.lots) {
     const bw = lot.rot % 2 ? lot.d : lot.w, bd = lot.rot % 2 ? lot.w : lot.d; // built unturned, then turned about its centre
-    const model = lot.key.startsWith('civic:') ? buildCivic(lot.key.split(':')[1], bw, bd) : lot.key.startsWith('community:') ? buildCommunityHome(lot.key.split(':')[1], bw, bd, lot.key) : buildLot(lot.type, bw, bd, lot.key === 'crew' || lot.key === 'office' || lot.key === 'market' ? lot.key : '');
+    const model = lot.key.startsWith('civic:') ? buildCivic(lot.key.split(':')[1], bw, bd) : lot.key.startsWith('community:') ? buildCommunityHome(lot.key.split(':')[1], bw, bd, lot.key) : buildLot(lot.type, bw, bd, lot.key === 'crew' || lot.key === 'office' || lot.key === 'market' ? lot.key : '', Math.max(1, ...lot.buildings.map((b) => b.level)));
     const inner = new THREE.Group(); inner.add(...model.group.children); inner.position.set(-bw / 2, 0, -bd / 2); model.group.add(inner);
     model.group.position.set(lot.x + lot.w / 2, 0, lot.y + lot.d / 2); model.group.rotation.y = (lot.rot * Math.PI) / 2;
     model.smoke = model.smoke.map((p) => { const [x, z] = turnPoint(lot, p.x, p.z); return new THREE.Vector3(x, p.y, z); });
     if (model.pen) { const [ax, az] = turnPoint(lot, model.pen.x0, model.pen.z0), [bx, bz] = turnPoint(lot, model.pen.x1, model.pen.z1); model.pen = { x0: Math.min(ax, bx), z0: Math.min(az, bz), x1: Math.max(ax, bx), z1: Math.max(az, bz) }; }
-    const lvl = Math.max(1, ...lot.buildings.map((b) => b.level));
-    if (lvl > 1) model.group.scale.set(1, 1 + (lvl - 1) * 0.18, 1); // upgraded buildings stand taller
     R.lots.add(model.group);
     const hit = new THREE.Mesh(cached(`hit${lot.w},${lot.d}`, () => new THREE.BoxGeometry(lot.w, 2.6, lot.d)), new THREE.MeshBasicMaterial({ visible: false }));
     hit.position.set(lot.x + lot.w / 2, 1.3, lot.y + lot.d / 2);
