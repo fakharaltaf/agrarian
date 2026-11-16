@@ -874,5 +874,6 @@ body:has(.modal-bg) .shell .coach { display: none !important; }
 
 /* the farm photo preview */
 .farm-photo { display: block; width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--line); }
-.world.shooting::after { content: ''; position: absolute; inset: 0; background: #fff; z-index: 20; pointer-events: none; animation: flash .5s ease-out forwards; }
-@keyframes flash { from { opacity: .9; } to { opacity: .6; } }
+/* a camera flash when the farm photo is taken: gone in half a second, whatever happens */
+.snapping .world::after { content: ''; position: absolute; inset: 0; background: #fff; z-index: 20; pointer-events: none; animation: flash .5s ease-out forwards; }
+@keyframes flash { from { opacity: .85; } to { opacity: 0; } }

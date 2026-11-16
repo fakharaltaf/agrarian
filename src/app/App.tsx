@@ -13,7 +13,7 @@ import { Bar, Modal, usePref } from './ui';
 import { FieldsPage } from './pages/Fields';
 import { Hud } from './world/Hud';
 import { setVolume, sfx, volumes } from './audio';
-import { graphicsQuality } from './world/Scene3D';
+import { FarmPhotoModal, graphicsQuality, takeFarmPhoto } from './world/Scene3D';
 import { restructurePreview } from './pages/shared';
 
 const PAGE_COMPONENTS: Record<string, React.ComponentType> = {
@@ -50,6 +50,7 @@ export function App() {
   const [settings, setSettings] = useState(false);
   const [help, setHelp] = useState(false);
   const [ledger, setLedger] = useState(false);
+  const [photo, setPhoto] = useState<{ url: string; blob: Blob } | null>(null);
   const [title, setTitle] = useState(true);
   const unlocked = PAGES.filter((p) => p.unlocked(s));
   const current = unlocked.some((p) => p.id === page) ? page : 'farm';
@@ -103,7 +104,8 @@ export function App() {
           </div></section>; })}
       </div></Modal>}
       {drawer && <LogDrawer onClose={() => setDrawer(false)} />}
-      {settings && <Settings onClose={() => setSettings(false)} theme={theme} setTheme={setTheme} />}
+      {settings && <Settings onClose={() => setSettings(false)} theme={theme} setTheme={setTheme} onPhoto={() => { setSettings(false); go('farm'); setTimeout(() => void takeFarmPhoto().then((p) => (p ? setPhoto(p) : toast('Could not take the photo. Try again from the map.'))), 150); }} />}
+      {photo && <FarmPhotoModal photo={photo} onClose={() => { URL.revokeObjectURL(photo.url); setPhoto(null); }} />}
       {help && <Help onClose={() => setHelp(false)} />}
       <Decisions />
       <Bankrupt />
@@ -421,7 +423,7 @@ function Toasts() {
   );
 }
 
-function Settings({ onClose, theme, setTheme }: { onClose: () => void; theme: string; setTheme: (t: 'auto' | 'light' | 'dark') => void }) {
+function Settings({ onClose, theme, setTheme, onPhoto }: { onClose: () => void; theme: string; setTheme: (t: 'auto' | 'light' | 'dark') => void; onPhoto: () => void }) {
   const s = useGame();
   const file = useRef<HTMLInputElement>(null);
   const [slots, setSlots] = useState<Awaited<ReturnType<typeof slotInfo>> | null>(null);
@@ -445,6 +447,10 @@ function Settings({ onClose, theme, setTheme }: { onClose: () => void; theme: st
   };
   return (
     <Modal title="Game menu" onClose={onClose} wide actions={<button className="btn primary" onClick={onClose}>Done</button>}>
+      <section className="stack s">
+        <h3>Share your farm</h3>
+        <div className="row wrap"><button className="btn ghost sm" onClick={onPhoto}>📷 Take a photo of your farm</button><span className="muted small">The whole farm in one picture, with the Agrarian logo, to save or share.</span></div>
+      </section>
       <section className="stack s">
         <h3>Saves</h3>
         <p className="muted small">The game autosaves every 15 seconds and whenever you leave the page. Saves live in this browser — export a file to back up or move your farm.</p>

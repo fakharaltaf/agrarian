@@ -350,11 +350,13 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
       const xs = owned.map((ch) => MAP.x0 + (ch % CHUNKS_X) * CHUNK), zs = owned.map((ch) => MAP.y0 + Math.floor(ch / CHUNKS_X) * CHUNK);
       const x0 = Math.min(...xs), x1 = Math.max(...xs) + CHUNK, z0 = Math.min(...zs), z1 = Math.max(...zs) + CHUNK;
       const span = ((x1 - x0) + (z1 - z0)) * 0.36, aspect = 16 / 9; // the iso view's diagonal, in screen half-heights
-      R.shot = { frames: 6, done, back: { x: R.target.x, z: R.target.z, zoom: R.zoom } };
+      const shot = { frames: 6, done, back: { x: R.target.x, z: R.target.z, zoom: R.zoom } };
+      R.shot = shot;
+      setTimeout(() => { if (R.shot !== shot) return; R.shot = undefined; R.target.x = shot.back.x; R.target.z = shot.back.z; R.zoom = shot.back.zoom; done(''); }, 8000); // too slow: give up rather than leave the view stuck
       R.glide = undefined; R.target.x = (x0 + x1) / 2; R.target.z = (z0 + z1) / 2;
       R.zoom = Math.max(0.06, Math.min(3, 9 / (Math.max(span / aspect, span * 0.62) * 1.12 + 2)));
     });
-    (window as unknown as Record<string, unknown>).__world = { zoom: zoomBy, rotate: (d: number) => rig.current && (rig.current.yawTo += (d * Math.PI) / 2), snapshot };
+    (window as unknown as Record<string, unknown>).__world = { zoom: zoomBy, rotate: (d: number) => rig.current && (rig.current.yawTo += (d * Math.PI) / 2), snapshot, region: () => rig.current?.region ?? 'heartland' };
     return () => {
       c.removeEventListener('pointerdown', down);
       c.removeEventListener('pointermove', move);
@@ -368,14 +370,10 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
     };
   }, []);
 
-  const ctl = () => (window as unknown as { __world: { zoom: (f: number) => void; rotate: (d: number) => void; snapshot: () => Promise<string> } }).__world;
-  const [photo, setPhoto] = useState<{ url: string; blob: Blob } | null>(null), [shooting, setShooting] = useState(false);
-  const takePhoto = async () => {
-    setShooting(true);
-    try { const raw = await ctl().snapshot(); if (raw) setPhoto(await farmPhoto(raw, getGame(), region)); } finally { setShooting(false); }
-  };
+  const ctl = () => (window as unknown as { __world: { zoom: (f: number) => void; rotate: (d: number) => void } }).__world;
+
   return (
-    <div className={`world${shooting ? ' shooting' : ''}`}>
+    <div className="world">
       <canvas ref={canvas} className="world-canvas" role="img" aria-label={`Your farm in ${REGIONS[region].name}. Drag to move, scroll to zoom, Q and E to rotate, click a field or building.`} />
       <div ref={overlay} className="world-overlay" />
       {failed && <div className="world-loading">Your browser could not start 3D graphics (WebGL). Try another browser or enable hardware acceleration.</div>}
@@ -390,16 +388,27 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
         <button data-coach="roads-btn" className={`icon-btn${roading && !roading.pipe ? ' on' : ''}`} aria-label="Roads" title="Roads: draw, upgrade or remove" onClick={() => roading && !roading.pipe ? stopRoads() : startRoads(region)}>🛤</button>
         {townOf(getGame()).active && <button className={`icon-btn${roading?.pipe && roading.pipe !== 'irrigation' ? ' on' : ''}`} aria-label="Utilities" title="Town utilities: power, water and sewage lines" onClick={() => roading?.pipe && roading.pipe !== 'irrigation' ? stopRoads() : startPipes(region, 'power')}>🔌</button>}
         {featureEra(getGame(), 2) && <button className={`icon-btn${roading?.pipe === 'irrigation' ? ' on' : ''}`} aria-label="Water lines" title="Water lines: dig ditches, upgrade them to pipes and bury them" onClick={() => roading?.pipe === 'irrigation' ? stopRoads() : startPipes(region)}>💧</button>}
-        <button className="icon-btn" aria-label="Photo of your farm" title="Take a photo of your whole farm to share" disabled={shooting} onClick={takePhoto}>📷</button>
       </div>
-      {photo && <Modal title="Your farm" onClose={() => { URL.revokeObjectURL(photo.url); setPhoto(null); }} actions={<>
-        <a className="btn ghost" href={photo.url} download="agrarian-farm.png">Save</a>
-        {canShareFile(photo.blob) && <button className="btn primary" onClick={() => navigator.share({ files: [new File([photo.blob], 'agrarian-farm.png', { type: 'image/png' })], title: 'My farm in Agrarian', text: 'My farm in Agrarian' }).catch(() => {})}>Share</button>}
-      </>}><img className="farm-photo" src={photo.url} alt="A photo of your whole farm with the Agrarian logo" /></Modal>}
+
     </div>
   );
 }
 
+/** Take a photo of the whole farm on the map (null if the map isn't showing or it took too long). A quick flash marks the shot. */
+export async function takeFarmPhoto() {
+  const w = (window as unknown as { __world?: { snapshot: () => Promise<string>; region: () => RegionId } }).__world;
+  if (!w) return null;
+  document.body.classList.remove('snapping'); void document.body.offsetWidth; document.body.classList.add('snapping');
+  const raw = await w.snapshot();
+  return raw ? farmPhoto(raw, getGame(), w.region()) : null;
+}
+/** The finished photo, with Save and (where the device can share files) Share. */
+export function FarmPhotoModal({ photo, onClose }: { photo: { url: string; blob: Blob }; onClose: () => void }) {
+  return <Modal title="Your farm" onClose={onClose} actions={<>
+    <a className="btn ghost" href={photo.url} download="agrarian-farm.png">Save</a>
+    {canShareFile(photo.blob) && <button className="btn primary" onClick={() => navigator.share({ files: [new File([photo.blob], 'agrarian-farm.png', { type: 'image/png' })], title: 'My farm in Agrarian', text: 'My farm in Agrarian' }).catch(() => {})}>Share</button>}
+  </>}><img className="farm-photo" src={photo.url} alt="A photo of your whole farm with the Agrarian logo" /></Modal>;
+}
 const canShareFile = (blob: Blob) => { try { return !!navigator.canShare?.({ files: [new File([blob], 'agrarian-farm.png', { type: 'image/png' })] }); } catch { return false; } };
 /** The farm photo: the captured map with the Agrarian watermark bottom left and the farm's date and size bottom right. */
 async function farmPhoto(raw: string, s: GameState, r: RegionId): Promise<{ url: string; blob: Blob }> {
@@ -1125,15 +1134,18 @@ function syncRoads(R: Rig, s: GameState) {
     const c = C(ROAD_COL[Math.min(w.roads[tileId(x, y)], w.roads[tileId(x + 1, y)], w.roads[tileId(x, y + 1)], w.roads[tileId(x + 1, y + 1)])]);
     surface.seg(x + 0.5, y + 1, x + 1.5, y + 1, [[-0.5, c, 1], [0.5, c, 1]]);
   }
-  // a paved road two lanes wide is a two-way road: white dashes down the middle, where its lanes meet (none across junctions)
+  // a paved road two to four tiles wide is a two-way road: white dashes down its middle (not across junctions or wider squares)
   const paved = (x: number, y: number) => (w.roads[tileId(x, y)] ?? 0) >= 3, WHITE = C(0xe9e4d6), dash: Band[] = [[-0.035, WHITE, 1], [0.035, WHITE, 1]];
+  const across = (x: number, y: number, ax: number, ay: number) => { let n = 0; while (n < 6 && paved(x + ax * n, y + ay * n)) n++; return n; }; // tiles side by side, from this one on
   for (const k of ids) {
     const [x, y] = tileAt(Number(k));
     if (!paved(x, y)) continue;
-    // running north–south: this tile and the one east of it, with road ahead or behind, and no third lane beside them
-    if (paved(x + 1, y) && !paved(x - 1, y) && !paved(x + 2, y) && ((paved(x, y - 1) && paved(x + 1, y - 1)) || (paved(x, y + 1) && paved(x + 1, y + 1)))) marks.seg(x + 1, y + 0.2, x + 1, y + 0.8, dash);
-    // running east–west: this tile and the one south of it
-    if (paved(x, y + 1) && !paved(x, y - 1) && !paved(x, y + 2) && ((paved(x - 1, y) && paved(x - 1, y + 1)) || (paved(x + 1, y) && paved(x + 1, y + 1)))) marks.seg(x + 0.2, y + 1, x + 0.8, y + 1, dash);
+    // running north–south: x is the west edge of a row of n paved tiles, and the whole row carries on north or south
+    const nx = !paved(x - 1, y) ? across(x, y, 1, 0) : 0, carriesNS = (dy: number) => Array.from({ length: nx }, (_, i) => paved(x + i, y + dy)).every(Boolean);
+    if (nx >= 2 && nx <= 4 && (carriesNS(-1) || carriesNS(1))) marks.seg(x + nx / 2, y + 0.2, x + nx / 2, y + 0.8, dash);
+    // running east–west: y is the north edge of a column of n paved tiles
+    const ny = !paved(x, y - 1) ? across(x, y, 0, 1) : 0, carriesEW = (dx: number) => Array.from({ length: ny }, (_, i) => paved(x + dx, y + i)).every(Boolean);
+    if (ny >= 2 && ny <= 4 && (carriesEW(-1) || carriesEW(1))) marks.seg(x + 0.2, y + ny / 2, x + 0.8, y + ny / 2, dash);
   }
   // where a track meets the main road its mouth widens into a soft rounded fan, so the corners are not cut square
   for (const [mx, mz, mg] of mouths) surface.disc(mx, mz, [[0.5, C(ROAD_COL[Math.min(mg, g)]), 1], [0.82, C(ROAD_COL[Math.min(mg, g)]), 0]], 0.05, 24);
