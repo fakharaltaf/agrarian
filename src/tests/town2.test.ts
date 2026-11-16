@@ -3,6 +3,7 @@ import { createGame, dispatch, step } from '../simulation/engine';
 import { CHAPTER_SALES } from '../simulation/config';
 import { post } from '../simulation/core';
 import { communityOf, familiesHere, HOME_DEFS, households } from '../simulation/community-state';
+import { factoryJobs } from '../simulation/town-state';
 import { townOf } from '../simulation/town-state';
 import { chunksIn, clearRect, own, placeProblem, worldOf } from '../simulation/world';
 
@@ -78,9 +79,18 @@ it('newcomer families settle once there is a town, and pay the housing tax', () 
   dispatch(s, { type: 'setSettlementPay', housingTax: 0.1 });
   const before = communityOf(s).cohorts.length, rent = s.lifetime.rent ?? 0;
   communityOf(s).happiness = 0.8;
-  day(s, 3);
+  day(s, 3); // employees first: your factory staff's families take the free homes before any outsider
   expect(communityOf(s).cohorts.length).toBeGreaterThan(before);
-  expect(communityOf(s).cohorts.some((g) => g.name.includes('newcomers'))).toBe(true);
+  expect(communityOf(s).cohorts.some((g) => g.name.includes('factory staff'))).toBe(true);
+  expect(communityOf(s).cohorts.some((g) => g.name.includes('newcomers'))).toBe(false);
+  for (let i = 0; i < 12; i++) dispatch(s, { type: 'buildHomes', tier: 'cottage', count: 1 }); // room beyond the staff
+  day(s, 12);
+  expect(communityOf(s).cohorts.filter((g) => g.name.includes('factory staff')).length).toBe(factoryJobs(s)); // every staff job has a family home
+  expect(communityOf(s).cohorts.some((g) => g.name.includes('newcomers'))).toBe(false); // and the homes are full
+  for (const b of s.buildings) b.active = false; // no more staff wanted, and two staff families leave
+  const c = communityOf(s); c.cohorts.splice(c.cohorts.findIndex((g) => g.name.includes('factory staff')), 1); c.cohorts.splice(c.cohorts.findIndex((g) => g.name.includes('factory staff')), 1);
+  day(s, 2);
+  expect(communityOf(s).cohorts.some((g) => g.name.includes('newcomers'))).toBe(true); // now outsiders settle
   expect((s.lifetime.rent ?? 0) - rent).toBeGreaterThan(0);  day(s, 30); // newcomers stop once every home is taken
   const homes = communityOf(s).homes.reduce((n, h) => n + HOME_DEFS[h.tier].families * h.count, 0);
   expect(households(s)).toBeLessThanOrEqual(homes);

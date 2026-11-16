@@ -87,6 +87,6 @@ export default function CommunityPage() {
         <button className={`btn ${c.autoLarder ? 'primary' : 'ghost'}`} aria-pressed={c.autoLarder} onClick={() => act({ type: 'setLarder', enabled: !c.autoLarder })}>{c.autoLarder ? 'On' : 'Off'}</button>
       </SettingRow>
     </Card>
-    {c.cohorts.length > 0 && <Card title={`Who lives here · ${c.cohorts.length}`}><div className="civ-families">{c.cohorts.map((g) => <span key={g.id}><b>{g.name.replace(/^The | family.*$/g, '')}</b><small>{g.adults + g.children} · {g.name.includes('newcomers') ? 'newcomers' : 'your worker'}</small></span>)}</div></Card>}
+    {c.cohorts.length > 0 && <Card title={`Who lives here · ${c.cohorts.length}`}><div className="civ-families">{c.cohorts.map((g) => <span key={g.id}><b>{g.name.replace(/^The | family.*$/g, '')}</b><small>{g.adults + g.children} · {g.name.includes('newcomers') ? 'newcomers' : g.name.includes('factory staff') ? 'factory staff' : 'your worker'}</small></span>)}</div></Card>}
   </div>;
 }

@@ -6,7 +6,7 @@ import type { StageModule } from './types';
 import type { Action, ActionResult, GameState } from '../types';
 import { CHAPTER_SALES, BUILDINGS, GOODS, type GoodId, INDUSTRY_FACTORY_SALES } from '../config';
 import { clamp, freeSpace, log, marketWage, nextId, post, reservedStock, round2 } from '../core';
-import { localEmployment, townOf } from '../town-state';
+import { factoryJobs, localEmployment, townOf } from '../town-state';
 import { executeBuy, quoteBuy } from '../markets';
 import { communityOf, createSettlementState, familySize, HOME_DEFS, homePrice, homeCapacity, households, population, availableResidents, recruitableResidents } from '../community-state';
 import { CONFIG, WORK_HOURS } from '../config';
@@ -68,6 +68,8 @@ function eat(s: GameState, desired: number) {
   }
   return desired > 0 ? clamp(1 - need / desired, 0, 1) : 1;
 }
+const SURNAMES = ['Silva', 'Patel', 'Brook', 'Okafor', 'Tan', 'Reyes', 'Ito', 'Costa', 'Haddad', 'Varga'];
+const isStaff = (g: { name: string }) => g.name.endsWith('(factory staff)');
 export function settlementTick(s: GameState) {
   const c = communityOf(s), day = Math.floor(s.tick / 24);
   if (!c.active || s.tick % 24 !== 0 || c.lastDay === day) return;
@@ -98,9 +100,9 @@ export function settlementTick(s: GameState) {
   // families of your employees move in while there are free homes (two a day)
   // a home nobody can reach by road takes no family
   const reachable = c.homes.filter((h) => hasAccess(s, 'heartland', `home:${h.id}`)).reduce((n, h) => n + HOME_DEFS[h.tier].families * h.count, 0);
-  // every family takes a home, newcomers too; when homes are lost, newcomers leave first (your workers' families keep theirs)
+  // every family takes a home; when homes are lost, newcomers leave first, then factory staff (your workers' families keep theirs)
   const workerFams = new Set(Object.values(fam));
-  for (let over = households(s) - reachable, i = c.cohorts.length - 1; over > 0 && i >= 0; i--) if (!workerFams.has(c.cohorts[i].id)) { over -= c.cohorts[i].households; c.cohorts.splice(i, 1); if (over <= 0) log(s, 'warning', 'Newcomer families moved away: there are not enough homes for them.', 'community'); }
+  for (const staff of [false, true]) for (let over = households(s) - reachable, i = c.cohorts.length - 1; over > 0 && i >= 0; i--) if (!workerFams.has(c.cohorts[i].id) && isStaff(c.cohorts[i]) === staff) { over -= c.cohorts[i].households; c.cohorts.splice(i, 1); if (over <= 0) log(s, 'warning', `${staff ? 'Factory staff' : 'Newcomer'} families moved away: there are not enough homes for them.`, 'community'); }
   let free = reachable - households(s), moved = 0;
   for (const w of s.workers) {
     if (free <= 0 || moved >= 2) break;
@@ -110,9 +112,16 @@ export function settlementTick(s: GameState) {
     fam[w.id] = id; w.resident = true; free--; moved++;
     log(s, 'opportunity', `${w.name}'s family has moved into the settlement (${size} people).`, 'community');
   }
-  // once there is a town, families from outside settle too: one a day while homes are free and life is good
-  if (townOf(s).active && free > 0 && c.happiness >= 0.6) {
-    const id = nextId(s), size = 3 + (id % 3), name = ['Silva', 'Patel', 'Brook', 'Okafor', 'Tan', 'Reyes', 'Ito', 'Costa', 'Haddad', 'Varga'][id % 10];
+  // employees first: then the families of your factory staff (two a day, one family per staff job)
+  for (let need = factoryJobs(s) - c.cohorts.filter(isStaff).length; need > 0 && free > 0 && moved < 2; need--) {
+    const id = nextId(s), size = 3 + (id % 3), name = SURNAMES[id % 10];
+    c.cohorts.push({ id, name: `The ${name} family (factory staff)`, households: 1, adults: 2, children: size - 2 });
+    free--; moved++;
+    log(s, 'opportunity', `The ${name}s, who work at your factories, have moved into the settlement (${size} people).`, 'community');
+  }
+  // once there is a town and every employee has a home, families from outside settle too: one a day while homes are free and life is good
+  if (townOf(s).active && free > 0 && moved === 0 && c.happiness >= 0.6) {
+    const id = nextId(s), size = 3 + (id % 3), name = SURNAMES[id % 10];
     c.cohorts.push({ id, name: `The ${name} family (newcomers)`, households: 1, adults: 2, children: size - 2 });
     log(s, 'opportunity', `A new family, the ${name}s, has settled in town (${size} people).`, 'community');
   }
