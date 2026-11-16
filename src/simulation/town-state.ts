@@ -2,11 +2,17 @@
 import { cityActive, policeJobs } from './city-state';
 import { BUILDINGS, type RegionId } from './config';
 import { communityOf, workingAdults, population, residentWorkers, neighbourJobs } from './community-state';
-import type { DistrictId, GameState, ServiceType, TownState } from './types';
+import type { DistrictId, GameState, ServiceType, ShopType, TownState } from './types';
+import type { GoodId } from './config';
 export const SERVICE_DEFS: Record<ServiceType, { name: string; icon: string; cost: number; capacity: number; jobs: number; kwh: number }> = {
   sanitation: {name:'Sanitation works',icon:'🚿',cost:55000,capacity:500,jobs:4,kwh:12},
   lighting: {name:'Power station',icon:'⚡',cost:40000,capacity:400,jobs:2,kwh:24},
   police: {name:'Watchhouse',icon:'🛡',cost:65000,capacity:300,jobs:6,kwh:8},
+  shopBaker: {name:"Baker's shop",icon:'🥖',cost:14000,capacity:1e12,jobs:2,kwh:3},
+  shopDairy: {name:'Dairy shop',icon:'🥛',cost:16000,capacity:1e12,jobs:2,kwh:5},
+  shopButcher: {name:'Butcher',icon:'🥩',cost:16000,capacity:1e12,jobs:2,kwh:5},
+  shopGrocer: {name:'Greengrocer',icon:'🍎',cost:12000,capacity:1e12,jobs:2,kwh:2},
+  shopGeneral: {name:'General store',icon:'🧺',cost:15000,capacity:1e12,jobs:2,kwh:2},
   school: { name: 'School', icon: '📚', cost: 30000, capacity: 80, jobs: 4, kwh: 8 },
   well: { name: 'Well', icon: '💧', cost: 8000, capacity: 100, jobs: 1, kwh: 0 },
   clinic: { name: 'Clinic', icon: '♥', cost: 45000, capacity: 150, jobs: 3, kwh: 16 },
@@ -19,7 +25,14 @@ export const SERVICE_DEFS: Record<ServiceType, { name: string; icon: string; cos
   barracks: {name:'Barracks',icon:'⚔',cost:120000,capacity:1e12,jobs:20,kwh:10},
 };
 /** How far (in tiles, centre to centre) each service reaches: homes inside the circle are served. */
-export const SERVICE_RADIUS: Partial<Record<ServiceType, number>> = { school: 12, clinic: 12, hospital: 22, well: 8, waterworks: 20, waterTower: 14, sanitation: 12, lighting: 16, police: 14, park: 8 };
+export const SERVICE_RADIUS: Partial<Record<ServiceType, number>> = { school: 12, clinic: 12, hospital: 22, well: 8, waterworks: 20, waterTower: 14, sanitation: 12, lighting: 16, police: 14, park: 8, shopBaker: 10, shopDairy: 10, shopButcher: 10, shopGrocer: 10, shopGeneral: 10 };
+/** City shops, and what each sells per resident per day to the homes in its reach. */
+export const SHOP_GOODS: Record<ShopType, Partial<Record<GoodId, number>>> = {
+  shopBaker: { bread: 0.6, flour: 0.1 }, shopDairy: { milk: 0.5, cheese: 0.06, butter: 0.05 }, shopButcher: { meat: 0.08 },
+  shopGrocer: { potatoes: 0.3, apples: 0.2, greens: 0.1, corn: 0.1, rice: 0.1 }, shopGeneral: { sugar: 0.05, soyoil: 0.03, coffee: 0.02, wool: 0.01, cotton: 0.01 },
+};
+export const SHOP_TYPES = Object.keys(SHOP_GOODS) as ShopType[];
+export const isShop = (t: ServiceType): t is ShopType => t in SHOP_GOODS;
 export const SERVICE_GROUPS = { school: ['school'], medical: ['clinic', 'hospital'], water: ['well', 'waterworks', 'waterTower'], sanitation: ['sanitation'], power: ['lighting'] } as const;
 export const DISTRICT_NAMES: Record<DistrictId, string> = { farmgate: 'Farmgate', orchard: 'Orchard', heights: 'Heights' };
 export function createTownState(): TownState {

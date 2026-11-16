@@ -327,7 +327,8 @@ export interface SettlementState {
 export type SchoolCharter = 'public' | 'trade';
 export const DISTRICT_IDS = ['farmgate', 'orchard', 'heights'] as const;
 export type DistrictId = (typeof DISTRICT_IDS)[number];
-export type ServiceType = 'school' | 'well' | 'clinic' | 'road' | 'hospital' | 'waterworks' | 'waterTower' | 'park' | 'sanitation' | 'lighting' | 'police' | 'watchtower' | 'barracks';
+export type ServiceType = 'school' | 'well' | 'clinic' | 'road' | 'hospital' | 'waterworks' | 'waterTower' | 'park' | 'sanitation' | 'lighting' | 'police' | ShopType | 'watchtower' | 'barracks';
+export type ShopType = 'shopBaker' | 'shopDairy' | 'shopButcher' | 'shopGrocer' | 'shopGeneral';
 export interface CivicService { id: number; type: ServiceType; district: DistrictId; count: number; active: boolean; cost: number; staffed: number; funded: boolean; /** 1–3: wider reach, or more homes on its lines */ level?: number; /** families its lines serve now, and how many it can (utilities only) */ serving?: [number, number] }
 export interface DistrictCoverage { people: number; school: number; water: number; medical: number; road: number }
 export interface CouncilPetition { id: number; kind: 'park' | 'bread'; opened: number }
@@ -485,6 +486,7 @@ export type Action =
   | { type: 'buildPipe'; region: RegionId; from: [number, number]; to: [number, number]; net?: import('./world').NetKind }
   | { type: 'upgradePipe'; region: RegionId; at: [number, number]; net?: import('./world').NetKind }
   | { type: 'upgradeAllLines'; region: RegionId; nets: import('./world').LineKind[] }
+  | { type: 'setGst'; rate: number }
   | { type: 'removePipe'; region: RegionId; at: [number, number]; net?: import('./world').NetKind }
   | { type: 'upgradeService'; serviceId: number }
   | { type: 'openFutures'; good: GoodId; contracts: number; days: number }

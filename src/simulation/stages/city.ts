@@ -3,8 +3,10 @@ import type { Action, ActionResult, GameState } from '../types';
 import { GOOD_IDS, GOODS } from '../config';
 import { clamp, log, nextId, post, priceUsd, random, reservedStock, round2 } from '../core';
 import { communityOf, population, workingAdults } from '../community-state';
-import { localEmployment, townOf } from '../town-state';
-import { cityActive, cityOf, createCityState, POLICE_CHARTERS, type HomeCover, type JusticePolicy } from '../city-state';
+import { localEmployment, townOf, SHOP_GOODS, SHOP_TYPES } from '../town-state';
+import { TOWN_ORDER_PREMIUM } from './town';
+import { larderReserve } from './settlement';
+import { cityActive, cityOf, createCityState, POLICE_CHARTERS, shopReach, type HomeCover, type JusticePolicy } from '../city-state';
 import { lifetimeSales, totalHa } from './shared';
 
 // The City is paid for by the farm, like the Town: no separate treasury to keep topped up.
@@ -46,6 +48,29 @@ export function resolveCase(s:GameState,answer:JusticePolicy):ActionResult {
   else {v.crime=Math.max(0,v.crime-.05);for(const k in v.homeCrime??{})v.homeCrime![k]=Math.max(0,v.homeCrime![k]-.05);c.happiness=Math.max(0,c.happiness-.01);v.punished++;s.values.orderFreedom=clamp(s.values.orderFreedom+1,0,100);}
   v.caseHistory.push({day:Math.floor(s.tick/24),kind:v.case.kind,answer});v.caseHistory=v.caseHistory.slice(-12);v.case=null;v.nextCaseDay=Math.max(v.nextCaseDay,Math.floor(s.tick/24)+7);v.solved++;return {ok:true};
 }
+export const GST_RATES=[0,.05,.1];
+/** Families may spend this share of their savings in a day, so spending settles where it matches wages. */
+export const SPEND_SHARE=.05;
+/** A day at the shops: families in each shop's reach buy its goods out of their savings, your stock first (at the local premium) and imports for the rest; GST on all of it comes to the farm. */
+export function cityTrade(s:GameState){
+  const v=cityOf(s),c=communityOf(s),inv=s.regions.heartland.inventory,people=population(s),smug=v.case?.kind==='smuggling'?.7:1;
+  let budget=c.householdCash*SPEND_SHARE/(1+v.gst),ours=0,imports=0;const gaps:{good:typeof GOOD_IDS[number];value:number}[]=[];
+  for(const kind of SHOP_TYPES){
+    const reach=shopReach(s,kind);if(!reach)continue;
+    for(const [good,per] of Object.entries(SHOP_GOODS[kind]) as [typeof GOOD_IDS[number],number][]){
+      const price=priceUsd(s,'heartland',good)*TOWN_ORDER_PREMIUM,want=Math.min(Math.floor(people*reach*per*smug),Math.floor(budget/price));
+      if(want<=0)continue;
+      const spare=Math.max(0,inv[good]-reservedStock(s,'heartland',good)-larderReserve(s,good)),sold=Math.floor(Math.min(want,spare)),value=round2(sold*price),rest=round2((want-sold)*price);
+      if(sold>0){inv[good]-=sold;post(s,'contract',value,`City shops bought ${sold} ${GOODS[good].name.toLowerCase()}`,'heartland',good==='milk'||good==='meat'?'livestock':'processing');s.stats.sales++;}
+      if(rest>0)gaps.push({good,value:rest});
+      ours+=value;imports+=rest;budget-=value+rest;
+    }
+  }
+  const spend=round2(ours+imports),gst=round2(spend*v.gst);
+  c.householdCash=Math.max(0,round2(c.householdCash-spend-gst));
+  if(gst>0)post(s,'gst',gst,'GST from city shops','heartland','corporate');
+  v.trade={spend,ours:round2(ours),imports:round2(imports),gst,gaps:gaps.sort((a,b)=>b.value-a.value).slice(0,5)};
+}
 /** One bounded daily civic pass, after Town's: per-street crime from what reaches each home, then cases. */
 export function cityDaily(s:GameState) {
   if(!cityActive(s)||s.tick%24!==0)return;
@@ -57,6 +82,7 @@ export function cityDaily(s:GameState) {
   c.happiness=clamp(c.happiness+POLICE_CHARTERS[v.charter??'watch'].happiness*v.police,0,1);
   if(v.case?.kind==='gang')c.happiness=clamp(c.happiness-GANG_UNHAPPINESS,0,1);
   v.prevention*=.97;
+  cityTrade(s);
   // each street drifts a tenth of the way to its target a day; the city's crime is the families' average
   const p=cityPressure(s),w=watchStrength(s),before=v.homeCrime??{},next:Record<number,number>={};
   for(const h of homes){const now=before[h.id]??v.crime;next[h.id]=clamp(now+(homeCrimeTarget(s,h,p,w)-now)*.1,0,1);}
@@ -88,7 +114,7 @@ function setCharter(s:GameState,charter:NonNullable<ReturnType<typeof cityOf>['c
   cityOf(s).charter=charter;s.values.orderFreedom=clamp(s.values.orderFreedom+(charter==='strict'?8:charter==='watch'?-8:0),0,100);
 }
 function action(s:GameState,a:Action):ActionResult|null {
-  const types=['startCity','changePolice','trainPolice','setJustice','resolveCityCase'];
+  const types=['startCity','changePolice','trainPolice','setJustice','resolveCityCase','setGst'];
   if(!types.includes(a.type))return null;
   const v=cityOf(s),t=townOf(s),fail=(error:string):ActionResult=>({ok:false,error});
   if(a.type==='startCity'||a.type==='changePolice') {
@@ -107,6 +133,7 @@ function action(s:GameState,a:Action):ActionResult|null {
   if(!v.active)return fail('Begin the City chapter first.');
   if(a.type==='setJustice'){if(!['rehabilitate','punish'].includes(a.policy))return fail('Choose a justice policy.');v.justice=a.policy;return {ok:true};}
   if(a.type==='resolveCityCase')return resolveCase(s,a.answer);
+  if(a.type==='setGst'){if(!GST_RATES.includes(a.rate))return fail('Choose 0%, 5% or 10%.');v.gst=a.rate;return {ok:true};}
   if(a.type==='trainPolice'){
     if(v.training>=1.5||v.trainingUntil>=0)return fail('Training is complete or already in progress.');
     if(!t.services.some(b=>b.type==='police'&&b.active))return fail('Build a watchhouse first.');
@@ -116,6 +143,6 @@ function action(s:GameState,a:Action):ActionResult|null {
   return null;
 }
 export const city:StageModule={id:'city',title:'City',legacyEras:[7],eraUnlocks:{7:s=>lifetimeSales(s)>=60_000_000||totalHa(s)>=3000},
-  actionTypes:['incorporate','issueShares','buyback','payDividend','acquire','diligence','startCity','changePolice','trainPolice','setJustice','resolveCityCase'],
+  actionTypes:['incorporate','issueShares','buyback','payDividend','acquire','diligence','startCity','changePolice','trainPolice','setJustice','resolveCityCase','setGst'],
   tips:['city-utilities','city-safety','city-case'],discoveries:['cityReady','cityCase','cityCaravans'],
   tick:cityDaily,handleAction:action,createState:()=>createCityState() as unknown as Record<string,unknown>};

@@ -8,6 +8,7 @@ import { CHAPTER_SALES, BUILDINGS, GOODS, type GoodId, INDUSTRY_FACTORY_SALES } 
 import { clamp, freeSpace, log, marketWage, nextId, post, reservedStock, round2 } from '../core';
 import { factoryJobs, localEmployment, townOf } from '../town-state';
 import { executeBuy, quoteBuy } from '../markets';
+import { shopMood } from '../city-state';
 import { communityOf, createSettlementState, familySize, HOME_DEFS, homePrice, homeCapacity, households, population, availableResidents, recruitableResidents } from '../community-state';
 import { CONFIG, WORK_HOURS } from '../config';
 
@@ -85,7 +86,7 @@ export function settlementTick(s: GameState) {
   c.warm = fuelNeed ? fuel / fuelNeed : 1;
   const { housed } = wellbeing(s);
   c.nuisance = settlementExposure(s); // smell and noise from the farm's buildings near the homes cost happiness; fresh bread lifts it
-  const target = clamp(0.55 * c.fed + 0.25 * housed + 0.2 * c.warm - nuisanceHappiness(c.nuisance), 0, 1);
+  const target = clamp(0.55 * c.fed + 0.25 * housed + 0.2 * c.warm - nuisanceHappiness(c.nuisance) + shopMood(s), 0, 1);
   c.happiness += (target - c.happiness) * 0.2;
   if (c.homes.length) post(s, 'maintenance', -c.homes.reduce((n, h) => n + HOME_DEFS[h.tier].families * h.count * 0.5, 0) * s.macro.cpi, 'Community homes', 'heartland', 'corporate');
   // the housing tax: a share of the pay of every worker whose family lives here

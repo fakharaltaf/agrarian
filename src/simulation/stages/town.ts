@@ -3,7 +3,7 @@ import { canPlaceNew, placeNew, SERVICE_FOOTPRINT } from '../world';
 import { NUISANCE_WEIGHT, settlementExposure } from '../nuisance';
 import { nationActive, nationOf } from '../nation-state';
 import {allocateNeighbourJobs} from '../employment';
-import { cityActive, cityOf } from '../city-state';
+import { cityActive, cityOf, shopReach } from '../city-state';
 import type { StageModule } from './types';
 import type { Action, ActionResult, DistrictId, GameState, SchoolCharter, ServiceType } from '../types';
 import { DISTRICT_IDS } from '../types';
@@ -11,7 +11,7 @@ import { larderReserve } from './settlement';
 import { GOODS, WORK_HOURS, type GoodId } from '../config';
 import { clamp, electricityPrice, log, marketWage, nextId, post, priceUsd, random, reservedStock, round2 } from '../core';
 import { communityOf, familiesHere, population, workingAdults, children, residentWorkers } from '../community-state';
-import { createTownState, districtPopulation, factoryJobs, localEmployment, payHouseholds, schoolChangeCost, SERVICE_DEFS, SERVICE_GROUPS, servicePrice, serviceJobs, townOf, townWorkforce, UTILITY_OF, utilityFamilies, serviceRadius, heatAt, levelCapacity, canUpgradeService, levelOf, serviceUpgradePrice } from '../town-state';
+import { createTownState, districtPopulation, factoryJobs, localEmployment, payHouseholds, schoolChangeCost, SERVICE_DEFS, SERVICE_GROUPS, servicePrice, serviceJobs, townOf, townWorkforce, UTILITY_OF, utilityFamilies, serviceRadius, heatAt, levelCapacity, canUpgradeService, levelOf, serviceUpgradePrice, SHOP_GOODS, SHOP_TYPES, isShop } from '../town-state';
 import { HOME_DEFS } from '../community-state';
 import { doorstep, footprintOf, hasAccess, netReach, NET_QUALITY, tileId, worldOf } from '../world';
 
@@ -19,7 +19,7 @@ export const canStartTown = (s: GameState) => communityOf(s).active && !townOf(s
 export function serviceAvailable(s: GameState, type: ServiceType): boolean {
   const t=townOf(s);
   if(type==='sanitation'||type==='lighting'||type==='waterTower')return t.active||cityActive(s); // the town's own utilities
-  if(type==='police')return cityActive(s);
+  if(type==='police'||isShop(type))return cityActive(s);
   if(type==='watchtower')return regionActive(s);
   if(type==='barracks')return nationActive(s)&&nationOf(s).path==='army';
   if(type==='school'||type==='well') return true;
@@ -68,7 +68,8 @@ export const TOWN_ORDER_PREMIUM = 1.2;
 export function townOrders(s: GameState) {
   const t = townOf(s), people = population(s), inv = s.regions.heartland.inventory;
   t.orders = (Object.entries(TOWN_ORDER) as [GoodId, number][]).map(([good, per]) => {
-    const want = Math.floor(people * per * (cityOf(s).case?.kind === 'smuggling' ? 0.7 : 1)), // smugglers sell to the shops while a smuggling case is open
+    const shop = SHOP_TYPES.find((k) => SHOP_GOODS[k][good]), away = shop ? 1 - shopReach(s, shop) : 1; // families in a city shop's reach buy there instead
+    const want = Math.floor(people * away * per * (cityOf(s).case?.kind === 'smuggling' ? 0.7 : 1)), // smugglers sell to the shops while a smuggling case is open
           spare = Math.max(0, inv[good] - larderReserve(s, good)), sold = Math.floor(Math.min(want, spare));
     const value = round2(sold * priceUsd(s, 'heartland', good) * TOWN_ORDER_PREMIUM);
     if (sold > 0) {
@@ -163,7 +164,7 @@ export function townDaily(s: GameState) {
   const wellQ=heat(['well']),pipedQ=lines(['waterTower','waterworks']);
   const powerQ=lines(SERVICE_GROUPS.power);
   const cover={school:share(heat(SERVICE_GROUPS.school)),water:share(wellQ.map((v,i)=>Math.max(v,pipedQ[i]))),medical:share(heat(SERVICE_GROUPS.medical)),sanitation:share(lines(SERVICE_GROUPS.sanitation)),power:share(powerQ)};
-  if(cityActive(s)){const watchQ=heat(['police']);cityOf(s).homes=homes.map((h,i)=>({id:h.id,families:h.families,power:powerQ[i],watch:watchQ[i]}));} // the City reads street power and the watch per home
+  if(cityActive(s)){const watchQ=heat(['police']),shopQ=SHOP_TYPES.map(k=>heat([k]));cityOf(s).homes=homes.map((h,i)=>({id:h.id,families:h.families,power:powerQ[i],watch:watchQ[i],shops:Object.fromEntries(SHOP_TYPES.map((k,j)=>[k,shopQ[j][i]]).filter(([,v])=>v))}));} // the City reads street power and the watch per home
   for(const id of DISTRICT_IDS){const v=t.coverage[id];v.school=cover.school;v.water=cover.water;v.medical=cover.medical;v.road=1;}
   t.sanitation=cover.sanitation;t.power=cover.power;t.medical=cover.medical;
   const people=population(s);

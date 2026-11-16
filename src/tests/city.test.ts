@@ -98,3 +98,26 @@ it.skipIf(!fixtures)('Real veteran City copies run thirty days with conserved ac
  }
 },120000);
 
+
+it('City shops: families in reach spend savings on your goods first and imports for the rest; GST comes to the farm; every dollar is accounted for', async () => {
+  const { cityTrade } = await import('../simulation/stages/city');
+  const { priceUsd } = await import('../simulation/core');
+  const s = ready(); dispatch(s, { type: 'startCity', charter: 'watch' });
+  const v = cityOf(s), c = communityOf(s), inv = s.regions.heartland.inventory, people = population(s);
+  v.homes = [{ id: 1, families: 50, power: 1, watch: 0, shops: { shopBaker: 1 } }, { id: 2, families: 50, power: 1, watch: 0 }]; // half the city is in a baker's reach
+  c.householdCash = 1e6; c.larderHold = {}; inv.bread = 1e6; inv.flour = 0; v.gst = 0.1;
+  const cash = s.cash, bread = inv.bread, want = Math.floor(people * 0.5 * 0.6), flourWant = Math.floor(people * 0.5 * 0.1);
+  cityTrade(s);
+  expect(bread - inv.bread).toBe(want); // your bread is sold
+  expect(v.trade!.ours).toBeCloseTo(want * priceUsd(s, 'heartland', 'bread') * 1.2, 1);
+  expect(v.trade!.imports).toBeCloseTo(flourWant * priceUsd(s, 'heartland', 'flour') * 1.2, 1); // no flour in store: imported
+  expect(v.trade!.gaps[0].good).toBe('flour');
+  expect(v.trade!.gst).toBeCloseTo(v.trade!.spend * 0.1, 1);
+  expect(s.cash - cash).toBeCloseTo(v.trade!.ours + v.trade!.gst, 1); // the farm gets its sales and the GST
+  expect(1e6 - c.householdCash).toBeCloseTo(v.trade!.spend + v.trade!.gst, 1); // families paid for all of it
+  // savings cap the day's spending; no GST at 0%; out of reach, nothing is sold
+  c.householdCash = 100; cityTrade(s); expect(v.trade!.spend + v.trade!.gst).toBeLessThanOrEqual(5.01);
+  expect(dispatch(s, { type: 'setGst', rate: 0.07 }).ok).toBe(false); expect(dispatch(s, { type: 'setGst', rate: 0 }).ok).toBe(true);
+  c.householdCash = 1e6; cityTrade(s); expect(v.trade!.gst).toBe(0);
+  v.homes = [{ id: 1, families: 100, power: 1, watch: 0 }]; cityTrade(s); expect(v.trade!.spend).toBe(0);
+});

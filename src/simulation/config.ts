@@ -414,7 +414,7 @@ export const CONFIG = {
 };
 
 export const LEDGER_KINDS = {
-  townTransfer: 'Town advance / repayment', residentTax: 'Household income tax', civic: 'Public services', tolls: 'Border tolls', diplomacy: 'Gifts, treaties & tribute',
+  townTransfer: 'Town advance / repayment', residentTax: 'Household income tax', civic: 'Public services', gst: 'GST from city shops', tolls: 'Border tolls', diplomacy: 'Gifts, treaties & tribute',
   rent: 'Housing rent', sale: 'Sales', contract: 'Contract deliveries', grid: 'Power sold to grid', insurancePayout: 'Insurance payouts', prize: 'Prizes & gifts', assetSale: 'Asset sales',
   seeds: 'Seed', wages: 'Wages', salaries: 'Management salaries', staff: 'Factory staff', fuel: 'Fuel', maintenance: 'Maintenance & repairs',
   electricity: 'Electricity', water: 'Water', fertilizer: 'Fertiliser', purchases: 'Market purchases', haulage: 'Haulage', shipping: 'Freight & tariffs',
