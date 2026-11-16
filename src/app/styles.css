@@ -902,3 +902,4 @@ body:has(.modal-bg) .shell .coach { display: none !important; }
 .dock-all { font: 700 13px var(--font); color: #fff; background: var(--accent); border: none; border-radius: 8px; height: 36px; padding: 0 10px; white-space: nowrap; cursor: pointer; flex: none; }
 .dock-all:disabled { opacity: .45; cursor: default; }
 .civ-h { font: 800 15px var(--font); margin: 6px 0 -4px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+@media (max-width: 480px) { .road-bar .seg .btn { padding-inline: 4px; font-size: 12.5px; } }

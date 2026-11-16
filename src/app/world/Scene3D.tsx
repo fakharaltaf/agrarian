@@ -1436,7 +1436,7 @@ function syncOil(R: Rig, s: GameState, P: { region: RegionId; hover?: [number, n
   }
 }
 
-const ZONE_COL = { res: 0xf2c94c, ind: 0x8f86c9 } as const;
+const ZONE_COL = { res: 0xf2c94c, ind: 0x8f86c9, com: 0x3fb3c4 } as const;
 /** Zoned land is tinted: residential gold, industrial violet; brighter in zone mode, with the patch under the cursor outlined. */
 function syncZones(R: Rig, s: GameState, Z: Zoning | null) {
   const w = worldOf(s, R.region), keys = Object.keys(w.zones);
@@ -1444,7 +1444,7 @@ function syncZones(R: Rig, s: GameState, Z: Zoning | null) {
   if (sig === R.zoneSig) return;
   R.zoneSig = sig;
   clear(R.zoneG);
-  for (const z of ['res', 'ind'] as const) {
+  for (const z of ['res', 'ind', 'com'] as const) {
     const list = keys.filter((k) => w.zones[Number(k)] === z).map((k) => { const [x, y] = chunkOrigin(Number(k)); return new THREE.Matrix4().makeTranslation(x + CHUNK / 2, 0.02, y + CHUNK / 2); });
     if (!list.length) continue;
     const im = new THREE.InstancedMesh(Z ? cached('zonetile', () => new THREE.BoxGeometry(CHUNK - 0.1, 0.01, CHUNK - 0.1)) : cached('zonearea', () => new THREE.PlaneGeometry(CHUNK, CHUNK).rotateX(-Math.PI / 2)), new THREE.MeshBasicMaterial({ color: ZONE_COL[z], transparent: true, opacity: Z ? 0.38 : 0.16, depthWrite: false }), list.length);

@@ -650,8 +650,8 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       const w = worldOf(s, a.region), owned = ownedSet(w), chunks = [...new Set(a.chunks)].filter((c) => Number.isInteger(c) && owned.has(c));
       if (!chunks.length) return fail('You can only zone land you own.');
       // nothing may be left standing in the wrong zone
-      const stuck = placedIn(s, a.region).find((p) => { const use = useOf(p.key, s); if (!use) return false; return chunksIn(p.x, p.y, p.w, p.d).some((c) => chunks.includes(c)) && !(a.zone === 'res' ? use === 'home' : a.zone === 'ind' ? use === 'building' || use === 'industry' : use === 'field' || use === 'building'); });
-      if (stuck) return fail(a.zone === 'res' ? 'Fields and farm buildings stand there: residential land is for homes only.' : a.zone === 'farm' ? 'Homes or industrial plants stand there: move them before turning the land back to farmland.' : 'Fields or homes stand there: industrial land is for plants and stores.');
+      const stuck = placedIn(s, a.region).find((p) => { const use = useOf(p.key, s); if (!use) return false; return chunksIn(p.x, p.y, p.w, p.d).some((c) => chunks.includes(c)) && !(a.zone === 'res' ? use === 'home' : a.zone === 'com' ? use === 'shop' : a.zone === 'ind' ? use === 'building' || use === 'industry' : use === 'field' || use === 'building'); });
+      if (stuck) return fail(a.zone === 'com' ? 'Homes, fields or farm buildings stand there: commercial land is for shops and offices.' : a.zone === 'res' ? 'Fields and farm buildings stand there: residential land is for homes only.' : a.zone === 'farm' ? 'Homes, shops or industrial plants stand there: move them before turning the land back to farmland.' : 'Fields or homes stand there: industrial land is for plants and stores.');
       for (const c of chunks) { if (a.zone === 'farm') delete w.zones[c]; else w.zones[c] = a.zone; }
       touch(w);
       return ok();

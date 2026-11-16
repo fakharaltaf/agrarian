@@ -308,9 +308,9 @@ export function Hud() {
 /** Fixed controls while placing: they never move with the ghost. With a mouse, clicking the map places it. */
 function ZoneBar({ z }: { z: Zoning }) {
   return <div className="placement-bar road-bar" role="dialog" aria-label="Zones">
-    <div className="placement-info"><b>🏘 Zones</b><span className="muted">{z.zone === 'res' ? 'Tap your land: homes for workers\' families go here (no fields)' : z.zone === 'ind' ? 'Tap your land: for industrial-scale plants' : 'Tap a zoned patch to make it farmland again'}</span></div>
+    <div className="placement-info"><b>🏘 Zones</b><span className="muted">{z.zone === 'res' ? 'Tap your land: homes for workers\' families go here (no fields)' : z.zone === 'ind' ? 'Tap your land: for industrial-scale plants' : z.zone === 'com' ? 'Tap your land: shops and offices go here' : 'Tap a zoned patch to make it farmland again'}</span></div>
     <div className="seg" role="group" aria-label="Zone">
-      {(['res', 'ind', 'farm'] as const).map((t) => <button key={t} className={`btn ${z.zone === t ? 'primary' : 'ghost'}`} aria-pressed={z.zone === t} onClick={() => setZoneTool(t)}>{t === 'res' ? '🏠 Residential' : t === 'ind' ? '🏭 Industrial' : '🌾 Farmland'}</button>)}
+      {(cityActive(useGame()) ? ['res', 'com', 'ind', 'farm'] as const : ['res', 'ind', 'farm'] as const).map((t) => <button key={t} className={`btn ${z.zone === t ? 'primary' : 'ghost'}`} aria-pressed={z.zone === t} onClick={() => setZoneTool(t)}>{t === 'res' ? '🏠 Residential' : t === 'com' ? '🏪 Commercial' : t === 'ind' ? '🏭 Industrial' : '🌾 Farmland'}</button>)}
     </div>
     <button className="btn ghost" onClick={() => stopZoning()}>Done</button>
   </div>;

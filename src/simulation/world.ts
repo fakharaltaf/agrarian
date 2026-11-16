@@ -17,26 +17,29 @@ export interface ClearJob { chunk: number; hours: number }
 /** owned: patches the farm has bought (you can only clear, farm and build on your own land). */
 /** roads: grade (1 dirt, 2 gravel, 3 paved) by tile id; main: grade of the main road through the map. */
 export interface RegionWorld { /** the town's utility lines by tier, like canals: power, water and sewer */ nets?: Partial<Record<UtilityNet, Record<number, number>>>; cleared: number[]; owned: number[]; pos: Record<string, [number, number]>; queue: ClearJob[]; roads: Record<number, number>; main: number; /** water lines by tier (WATER_TIERS): 1 ditch, 2 pipe, 3 buried; the first two take the tile */ canals: Record<number, number>; zones: Record<number, Zone>; links: Record<string, number[]>; /** quarter turns (0–3) of each placed thing; its front faces +y at 0, then +x, −y, −x */ rot?: Record<string, number> }
-/** res: homes only (no farming); ind: industrial plants. Unzoned land is farmland. */
-export type Zone = 'res' | 'ind';
+/** res: homes only (no farming); ind: industrial plants; com: shops and offices. Unzoned land is farmland. */
+export type Zone = 'res' | 'ind' | 'com';
 /** What a placement is, for zoning: homes need a residential zone; fields stay out of zones; farm buildings stay out of residential; industry needs an industrial zone. */
-export type Use = 'home' | 'field' | 'building' | 'industry';
+export type Use = 'home' | 'field' | 'building' | 'industry' | 'shop';
 /** Plants that belong on industrial land from the start. */
 export const INDUSTRY_ONLY: ReadonlySet<BuildingType> = new Set(['biogas', 'windTurbine', 'oilWell', 'refinery', 'oilTank', 'solar', 'distribution']);
 /** Workshops that start anywhere off residential land, but grow past their first level only on industrial land. */
 export const INDUSTRY_TO_GROW: ReadonlySet<BuildingType> = new Set(['flourMill', 'bakery', 'feedMill', 'ranch', 'dairy', 'creamery', 'oilPress', 'sugarMill', 'winery']);
 /** The zoning a building at this level needs (the older progression keeps the plain farm rule). */
 export const buildingUse = (s: GameState, type: BuildingType, level = 1): Use => (!s.legacyProgression && (INDUSTRY_ONLY.has(type) || (INDUSTRY_TO_GROW.has(type) && level > 1)) ? 'industry' : 'building');
+/** Town services that are businesses: they stand on commercial land. */
+export const COMMERCIAL = /^(shop|office)/;
 export const useOf = (key?: string, s?: GameState): Use | undefined => {
   if (!key) return undefined;
   if (key.startsWith('home:')) return 'home';
   if (key.startsWith('field:')) return 'field';
+  if (key.startsWith('svc:')) { const t = (s?.stageState.town as { services?: { id: number; type: string }[] } | undefined)?.services?.find((x) => x.id === +key.slice(4))?.type; return t && COMMERCIAL.test(t) ? 'shop' : undefined; } // other town services stand anywhere
   if (!key.startsWith('b:')) return undefined;
   const b = s?.buildings.find((x) => x.id === +key.slice(2));
   return s && b ? buildingUse(s, b.type, b.level) : 'building';
 };
-const zoneOk = (use: Use | undefined, z: Zone | undefined) => !use || (use === 'home' ? z === 'res' : use === 'field' ? !z : use === 'industry' ? z === 'ind' : z !== 'res');
-const NO_ROOM = { home: 'No free residential land: zone more of your cleared land as residential.', industry: 'No free industrial land: zone some of your cleared land as industrial first (🏘 Zones).' } as Partial<Record<Use, string>>;
+const zoneOk = (use: Use | undefined, z: Zone | undefined) => !use || (use === 'home' ? z === 'res' : use === 'field' ? !z : use === 'industry' ? z === 'ind' : use === 'shop' ? z === 'com' : z !== 'res' && z !== 'com');
+const NO_ROOM = { home: 'No free residential land: zone more of your cleared land as residential.', industry: 'No free industrial land: zone some of your cleared land as industrial first (🏘 Zones).', shop: 'No free commercial land: zone some of your cleared land as commercial first (🏘 Zones).' } as Partial<Record<Use, string>>;
 export type WorldState = Partial<Record<RegionId, RegionWorld>>;
 
 /** Tiles each building occupies (x × y). */
@@ -182,7 +185,7 @@ export function placeProblem(s: GameState, r: RegionId, x: number, y: number, fp
   return null;
 }
 export const PROBLEM_TEXT: Record<Exclude<PlaceProblem, null>, string> = {
-  unowned: 'You do not own that land. Buy it first.', zone: 'Wrong zone: homes go in a residential zone, plants and grown workshops in an industrial zone; fields and farm buildings stay out of residential.', water: 'That is the river or a water line. Upgrade the line until it is buried to build over it.', forest: 'That spot is forest. Clear it first.', occupied: 'Something already stands there.', road: 'You cannot build on the road.', outside: 'That is off the map.',
+  unowned: 'You do not own that land. Buy it first.', zone: 'Wrong zone: homes go in a residential zone, shops and offices in a commercial zone, plants and grown workshops in an industrial zone; fields and farm buildings stay out of residential.', water: 'That is the river or a water line. Upgrade the line until it is buried to build over it.', forest: 'That spot is forest. Clear it first.', occupied: 'Something already stands there.', road: 'You cannot build on the road.', outside: 'That is off the map.',
 };
 /** First free cleared spot, searched outward from the farmhouse. */
 /** Where homes cluster: the middle of the placed homes, if any. */

@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { act, go, setCrimeMap, startPipes, useGame } from '../../stores/game';
+import { act, go, setCrimeMap, startPipes, startZoning, useGame } from '../../stores/game';
+import { worldOf } from '../../simulation/world';
 import { population } from '../../simulation/community-state';
 import { cityOf, POLICE_CHARTERS, shopReach, type PoliceCharter } from '../../simulation/city-state';
 import { caseCost, cityTrainingCost, GST_RATES, policeReformCost } from '../../simulation/stages/city';
@@ -45,7 +46,9 @@ export default function CityPage() {
   const idle = stations.find((b) => b.active && b.staffed < serviceJobs(s, 'police') * b.count), paused = stations.find((b) => !b.active);
   const price = servicePrice(s, 'police'), build = (service: ServiceType) => act({ type: 'buildService', service, district: 'farmgate' }), place = () => build('police');
   const trade = v.trade, shops = t.services.filter((b) => SHOP_TYPES.includes(b.type as never)), gap = trade?.gaps[0];
-  const shopNext = !shops.length ? <NextStep icon="🏪" title="Open your first shop" text="Families have savings and nowhere to spend them. A shop sells your goods to the homes within its reach, and the GST comes to the farm." />
+  const zoned = Object.values(worldOf(s, 'heartland').zones).includes('com');
+  const shopNext = !zoned ? <NextStep icon="🏘" title="Zone commercial land for shops" text="Shops and offices stand on commercial land. Mark some of your cleared land near the homes." action={<button className="btn primary" onClick={() => startZoning('heartland', 'com')}>🏪 Zone land</button>} />
+    : !shops.length ? <NextStep icon="🏪" title="Open your first shop" text="Families have savings and nowhere to spend them. A shop sells your goods to the homes within its reach, and the GST comes to the farm." />
     : shops.some((b) => b.active && b.staffed < SERVICE_DEFS[b.type].jobs * b.count) ? <NextStep icon="👥" tone="bad" title="Shops are short of staff" text="Shopkeepers come from your own families. Build homes so more adults move in." action={<button className="btn primary" onClick={() => go('community')}>Build homes</button>} />
     : gap && trade!.imports > trade!.ours * 0.25 ? <NextStep icon="🚚" title={`Families import ${GOODS[gap.good].name.toLowerCase()}: ${money(gap.value)} a day leaves the city`} text="The shops buy your stock first. Make or store more of it and that money comes to you instead." action={<button className="btn ghost" onClick={() => go('production')}>Production</button>} />
     : trade && trade.spend > 0 ? <NextStep icon="✓" tone="good" title={`Shops sold ${money(trade.spend)} yesterday`} text={`${pct0(trade.spend ? trade.ours / trade.spend : 0)} of it was your own goods. More kinds of shop and more homes in reach grow it.`} />

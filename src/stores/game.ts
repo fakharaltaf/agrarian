@@ -5,7 +5,7 @@ import { CONFIG } from '../simulation/config';
 import { advance, createGame } from '../simulation/engine';
 import { dispatchEdit, undoEdit, undoable, type Edit } from '../simulation/undo';
 import { BUILDINGS, type RegionId } from '../simulation/config';
-import { FOOTPRINT, SERVICE_FOOTPRINT, findSpot, homesCentre, homeFootprint, plotSide, worldOf, chunkAt, roadRoute, pipeRoute, rotOf, buildingUse, type NetKind } from '../simulation/world';
+import { FOOTPRINT, SERVICE_FOOTPRINT, findSpot, homesCentre, homeFootprint, plotSide, worldOf, chunkAt, roadRoute, pipeRoute, rotOf, buildingUse, COMMERCIAL, type NetKind } from '../simulation/world';
 import { SERVICE_DEFS } from '../simulation/town-state';
 import { parseSave, SAVE_VERSION, type SaveFile } from '../simulation/persistence';
 export { parseSave, SAVE_VERSION } from '../simulation/persistence';
@@ -40,11 +40,11 @@ interface Store {
 /** Road mode: draw from the last tapped tile, or upgrade/remove the stretch tapped. */
 export type Roading = { tool: 'draw' | 'upgrade' | 'remove'; region: RegionId; from?: [number, number]; hover?: [number, number]; /** the same tool lays line networks (irrigation, power, water, sewer): draw, upgrade, remove */ pipe?: NetKind };
 /** Zone mode: tap patches of your land to make them residential, industrial or farmland again. */
-export type Zoning = { region: RegionId; zone: 'res' | 'ind' | 'farm'; hover?: [number, number] };
+export type Zoning = { region: RegionId; zone: 'res' | 'ind' | 'com' | 'farm'; hover?: [number, number] };
 /** What a placement is, for zoning checks in the preview. */
 /** The oil tool: drilling, or (survey) picking the area a survey reads. */
 export type Prospect = { region: RegionId; hover?: [number, number]; survey?: boolean };
-export const placementUse = (p: Pick<Placement, 'action' | 'key' | 'kind'>) => p.kind === 'move' ? undefined : p.action.type === 'buildHomes' ? 'home' as const : p.action.type === 'buyPlot' || p.action.type === 'buyParcel' ? 'field' as const : p.action.type === 'build' ? buildingUse(store.game, p.action.building) : undefined;
+export const placementUse = (p: Pick<Placement, 'action' | 'key' | 'kind'>) => p.kind === 'move' ? undefined : p.action.type === 'buildHomes' ? 'home' as const : p.action.type === 'buyPlot' || p.action.type === 'buyParcel' ? 'field' as const : p.action.type === 'build' ? buildingUse(store.game, p.action.building) : p.action.type === 'buildService' && COMMERCIAL.test(p.action.service) ? 'shop' as const : undefined;
 export type Placement = { kind: 'new' | 'move'; action: Action; region: RegionId; w: number; d: number; label: string; key?: string; at: [number, number]; /** quarter turns; w and d are already turned */ rot?: number; /** placing one of several: how many are left, of how many */ left?: number; total?: number };
 
 let store: Store = { game: createGame(), v: 0, speed: 1, toasts: [], away: null, catchUp: null, page: 'farm', ready: false, placing: null, roading: null, hideBuildings: false, crimeMap: false, prospect: null, zoning: null };
@@ -287,7 +287,7 @@ export const setNet = (net: NetKind) => store.roading && set({ roading: { ...sto
 /** Oil mode: see the survey, pick a 2×2 spot, drill. */
 export const startProspect = (region: RegionId) => set({ prospect: { region }, placing: null, roading: null, page: 'farm' });
 export const stopProspect = () => set({ prospect: null });
-export const startZoning = (region: RegionId) => set({ zoning: { region, zone: 'res' }, placing: null, roading: null, prospect: null, page: 'farm' });
+export const startZoning = (region: RegionId, zone: Zoning['zone'] = 'res') => set({ zoning: { region, zone }, placing: null, roading: null, prospect: null, page: 'farm' });
 export const stopZoning = () => set({ zoning: null });
 export const setZoneTool = (zone: Zoning['zone']) => store.zoning && set({ zoning: { ...store.zoning, zone } });
 export const zoneHover = (at: [number, number] | null) => { const Z = store.zoning; if (Z && at && (Z.hover?.[0] !== at[0] || Z.hover?.[1] !== at[1])) set({ zoning: { ...Z, hover: at } }); };

@@ -121,3 +121,16 @@ it('City shops: families in reach spend savings on your goods first and imports 
   c.householdCash = 1e6; cityTrade(s); expect(v.trade!.gst).toBe(0);
   v.homes = [{ id: 1, families: 100, power: 1, watch: 0 }]; cityTrade(s); expect(v.trade!.spend).toBe(0);
 });
+
+it('Shops stand only on commercial land, and commercial land takes nothing else', async () => {
+  const W = await import('../simulation/world');
+  const s = ready(); dispatch(s, { type: 'startCity', charter: 'watch' });
+  const w = W.worldOf(s, 'heartland'), spot = W.findSpot(s, 'heartland', W.SERVICE_FOOTPRINT)!;
+  expect(dispatch(s, { type: 'buildService', service: 'shopBaker', district: 'farmgate', at: spot }).ok).toBe(false); // farmland: no
+  const chunks = [...new Set([0, 1, 2].flatMap((dx) => [0, 1, 2].map((dy) => W.chunkAt(spot[0] + dx, spot[1] + dy))))];
+  expect(dispatch(s, { type: 'zoneLand', region: 'heartland', chunks, zone: 'com' }).ok).toBe(true);
+  expect(dispatch(s, { type: 'build', region: 'heartland', building: 'barn', at: spot }).ok).toBe(false); // no barns on commercial land
+  expect(dispatch(s, { type: 'buildService', service: 'shopBaker', district: 'farmgate', at: spot }).ok).toBe(true);
+  expect(dispatch(s, { type: 'zoneLand', region: 'heartland', chunks, zone: 'farm' }).ok).toBe(false); // the shop is in the way
+  expect(w.zones[chunks[0]]).toBe('com');
+});
