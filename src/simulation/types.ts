@@ -484,7 +484,7 @@ export type Action =
   | { type: 'upgradeRoad'; region: RegionId; at: [number, number]; to?: [number, number] }
   | { type: 'buildPipe'; region: RegionId; from: [number, number]; to: [number, number]; net?: import('./world').NetKind }
   | { type: 'upgradePipe'; region: RegionId; at: [number, number]; net?: import('./world').NetKind }
-  | { type: 'upgradeAllLines'; region: RegionId; nets: import('./world').NetKind[] }
+  | { type: 'upgradeAllLines'; region: RegionId; nets: import('./world').LineKind[] }
   | { type: 'removePipe'; region: RegionId; at: [number, number]; net?: import('./world').NetKind }
   | { type: 'upgradeService'; serviceId: number }
   | { type: 'openFutures'; good: GoodId; contracts: number; days: number }

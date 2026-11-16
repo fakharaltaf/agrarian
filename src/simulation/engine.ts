@@ -12,7 +12,7 @@ import {
 } from './config';
 import { buildingDivision, clamp, debt, factoryCrop, equity, freeSpace, has, known, log, marketWage, nextId, post, random, round2, todayBook, lean } from './core';
 import { addGoods, canGrow, clearField, fertilizeField, fieldsTick, frostNight, harvestField, isManual, isReady, newField, plantField, spoilageDaily } from './agriculture';
-import { reconcileWorld, unlink, accessNote, cutsOff, buyable, chunksIn, connect, placedIn, touch, useOf, buildingUse, INDUSTRY_TO_GROW, WATER_LEVEL, NET_PRICE, NET_TIERS, NET_TOP, linesOf, upgradeAllPlan, pipeRoute, pipeStretch, hasWater, isRoad, MAP, ROAD_GRADES, ROAD_H, roadRoute, roadPick, roadTilePrice, tileId, canPlaceNew, LAND_HA_PER_PATCH,  own, ownedSet, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, clearCost, clearedSet, FOOTPRINT, footprintOf, forget, rotOf, turned, MOVE_DOWNTIME, placeNew, placeProblem, plotSide, PROBLEM_TEXT, seedWorld, TIMBER_PER_PATCH, worldOf } from './world';
+import { reconcileWorld, unlink, accessNote, cutsOff, buyable, chunksIn, connect, placedIn, touch, useOf, buildingUse, INDUSTRY_TO_GROW, WATER_LEVEL, NET_PRICE, NET_TIERS, NET_TOP, linesOf, lineTiles, lineTop, upgradeAllPlan, pipeRoute, pipeStretch, hasWater, isRoad, MAP, ROAD_GRADES, ROAD_H, roadRoute, roadPick, roadTilePrice, tileId, canPlaceNew, LAND_HA_PER_PATCH,  own, ownedSet, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, clearCost, clearedSet, FOOTPRINT, footprintOf, forget, rotOf, turned, MOVE_DOWNTIME, placeNew, placeProblem, plotSide, PROBLEM_TEXT, seedWorld, TIMBER_PER_PATCH, worldOf } from './world';
 import { buyAnimals, livestockDaily, sellAnimals } from './livestock';
 import { claimDaily, startDay } from './daily';
 import { createMarkets, drawWeather, executeBuy, executeSell, quoteBuy, macroDaily, marketsDaily, marketsTick, priceFromInv } from './markets';
@@ -596,11 +596,11 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       return ok(`${todo.length} tiles are now ${tier === 3 ? 'buried pipe: the land is free to build on' : 'pipe'}, and fields fed only through it are kept at ${Math.round(WATER_LEVEL[tier] * 100)}% moisture.`);
     }
     case 'upgradeAllLines': {
-      const w = worldOf(s, a.region), nets = a.nets.filter((n) => n in NET_TOP), { cost, tiles } = upgradeAllPlan(s, w, nets);
-      if (!tiles) return fail('Every line is already at its best.');
+      const w = worldOf(s, a.region), nets = a.nets.filter((n) => n === 'road' || n in NET_TOP), { cost, tiles } = upgradeAllPlan(s, w, nets);
+      if (!tiles) return fail(nets.includes('road') ? 'Every road is already paved.' : 'Every line is already at its best.');
       if (cost > s.cash) return fail(`Upgrading every line costs $${cost.toLocaleString()}.`);
       post(s, nets.includes('irrigation') ? 'irrigation' : 'building', -cost, `Upgraded ${tiles} line tiles`, a.region);
-      for (const net of nets) { const own = linesOf(w, net); for (const id in own) if (own[id] < NET_TOP[net]) own[id]++; }
+      for (const net of nets) { const own = lineTiles(w, net); for (const id in own) if (own[id] < lineTop(net)) own[id]++; }
       touch(w);
       return ok(`${tiles} tiles upgraded one step.`);
     }

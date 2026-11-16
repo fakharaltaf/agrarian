@@ -32,3 +32,11 @@ it('Upgrade all raises every utility line one step for one price, and undo puts 
   expect(cash - s.cash).toBeCloseTo(Math.round((60 + 25) * s.macro.cpi), 2);
   undoEdit(s, edit!); expect(w.nets.power).toEqual({ 1: 1, 2: 2 }); expect(w.nets.sewer).toEqual({ 3: 1 }); expect(s.cash).toBeCloseTo(cash, 2);
 });
+
+it('Upgrade all raises every farm road one grade (not the main road), and undo puts them back', () => {
+  const s = createGame(1012); post(s, 'prize', 1e6, 'fixture');
+  const w = worldOf(s, 'heartland'); w.roads = { 1: 1, 2: 3 }; const main = w.main, cash = s.cash;
+  const { edit } = dispatchEdit(s, { type: 'upgradeAllLines', region: 'heartland', nets: ['road'] });
+  expect(w.roads).toEqual({ 1: 2, 2: 3 }); expect(w.main).toBe(main); expect(cash - s.cash).toBeCloseTo(Math.round(40 * s.macro.cpi * 100) / 100, 1);
+  undoEdit(s, edit!); expect(w.roads).toEqual({ 1: 1, 2: 3 }); expect(s.cash).toBeCloseTo(cash, 2);
+});

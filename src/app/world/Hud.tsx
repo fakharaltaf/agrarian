@@ -12,7 +12,7 @@ import { buildingMargin } from '../../simulation/processing';
 import { DISCOVERIES, ERA_UNLOCK_TEXT, dailyGoals, dailyPrize, forecast, herdOf, homePlotPrice, housing, isManual, isReady, objective, chapterGate, gateProgress, type GateRow, PAGES, seedShortfall, upgradeCost } from '../../simulation/engine';
 import type { CivicService, GameState } from '../../simulation/types';
 import { act, cancelPlacement, confirmPlacement, rotatePlacement, go, placementUse, setRoadTool, toggleHideBuildings, setNet, undo, redo, canUndo, canRedo, setSurveying, setZoneTool, startPipes, type Prospect, startPlacement, stopProspect, stopRoads, stopZoning, type Zoning, useGame, usePageState, useStore, type Placement, type Roading } from '../../stores/game';
-import { WATER_LEVEL, WATER_PRICE, WATER_TIERS, wetTiers, NET_PRICE, NET_TIERS, NET_TOP, NET_QUALITY, linesOf, upgradeAllPlan, type NetKind, type UtilityNet, pipeRoute, pipeStretch, cutsOff, footprintOf, forSaleAround, isRoad, MAP, ROAD_GRADES, ROAD_H, roadRoute, roadPick, roadTilePrice, worldOf, patchesAround, placeProblem, plotSide, PROBLEM_TEXT } from '../../simulation/world';
+import { WATER_LEVEL, WATER_PRICE, WATER_TIERS, wetTiers, NET_PRICE, NET_TIERS, NET_TOP, NET_QUALITY, linesOf, upgradeAllPlan, type LineKind, type UtilityNet, pipeRoute, pipeStretch, cutsOff, footprintOf, forSaleAround, isRoad, MAP, ROAD_GRADES, ROAD_H, roadRoute, roadPick, roadTilePrice, worldOf, patchesAround, placeProblem, plotSide, PROBLEM_TEXT } from '../../simulation/world';
 import { buildingPrice, moveFee, parcelPrice } from '../../simulation/engine';
 import { homePrice } from '../../simulation/community-state';
 import { servicePrice } from '../../simulation/town-state';
@@ -385,12 +385,12 @@ function RoadBar({ s, r }: { s: GameState; r: Roading }) {
     else if (r.tool === 'upgrade') { const g = Math.min(3, Math.min(...st.map((id) => w.roads[id])) + 1), n = st.filter((id) => w.roads[id] < g).length; hint = n ? `${n} tiles → ${ROAD_GRADES[g].toLowerCase()} · ${money(roadTilePrice(s, g) * n)}` : 'Already paved'; }
     else { const lost = cutsOff(s, r.region, st); hint = `Remove ${st.length} tiles${lost.length ? ` · cuts off ${lost.length} building${lost.length === 1 ? '' : 's'}` : ''}`; }
   }
-  return <LineDock label="Roads" head={<b className="dock-title">🛤 Roads</b>} hint={hint} tool={r.tool} draw="Draw" />;
+  return <LineDock label="Roads" head={<b className="dock-title">🛤 Roads</b>} hint={hint} tool={r.tool} draw="Draw" all={{ region: r.region, nets: ['road'] }} />;
 }
 
 /** The dock for roads and lines: what you're working on (with Hide and Done), what the next tap does, then the tools at thumb height. */
 const UndoIcon = ({ redo }: { redo?: boolean }) => <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden style={redo ? { transform: 'scaleX(-1)' } : undefined}><path d="M9 14 4 9l5-5" /><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" /></svg>;
-function LineDock({ label, head, hint, tool, draw, all }: { label: string; head: React.ReactNode; hint: string; tool: Roading['tool']; draw: string; all?: { region: RegionId; nets: NetKind[] } }) {
+function LineDock({ label, head, hint, tool, draw, all }: { label: string; head: React.ReactNode; hint: string; tool: Roading['tool']; draw: string; all?: { region: RegionId; nets: LineKind[] } }) {
   const s = useGame(), plan = all && tool === 'upgrade' ? upgradeAllPlan(s, worldOf(s, all.region), all.nets) : null;
   const hidden = useStore((x) => x.hideBuildings), bad = /^(Can't|Dry)/.test(hint);
   const tools = [['draw', '✏', draw], ['upgrade', '⬆', 'Upgrade'], ['remove', '✕', 'Remove']] as const;
@@ -402,7 +402,7 @@ function LineDock({ label, head, hint, tool, draw, all }: { label: string; head:
     </div>
     <div className={`dock-hint${bad ? ' bad' : ''}`}>
       <p aria-live="polite">{hint}</p>
-      {plan && plan.tiles > 0 && <button className="dock-all" disabled={plan.cost > s.cash} title={`Raise all ${plan.tiles} tiles one step`} onClick={() => act({ type: 'upgradeAllLines', ...all! })}>⬆ All · {money(plan.cost)}</button>}
+      {plan && plan.tiles > 0 && <button className="dock-all" disabled={plan.cost > s.cash} title={`Raise all ${plan.tiles} tiles one step${all!.nets.includes('road') ? ' (the main road is upgraded on its own)' : ''}`} onClick={() => act({ type: 'upgradeAllLines', ...all! })}>⬆ All · {money(plan.cost)}</button>}
       <button className="dock-undo" aria-label="Undo" title="Undo (Ctrl/⌘ Z)" disabled={!canUndo()} onClick={() => undo()}><UndoIcon /></button>
       <button className="dock-undo" aria-label="Redo" title="Redo (Ctrl/⌘ Shift Z)" disabled={!canRedo()} onClick={() => redo()}><UndoIcon redo /></button>
     </div>
