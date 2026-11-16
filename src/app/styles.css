@@ -425,11 +425,12 @@ body { overflow: hidden; }
 
 /* ---------- brand ---------- */
 .wordmark { display: inline-block; vertical-align: middle; flex: none; }
-/* Logo faces follow the theme; values mirror TONES in logoArt.ts (dark lifts the reds off the dark ground). */
+/* The logo's ink follows the theme; values mirror INK in logoArt.ts. */
+:root { --logo-ink: #3a2e25; }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) { --logo-base: #ad4638; --logo-roofL: #b8493a; --logo-roofR: #9a3a2e; --logo-wallL: #cf5b46; --logo-wallR: #ad4638; --logo-ink: #f4ebdc; }
+  :root:not([data-theme='light']) { --logo-ink: #f4ebdc; }
 }
-:root[data-theme='dark'] { --logo-base: #ad4638; --logo-roofL: #b8493a; --logo-roofR: #9a3a2e; --logo-wallL: #cf5b46; --logo-wallR: #ad4638; --logo-ink: #f4ebdc; }
+:root[data-theme='dark'] { --logo-ink: #f4ebdc; }
 .side .brand { padding: 4px 0 10px; }
 .title-screen { position: fixed; inset: 0; z-index: 150; display: grid; place-items: center; padding: 16px;
   background: radial-gradient(ellipse at 50% 35%, color-mix(in srgb, var(--sun) 28%, transparent), transparent 60%), color-mix(in srgb, var(--bg) 62%, transparent);
