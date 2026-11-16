@@ -66,7 +66,7 @@ function gable(w: number, d: number, h: number, color: number, x: number, y: num
 }
 
 /** A house-like volume: stone footing, walls with corner trim, gable roof with ridge cap, framed windows and door on the front (+z). */
-function shed(g: THREE.Group, w: number, d: number, wallH: number, wall: number, roof: number, x: number, z: number, opts: { door?: 'barn' | 'house' | 'roller'; windows?: number; roofH?: number } = {}) {
+function shed(g: THREE.Group, w: number, d: number, wallH: number, wall: number, roof: number, x: number, z: number, opts: { door?: 'barn' | 'house' | 'roller'; windows?: number; roofH?: number; doorH?: number } = {}) {
   const trim = wall === PAL.white || wall === PAL.cream ? PAL.woodDark : PAL.white;
   g.add(box(w + 0.06, 0.12, d + 0.06, PAL.stoneDark, x + w / 2, 0, z + d / 2, { rough: 1 })); // footing
   g.add(box(w, wallH - 0.1, d, wall, x + w / 2, 0.1, z + d / 2));
@@ -87,8 +87,9 @@ function shed(g: THREE.Group, w: number, d: number, wallH: number, wall: number,
       for (let k = 1; k < 5; k++) g.add(box(w * 0.3, 0.015, 0.05, PAL.metal, x + w * fx, 0.1 + (wallH * 0.7 * k) / 5, front)); // roller slats
     }
   } else {
-    g.add(box(0.36, wallH * 0.55 + 0.05, 0.03, trim, x + w / 2, 0.1, front));
-    g.add(box(0.28, wallH * 0.55, 0.04, PAL.door, x + w / 2, 0.1, front));
+    const dh = opts.doorH ?? wallH * 0.55; // a door stays door-sized on a tall building
+    g.add(box(0.36, dh + 0.05, 0.03, trim, x + w / 2, 0.1, front));
+    g.add(box(0.28, dh, 0.04, PAL.door, x + w / 2, 0.1, front));
     g.add(box(0.42, 0.06, 0.18, PAL.stone, x + w / 2, 0, front + 0.08)); // doorstep
   }
   const n = opts.windows ?? Math.max(1, Math.floor(w) - 1);
@@ -104,6 +105,17 @@ function shed(g: THREE.Group, w: number, d: number, wallH: number, wall: number,
     framed(wx, front, false);
   }
   framed(x + w + 0.01, z + d / 2, true); // side window
+}
+
+/** Rows of windows on a storeyed front (one row per floor), leaving room for the door on the ground floor. */
+function windowRows(g: THREE.Group, x0: number, x1: number, front: number, floors: number, perRow: number, floorH: number, y0 = 0.35) {
+  const door = (x0 + x1) / 2;
+  for (let f = 0; f < floors; f++) for (let i = 0; i < perRow; i++) {
+    const x = x0 + ((i + 0.5) / perRow) * (x1 - x0);
+    if (f === 0 && Math.abs(x - door) < 0.3) continue;
+    const win = box(0.24, 0.26, 0.03, PAL.window, x, y0 + f * floorH, front + 0.01); win.userData.window = true; g.add(win);
+    g.add(box(0.3, 0.03, 0.06, PAL.white, x, y0 + f * floorH - 0.03, front + 0.03)); // sill
+  }
 }
 
 function chimney(g: THREE.Group, x: number, z: number, y: number, h = 0.7) {
@@ -830,11 +842,15 @@ export function buildCivic(type: string, w: number, d: number, level = 1): Model
     group.add(gable(w-.4,d-.4,.7,PAL.barnRed,w/2,3.5,d/2));
     const fire=sphere(.14,0xffb055,w/2,3.35,d/2,{emissive:0x804010});windows.push(fire);group.add(fire);
   } else if(type==='waterTower'){
-    const legs=[2.4,2.9,3.4][level-1]??2.4,r=[.85,1,1.15][level-1]??.85; // a taller tower with a bigger tank each level
-    for(const [x,z] of [[w/2-.6,d/2-.6],[w/2+.6,d/2-.6],[w/2-.6,d/2+.6],[w/2+.6,d/2+.6]])group.add(box(.1,legs,.1,PAL.metalDark,x,.1,z));
-    group.add(cyl(r,.9+level*.15,0x7fa7c4,w/2,legs+.1,d/2,16),cone(r+.05,.4,PAL.roofGrey,w/2,legs+1+level*.15,d/2,16));
-    group.add(box(.06,legs,.06,PAL.metal,w/2,.1,d/2)); // feed pipe
-    if(level===3)shed(group,.8,.6,.6,PAL.creamDark,PAL.roofBlue,.2,d-.8,{door:'house',windows:0,roofH:.25}); // pump house
+    // each level stands taller with a bigger tank; the legs always meet the tank's rim, tied by braces, with a ladder up the front
+    const legs=[2.3,2.8,3.3][level-1]??2.3,r=[.8,.9,1][level-1]??.8,th=[.9,1.05,1.2][level-1]??.9,k=r*.72,cx=w/2,cz=d/2;
+    for(const [dx,dz] of [[-1,-1],[1,-1],[-1,1],[1,1]])group.add(box(.12,legs,.12,PAL.metalDark,cx+dx*k,.1,cz+dz*k));
+    for(let y=.8;y<legs-.3;y+=.9){group.add(box(k*2,.05,.05,PAL.metalDark,cx,y,cz-k),box(k*2,.05,.05,PAL.metalDark,cx,y,cz+k),box(.05,.05,k*2,PAL.metalDark,cx-k,y,cz),box(.05,.05,k*2,PAL.metalDark,cx+k,y,cz));}
+    group.add(cyl(r+.08,.06,PAL.metalDark,cx,legs+.06,cz,16)); // the catwalk round the tank
+    group.add(cyl(r,th,0x7fa7c4,cx,legs+.12,cz,16),cone(r+.06,.4,PAL.roofGrey,cx,legs+.12+th,cz,16));
+    group.add(box(.06,legs,.06,PAL.metal,cx,.1,cz)); // feed pipe
+    group.add(box(.22,legs,.03,PAL.metal,cx+k,.1,cz+k+.08)); // ladder
+    if(level===3)shed(group,.7,.55,.6,PAL.creamDark,PAL.roofBlue,.1,d-.7,{door:'house',windows:0,roofH:.25}); // pump house in the corner
   } else if(type==='road') {
     group.add(box(w-.1,.05,d-.1,PAL.roofGrey,w/2,.09,d/2));
     for(let i=0;i<Math.min(18,Math.ceil(d/2));i++)group.add(box(.06,.02,.4,PAL.white,w/2,.15,.4+i*2));
@@ -855,19 +871,19 @@ export function buildCivic(type: string, w: number, d: number, level = 1): Model
     group.add(box(1,.12,.35,PAL.wood,w/2,.35,d-.5));
   } else {
     if(type==='school'){ // a one-room schoolhouse with a bell cupola, a flagpole and a playground; then two storeys, then a sports hall
-      const wh=level>1?2.1:1.3;
-      shed(group,w-.6,1.5,wh,0xc96f4f,PAL.roofGreen,.3,.3,{door:'house',windows:3,roofH:.6});
-      if(level>1)for(const x of [.75,w/2,w-.75]){const win=box(.26,.24,.03,PAL.window,x,1.5,1.81);win.userData.window=true;group.add(win);} // upper-floor classrooms
-      group.add(box(.34,.3,.34,PAL.white,w/2,wh+.45,1.05),cone(.3,.35,PAL.roofGreen,w/2,wh+.75,1.05,4),cyl(.07,.1,0xc9a44a,w/2,wh+.5,1.05,8));
-      if(level===3){shed(group,1.0,.75,.9,0xd8cfbd,PAL.roofGrey,w-1.15,d-.95,{door:'roller',windows:0,roofH:.25});}
+      const wh=level>1?2.0:1.3,mw=level===3?1.65:w-.6,mx=.3+mw/2; // level 3 makes room for a sports hall wing on the right
+      shed(group,mw,1.5,wh,0xc96f4f,PAL.roofGreen,.3,.3,{door:'house',windows:level>1?0:3,roofH:.6,doorH:.7});
+      if(level>1)windowRows(group,.3,.3+mw,1.8,2,3,.8,.45);
+      group.add(box(.34,.3,.34,PAL.white,mx,wh+.45,1.05),cone(.3,.35,PAL.roofGreen,mx,wh+.75,1.05,4),cyl(.07,.1,0xc9a44a,mx,wh+.5,1.05,8));
+      if(level===3){shed(group,.8,1.4,1.25,0xd8cfbd,PAL.roofGrey,2.05,.35,{door:'roller',windows:0,roofH:.3});const strip=box(.6,.18,.03,PAL.window,2.45,.95,1.76);strip.userData.window=true;group.add(strip);}
       group.add(box(.04,1.9,.04,PAL.metal,.3,0,d-.4),box(.35,.22,.02,0x3a6fb0,.48,1.62,d-.4));
       if(level<3){group.add(box(1,.04,.6,0xe0c98f,w-.8,.06,d-.55)); // sandpit
       for(const x of [w-1.25,w-.35])group.add(box(.05,.75,.05,PAL.metalDark,x,0,d-.25));
       group.add(box(.95,.05,.05,PAL.metalDark,w-.8,.75,d-.25),box(.22,.03,.1,PAL.barnRed,w-.8,.3,d-.25));}
     } else if(type==='clinic'||type==='hospital'){ // white clinic with a red-cross sign, a covered entrance and a bench
-      const wh=[1.2,1.9,2.6][level-1]??1.2; // a clinic, a two-storey health centre, then a small hospital with an ambulance
-      shed(group,w-.6,1.6,wh,PAL.white,0x5f8fa8,.3,.25,{door:'house',windows:4,roofH:.4});
-      for(let f=1;f<level;f++)for(let i=0;i<4;i++){const win=box(.24,.22,.03,PAL.window,.6+i*(w-1.2)/3,.6+f*.7,1.86);win.userData.window=true;group.add(win);}
+      const wh=[1.2,1.95,2.7][level-1]??1.2; // a clinic, a two-storey health centre, then a three-storey hospital with an ambulance
+      shed(group,w-.6,1.6,wh,PAL.white,0x5f8fa8,.3,.25,{door:'house',windows:level>1?0:4,roofH:.4,doorH:.66});
+      if(level>1)windowRows(group,.3,w-.3,1.85,level,4,.75,.45);
       if(level===3)group.add(box(.6,.38,.32,PAL.white,w-.55,0,d-.3),box(.62,.06,.34,PAL.barnRed,w-.55,.2,d-.3));
       group.add(box(.8,.05,.5,PAL.roofGrey,w/2,1.0,1.95),box(.05,1,.05,PAL.metalDark,w/2-.35,0,2.15),box(.05,1,.05,PAL.metalDark,w/2+.35,0,2.15));
       group.add(box(.05,1.1,.05,PAL.metalDark,.45,0,d-.35),box(.55,.55,.04,PAL.white,.45,1.1,d-.35));
