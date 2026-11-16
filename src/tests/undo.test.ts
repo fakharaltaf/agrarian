@@ -23,3 +23,12 @@ it('Undo takes back a road, a building and a demolition with a full refund, and 
   for (let i = 0; i < 24; i++) step(s);
   expect(undoable(s, gone.edit!)).toBe(false);
 });
+
+it('Upgrade all raises every utility line one step for one price, and undo puts them back', () => {
+  const s = createGame(1011); post(s, 'prize', 1e6, 'fixture');
+  const w = worldOf(s, 'heartland'); w.nets = { power: { 1: 1, 2: 2 }, sewer: { 3: 1 } };
+  const cash = s.cash, { edit } = dispatchEdit(s, { type: 'upgradeAllLines', region: 'heartland', nets: ['power', 'water', 'sewer'] });
+  expect(w.nets).toEqual({ power: { 1: 2, 2: 2 }, water: {}, sewer: { 3: 2 } });
+  expect(cash - s.cash).toBeCloseTo(Math.round((60 + 25) * s.macro.cpi), 2);
+  undoEdit(s, edit!); expect(w.nets.power).toEqual({ 1: 1, 2: 2 }); expect(w.nets.sewer).toEqual({ 3: 1 }); expect(s.cash).toBeCloseTo(cash, 2);
+});

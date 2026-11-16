@@ -834,7 +834,7 @@ body:has(.modal-bg) .shell .coach { display: none !important; }
 .dock-hide { font: 700 13px var(--font); color: var(--muted); background: none; border: 1px solid var(--line); border-radius: 999px; padding: 0 12px; min-height: 36px; white-space: nowrap; cursor: pointer; }
 .dock-hide.on { background: var(--sun); color: #2a2216; border-color: var(--sun); }
 .placement-bar.line-dock .dock-done { flex: none; min-height: 36px; padding: 0 14px; }
-.dock-hint { margin: 0; padding: 8px 10px; border-radius: 10px; font-size: 14px; line-height: 1.35; color: var(--text); background: color-mix(in srgb, var(--gold) 12%, var(--surface)); border-left: 3px solid var(--gold); }
+.dock-hint { display: flex; align-items: center; gap: 6px; margin: 0; padding: 4px 4px 4px 10px; min-height: 44px; border-radius: 10px; font-size: 14px; line-height: 1.35; color: var(--text); background: color-mix(in srgb, var(--gold) 12%, var(--surface)); border-left: 3px solid var(--gold); }
 .dock-hint.bad { background: color-mix(in srgb, var(--down) 14%, var(--surface)); border-left-color: var(--down); }
 .dock-tools { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 .dock-tools button { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 46px; font: 800 15px var(--font); color: var(--text); background: color-mix(in srgb, var(--text) 6%, var(--surface)); border: 1px solid var(--line); border-radius: 12px; cursor: pointer; }
@@ -896,5 +896,8 @@ body:has(.modal-bg) .shell .coach { display: none !important; }
 /* a camera flash when the farm photo is taken: gone in half a second, whatever happens */
 .snapping .world::after { content: ''; position: absolute; inset: 0; background: #fff; z-index: 20; pointer-events: none; animation: flash .5s ease-out forwards; }
 @keyframes flash { from { opacity: .85; } to { opacity: 0; } }
-.dock-undo { font: 700 18px var(--font); color: var(--ink); background: none; border: 1px solid var(--line); border-radius: 999px; width: 36px; min-height: 36px; padding: 0; cursor: pointer; flex: none; }
+.dock-hint p { margin: 0; flex: 1; min-width: 0; }
+.dock-undo { display: grid; place-items: center; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; width: 36px; height: 36px; padding: 0; cursor: pointer; flex: none; }
 .dock-undo:disabled { opacity: .35; cursor: default; }
+.dock-all { font: 700 13px var(--font); color: #fff; background: var(--accent); border: none; border-radius: 8px; height: 36px; padding: 0 10px; white-space: nowrap; cursor: pointer; flex: none; }
+.dock-all:disabled { opacity: .45; cursor: default; }

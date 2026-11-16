@@ -558,6 +558,12 @@ export const NET_TIERS: Record<NetKind, readonly string[]> = { irrigation: WATER
 export const NET_PRICE: Record<NetKind, number[]> = { irrigation: WATER_PRICE, power: [0, 20, 60], water: [0, 15, 45], sewer: [0, 8, 25, 60] };
 /** How well a home on a utility line is served, by the weakest tier on its way to the building. */
 export const NET_QUALITY: Record<UtilityNet, number[]> = { power: [0, 0.8, 1], water: [0, 0.8, 1], sewer: [0, 0.6, 0.8, 1] };
+/** Every tile of these lines one tier up, and what that costs. */
+export function upgradeAllPlan(s: GameState, w: RegionWorld, nets: NetKind[]) {
+  let cost = 0, tiles = 0;
+  for (const net of nets) for (const t of Object.values(linesOf(w, net))) if (t < NET_TOP[net]) { cost += NET_PRICE[net][t + 1] * s.macro.cpi; tiles++; }
+  return { cost: Math.round(cost), tiles };
+}
 export const linesOf = (w: RegionWorld, kind: NetKind): Record<number, number> => (kind === 'irrigation' ? w.canals : ((w.nets ??= {})[kind] ??= {}));
 /** Does a line on this tile take the ground (every tier below underground does)? */
 export const waterBlocks = (w: RegionWorld, id: number) => (w.canals[id] ?? 3) < 3 || UTILITY_NETS.some((k) => { const t = w.nets?.[k]?.[id]; return !!t && t < NET_TOP[k]; });
