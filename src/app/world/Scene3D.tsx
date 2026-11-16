@@ -343,18 +343,21 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
       live.current.onAction?.(kind as WorldAction, Number(id));
     };
     ov.addEventListener('click', onBubble);
-    // a photo of the whole farm: frame every patch you own, wait a few frames for the scenery to fill in, then capture
+    // a photo of the farm: frame what you have built and planted (not every patch of land), in daylight; wait a few frames for the scenery, then capture
     const snapshot = () => new Promise<string>((done) => {
-      const R = rig.current, owned = R ? worldOf(getGame(), R.region).owned : [];
-      if (!R || !owned.length) return done('');
-      const xs = owned.map((ch) => MAP.x0 + (ch % CHUNKS_X) * CHUNK), zs = owned.map((ch) => MAP.y0 + Math.floor(ch / CHUNKS_X) * CHUNK);
-      const x0 = Math.min(...xs), x1 = Math.max(...xs) + CHUNK, z0 = Math.min(...zs), z1 = Math.max(...zs) + CHUNK;
+      const R = rig.current, L = R?.layout, all = L ? [...L.lots.map((l) => [l.x, l.y, l.w, l.d]), ...L.plots.map((p) => [p.x, p.y, p.s, p.s])] : [];
+      if (!R || !L || !all.length) return done('');
+      // the heart of the farm: what lies nearest the farmhouse, so one far-off outpost doesn't shrink the whole picture
+      const home = L.lots.find((l) => l.type === 'house') ?? L.lots[0], hx = home ? home.x + home.w / 2 : 0, hz = home ? home.y + home.d / 2 : 0;
+      const far = (b: number[]) => Math.hypot(b[0] + b[2] / 2 - hx, b[1] + b[3] / 2 - hz), byDist = [...all].sort((a, b) => far(a) - far(b));
+      const boxes = byDist.filter((b, i) => i < Math.max(4, Math.ceil(all.length * 0.75)) || far(b) < 24);
+      const x0 = Math.min(...boxes.map((b) => b[0])), x1 = Math.max(...boxes.map((b) => b[0] + b[2])), z0 = Math.min(...boxes.map((b) => b[1])), z1 = Math.max(...boxes.map((b) => b[1] + b[3]));
       const span = ((x1 - x0) + (z1 - z0)) * 0.36, aspect = 16 / 9; // the iso view's diagonal, in screen half-heights
       const shot = { frames: 6, done, back: { x: R.target.x, z: R.target.z, zoom: R.zoom } };
       R.shot = shot;
       setTimeout(() => { if (R.shot !== shot) return; R.shot = undefined; R.target.x = shot.back.x; R.target.z = shot.back.z; R.zoom = shot.back.zoom; done(''); }, 8000); // too slow: give up rather than leave the view stuck
       R.glide = undefined; R.target.x = (x0 + x1) / 2; R.target.z = (z0 + z1) / 2;
-      R.zoom = Math.max(0.06, Math.min(3, 9 / (Math.max(span / aspect, span * 0.62) * 1.12 + 2)));
+      R.zoom = Math.max(0.06, Math.min(3, 9 / (Math.max(span / aspect, span * 0.62) * 1.04 + 1.5)));
     });
     (window as unknown as Record<string, unknown>).__world = { zoom: zoomBy, rotate: (d: number) => rig.current && (rig.current.yawTo += (d * Math.PI) / 2), snapshot, region: () => rig.current?.region ?? 'heartland' };
     return () => {
@@ -1738,7 +1741,7 @@ function animateUnits(R: Rig, L: Layout, s: GameState, t: number) {
 }
 
 function atmosphere(R: Rig, s: GameState, t: number) {
-  const hour = getSpeed() >= 10 ? 13 : (s.tick % 24) + 0.5; // at 10×+ a day flashes past in ~2s, so hold the light at early afternoon
+  const hour = R.shot || getSpeed() >= 10 ? 13 : (s.tick % 24) + 0.5; // at 10×+ a day flashes past in ~2s, so hold the light at early afternoon; a farm photo is always taken by day
   const dayIdx = Math.floor(s.tick / 24);
   const season = SEASONS[Math.floor((((dayIdx % 120) + 120) % 120) / 30)];
   const r = R.region;
