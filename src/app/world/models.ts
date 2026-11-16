@@ -889,6 +889,24 @@ export function buildCivic(type: string, w: number, d: number, level = 1): Model
       group.add(box(.05,1.1,.05,PAL.metalDark,.45,0,d-.35),box(.55,.55,.04,PAL.white,.45,1.1,d-.35));
       group.add(box(.4,.1,.05,PAL.barnRed,.45,1.32,d-.32),box(.1,.4,.05,PAL.barnRed,.45,1.17,d-.32));
       if(level<3)group.add(box(.6,.08,.18,PAL.wood,w-.7,.22,d-.35));
+    } else if(type==='police'){ // a stone watchhouse with a blue lamp; a two-storey station with a patrol car and a flag; then headquarters with a radio tower and a second car
+      const wh=level>1?1.95:1.15,mw=level===3?1.75:w-1.1,mx=.3+mw/2,blue=0x2d5fa8;
+      shed(group,mw,1.5,wh,level>1?0x9aa3ad:0xa39d92,PAL.roofGrey,.3,.3,{door:'house',windows:level>1?0:2,roofH:.4,doorH:.66});
+      if(level>1)windowRows(group,.3,.3+mw,1.8,2,3,.8,.45);
+      group.add(box(1.05,.28,.04,blue,mx,wh-.36,1.82),box(.75,.07,.045,PAL.white,mx,wh-.26,1.83)); // the blue POLICE board over the door
+      const lamp=box(.16,.2,.16,0x3b7be0,mx+.62,1.05,2.0,{emissive:0x1d3f80});lamp.userData.window=true; // the blue lamp, lit at night
+      group.add(box(.05,1.05,.05,PAL.metalDark,mx+.62,0,2.0),lamp,box(.2,.04,.2,PAL.metalDark,mx+.62,1.25,2.0));
+      const car=(x:number,z:number)=>{ // a white patrol car with a blue cabin and a red light bar
+        group.add(box(.48,.2,.92,PAL.white,x,.08,z),box(.42,.16,.46,blue,x,.28,z-.04),box(.24,.05,.08,0xe0533d,x,.44,z-.04));
+        for(const [dx,dz] of [[-.24,-.3],[.24,-.3],[-.24,.3],[.24,.3]])group.add(box(.06,.16,.18,0x2a2a2a,x+dx,0,z+dz));
+      };
+      if(level===1)group.add(box(.42,.5,.06,PAL.wood,w-.45,0,d-.45),box(.36,.3,.03,PAL.cream,w-.45,.45,d-.42)); // a notice board
+      if(level>1){car(w-.5,d-.75);group.add(box(.04,1.9,.04,PAL.metal,.3,0,d-.3),box(.35,.22,.02,blue,.48,1.62,d-.3));}
+      if(level===3){ // a lookout and radio tower beside the station, and a second car
+        group.add(box(.7,2.6,.7,0x9aa3ad,2.5,0,.7),box(.8,.08,.8,PAL.roofGrey,2.5,2.6,.7),cyl(.03,1.2,PAL.metalDark,2.5,2.68,.7,6));
+        const glass=box(.72,.3,.72,PAL.glass,2.5,2.1,.7);glass.userData.window=true;group.add(glass);
+        car(w-1.15,d-.75);
+      }
     } else if(type==='hall'){ // town hall: stone front with columns, a pediment and a clock tower
       group.add(box(w-.6,1.5,1.4,0xd8cfbd,w/2,0,1));
       group.add(gable(w-.5,1.5,.5,PAL.roofGrey,w/2,1.5,1));
@@ -900,7 +918,6 @@ export function buildCivic(type: string, w: number, d: number, level = 1): Model
       group.add(box(.04,1.5,.04,PAL.metal,w-.35,0,d-.3),box(.4,.25,.02,PAL.roofGreen,w-.15,1.25,d-.3));
     } else shed(group,w-.4,d-.6,1.6,PAL.cream,PAL.roofBlue,.2,.2,{door:'house',windows:3});
     if(type==='barracks'){group.add(box(.06,2.6,.06,PAL.wood,w-.3,.1,.3),box(.7,.4,.03,PAL.barnRed,w-.65,2.4,.3));}
-    if(type==='police')group.add(box(.5,.6,.08,PAL.roofBlue,w/2,1.2,d-.3),box(.12,.4,.1,PAL.cream,w/2,1.3,d-.25));
   }
   group.traverse(o=>{if((o as THREE.Mesh).isMesh&&o.userData.window&&!windows.includes(o as THREE.Mesh))windows.push(o as THREE.Mesh);});
   return {group,windows,smoke};
