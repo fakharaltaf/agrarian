@@ -45,8 +45,8 @@ export const FOOTPRINT: Record<BuildingType | 'house' | 'shed', [number, number]
   feedMill: [3, 2], ranch: [5, 4], dairy: [5, 3], creamery: [3, 2], oilPress: [3, 2], sugarMill: [3, 2], biogas: [3, 3], solar: [5, 3],
   verticalFarm: [2, 2], windTurbine: [2, 2], oilWell: [2, 2], refinery: [12, 8], distribution: [5, 3], lab: [3, 2], lab2: [4, 3], coop: [3, 3], pigsty: [4, 3], cowshed: [5, 4], sheepfold: [5, 4], winery: [3, 3],
 };
-/** A field's side in tiles: true to scale up to 100 ha (1 ha = 2×2 tiles, so 100 ha is 20×20); beyond that it grows more slowly, so 500 ha is 30×30 rather than swallowing the map. */
-export const plotSide = (ha: number) => { const t = 2 * Math.sqrt(ha); return Math.max(2, Math.round(t <= 20 ? t : 20 + (t - 20) * 0.4)); };
+/** A field's side in tiles: 1 ha = 2×2 tiles, growing with hectares but capped at 16×16 from 64 ha, so a bigger field packs more hectares into the same ground (the reason to buy one). Past 100 ha it grows again, slowly: 500 ha is 30×30. */
+export const plotSide = (ha: number) => Math.max(2, ha > 100 ? Math.round(16 + (Math.min(ha, 500) - 100) * 14 / 400) : Math.min(16, Math.round(2 * Math.sqrt(ha))));
 /** Home blocks stand in rows of four (each house 3×3 with a one-tile path): 1 house is 3×3, 8 houses 15×7. */
 export const HOME_BLOCKS = (h: CommunityHome) => Math.min(h.count, 8);
 export const homeFootprint = (h: CommunityHome): Footprint => { const n = HOME_BLOCKS(h); return { w: Math.min(n, 4) * 4 - 1, d: Math.ceil(n / 4) * 4 - 1 }; };

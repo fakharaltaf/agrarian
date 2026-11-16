@@ -204,7 +204,7 @@ it('two tracks side by side are one wide road: upgrading it takes the whole widt
   expect(wide.every((id) => w.roads[id] === 2)).toBe(true);
 });
 
-it('fields are true to scale up to 100 ha, then grow more slowly (500 ha is 30×30)', async () => {
+it('bigger fields pack more hectares per tile (capped at 16×16 from 64 ha), and 500 ha fields stand 30×30', async () => {
   const { plotSide } = await import('../simulation/world');
-  expect([1, 5, 25, 100, 500].map(plotSide)).toEqual([2, 4, 10, 20, 30]);
+  expect([1, 5, 25, 100, 500].map(plotSide)).toEqual([2, 4, 10, 16, 30]);
 });
