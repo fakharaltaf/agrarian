@@ -1134,19 +1134,27 @@ function syncRoads(R: Rig, s: GameState) {
     const c = C(ROAD_COL[Math.min(w.roads[tileId(x, y)], w.roads[tileId(x + 1, y)], w.roads[tileId(x, y + 1)], w.roads[tileId(x + 1, y + 1)])]);
     surface.seg(x + 0.5, y + 1, x + 1.5, y + 1, [[-0.5, c, 1], [0.5, c, 1]]);
   }
-  // a paved road two to four tiles wide is a two-way road: white dashes down its middle (not across junctions or wider squares)
+  // a paved road two or four tiles wide is a two-way road: white dashes down its middle (not across junctions or wider squares); three wide has a green belt instead
   const paved = (x: number, y: number) => (w.roads[tileId(x, y)] ?? 0) >= 3, WHITE = C(0xe9e4d6), dash: Band[] = [[-0.035, WHITE, 1], [0.035, WHITE, 1]];
+  // three side by side: a dual road, its middle lane a green belt of grass behind a kerb with a tree on every tile
+  const KERB = C(0xc9c3b4), LAWN = C(0x7f9a4a), beltTrees: THREE.Object3D[] = [];
+  const belt = (cx: number, cz: number, ew: boolean) => {
+    const [ax, az, bx, bz] = ew ? [cx - 0.5, cz, cx + 0.5, cz] : [cx, cz - 0.5, cx, cz + 0.5];
+    grass.seg(ax, az, bx, bz, [[-0.36, KERB, 1], [-0.3, LAWN, 1], [0.3, LAWN, 1], [0.36, KERB, 1]]);
+    const t = tree(0.55, R.crownMat, (Math.round(cx) + Math.round(cz)) % 3 === 0 ? 1 : 0); t.position.set(cx, 0, cz); t.rotation.y = (cx * 7 + cz * 3) % 6; beltTrees.push(t);
+  };
   const across = (x: number, y: number, ax: number, ay: number) => { let n = 0; while (n < 6 && paved(x + ax * n, y + ay * n)) n++; return n; }; // tiles side by side, from this one on
   for (const k of ids) {
     const [x, y] = tileAt(Number(k));
     if (!paved(x, y)) continue;
     // running north–south: x is the west edge of a row of n paved tiles, and the whole row carries on north or south
     const nx = !paved(x - 1, y) ? across(x, y, 1, 0) : 0, carriesNS = (dy: number) => Array.from({ length: nx }, (_, i) => paved(x + i, y + dy)).every(Boolean);
-    if (nx >= 2 && nx <= 4 && (carriesNS(-1) || carriesNS(1))) marks.seg(x + nx / 2, y + 0.2, x + nx / 2, y + 0.8, dash);
+    if (nx >= 2 && nx <= 4 && (carriesNS(-1) || carriesNS(1))) { if (nx === 3) belt(x + 1.5, y + 0.5, false); else marks.seg(x + nx / 2, y + 0.2, x + nx / 2, y + 0.8, dash); }
     // running east–west: y is the north edge of a column of n paved tiles
     const ny = !paved(x, y - 1) ? across(x, y, 0, 1) : 0, carriesEW = (dx: number) => Array.from({ length: ny }, (_, i) => paved(x + dx, y + i)).every(Boolean);
-    if (ny >= 2 && ny <= 4 && (carriesEW(-1) || carriesEW(1))) marks.seg(x + 0.2, y + ny / 2, x + 0.8, y + ny / 2, dash);
+    if (ny >= 2 && ny <= 4 && (carriesEW(-1) || carriesEW(1))) { if (ny === 3) belt(x + 0.5, y + 1.5, true); else marks.seg(x + 0.2, y + ny / 2, x + 0.8, y + ny / 2, dash); }
   }
+  if (beltTrees.length) R.roadsG.add(...beltTrees);
   // where a track meets the main road its mouth widens into a soft rounded fan, so the corners are not cut square
   for (const [mx, mz, mg] of mouths) surface.disc(mx, mz, [[0.5, C(ROAD_COL[Math.min(mg, g)]), 1], [0.82, C(ROAD_COL[Math.min(mg, g)]), 0]], 0.05, 24);
   const layers = [verge.mesh(true), surface.mesh(true, roadGrain()), grass.mesh(true, roadGrain()), marks.mesh(true, roadGrain())];
@@ -1936,7 +1944,7 @@ function plotText(s: GameState, p: Plot) {
 function lotText(s: GameState, lot: Lot) {
   if(lot.key==='civic:hall')return ['Town hall','Schools, healthcare and the public treasury'];
   if(lot.service){const b=lot.service,d=SERVICE_DEFS[b.type];return [d.name,`${b.staffed}/${serviceJobs(s,b.type)*b.count} staff`,!b.active?'Paused':b.funded?'Working':'Needs funding or staff'];}
-  if(lot.key.startsWith('community:'))return ['Families',`${households(s)} families`];
+  if(lot.key.startsWith('community:'))return ['Families',`${population(s)} people in ${households(s)} homes`];
   if (lot.type === 'house') return ['Farmhouse', s.workers.length ? `${s.workers.length} people on the payroll` : 'Home'];
   if (lot.type === 'shed') return ['Regional office'];
   const d = BUILDINGS[lot.type];
