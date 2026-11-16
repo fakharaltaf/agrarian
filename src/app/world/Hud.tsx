@@ -6,7 +6,7 @@ import {cityActive} from '../../simulation/city-state';
 import { townOf, SERVICE_DEFS, UTILITY_OF, levelOf, serviceUpgradePrice, utilityFamilies, serviceRadius, canUpgradeService } from '../../simulation/town-state';
 // Everything that floats over the world: objective, selection panel, market, land, region switcher.
 import { useEffect, useRef, useState } from 'react';
-import { ANIMALS, ANIMAL_IDS, BUILDINGS, CONFIG, ERAS, GOODS, REGIONS, type CropId, type RegionId } from '../../simulation/config';
+import { ANIMALS, ANIMAL_IDS, BUILDINGS, CONFIG, COWS_PER_DAIRY_BATCH, ERAS, GOODS, REGIONS, type CropId, type RegionId } from '../../simulation/config';
 import { known, throughput } from '../../simulation/core';
 import { buildingMargin } from '../../simulation/processing';
 import { DISCOVERIES, ERA_UNLOCK_TEXT, dailyGoals, dailyPrize, forecast, herdOf, homePlotPrice, housing, isManual, isReady, objective, chapterGate, gateProgress, type GateRow, PAGES, seedShortfall, upgradeCost } from '../../simulation/engine';
@@ -563,6 +563,11 @@ function LotPanel({ s, lot, region, onClose }: { s: GameState; lot: Lot; region:
           <dl className="facts">
             <dt>Running</dt><dd>{active} of {bs.length}</dd>
             <dt>Utilisation</dt><dd>{pct0(util)}</dd>
+            {lot.type === 'dairy' && (() => { // every dairy in the region milks from one herd, the first ones filling up before the next gets any
+              const herd = s.herds.find((h) => h.region === bs[0].region && h.animal === 'cows')?.count ?? 0;
+              const can = s.buildings.filter((b) => b.type === 'dairy' && b.region === bs[0].region && b.active).reduce((n, b) => n + d.recipe!.batchesPerHour * throughput(b) * COWS_PER_DAIRY_BATCH, 0);
+              return <><dt>Cows</dt><dd className={herd < can ? 'down' : undefined}>{num(herd)} of {num(can)} the dairies can milk</dd></>;
+            })()}
             <dt>Margin</dt><dd className={margin < 0 ? 'down' : 'up'}>{money(margin)}/h</dd>
             <dt>Recipe</dt><dd>{Object.entries(d.recipe.inputs).map(([g, q]) => `${q} ${GOODS[g as keyof typeof GOODS].name.toLowerCase()}`).join(' + ') || 'electricity'} → {Object.entries(d.recipe.outputs).map(([g, q]) => `${q} ${GOODS[g as keyof typeof GOODS].name.toLowerCase()}`).join(' + ') || `${-d.recipe.kwh} kWh`}</dd>
           </dl>
