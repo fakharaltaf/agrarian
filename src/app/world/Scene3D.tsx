@@ -72,6 +72,7 @@ interface Rig {
   models: { lot: Lot; model: Model; hit: THREE.Mesh }[]; pick: THREE.Object3D[];
   crops: Partial<Record<Shape, THREE.InstancedMesh>>; sig: { lots: string; fields: string; crops: string; sel: string; deco: string };
   neighbours: THREE.Group[]; people: Map<number, THREE.Group>; machines: Map<number, THREE.Group>; trucks: { obj: THREE.Group; t0: number }[]; herds: Map<string, THREE.Group[]>;
+  /** footprints shown when buildings are hidden, so roads can be planned around them */ outlines: THREE.Group;
   storageProps: THREE.Group; lastStockTick: number; lastCash: number; lastCoin: number;
   rain: THREE.Points; smoke: THREE.Sprite[]; pops: { key: string; text: string; x: number; z: number; t0: number; tone?: string }[]; seenHarvest: Map<number, object>; popsReady: boolean; crownMat: THREE.MeshStandardMaterial; lastHaul: number; layout: Layout | null; region: RegionId; animT?: number; dt: number;
   roadsG: THREE.Group; roadSig: string; roadPrev: THREE.Group; roadPrevSig: string;
@@ -139,7 +140,7 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
     const R: Rig = {
       renderer, scene, camera, target: new THREE.Vector3(6, 0, 8), yaw: Math.PI / 4, yawTo: Math.PI / 4, zoom: 1, sun, hemi, ground,
       lots: g(), fields: g(), units: g(), deco: g(), fx: g(), sel: g(), ghost: g(), ghostSig: '', models: [], pick: [], crops: {}, sig: { lots: '', fields: '', crops: '', sel: '', deco: '' },
-      storageProps: g(), lastStockTick:-1, lastCash:getGame().cash, lastCoin:0,
+      storageProps: g(), outlines: g(), lastStockTick:-1, lastCash:getGame().cash, lastCoin:0,
       neighbours: [], people: new Map(), machines: new Map(), trucks: [], herds: new Map(), rain, smoke: [], pops: [], seenHarvest: new Map(), popsReady: false, crownMat: Object.assign(mat(CROWN.Spring).clone(), { flatShading: false }), lastHaul: -1, layout: null, region, dt: 0,
       roadsG: g(), roadSig: '', roadPrev: g(), roadPrevSig: '', haulers: new Map(), tickSeen: -1, tickAt: 0, riverG: g(), riverSig: '', oilG: g(), oilSig: '', zoneG: g(), zoneSig: '',
     };
@@ -181,7 +182,7 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
         if (Math.abs(R.glide.x - R.target.x) + Math.abs(R.glide.z - R.target.z) < 0.02 && Math.abs(R.glide.zoom - R.zoom) < 0.005) R.glide = undefined;
       }
       syncLots(R, L);
-      R.lots.visible = R.storageProps.visible = !buildingsHidden(); // the road and line tools can hide buildings
+      R.lots.visible = R.storageProps.visible = !(R.outlines.visible = buildingsHidden()); // the road and line tools can hide buildings, leaving their outlines
       syncFields(R, L);
       if (R.shot || now - lastCrops > 400) { syncCrops(R, L, s); lastCrops = now; } // a photo redraws crops at once
       syncSelection(R, L, live.current.selected);
@@ -529,14 +530,18 @@ function turnPoint(l: Lot, x: number, z: number): [number, number] {
   const bw = l.rot % 2 ? l.d : l.w, bd = l.rot % 2 ? l.w : l.d, a = (l.rot * Math.PI) / 2, dx = x - bw / 2, dz = z - bd / 2;
   return [l.w / 2 + dx * Math.cos(a) + dz * Math.sin(a), l.d / 2 - dx * Math.sin(a) + dz * Math.cos(a)];
 }
+const OUTLINE_FILL = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.35, depthWrite: false }), OUTLINE_EDGE = new THREE.LineBasicMaterial({ color: 0x2a2216 });
 function syncLots(R: Rig, L: Layout) {
   const sig = L.lots.map((l) => `${l.key}:${l.type}@${l.x},${l.y}r${l.rot}:${l.buildings.length}:${l.buildings.map((b) => b.level).join('')}:${l.service?.level ?? 1}`).join('|');
   if (sig === R.sig.lots) return;
   R.sig.lots = sig;
-  clear(R.lots);
+  clear(R.lots); clear(R.outlines);
   R.models = [];
   R.pick = R.pick.filter((o) => o.userData.kind !== 'lot');
   for (const lot of L.lots) {
+    const fill = mesh(cached(`fp${lot.w}x${lot.d}`, () => new THREE.PlaneGeometry(lot.w - 0.1, lot.d - 0.1).rotateX(-Math.PI / 2)), OUTLINE_FILL, lot.x + lot.w / 2, 0.05, lot.y + lot.d / 2, false);
+    const edge = new THREE.LineSegments(cached(`fpe${lot.w}x${lot.d}`, () => new THREE.EdgesGeometry(new THREE.BoxGeometry(lot.w - 0.1, 0.5, lot.d - 0.1))), OUTLINE_EDGE); edge.position.set(lot.x + lot.w / 2, 0.25, lot.y + lot.d / 2);
+    R.outlines.add(fill, edge);
     const bw = lot.rot % 2 ? lot.d : lot.w, bd = lot.rot % 2 ? lot.w : lot.d; // built unturned, then turned about its centre
     const model = lot.key.startsWith('civic:') ? buildCivic(lot.key.split(':')[1], bw, bd, lot.service?.level ?? 1) : lot.key.startsWith('community:') ? buildCommunityHome(lot.key.split(':')[1], bw, bd, lot.key) : buildLot(lot.type, bw, bd, lot.key === 'crew' || lot.key === 'office' || lot.key === 'market' ? lot.key : '', Math.max(1, ...lot.buildings.map((b) => b.level)));
     const inner = new THREE.Group(); inner.add(...model.group.children); inner.position.set(-bw / 2, 0, -bd / 2); model.group.add(inner);
