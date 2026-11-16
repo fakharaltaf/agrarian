@@ -871,3 +871,8 @@ body:has(.modal-bg) .shell .coach { display: none !important; }
 @media(min-width:901px){.page-drawer:has(.community-page) .sheet-grip,.page-drawer:has(.town-page) .sheet-grip{display:none}}
 .shell:has(.placement-bar) .toasts{bottom:116px}@media(max-width:900px){.shell:has(.placement-bar) .toasts{bottom:170px}}
 .wl-pop.family{font-size:14px;color:#3b2a14;text-shadow:none;background:#fff8e6;border:2px solid #f2c94c;border-radius:99px;padding:4px 10px;white-space:nowrap;box-shadow:0 4px 12px rgb(60 40 10/.25);animation-duration:3.5s}
+
+/* the farm photo preview */
+.farm-photo { display: block; width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--line); }
+.world.shooting::after { content: ''; position: absolute; inset: 0; background: #fff; z-index: 20; pointer-events: none; animation: flash .5s ease-out forwards; }
+@keyframes flash { from { opacity: .9; } to { opacity: .6; } }

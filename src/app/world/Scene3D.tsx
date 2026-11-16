@@ -16,6 +16,7 @@ import { getGame, getSpeed, moveGhost, placementUse, startZoning, stopZoning, zo
 import { featureEra, stageAtLeast } from '../../simulation/stages';
 import { preloadArt, artRevision, artModel, playClip } from './art';
 import { money, num, pct0 } from '../format';
+import { Modal } from '../ui';
 import { layoutRegion, type Layout, type Lot, type Plot } from './layout';
 import { CHUNK, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, LAND_HA_PER_PATCH, MAP, hasAccess, riverTiles, riverX, tileId, roadRoute, roadStretch, pipeRoute, pipeStretch, plotSide, fieldWater, wetTiers, linesOf, NET_TOP, UTILITY_NETS, netReach, doorstep, footprintOf, type NetKind, type UtilityNet, tileAt, forSaleAround,  ownedSet, ROAD_H, ROAD_Y, chunkAt, chunkOrigin, clearCost, clearedSet, isRoad, patchesAround, placeProblem, worldOf } from '../../simulation/world';
 import { animal, buildCivic, buildCommunityHome, buildLot, box, cached, cyl, farmhand, hauler, mat, mesh, PAL, person, tree, vehicle, type Model } from './models';
@@ -62,6 +63,7 @@ export const SOFT_PINE = new THREE.MeshStandardMaterial({ color: 0xffffff, rough
 const RIPE: Partial<Record<CropId, number>> = { wheat: 0xe0b23f, rice: 0xd9c46a, corn: 0xcfae4a, sugarcane: 0x8fbf55, potatoes: 0x8a9a3a, soybeans: 0xb6a24a, cotton: 0xf6f3ec, coffee: 0xb8392f, apples: 0xd2402f, grapes: 0x6b3a7e };
 
 interface Rig {
+  shot?: { frames: number; done: (url: string) => void; back: { x: number; z: number; zoom: number } };
   cohortsSeen?: number; oilSeen?: string; glide?: { x: number; z: number; zoom: number }; page?: string;
   renderer: THREE.WebGLRenderer; scene: THREE.Scene; camera: THREE.OrthographicCamera; target: THREE.Vector3; yaw: number; yawTo: number; zoom: number;
   sun: THREE.DirectionalLight; hemi: THREE.HemisphereLight; ground: THREE.Mesh;
@@ -148,10 +150,10 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
         R.people.clear();R.haulers.clear();R.neighbours.length=0;
         const mk=R.units.getObjectByName('village-market');if(mk)R.units.remove(mk);R.lastStockTick=-1;
       }
-      const W = c.clientWidth, H = c.clientHeight;
+      const pr = renderer.getPixelRatio(), W = R.shot ? 1600 / pr : c.clientWidth, H = R.shot ? 900 / pr : c.clientHeight; // a photo is always 1600×900
       if (!W || !H) return;
       const size=`${W}:${H}`;
-      if(size!==viewSize){viewSize=size;framed=false;}
+      if(size!==viewSize&&!R.shot){viewSize=size;framed=false;}
       if (c.width !== Math.round(W * renderer.getPixelRatio()) || c.height !== Math.round(H * renderer.getPixelRatio())) renderer.setSize(W, H, false);
       const s = getGame();
       if (R.region !== live.current.region) { R.region = live.current.region; R.sig = { lots: '', fields: '', crops: '', sel: '', deco: '' }; R.roadSig = ''; framed = false; R.lastHaul = -1; }
@@ -170,7 +172,7 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
       }
       syncLots(R, L);
       syncFields(R, L);
-      if (now - lastCrops > 400) { syncCrops(R, L, s); lastCrops = now; }
+      if (R.shot || now - lastCrops > 400) { syncCrops(R, L, s); lastCrops = now; } // a photo redraws crops at once
       syncSelection(R, L, live.current.selected);
       syncGhost(R, s, live.current.placing ?? null, live.current.forestAt ?? null);
       syncDeco(R, L, s);
@@ -188,6 +190,11 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
       atmosphere(R, s, now / 1000);
       updateCamera(R, W, H);
       renderer.render(scene, camera);
+      if (R.shot && --R.shot.frames <= 0) { // a farm photo: read the frame just drawn, then put the camera back
+        const sh = R.shot; R.shot = undefined;
+        sh.done(renderer.domElement.toDataURL('image/png'));
+        R.target.x = sh.back.x; R.target.z = sh.back.z; R.zoom = sh.back.zoom;
+      }
       overlayLabels(R, L, s, W, H, overlay.current, now / 1000, live.current.selected, live.current.plantLabel, live.current.selectedLot, live.current.placing ?? null, live.current.forestAt ?? null, live.current.placeCost ?? 0);
     };
     raf = requestAnimationFrame(frame);
@@ -328,7 +335,18 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
       live.current.onAction?.(kind as WorldAction, Number(id));
     };
     ov.addEventListener('click', onBubble);
-    (window as unknown as Record<string, unknown>).__world = { zoom: zoomBy, rotate: (d: number) => rig.current && (rig.current.yawTo += (d * Math.PI) / 2) };
+    // a photo of the whole farm: frame every patch you own, wait a few frames for the scenery to fill in, then capture
+    const snapshot = () => new Promise<string>((done) => {
+      const R = rig.current, owned = R ? worldOf(getGame(), R.region).owned : [];
+      if (!R || !owned.length) return done('');
+      const xs = owned.map((ch) => MAP.x0 + (ch % CHUNKS_X) * CHUNK), zs = owned.map((ch) => MAP.y0 + Math.floor(ch / CHUNKS_X) * CHUNK);
+      const x0 = Math.min(...xs), x1 = Math.max(...xs) + CHUNK, z0 = Math.min(...zs), z1 = Math.max(...zs) + CHUNK;
+      const span = ((x1 - x0) + (z1 - z0)) * 0.36, aspect = 16 / 9; // the iso view's diagonal, in screen half-heights
+      R.shot = { frames: 6, done, back: { x: R.target.x, z: R.target.z, zoom: R.zoom } };
+      R.glide = undefined; R.target.x = (x0 + x1) / 2; R.target.z = (z0 + z1) / 2;
+      R.zoom = Math.max(0.06, Math.min(3, 9 / (Math.max(span / aspect, span * 0.62) * 1.12 + 2)));
+    });
+    (window as unknown as Record<string, unknown>).__world = { zoom: zoomBy, rotate: (d: number) => rig.current && (rig.current.yawTo += (d * Math.PI) / 2), snapshot };
     return () => {
       c.removeEventListener('pointerdown', down);
       c.removeEventListener('pointermove', move);
@@ -342,9 +360,14 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
     };
   }, []);
 
-  const ctl = () => (window as unknown as { __world: { zoom: (f: number) => void; rotate: (d: number) => void } }).__world;
+  const ctl = () => (window as unknown as { __world: { zoom: (f: number) => void; rotate: (d: number) => void; snapshot: () => Promise<string> } }).__world;
+  const [photo, setPhoto] = useState<{ url: string; blob: Blob } | null>(null), [shooting, setShooting] = useState(false);
+  const takePhoto = async () => {
+    setShooting(true);
+    try { const raw = await ctl().snapshot(); if (raw) setPhoto(await farmPhoto(raw, getGame(), region)); } finally { setShooting(false); }
+  };
   return (
-    <div className="world">
+    <div className={`world${shooting ? ' shooting' : ''}`}>
       <canvas ref={canvas} className="world-canvas" role="img" aria-label={`Your farm in ${REGIONS[region].name}. Drag to move, scroll to zoom, Q and E to rotate, click a field or building.`} />
       <div ref={overlay} className="world-overlay" />
       {failed && <div className="world-loading">Your browser could not start 3D graphics (WebGL). Try another browser or enable hardware acceleration.</div>}
@@ -359,9 +382,36 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
         <button data-coach="roads-btn" className={`icon-btn${roading && !roading.pipe ? ' on' : ''}`} aria-label="Roads" title="Roads: draw, upgrade or remove" onClick={() => roading && !roading.pipe ? stopRoads() : startRoads(region)}>🛤</button>
         {townOf(getGame()).active && <button className={`icon-btn${roading?.pipe && roading.pipe !== 'irrigation' ? ' on' : ''}`} aria-label="Utilities" title="Town utilities: power, water and sewage lines" onClick={() => roading?.pipe && roading.pipe !== 'irrigation' ? stopRoads() : startPipes(region, 'power')}>🔌</button>}
         {featureEra(getGame(), 2) && <button className={`icon-btn${roading?.pipe === 'irrigation' ? ' on' : ''}`} aria-label="Water lines" title="Water lines: dig ditches, upgrade them to pipes and bury them" onClick={() => roading?.pipe === 'irrigation' ? stopRoads() : startPipes(region)}>💧</button>}
+        <button className="icon-btn" aria-label="Photo of your farm" title="Take a photo of your whole farm to share" disabled={shooting} onClick={takePhoto}>📷</button>
       </div>
+      {photo && <Modal title="Your farm" onClose={() => { URL.revokeObjectURL(photo.url); setPhoto(null); }} actions={<>
+        <a className="btn ghost" href={photo.url} download="agrarian-farm.png">Save</a>
+        {canShareFile(photo.blob) && <button className="btn primary" onClick={() => navigator.share({ files: [new File([photo.blob], 'agrarian-farm.png', { type: 'image/png' })], title: 'My farm in Agrarian', text: 'My farm in Agrarian' }).catch(() => {})}>Share</button>}
+      </>}><img className="farm-photo" src={photo.url} alt="A photo of your whole farm with the Agrarian logo" /></Modal>}
     </div>
   );
+}
+
+const canShareFile = (blob: Blob) => { try { return !!navigator.canShare?.({ files: [new File([blob], 'agrarian-farm.png', { type: 'image/png' })] }); } catch { return false; } };
+/** The farm photo: the captured map with the Agrarian watermark bottom left and the farm's date and size bottom right. */
+async function farmPhoto(raw: string, s: GameState, r: RegionId): Promise<{ url: string; blob: Blob }> {
+  const shot = new Image(); shot.src = raw; await shot.decode();
+  const c = document.createElement('canvas'); c.width = shot.naturalWidth; c.height = shot.naturalHeight;
+  const g = c.getContext('2d')!, u = c.width / 1000, pad = Math.round(24 * u);
+  g.drawImage(shot, 0, 0);
+  const fade = g.createLinearGradient(0, c.height * 0.7, 0, c.height); fade.addColorStop(0, 'rgba(20,16,12,0)'); fade.addColorStop(1, 'rgba(20,16,12,0.45)');
+  g.fillStyle = fade; g.fillRect(0, c.height * 0.7, c.width, c.height * 0.3);
+  try {
+    const mark = new Image(); mark.src = `${import.meta.env.BASE_URL}brand/agrarian-watermark.svg`; await mark.decode();
+    const mw = Math.round(c.width * 0.27), mh = Math.round((mw * 92) / 368.12);
+    g.drawImage(mark, pad, c.height - mh - pad, mw, mh);
+  } catch { /* no watermark file: the photo still works */ }
+  const day = Math.floor(s.tick / 24), y = Math.floor(day / 120) + 1, season = SEASONS[Math.floor((day % 120) / 30)], ha = s.fields.filter((f) => f.region === r).reduce((n, f) => n + f.ha, 0);
+  g.textAlign = 'right'; g.fillStyle = '#f4ebdc'; g.shadowColor = 'rgba(0,0,0,0.5)'; g.shadowBlur = 6 * u;
+  g.font = `800 ${Math.round(26 * u)}px Nunito, system-ui, sans-serif`; g.fillText(`${season} ${(day % 30) + 1}, Year ${y}`, c.width - pad, c.height - pad - Math.round(30 * u));
+  g.font = `600 ${Math.round(20 * u)}px Nunito, system-ui, sans-serif`; g.fillText(`${REGIONS[r].name} · ${num(ha)} ha farmed`, c.width - pad, c.height - pad);
+  const blob = await new Promise<Blob>((ok, no) => c.toBlob((b) => (b ? ok(b) : no(new Error('photo failed'))), 'image/png'));
+  return { url: URL.createObjectURL(blob), blob };
 }
 
 /** A field that needs care: tired soil, or dry ground that irrigation would fix. Only once these tools are open. */
