@@ -325,7 +325,6 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
     const wheel = (e: WheelEvent) => { e.preventDefault(); zoomBy(Math.exp(-e.deltaY * 0.0015)); };
     const key = (e: KeyboardEvent) => {
       const R = rig.current;
-      if ((e.metaKey || e.ctrlKey) && /^[zy]$/i.test(e.key) && !(e.target as HTMLElement).closest('input, select, textarea')) { e.preventDefault(); if (e.shiftKey || /y/i.test(e.key)) redo(); else undo(); return; }
       if (!R || (e.target as HTMLElement).closest('input, select, textarea, [role=dialog]')) return;
       if (e.key === 'q' || e.key === 'Q') R.yawTo += Math.PI / 2;
       else if (e.key === 'e' || e.key === 'E') R.yawTo -= Math.PI / 2;

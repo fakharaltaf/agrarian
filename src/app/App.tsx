@@ -3,7 +3,7 @@ import { equity, sumBooks } from '../simulation/core';
 import { backlogHours, fleet, haulOf, marketCut, onTheWay, oneWay, usesCarts, VEHICLES } from '../simulation/hauling';
 import { ACHIEVEMENTS, PAGES } from '../simulation/engine';
 import {
-  act, deleteSlot, getGame, offlineOn, rotatePlacement, dismissAway, toast, exportSave, go, importSave, loadFrom, newGame, saveTo, setSpeed, slotInfo, slotLabel, SLOTS, SPEEDS, useGame, useStore, type Slot, type Speed,
+  act, deleteSlot, getGame, offlineOn, rotatePlacement, undo, redo, dismissAway, toast, exportSave, go, importSave, loadFrom, newGame, saveTo, setSpeed, slotInfo, slotLabel, SLOTS, SPEEDS, useGame, useStore, type Slot, type Speed,
 } from '../stores/game';
 import { Coach, resetTips, tipsOff, tipsOn } from './Coach';
 import { clock, money, stamp } from './format';
@@ -566,6 +566,12 @@ function useShortcuts(h: { help: () => void; log: () => void }) {
     // Space always means pause — even with a popup open — so it must never "press" the focused button (that fires on keyup).
     const onSpaceUp = (e: KeyboardEvent) => { if (e.key === ' ' && !typing(e)) e.preventDefault(); };
     const onKey = (e: KeyboardEvent) => {
+      // Ctrl/⌘ Z undoes the last map edit, Shift (or Y) redoes it, wherever focus is outside a text field
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && /^[zy]$/i.test(e.key) && !(e.target as HTMLElement).closest('input, select, textarea')) {
+        e.preventDefault(); e.stopPropagation();
+        if (e.shiftKey || /y/i.test(e.key)) redo(); else undo();
+        return;
+      }
       if (typing(e)) return;
       const L = live.current;
       if (e.key === ' ') {
