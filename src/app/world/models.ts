@@ -847,6 +847,7 @@ export function buildCommunityHome(tier: string, w: number, d: number, key = '')
 
 /** Small civic landmarks use the farm palette and shared geometry caches. */
 export function buildCivic(type: string, w: number, d: number, level = 1): Model {
+  if (type.startsWith('shop')) return buildShop(type.slice(4).toLowerCase() as ShopKind, w, d);
   const group = new THREE.Group(), windows: THREE.Mesh[] = [], smoke: THREE.Vector3[] = [];
   group.add(box(w-.1,.08,d-.1,PAL.stone,w/2,0,d/2));
   if(type==='lighting'){ // power station: brick turbine hall, tall stack, fenced transformer yard, a pylon carrying the line out

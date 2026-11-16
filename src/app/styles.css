@@ -857,7 +857,7 @@ body:has(.modal-bg) .shell .coach { display: none !important; }
 .community-page,.town-page{font-size:15px;gap:12px}
 .community-page .page-head,.town-page .page-head{margin:6px 0 0;min-height:44px}.community-page .page-head h1,.town-page .page-head h1{font-size:22px}
 .community-page .card,.town-page .card{margin:0;padding:14px}
-.civ-tiles{display:grid;gap:6px}.civ-tiles.four{grid-template-columns:repeat(4,minmax(0,1fr))}.civ-tiles.five{grid-template-columns:repeat(5,minmax(0,1fr))}
+.civ-tiles{display:grid;gap:6px}.civ-tiles.three{grid-template-columns:repeat(3,minmax(0,1fr))}.civ-tiles.four{grid-template-columns:repeat(4,minmax(0,1fr))}.civ-tiles.five{grid-template-columns:repeat(5,minmax(0,1fr))}
 .civ-tile{display:grid;justify-items:center;gap:1px;padding:8px 2px 7px;border-radius:14px;background:var(--surface-2);border:1px solid transparent;font-variant-numeric:tabular-nums;min-width:0}
 .civ-tile-icon{font-size:18px;line-height:1.2}.civ-tile b{font-size:17px;white-space:nowrap}.civ-tile small{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 .civ-tile.good{background:color-mix(in srgb,var(--up) 13%,var(--surface));border-color:color-mix(in srgb,var(--up) 30%,transparent)}.civ-tile.good b{color:var(--up)}
@@ -901,3 +901,4 @@ body:has(.modal-bg) .shell .coach { display: none !important; }
 .dock-undo:disabled { opacity: .35; cursor: default; }
 .dock-all { font: 700 13px var(--font); color: #fff; background: var(--accent); border: none; border-radius: 8px; height: 36px; padding: 0 10px; white-space: nowrap; cursor: pointer; flex: none; }
 .dock-all:disabled { opacity: .45; cursor: default; }
+.civ-h { font: 800 15px var(--font); margin: 6px 0 -4px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }

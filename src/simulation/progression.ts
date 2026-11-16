@@ -19,7 +19,7 @@ import { canStartNation, nationDaily, soldiers } from './stages/nation';
 import { nationActive, nationOf } from './nation-state';
 import { regionActive, regionOf, NEIGHBOURS, NEIGHBOUR_IDS } from './region-state';
 import { cityActive, cityOf } from './city-state';
-import { serviceJobs, townOf } from './town-state';
+import { isShop, serviceJobs, townOf } from './town-state';
 import type { GameState } from './types';
 
 export const totalHa = (s: GameState) => s.fields.reduce((a, f) => a + f.ha, 0);
@@ -384,6 +384,7 @@ export function civicObjective(s: GameState): { title: string; hint: string; pag
   if (town && t.health < .7) return { title: `Keep families healthy · ${pctTxt(t.health)}/70%`, hint: hint('Clean water, a clinic within reach and full larders keep families well.'), page: 'town' };
   if (city && (t.sanitation ?? 0) < .7) return { title: `Drains for the homes · ${pctTxt(t.sanitation ?? 0)}/70%`, hint: hint('Run sewage lines from a sanitation works to the homes (🔌 on the map); upgrade it when it is full.'), page: 'town' };
   if (city && cityOf(s).crime > .2) return { title: `Bring crime under 20% · now ${pctTxt(cityOf(s).crime)}`, hint: hint(t.services.some((b) => b.type === 'police') ? 'Place another watchhouse where the 🛡 map shows red streets, and light them with power lines.' : 'Place a watchhouse among the homes, and light the streets with power lines.'), page: 'city' };
+  if (city && !t.services.some((b) => isShop(b.type))) return { title: 'Open your first shop', hint: hint('Families have savings and nowhere to spend them. A shop sells your goods to the homes in its reach, and the GST comes to the farm.'), page: 'city' };
   const target = s.stageId === 'settlement' ? 80 : town ? 400 : 1200;
   const perDay = dailyArrivals(s) * 4, days = Math.ceil(Math.max(0, target - pop) / Math.max(1, perDay));
   return { title: `Grow to ${target.toLocaleString()} residents · ${pop.toLocaleString()}/${target.toLocaleString()}`, hint: hint(`About ${days} day${days === 1 ? '' : 's'} at today’s pace if homes keep up.`), page: 'community' };
@@ -423,7 +424,7 @@ export interface PageDef { id: string; label: string; purpose: string; unlocked:
 export const PAGES: PageDef[] = [
   {id:'nation',label:'Nation',purpose:'Your army, league or embassy.',unlocked:s=>nationActive(s)||canStartNation(s)},
   {id:'region',label:'Region',purpose:'Neighbours, caravans, diplomacy and defence.',unlocked:s=>regionActive(s)||canStartRegion(s)},
-  {id:'city',label:'City watch',purpose:'Safe streets: watchhouses, police and justice.',unlocked:s=>cityActive(s)||canStartCity(s)},
+  {id:'city',label:'City',purpose:'Safe streets and busy shops: the watch, justice, shops and GST.',unlocked:s=>cityActive(s)||canStartCity(s)},
   { id: 'town', label: 'Town hall', purpose: 'Schools, healthcare and a separate public budget.', unlocked: s => townOf(s).active || canStartTown(s) },
   { id: 'community', label: 'Community', purpose: 'Homes, families, food and life in your settlement.', unlocked: s => communityOf(s).active || canStartSettlement(s) },
   { id: 'overview', label: 'Overview', purpose: 'Your business at a glance.', unlocked: (s) => s.era >= 2 },

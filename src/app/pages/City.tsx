@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { act, go, setCrimeMap, startPipes, useGame } from '../../stores/game';
 import { population } from '../../simulation/community-state';
-import { cityOf, POLICE_CHARTERS, type PoliceCharter } from '../../simulation/city-state';
-import { caseCost, cityTrainingCost, policeReformCost } from '../../simulation/stages/city';
-import { serviceJobs, servicePrice, serviceRadius, townOf } from '../../simulation/town-state';
+import { cityOf, POLICE_CHARTERS, shopReach, type PoliceCharter } from '../../simulation/city-state';
+import { caseCost, cityTrainingCost, GST_RATES, policeReformCost } from '../../simulation/stages/city';
+import { SERVICE_DEFS, SHOP_GOODS, SHOP_TYPES, serviceJobs, servicePrice, serviceRadius, townOf } from '../../simulation/town-state';
+import type { ServiceType } from '../../simulation/types';
 import { serviceDailyCost } from '../../simulation/stages/town';
 import { GOODS } from '../../simulation/config';
 import { Bar, Info, Modal, PageHead, Seg } from '../ui';
@@ -42,7 +43,13 @@ export default function CityPage() {
   const unsafe = families ? homes.filter((h) => (v.homeCrime?.[h.id] ?? 0) > 0.2).reduce((n, h) => n + h.families, 0) / families : 0;
   const lit = t.power ?? 0, stations = t.services.filter((b) => b.type === 'police'), charter = POLICE_CHARTERS[v.charter ?? 'watch'];
   const idle = stations.find((b) => b.active && b.staffed < serviceJobs(s, 'police') * b.count), paused = stations.find((b) => !b.active);
-  const price = servicePrice(s, 'police'), place = () => act({ type: 'buildService', service: 'police', district: 'farmgate' });
+  const price = servicePrice(s, 'police'), build = (service: ServiceType) => act({ type: 'buildService', service, district: 'farmgate' }), place = () => build('police');
+  const trade = v.trade, shops = t.services.filter((b) => SHOP_TYPES.includes(b.type as never)), gap = trade?.gaps[0];
+  const shopNext = !shops.length ? <NextStep icon="🏪" title="Open your first shop" text="Families have savings and nowhere to spend them. A shop sells your goods to the homes within its reach, and the GST comes to the farm." />
+    : shops.some((b) => b.active && b.staffed < SERVICE_DEFS[b.type].jobs * b.count) ? <NextStep icon="👥" tone="bad" title="Shops are short of staff" text="Shopkeepers come from your own families. Build homes so more adults move in." action={<button className="btn primary" onClick={() => go('community')}>Build homes</button>} />
+    : gap && trade!.imports > trade!.ours * 0.25 ? <NextStep icon="🚚" title={`Families import ${GOODS[gap.good].name.toLowerCase()}: ${money(gap.value)} a day leaves the city`} text="The shops buy your stock first. Make or store more of it and that money comes to you instead." action={<button className="btn ghost" onClick={() => go('production')}>Production</button>} />
+    : trade && trade.spend > 0 ? <NextStep icon="✓" tone="good" title={`Shops sold ${money(trade.spend)} yesterday`} text={`${pct0(trade.spend ? trade.ours / trade.spend : 0)} of it was your own goods. More kinds of shop and more homes in reach grow it.`} />
+    : <NextStep icon="🏪" title="No sales yet" text="Shops need a road, staff and homes within reach. Sales are counted each morning." />;
   const showMap = () => { setCrimeMap(true); go('farm'); };
   const days = v.case ? Math.max(0, Math.ceil((v.case.deadline - s.tick) / 24)) : 0;
 
@@ -59,7 +66,8 @@ export default function CityPage() {
     : <NextStep icon="👥" title="Crime comes from idle hands and unhappy homes" text="Every street is lit and watched. More jobs, schooling and happiness lower it further; officer training helps too." action={<button className="btn ghost" onClick={() => go('community')}>Settlement</button>} />;
 
   return <div className="stack town-page city-page">
-    <PageHead title="City watch" sub={`${num(pop)} people · ${charter.icon} ${charter.name}`} />
+    <PageHead title="City" sub={`${num(pop)} people · ${charter.icon} ${charter.name}`} />
+    <h2 className="civ-h">Watch</h2>
     <div className="civ-tiles four" data-coach="city-safety">
       <StatTile icon="🛡" value={pct0(v.crime)} label="crime" tone={v.crime <= 0.2 ? 'good' : v.crime <= 0.35 ? 'ok' : 'bad'} />
       <StatTile icon="💡" value={pct0(lit)} label="lit streets" tone={toneOf(lit, 0.7, 0.4)} />
@@ -81,6 +89,24 @@ export default function CityPage() {
       </SettingRow>
       <SettingRow name="If a case goes unanswered" effect={v.justice === 'rehabilitate' ? `After 7 days · ${money(caseCost(s, 'rehabilitate'))}, lasting prevention` : `After 7 days · ${money(caseCost(s, 'punish'))}, crime falls now, families less happy`}>
         <Seg label="Default response" value={v.justice} onChange={(policy) => act({ type: 'setJustice', policy })} options={[{ v: 'rehabilitate', label: 'Rehab' }, { v: 'punish', label: 'Punish' }]} />
+      </SettingRow>
+    </section>
+    <h2 className="civ-h">Shops</h2>
+    <div className="civ-tiles three" data-coach="city-shops">
+      <StatTile icon="🛍" value={money(trade?.spend ?? 0)} label="spent at shops / day" />
+      <StatTile icon="🌾" value={pct0(trade?.spend ? trade.ours / trade.spend : 0)} label="was your goods" tone={!trade?.spend ? 'none' : toneOf(trade.ours / trade.spend, 0.7, 0.4)} />
+      <StatTile icon="🧾" value={money(trade?.gst ?? 0)} label={`GST / day at ${pct0(v.gst)}`} />
+    </div>
+    {shopNext}
+    <div className="civ-builds">{SHOP_TYPES.map((type) => {
+      const d = SERVICE_DEFS[type], n = shops.filter((b) => b.type === type).length, cost = servicePrice(s, type), reach = shopReach(s, type);
+      return <BuildCard key={type} img={portrait(`civic:${type}`)} fallback={d.icon} name={<>{d.name}{n > 0 && <small> ×{n}</small>}</>}
+        lines={[`Sells ${Object.keys(SHOP_GOODS[type]).map((g) => GOODS[g as keyof typeof GOODS].name.toLowerCase()).join(', ')}`, `Reaches ${Math.round(serviceRadius({ type }))} tiles · ${d.jobs} staff · ${money(Math.round(serviceDailyCost(s, type)))}/day`, <Bar thin key="b" value={reach} label={`Families within a ${d.name.toLowerCase()}'s reach`} color={reach >= 0.7 ? 'var(--up)' : 'var(--gold)'} />]}
+        action={<button className="btn primary" disabled={cost > s.cash} onClick={() => build(type)}>Place · {money(cost)}</button>} />;
+    })}</div>
+    <section className="card stack s">
+      <SettingRow name="GST on shop sales" effect={v.gst === 0 ? 'No tax: families keep it all' : v.gst >= 0.1 ? 'More income for the farm · families a little less happy' : 'A modest tax on everything the shops sell'}>
+        <Seg label="GST rate" value={v.gst} onChange={(rate) => act({ type: 'setGst', rate })} options={GST_RATES.map((r) => ({ v: r, label: pct0(r) }))} />
       </SettingRow>
     </section>
     {v.neighbourJobs > 0 && <details className="town-budget" data-coach="city-decisions"><summary>👥 Neighbouring employers · {num(v.neighbourJobs)} jobs · {money(v.neighbourPayroll)} paid today</summary><div className="stack">{v.employers.map((e) => <div className="town-cash-flow" key={e.id}><span>{s.competitors.find((b) => b.id === e.id)?.name ?? 'Local employer'}<b>{e.jobs} jobs</b></span><span>Wages to households<b>{money(e.wages)}</b></span></div>)}<Info text="Your factories and public services hire resident adults first; the rest can work for neighbouring farms. A 1.1× offer can win an employed neighbour over to your crew." /></div></details>}

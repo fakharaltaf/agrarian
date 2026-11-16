@@ -3,6 +3,7 @@ import { upgradeNeedsPower } from '../../simulation/stages/shared';
 import { bestCrop } from '../crops';
 import { DRILL_PRICE, wellField, oilReading, readingWord, struckFields, SURVEY_PRICE, SURVEY_R, surveyedAt } from '../../simulation/oil';
 import {cityActive} from '../../simulation/city-state';
+import { isShop } from '../../simulation/town-state';
 import { townOf, SERVICE_DEFS, UTILITY_OF, levelOf, serviceUpgradePrice, utilityFamilies, serviceRadius, canUpgradeService } from '../../simulation/town-state';
 // Everything that floats over the world: objective, selection panel, market, land, region switcher.
 import { useEffect, useRef, useState } from 'react';
@@ -259,7 +260,7 @@ export function Hud() {
           }
           else if(kind==='place' && lot?.service && canUpgradeService(lot.service.type)){ setPanel(true); setJournal(false); }
           else if(kind==='place' && lot){
-            const target=lot.service?.type==='barracks'?'nation':lot.service?.type==='watchtower'?'region':lot.service&&['sanitation','lighting','police'].includes(lot.service.type)?'city':lot.key.startsWith('civic:')?'town':lot.key.startsWith('community:')?'community':lot.key==='crew'?'workers':lot.key==='office'?'automation':lot.key==='market'?'markets':lot.type==='house'||lot.type==='shed'?'finance':LOT_PAGE[BUILDINGS[lot.type].category];
+            const target=lot.service?.type==='barracks'?'nation':lot.service?.type==='watchtower'?'region':lot.service&&(['sanitation','lighting','police'].includes(lot.service.type)||isShop(lot.service.type))?'city':lot.key.startsWith('civic:')?'town':lot.key.startsWith('community:')?'community':lot.key==='crew'?'workers':lot.key==='office'?'automation':lot.key==='market'?'markets':lot.type==='house'||lot.type==='shed'?'finance':LOT_PAGE[BUILDINGS[lot.type].category];
             if(target && PAGES.find(p=>p.id===target)?.unlocked(s))go(target);else {setPanel(true);setJournal(false);}
           } else {setPanel(true);setJournal(false); if(kind==='plan') requestAnimationFrame(()=>document.querySelector('[data-coach=plan-picker]')?.scrollIntoView({block:'center'}));}
         }} />
