@@ -795,9 +795,21 @@ export function buildCommunityHome(tier: string, w: number, d: number, key = '')
     const win = (o: THREE.Mesh) => { o.userData.window = true; group.add(o); };
     group.add(box(w - 0.1, 0.04, d - 0.1, PAL.stone, w / 2, 0, d / 2, { rough: 1 }));
     group.add(box(bw, top, bd, wall, cx, 0, cz));
-    group.add(box(bw + 0.04, 0.18, bd + 0.04, PAL.stone, cx, 0, cz)); // plinth
+    group.add(box(bw + 0.03, fh, bd + 0.03, 0xd9d0bd, cx, 0, cz)); // a pale stone ground floor
+    for (let i = 1; i < 4; i++) group.add(box(bw + 0.04, 0.012, bd + 0.04, 0xbfb49e, cx, i * fh / 4, cz)); // its coursing
+    group.add(box(bw + 0.07, 0.06, bd + 0.07, PAL.white, cx, fh - 0.02, cz)); // string course
     group.add(box(bw + 0.08, 0.08, bd + 0.08, PAL.white, cx, top - 0.04, cz)); // eaves band
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) group.add(box(0.07, top - fh, 0.07, PAL.white, cx + sx * (bw / 2 - 0.02), fh, cz + sz * (bd / 2 - 0.02))); // corner quoins
+    for (const sx of [-1, 1]) group.add(box(0.04, top, 0.04, PAL.metalDark, cx + sx * (bw / 2 - 0.1), 0, front + 0.03)); // downpipes
     group.add(gable(bw + 0.1, bd, 0.75, roof, cx, top, cz));
+    group.add(box(bw + 0.36, 0.05, 0.08, 0x3a2a22, cx, top + 0.74, cz)); // ridge cap
+    for (const x of [cx - bw / 4, cx + bw / 4]) { // two dormers on the front slope
+      const z = cz + 0.42;
+      group.add(box(0.36, 0.36, 0.34, wall, x, top + 0.12, z));
+      win(box(0.2, 0.2, 0.02, PAL.window, x, top + 0.19, z + 0.18));
+      group.add(box(0.26, 0.26, 0.015, PAL.white, x, top + 0.16, z + 0.175));
+      const cap = gable(0.12, 0.36, 0.16, roof, x, top + 0.48, z); cap.rotation.y = Math.PI / 2; group.add(cap);
+    }
     smoke.push(chimney(group, cx - bw / 2 + 0.35, cz - 0.15, top + 0.2, 0.6), chimney(group, cx + bw / 2 - 0.35, cz - 0.15, top + 0.2, 0.6));
     const cols = [-1.5, -0.5, 0.5, 1.5].map((c) => cx + c * (bw / 4));
     for (let f = 0; f < floors; f++) {
@@ -806,9 +818,15 @@ export function buildCommunityHome(tier: string, w: number, d: number, key = '')
         if (f === 0 && (c === 1 || c === 2)) return; // the doorway
         group.add(box(0.34, 0.38, 0.02, PAL.white, x, y - 0.02, front + 0.005)); // frame
         win(box(0.26, 0.3, 0.03, PAL.window, x, y + 0.02, front + 0.01));
+        group.add(box(0.02, 0.3, 0.035, PAL.white, x, y + 0.02, front + 0.015), box(0.26, 0.02, 0.035, PAL.white, x, y + 0.2, front + 0.015)); // glazing bars
+        if (f < 3 && (c === 1 || c === 2) && hashStr(key + f + c) > 0.35) { // window boxes of flowers
+          group.add(box(0.3, 0.07, 0.08, PAL.woodDark, x, y - 0.06, front + 0.05));
+          for (const dx of [-0.09, 0, 0.09]) group.add(sphere(0.045, [0xc94c4c, 0xe7a23b, 0xd673a4][Math.floor(hashStr(key + f + c + dx) * 3)], x + dx, y + 0.03, front + 0.05));
+        }
         if (f > 0 && (c === 0 || c === 3)) { // a slim balcony on the outer bays
           group.add(box(0.46, 0.04, 0.18, PAL.white, x, f * fh + 0.12, front + 0.09));
           group.add(box(0.46, 0.14, 0.015, PAL.white, x, f * fh + 0.16, front + 0.18));
+          if (hashStr(key + 'p' + f + c) > 0.4) group.add(sphere(0.06, 0x5f8f4a, x + 0.15, f * fh + 0.22, front + 0.1)); // a pot plant
         }
       });
       for (const z of [cz - bd / 4, cz + bd / 4]) { group.add(box(0.02, 0.38, 0.3, PAL.white, side + 0.005, y - 0.02, z)); win(box(0.03, 0.3, 0.22, PAL.window, side + 0.01, y + 0.02, z)); }
@@ -820,6 +838,8 @@ export function buildCommunityHome(tier: string, w: number, d: number, key = '')
     group.add(box(0.6, 0.06, 0.4, PAL.stone, cx, 0.04, front + 0.2)); // step
     group.add(box(0.5, 0.03, d - front - 0.45, 0xd9cdb4, cx, 0.03, (front + 0.4 + d - 0.05) / 2, { rough: 1 }));
     for (const x of [cx - 0.75, cx + 0.75]) group.add(box(0.8, 0.24, 0.22, 0x5f8f4a, x, 0, d - 0.3)); // hedges
+    group.add(box(0.04, 0.8, 0.04, PAL.metalDark, cx + 0.42, 0, d - 0.55), box(0.12, 0.1, 0.12, 0xffe2a0, cx + 0.42, 0.8, d - 0.55, { emissive: 0x6b5a2a })); // lamp
+    group.add(box(0.12, 0.16, 0.08, 0xb5463a, cx - 0.42, 0.3, d - 0.55), box(0.03, 0.3, 0.03, PAL.metalDark, cx - 0.42, 0, d - 0.55)); // letterbox
   }
   group.traverse((o) => { if ((o as THREE.Mesh).isMesh && o.userData.window && !windows.includes(o as THREE.Mesh)) windows.push(o as THREE.Mesh); });
   return { group, smoke, windows };
