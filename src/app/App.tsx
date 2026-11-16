@@ -94,9 +94,12 @@ export function App() {
           )}
         </div>
       </div>
-      {ledger && <Modal title="Ledger" onClose={() => setLedger(false)}><div className="ledger-grid" data-coach="nav">
-        <button className="btn" onClick={() => {go('farm');setLedger(false);}}>🌾 Farm</button>
-        {unlocked.map(p=><button className="btn" key={p.id} data-coach={`nav-${p.id}`} onClick={()=>{go(p.id);setLedger(false);}}><Icon name={p.id}/>{p.label}</button>)}
+      {ledger && <Modal title="Ledger" wide onClose={() => setLedger(false)}><div className="ledger" data-coach="nav">
+        {LEDGER_GROUPS.map(([name, ids]) => { const pages = [...ids.map((id) => unlocked.find((p) => p.id === id)), ...(name === 'People & world' ? unlocked.filter((p) => !LEDGER_GROUPS.some(([, g]) => g.includes(p.id))) : [])].filter((p) => !!p);
+          return pages.length > 0 && <section key={name}><h3>{name}</h3><div className="ledger-grid">
+            {name === 'Farm' && <button className="ledger-tile" onClick={() => {go('farm');setLedger(false);}} title="Back to the map"><span className="ledger-ico"><Icon name="map"/></span>Map</button>}
+            {pages.map((p) => <button key={p.id} className={`ledger-tile${p.id === current ? ' on' : ''}`} data-coach={`nav-${p.id}`} title={p.purpose} onClick={()=>{go(p.id);setLedger(false);}}><span className="ledger-ico"><Icon name={p.id}/></span>{p.label}</button>)}
+          </div></section>; })}
       </div></Modal>}
       {drawer && <LogDrawer onClose={() => setDrawer(false)} />}
       {settings && <Settings onClose={() => setSettings(false)} theme={theme} setTheme={setTheme} />}
@@ -250,6 +253,14 @@ function Confetti() {
   );
 }
 
+/** The ledger's pages, grouped the way a player looks for them. Pages not listed here fall into the last group. */
+const LEDGER_GROUPS: [string, string[]][] = [
+  ['Farm', ['fields', 'livestock', 'storage', 'equipment']],
+  ['Business', ['overview', 'markets', 'finance', 'workers', 'automation', 'analytics']],
+  ['Industry', ['production', 'research', 'logistics', 'competitors', 'corporation', 'policy']],
+  ['People & world', ['community', 'town', 'city', 'region', 'nation', 'world']],
+];
+
 function TopBar({ onLog, onSettings, onHelp, onLedger, warnings, bare }: { onLog: () => void; onSettings: () => void; onHelp: () => void; onLedger: () => void; warnings: number; bare: boolean }) {
   const s = useGame();
   const speed = useStore(x => x.speed);
@@ -259,7 +270,7 @@ function TopBar({ onLog, onSettings, onHelp, onLedger, warnings, bare }: { onLog
   return <header className="topbar game-strip">
     <LogoMark size={28} title="Agrarian"/><div className="cash-wrap"><CashCounter /><HaulChip /></div>
     <button className="icon-btn" aria-label={speed ? 'Pause simulation' : 'Resume simulation'} onClick={()=>setSpeed(speed?0:1)}>{speed?'❚❚':'▶'}</button>
-    <button className="btn time-toggle" data-coach="speed" aria-label="Time controls" aria-expanded={time} onClick={()=>{setTime(!time);setMenu(false);}}>{speed || 0}× ▾</button>
+    <button className="btn time-toggle" data-coach="speed" aria-label="Time controls" aria-expanded={time} onClick={()=>{setTime(!time);setMenu(false);}}><span className="tt-date"><b>{c.season.slice(0, 3)} {c.day}</b><small>Year {c.year}<i> · {c.hour}</i></small></span><span className="tt-speed">{speed ? `${speed}×` : '❚❚'} ▾</span></button>
     {!bare && <button className="btn ledger-btn" aria-label="Ledger" data-coach="ledger" onClick={onLedger} title="All pages: fields, markets, finance and more">📚 Ledger</button>}
     <button className="icon-btn" aria-label="Farm menu" aria-expanded={menu} onClick={()=>{setMenu(!menu);setTime(false);}}>☰{warnings>0&&<span className="dot">{warnings}</span>}</button>
     {time && <div className="strip-popover">

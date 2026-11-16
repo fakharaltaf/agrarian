@@ -633,9 +633,24 @@ body { overflow: hidden; }
 .strip-popover { position: absolute; right: 8px; top: 100%; max-width: calc(100vw - 16px); padding: 12px; display: grid; gap: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow-lg); }
 .strip-popover .seg { display: flex; flex-wrap: wrap; }
 .menu-popover { width: 230px; }
-.ledger-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; }
-.ledger-grid .btn { min-height: 64px; justify-content: flex-start; white-space: normal; }
-.ledger-grid svg { width: 24px; flex-shrink: 0; }
+/* Ledger: pages grouped as small tiles, so the whole list fits on one screen */
+.ledger { display: grid; gap: 14px; }
+.ledger h3 { margin: 0 0 6px; font-size: 12px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.ledger-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
+.ledger-tile { display: grid; justify-items: center; align-content: center; gap: 6px; min-height: 76px; padding: 8px 4px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface-2, var(--surface)); color: var(--text); font: 700 13px var(--font); cursor: pointer; text-align: center; }
+.ledger-tile:hover { border-color: color-mix(in srgb, var(--wheat) 70%, var(--line)); background: color-mix(in srgb, var(--wheat) 14%, var(--surface)); }
+.ledger-tile.on { border: 2px solid var(--wheat); }
+.ledger-tile:focus-visible { outline: 3px solid var(--wheat); outline-offset: 2px; }
+.ledger-ico { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; background: color-mix(in srgb, var(--wheat) 22%, transparent); font-size: 18px; }
+.ledger-ico svg { width: 20px; height: 20px; }
+@media (max-width: 600px) { .ledger-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; } .ledger-tile { min-height: 68px; font-size: 11px; padding: 6px 2px; } .ledger-ico { width: 28px; height: 28px; } }
+/* the time button always shows the date, so a sped-up game still has a sense of time */
+.time-toggle { display: inline-flex; align-items: center; gap: 8px; }
+.tt-date { display: grid; line-height: 1.05; text-align: left; }
+.tt-date b { font-size: 14px; font-weight: 800; }
+.tt-date small { font-size: 11px; font-weight: 600; color: var(--muted); }
+.tt-speed { font-weight: 800; }
+@media (max-width: 600px) { .tt-date i, .tt-speed { display: none; } }
 .coach.docked { bottom: calc(10px + env(safe-area-inset-bottom)); width: min(440px,calc(100vw - 170px)); left: 76px; transform: none; padding: 6px; }
 .coach.docked.expanded { width: min(440px,calc(100vw - 24px)); left: 12px; bottom: calc(60px + env(safe-area-inset-bottom)); max-height: 45dvh; overflow: auto; }
 .journal-peek { min-height: 44px; padding: 6px; background: none; border: 0; color: var(--text); font: 700 15px var(--font); text-align: left; width: 100%; }
