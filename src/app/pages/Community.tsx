@@ -9,7 +9,7 @@ import { marketWage } from '../../simulation/core';
 import { worldOf } from '../../simulation/world';
 import type { GameState, HomeTier } from '../../simulation/types';
 import { portrait } from '../world/portrait';
-import { Card, PageHead, Seg, Modal } from '../ui';
+import { Card, PageHead, Seg, Modal, usePref } from '../ui';
 import { money, num, pct0 } from '../format';
 import { BuildCard, NextStep, SettingRow, StatTile, toneOf } from './civic';
 
@@ -43,7 +43,8 @@ export default function CommunityPage() {
   const food = foodDays(s), cold = s.regions.heartland.temp < 10, zoned = Object.values(worldOf(s, 'heartland').zones).includes('res');
   const b = budget(s), net = b.back - b.cost;
   const tiers: HomeTier[] = townOf(s).active ? ['cottage', 'terrace', 'apartment'] : ['cottage', 'terrace'];
-  const place = (tier: HomeTier) => act({ type: 'buildHomes', tier, count: 1 });
+  const [many, setMany] = usePref<number>('homes.count', 1); // build 1, 5 or 10 at a time
+  const place = (tier: HomeTier) => act({ type: 'buildHomes', tier, count: many });
   const cottage = homePrice(s, 'cottage');
 
   const next = !zoned ? <NextStep icon="🏘" title="Zone land for homes" text="Mark some of your cleared land residential. Homes can only stand there." action={<button className="btn primary" onClick={() => startZoning('heartland')}>Zone land</button>} />
@@ -66,11 +67,11 @@ export default function CommunityPage() {
     {c.nuisance && c.nuisance.pleasant > 0.05 && nuisanceHappiness(c.nuisance) <= 0.01 && <p className="small muted">🍞 The bakery's fresh bread cheers the homes nearby.</p>}
     {next}
     {townOf(s).active && <button className="btn ghost civ-link" onClick={() => go('town')}>🏛 Town hall: schools, water, clinics →</button>}
-    <Card title="Build homes" info="Homes only stand on land zoned residential. Each needs a road; a track is laid for it.">
+    <Card title="Build homes" info="Homes only stand on land zoned residential. Each needs a road; a track is laid for it. Several at once go wherever there is room." actions={<Seg label="How many to build" value={many} onChange={setMany} options={[1, 5, 10].map((v) => ({ v, label: `×${v}` }))} />}>
       <div className="civ-builds">{tiers.map((tier) => {
         const d = HOME_DEFS[tier], price = homePrice(s, tier), lock = pop < UNLOCK[tier] ? `From ${UNLOCK[tier]} residents` : undefined;
         return <BuildCard key={tier} img={portrait(`home:${tier}`)} fallback="🏠" name={d.name} lines={[`${d.families} famil${d.families === 1 ? 'y' : 'ies'}`]} locked={lock}
-          action={<button className="btn primary" disabled={price > s.cash || !zoned} title={!zoned ? 'Zone land residential first' : undefined} onClick={() => place(tier)}>Place · {money(price)}</button>} />;
+          action={<button className="btn primary" disabled={price * many > s.cash || !zoned} title={!zoned ? 'Zone land residential first' : undefined} onClick={() => place(tier)}>{many > 1 ? `Place ${many}` : 'Place'} · {money(price * many)}</button>} />;
       })}</div>
     </Card>
     <Card title="Paying for it" info="Homes and food cost money. A pay cut, or a housing tax on the workers whose families live here, brings it back. Both cost morale; a home and a full larder make up for it.">
