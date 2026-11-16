@@ -1,7 +1,7 @@
 import { homesExposed, nuisanceOf, nuisanceSources, NUISANCE_LOOK, type NuisanceKind } from '../../simulation/nuisance';
 import { oilOpen } from '../../simulation/stages/shared';
 import { cityActive, cityOf } from '../../simulation/city-state';
-import { SERVICE_DEFS, SERVICE_GROUPS, serviceJobs, serviceRadius, townOf, UTILITY_OF, heatAt } from '../../simulation/town-state';
+import { SERVICE_DEFS, SERVICE_GROUPS, serviceJobs, serviceRadius, townOf, UTILITY_OF, heatAt, mergeGroup, serviceName, svcSide } from '../../simulation/town-state';
 import type { ServiceType } from '../../simulation/types';
 import { communityOf, households, population, residentWorkers } from '../../simulation/community-state';
 // The 3D farm. A live, lit, low-poly picture of the simulation: everything shown is read from game state.
@@ -72,6 +72,7 @@ interface Rig {
   models: { lot: Lot; model: Model; hit: THREE.Mesh }[]; pick: THREE.Object3D[];
   crops: Partial<Record<Shape, THREE.InstancedMesh>>; sig: { lots: string; fields: string; crops: string; sel: string; deco: string };
   neighbours: THREE.Group[]; people: Map<number, THREE.Group>; machines: Map<number, THREE.Group>; trucks: { obj: THREE.Group; t0: number }[]; herds: Map<string, THREE.Group[]>;
+  mergeG: THREE.Group; mergeSig: string;
   /** footprints shown when buildings are hidden, so roads can be planned around them */ outlines: THREE.Group;
   storageProps: THREE.Group; lastStockTick: number; lastCash: number; lastCoin: number;
   rain: THREE.Points; smoke: THREE.Sprite[]; pops: { key: string; text: string; x: number; z: number; t0: number; tone?: string }[]; seenHarvest: Map<number, object>; popsReady: boolean; crownMat: THREE.MeshStandardMaterial; lastHaul: number; layout: Layout | null; region: RegionId; animT?: number; dt: number;
@@ -82,7 +83,7 @@ interface Rig {
   felling?: { chunk: number; trees: THREE.Group[]; fallAt: number[]; extras: THREE.Group };
 }
 
-export type WorldAction = 'harvest' | 'plant' | 'inspect' | 'plan' | 'place' | 'fertilise' | 'irrigate' | 'pipes' | 'move' | 'movelot' | 'placeok' | 'placecancel' | 'clear1' | 'clear9' | 'buy1' | 'buy9';
+export type WorldAction = 'harvest' | 'plant' | 'inspect' | 'plan' | 'place' | 'fertilise' | 'irrigate' | 'pipes' | 'move' | 'movelot' | 'merge' | 'placeok' | 'placecancel' | 'clear1' | 'clear9' | 'buy1' | 'buy9';
 
 export function Scene3D({ region, selected, onPick, plantLabel, onAction, selectedLot, placing, forestAt, placeCost, roading, prospect, zoning }: { region: RegionId; selected: number[]; onPick: (p: WorldPick) => void; plantLabel?: string; selectedLot?: string; onAction?: (kind: WorldAction, fieldId: number) => void; placing?: Placement | null; forestAt?: [number, number] | null; placeCost?: number; roading?: Roading | null; prospect?: { region: RegionId; hover?: [number, number] } | null; zoning?: Zoning | null }) {
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -140,7 +141,7 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
     const R: Rig = {
       renderer, scene, camera, target: new THREE.Vector3(6, 0, 8), yaw: Math.PI / 4, yawTo: Math.PI / 4, zoom: 1, sun, hemi, ground,
       lots: g(), fields: g(), units: g(), deco: g(), fx: g(), sel: g(), ghost: g(), ghostSig: '', models: [], pick: [], crops: {}, sig: { lots: '', fields: '', crops: '', sel: '', deco: '' },
-      storageProps: g(), outlines: g(), lastStockTick:-1, lastCash:getGame().cash, lastCoin:0,
+      storageProps: g(), outlines: g(), mergeG: g(), mergeSig: '', lastStockTick:-1, lastCash:getGame().cash, lastCoin:0,
       neighbours: [], people: new Map(), machines: new Map(), trucks: [], herds: new Map(), rain, smoke: [], pops: [], seenHarvest: new Map(), popsReady: false, crownMat: Object.assign(mat(CROWN.Spring).clone(), { flatShading: false }), lastHaul: -1, layout: null, region, dt: 0,
       roadsG: g(), roadSig: '', roadPrev: g(), roadPrevSig: '', haulers: new Map(), tickSeen: -1, tickAt: 0, riverG: g(), riverSig: '', oilG: g(), oilSig: '', zoneG: g(), zoneSig: '',
     };
@@ -186,6 +187,7 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
       syncFields(R, L);
       if (R.shot || now - lastCrops > 400) { syncCrops(R, L, s); lastCrops = now; } // a photo redraws crops at once
       syncSelection(R, L, live.current.selected);
+      syncMerge(R, s, live.current.selectedLot ? L.lots.find((l) => l.key === live.current.selectedLot) : undefined);
       syncGhost(R, s, live.current.placing ?? null, live.current.forestAt ?? null);
       syncDeco(R, L, s);
       syncRoads(R, s);
@@ -523,7 +525,7 @@ function clear(g: THREE.Group) {
 }
 
 /** What a lot is called on the map and when moving it. */
-export const lotName = (lot: Lot) => lot.key.startsWith('civic:') ? (lot.key==='civic:hall'?'Town hall':SERVICE_DEFS[lot.key.split(':')[1] as ServiceType].name) : lot.key.startsWith('community:') ? ({cottage:'Cottage',terrace:'Terrace',apartment:'Apartments'}[lot.key.split(':')[1]] ?? 'Neighbourhood') : lot.key === 'crew' ? 'Bunkhouse' : lot.key === 'office' ? 'Farm office' : lot.key === 'market' ? 'Village trader' : lot.type === 'house' ? 'Farmhouse' : lot.type === 'shed' ? 'Office' : BUILDINGS[lot.type].name;
+export const lotName = (lot: Lot) => lot.key.startsWith('civic:') ? (lot.key==='civic:hall'?'Town hall':lot.service?serviceName(lot.service):SERVICE_DEFS[lot.key.split(':')[1] as ServiceType].name) : lot.key.startsWith('community:') ? ({cottage:'Cottage',terrace:'Terrace',apartment:'Apartments'}[lot.key.split(':')[1]] ?? 'Neighbourhood') : lot.key === 'crew' ? 'Bunkhouse' : lot.key === 'office' ? 'Farm office' : lot.key === 'market' ? 'Village trader' : lot.type === 'house' ? 'Farmhouse' : lot.type === 'shed' ? 'Office' : BUILDINGS[lot.type].name;
 /** A point in a lot's own (unturned) frame, carried round with the lot's turn; returns lot-relative map coordinates. */
 function turnPoint(l: Lot, x: number, z: number): [number, number] {
   const bw = l.rot % 2 ? l.d : l.w, bd = l.rot % 2 ? l.w : l.d, a = (l.rot * Math.PI) / 2, dx = x - bw / 2, dz = z - bd / 2;
@@ -531,7 +533,7 @@ function turnPoint(l: Lot, x: number, z: number): [number, number] {
 }
 const OUTLINE_FILL = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.35, depthWrite: false }), OUTLINE_EDGE = new THREE.LineBasicMaterial({ color: 0x2a2216 });
 function syncLots(R: Rig, L: Layout) {
-  const sig = L.lots.map((l) => `${l.key}:${l.type}@${l.x},${l.y}r${l.rot}:${l.buildings.length}:${l.buildings.map((b) => b.level).join('')}:${l.service?.level ?? 1}`).join('|');
+  const sig = L.lots.map((l) => `${l.key}:${l.type}@${l.x},${l.y}r${l.rot}:${l.buildings.length}:${l.buildings.map((b) => b.level).join('')}:${l.service?.level ?? 1}:${l.w}`).join('|');
   if (sig === R.sig.lots) return;
   R.sig.lots = sig;
   clear(R.lots); clear(R.outlines);
@@ -774,7 +776,7 @@ function syncGhost(R: Rig, s: GameState, P: Placement | null, forest: [number, n
     if (svcType && rad) {
       const group = Object.values(SERVICE_GROUPS).find((g) => (g as readonly string[]).includes(svcType)) as readonly string[] | undefined ?? [svcType];
       const gx = P.at[0] + P.w / 2, gz = P.at[1] + P.d / 2, pos = worldOf(s, P.region).pos, heats: [number, number, number][] = [[gx, gz, rad]];
-      for (const b of townOf(s).services) if (group.includes(b.type) && `svc:${b.id}` !== P.key) { const q = pos[`svc:${b.id}`]; if (q) heats.push([q[0] + 1.5, q[1] + 1.5, serviceRadius(b)]); }
+      for (const b of townOf(s).services) if (group.includes(b.type) && `svc:${b.id}` !== P.key) { const q = pos[`svc:${b.id}`]; if (q) heats.push([q[0] + svcSide(b) / 2, q[1] + svcSide(b) / 2, serviceRadius(b)]); }
       // a heat map in land patches, like the oil survey: deep blue where homes get full service, paling as it fades out
       const reachAt = (x: number, z: number) => Math.max(...heats.map(([hx, hz, r2]) => heatAt(Math.hypot(x - hx, z - hz), r2)));
       const cells: THREE.Matrix4[] = [], cols: THREE.Color[] = [];
@@ -813,6 +815,21 @@ function syncGhost(R: Rig, s: GameState, P: Placement | null, forest: [number, n
   }
 }
 
+/** A selected shop or market shows the square of four it could merge in: gold where one stands, pale where one is missing. */
+function syncMerge(R: Rig, s: GameState, lot?: Lot) {
+  const g = lot?.service ? mergeGroup(s, lot.service.id) : null, show = g && g.members.length > 1 ? g : null;
+  const sig = show ? `${show.origin}:${show.step}:${show.members.map((m) => m.id)}` : '';
+  if (sig === R.mergeSig) return;
+  R.mergeSig = sig; clear(R.mergeG);
+  if (!show) return;
+  const side = show.step - 1, pos = worldOf(s, R.region).pos;
+  for (let k = 0; k < 4; k++) {
+    const x = show.origin[0] + (k % 2) * show.step, z = show.origin[1] + Math.floor(k / 2) * show.step, here = show.members.some((m) => pos[`svc:${m.id}`]?.[0] === x && pos[`svc:${m.id}`]?.[1] === z);
+    const tile = mesh(cached(`mg${side}`, () => new THREE.PlaneGeometry(side, side).rotateX(-Math.PI / 2)), here ? MERGE_HERE : MERGE_GAP, x + side / 2, 0.07, z + side / 2, false); R.mergeG.add(tile);
+  }
+  const full = show.step * 2 - 1, edge = new THREE.LineSegments(cached(`mge${full}`, () => new THREE.EdgesGeometry(new THREE.BoxGeometry(full, 0.3, full))), MERGE_EDGE); edge.position.set(show.origin[0] + full / 2, 0.2, show.origin[1] + full / 2); R.mergeG.add(edge);
+}
+const MERGE_HERE = new THREE.MeshBasicMaterial({ color: 0xffc94d, transparent: true, opacity: 0.3, depthWrite: false }), MERGE_GAP = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.45, depthWrite: false }), MERGE_EDGE = new THREE.LineBasicMaterial({ color: 0xffc94d });
 function syncSelection(R: Rig, L: Layout, selected: number[]) {
   const sig = selected.join(',') + '|' + R.sig.fields;
   if (sig === R.sig.sel) return;
@@ -1901,8 +1918,12 @@ function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el
   if(selectedLot && !placing){
     const lot=L.lots.find(x=>x.key===selectedLot);
     if(lot){const [px,py]=project(lot.x+lot.w/2,2.5,lot.y+lot.d/2);
-      const label=lot.service&&(UTILITY_OF[lot.service.type]||['school','clinic','well'].includes(lot.service.type))?'⚙ Manage':lot.service?.type==='barracks'?'⚔ Nation':lot.service?.type==='watchtower'?'🗼 Region':lot.service&&['sanitation','lighting','police'].includes(lot.service.type)?'🛡 City':lot.key.startsWith('civic:')?'🏛 Town':lot.key.startsWith('community:')?'🏠 Families':lot.key==='crew'?'👒 Crew':lot.key==='office'?'⚙ Policies':lot.key==='market'?'🪙 Trade':lot.type==='house'||lot.type==='shed'?'📖 Books':BUILDINGS[lot.type].category==='storage'?'📦 Store':'⚙ Manage';
-      want.push({key:'place-act',x:Math.max(100,Math.min(W-100,px)),y:Math.max(80,Math.min(H-30,py)),html:button('place:0',label)+(lot.type==='oilWell'?'':button('movelot:0','✥ Move'))+button('inspect:0','ⓘ'),cls:'wl-radial'});
+      const label=lot.service&&(UTILITY_OF[lot.service.type]||['school','clinic','well'].includes(lot.service.type))?'⚙ Manage':lot.service?.type==='barracks'?'⚔ Nation':lot.service?.type==='watchtower'?'🗼 Region':lot.service&&(lot.service.type.startsWith('shop')||lot.service.type==='mall')?'🏪 Shops':lot.service&&['sanitation','lighting','police'].includes(lot.service.type)?'🛡 City':lot.key.startsWith('civic:')?'🏛 Town':lot.key.startsWith('community:')?'🏠 Families':lot.key==='crew'?'👒 Crew':lot.key==='office'?'⚙ Policies':lot.key==='market'?'🪙 Trade':lot.type==='house'||lot.type==='shed'?'📖 Books':BUILDINGS[lot.type].category==='storage'?'📦 Store':'⚙ Manage';
+      // shops and markets: four in a square merge; show how close this one is
+      const mg=lot.service?mergeGroup(s,lot.service.id):null;
+      const merge=mg?.complete?button('merge:0',`⧉ Merge into ${mg.into} · ${money(mg.price)}`):'';
+      if(mg&&!mg.complete&&mg.members.length>1){const [hx,hy]=project(mg.origin[0]+mg.step-0.5,0.6,mg.origin[1]+mg.step-0.5);want.push({key:'merge-hint',x:hx,y:hy,html:`${mg.members.length}/4 for a ${mg.into}`,cls:'wl-note'});}
+      want.push({key:'place-act',x:Math.max(100,Math.min(W-100,px)),y:Math.max(80,Math.min(H-30,py)),html:merge+button('place:0',label)+(lot.type==='oilWell'?'':button('movelot:0','✥ Move'))+button('inspect:0','ⓘ'),cls:'wl-radial'});
     }
   }
   const st=stored(s,R.region), store=L.lots.find(l=>l.type!=='house'&&l.type!=='shed'&&BUILDINGS[l.type].category==='storage');
@@ -1938,7 +1959,7 @@ function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el
     const lvl = Math.max(1, ...lot.buildings.map((b) => b.level));
     const noRoad = !hasAccess(s, R.region, lot.place);
     const warn = noRoad || !!(lot.service?.active && !lot.service.funded) || lot.buildings.some((b) => b.active && /Not enough|full|Disease/.test(b.reason));
-    want.push({ key: `l${lot.key}`, x, y, html: `${warn ? '⚠ ' : lot.service && !lot.service.active ? '○ ' : ''}${noRoad ? 'No road · ' : ''}${name}${lot.service && lot.service.count>1?` ×${lot.service.count}`:''}${lot.buildings.length > 1 ? ` ×${lot.buildings.length}` : ''}${lvl > 1 ? ` · L${lvl}` : ''}`, cls: 'wl-name' });
+    want.push({ key: `l${lot.key}`, x, y, html: `${warn ? '⚠ ' : lot.service && !lot.service.active ? '○ ' : ''}${noRoad ? 'No road · ' : ''}${name}${lot.service && lot.service.count>1 && !lot.service.size?` ×${lot.service.count}`:''}${lot.buildings.length > 1 ? ` ×${lot.buildings.length}` : ''}${lvl > 1 ? ` · L${lvl}` : ''}`, cls: 'wl-name' });
   }
   if (L.buy) {
     const [x, y] = project(L.buy.x + 1, 0.9, L.buy.y + 1);

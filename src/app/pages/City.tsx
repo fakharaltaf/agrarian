@@ -4,7 +4,7 @@ import { worldOf } from '../../simulation/world';
 import { population } from '../../simulation/community-state';
 import { cityOf, POLICE_CHARTERS, shopReach, type PoliceCharter } from '../../simulation/city-state';
 import { caseCost, cityTrainingCost, GST_RATES, policeReformCost } from '../../simulation/stages/city';
-import { SERVICE_DEFS, SHOP_GOODS, SHOP_TYPES, serviceJobs, servicePrice, serviceRadius, townOf } from '../../simulation/town-state';
+import { MARKET_NAME, SERVICE_DEFS, SHOP_GOODS, SHOP_TYPES, mergeGroup, serviceJobs, servicePrice, serviceRadius, svcSize, townOf } from '../../simulation/town-state';
 import type { ServiceType } from '../../simulation/types';
 import { serviceDailyCost } from '../../simulation/stages/town';
 import { GOODS } from '../../simulation/config';
@@ -45,11 +45,15 @@ export default function CityPage() {
   const lit = t.power ?? 0, stations = t.services.filter((b) => b.type === 'police'), charter = POLICE_CHARTERS[v.charter ?? 'watch'];
   const idle = stations.find((b) => b.active && b.staffed < serviceJobs(s, 'police') * b.count), paused = stations.find((b) => !b.active);
   const price = servicePrice(s, 'police'), build = (service: ServiceType) => act({ type: 'buildService', service, district: 'farmgate' }), place = () => build('police');
-  const trade = v.trade, shops = t.services.filter((b) => SHOP_TYPES.includes(b.type as never)), gap = trade?.gaps[0];
+  const trade = v.trade, shops = t.services.filter((b) => SHOP_TYPES.includes(b.type as never)), mall = t.services.find((b) => b.type === 'mall'), gap = trade?.gaps[0];
+  // the square of four closest to merging: the next thing worth building towards
+  const groups = shops.map((b) => ({ b, g: mergeGroup(s, b.id) })).filter((x) => x.g && x.g.members.length > 1).sort((x, y) => y.g!.members.length - x.g!.members.length), near = groups[0];
   const zoned = Object.values(worldOf(s, 'heartland').zones).includes('com');
   const shopNext = !zoned ? <NextStep icon="🏘" title="Zone commercial land for shops" text="Shops and offices stand on commercial land. Mark some of your cleared land near the homes." action={<button className="btn primary" onClick={() => startZoning('heartland', 'com')}>🏪 Zone land</button>} />
-    : !shops.length ? <NextStep icon="🏪" title="Open your first shop" text="Families have savings and nowhere to spend them. A shop sells your goods to the homes within its reach, and the GST comes to the farm." />
-    : shops.some((b) => b.active && b.staffed < SERVICE_DEFS[b.type].jobs * b.count) ? <NextStep icon="👥" tone="bad" title="Shops are short of staff" text="Shopkeepers come from your own families. Build homes so more adults move in." action={<button className="btn primary" onClick={() => go('community')}>Build homes</button>} />
+    : !shops.length && !mall ? <NextStep icon="🏪" title="Open your first shop" text="Families have savings and nowhere to spend them. A shop sells your goods to the homes within its reach, and the GST comes to the farm." />
+    : [...shops, ...(mall ? [mall] : [])].some((b) => b.active && b.staffed < SERVICE_DEFS[b.type].jobs * b.count) ? <NextStep icon="👥" tone="bad" title="Shops are short of staff" text="Shopkeepers come from your own families. Build homes so more adults move in." action={<button className="btn primary" onClick={() => go('community')}>Build homes</button>} />
+    : near?.g!.complete ? <NextStep icon="🎉" tone="good" title={`Four ${svcSize(near.b) === 2 ? 'markets' : `${SERVICE_DEFS[near.b.type].name.toLowerCase()}s`} stand together`} text={`Merge them into ${near.g!.into === 'Mall' ? 'the Mall: it reaches the whole city and sells far more than food' : `a ${near.g!.into}: it reaches nearly twice as far, draws a quarter more custom and needs fewer staff`}.`} action={<button className="btn primary" disabled={near.g!.price > s.cash} onClick={() => act({ type: 'mergeService', serviceId: near.b.id })}>⧉ Merge · {money(near.g!.price)}</button>} />
+    : near ? <NextStep icon="⧉" title={`${near.g!.members.length} of 4 for ${near.g!.into === 'Mall' ? 'the Mall' : `a ${near.g!.into}`}`} text={svcSize(near.b) === 2 ? 'Four markets in a square, a lane apart, merge into the Mall. Tap a market on the map to see the square.' : `Place ${4 - near.g!.members.length} more ${SERVICE_DEFS[near.b.type].name.toLowerCase()}${near.g!.members.length === 3 ? '' : 's'} to complete the square (a lane apart). Tap one on the map to see where.`} action={svcSize(near.b) === 1 ? <button className="btn primary" disabled={servicePrice(s, near.b.type) > s.cash} onClick={() => build(near.b.type)}>Place · {money(servicePrice(s, near.b.type))}</button> : undefined} />
     : gap && trade!.imports > trade!.ours * 0.25 ? <NextStep icon="🚚" title={`Families import ${GOODS[gap.good].name.toLowerCase()}: ${money(gap.value)} a day leaves the city`} text="The shops buy your stock first. Make or store more of it and that money comes to you instead." action={<button className="btn ghost" onClick={() => go('production')}>Production</button>} />
     : trade && trade.spend > 0 ? <NextStep icon="✓" tone="good" title={`Shops sold ${money(trade.spend)} yesterday`} text={`${pct0(trade.spend ? trade.ours / trade.spend : 0)} of it was your own goods. More kinds of shop and more homes in reach grow it.`} />
     : <NextStep icon="🏪" title="No sales yet" text="Shops need a road, staff and homes within reach. Sales are counted each morning." />;
@@ -102,11 +106,12 @@ export default function CityPage() {
     </div>
     {shopNext}
     <div className="civ-builds">{SHOP_TYPES.map((type) => {
-      const d = SERVICE_DEFS[type], n = shops.filter((b) => b.type === type).length, cost = servicePrice(s, type), reach = shopReach(s, type);
-      return <BuildCard key={type} img={portrait(`civic:${type}`)} fallback={d.icon} name={<>{d.name}{n > 0 && <small> ×{n}</small>}</>}
+      const d = SERVICE_DEFS[type], n = shops.filter((b) => b.type === type && svcSize(b) === 1).length, halls = shops.filter((b) => b.type === type && svcSize(b) === 2).length, cost = servicePrice(s, type), reach = Math.min(1, shopReach(s, type));
+      return <BuildCard key={type} img={portrait(`civic:${type}`)} fallback={d.icon} name={<>{d.name}{n > 0 && <small> ×{n}</small>}{halls > 0 && <small> · {halls > 1 ? `${halls} × ` : ''}{MARKET_NAME[type]}</small>}{mall?.kinds?.includes(type) && <small> · in the Mall</small>}</>}
         lines={[`Sells ${Object.keys(SHOP_GOODS[type]).map((g) => GOODS[g as keyof typeof GOODS].name.toLowerCase()).join(', ')}`, `Reaches ${Math.round(serviceRadius({ type }))} tiles · ${d.jobs} staff · ${money(Math.round(serviceDailyCost(s, type)))}/day`, <Bar thin key="b" value={reach} label={`Families within a ${d.name.toLowerCase()}'s reach`} color={reach >= 0.7 ? 'var(--up)' : 'var(--gold)'} />]}
         action={<button className="btn primary" disabled={cost > s.cash} onClick={() => build(type)}>Place · {money(cost)}</button>} />;
     })}</div>
+    <p className="small muted civ-foot">Four shops of one kind in a square, a lane apart, merge into a market. Four markets merge into the Mall{mall ? `: yours holds ${mall.kinds?.length ?? 0} trades` : ''}. Tap a shop on the map to see its square.</p>
     <section className="card stack s">
       <SettingRow name="GST on shop sales" effect={v.gst === 0 ? 'No tax: families keep it all' : v.gst >= 0.1 ? 'More income for the farm · families a little less happy' : 'A modest tax on everything the shops sell'}>
         <Seg label="GST rate" value={v.gst} onChange={(rate) => act({ type: 'setGst', rate })} options={GST_RATES.map((r) => ({ v: r, label: pct0(r) }))} />

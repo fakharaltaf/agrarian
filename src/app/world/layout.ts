@@ -2,6 +2,7 @@
 // this module only turns them into drawable lots and plots. Deterministic: same state, same picture.
 import { BUILDINGS, type BuildingType, type RegionId } from '../../simulation/config';
 import type { Building, CivicService, Field, GameState } from '../../simulation/types';
+import { svcSide } from '../../simulation/town-state';
 import { townOf } from '../../simulation/town-state';
 import { communityOf } from '../../simulation/community-state';
 import { CONFIG } from '../../simulation/config';
@@ -42,7 +43,7 @@ export function layoutRegion(s: GameState, r: RegionId): Layout {
   }
   if (r === 'heartland' && townOf(s).active) {
     add('civic:hall', 'hall', 'house', [], { w: 4, d: 3 });
-    for (const service of townOf(s).services) if (service.type !== 'road') add(`civic:${service.type}:${service.id}`, `svc:${service.id}`, 'house', [], { service, w: 3, d: 3 });
+    for (const service of townOf(s).services) if (service.type !== 'road') add(`civic:${service.type}:${service.id}`, `svc:${service.id}`, 'house', [], { service, w: svcSide(service), d: svcSide(service) });
   }
   const plots: Plot[] = [];
   for (const f of s.fields) {

@@ -248,6 +248,7 @@ export function Hud() {
           else if(kind==='buy1'||kind==='buy9'){ if(forest)act({type:'buyLand',region,chunks:forSaleAround(s,region,forest[0],forest[1],kind==='buy1'?1:3)}); } // the bubble stays open so the new land can be cleared next
           else if(kind==='clear1'||kind==='clear9'){ if(forest&&act({type:'clearForest',region,chunks:patchesAround(s,region,forest[0],forest[1],kind==='clear1'?1:3)}))setForest(null); }
           else if(kind==='move'){ const f=s.fields.find(x=>x.id===id); if(f){ const side=plotSide(f.ha); startPlacement({kind:'move',key:`field:${id}`,region:f.region,w:side,d:side,label:`Field ${id}`,action:{type:'seeTip',tip:''}}); setSel([]); } }
+          else if(kind==='merge'&&lot?.service){ if(act({type:'mergeService',serviceId:lot.service.id})) setLot(null); }
           else if(kind==='movelot'&&lot){ const fp=footprintOf(s,lot.place); if(fp){ startPlacement({kind:'move',key:lot.place,region,w:fp.w,d:fp.d,label:lotName(lot),action:{type:'seeTip',tip:''}}); setLot(null); } }
           else if(kind==='plant'||kind==='harvest') act(kind==='harvest'?{type:'harvest',fieldId:id}:{type:'plant',fieldId:id,crop});
           else if(kind==='irrigate') act({type:'irrigate',fieldIds:[id]},'Irrigation installed.');
@@ -260,7 +261,7 @@ export function Hud() {
           }
           else if(kind==='place' && lot?.service && canUpgradeService(lot.service.type)){ setPanel(true); setJournal(false); }
           else if(kind==='place' && lot){
-            const target=lot.service?.type==='barracks'?'nation':lot.service?.type==='watchtower'?'region':lot.service&&(['sanitation','lighting','police'].includes(lot.service.type)||isShop(lot.service.type))?'city':lot.key.startsWith('civic:')?'town':lot.key.startsWith('community:')?'community':lot.key==='crew'?'workers':lot.key==='office'?'automation':lot.key==='market'?'markets':lot.type==='house'||lot.type==='shed'?'finance':LOT_PAGE[BUILDINGS[lot.type].category];
+            const target=lot.service?.type==='barracks'?'nation':lot.service?.type==='watchtower'?'region':lot.service&&(['sanitation','lighting','police'].includes(lot.service.type)||isShop(lot.service.type)||lot.service.type==='mall')?'city':lot.key.startsWith('civic:')?'town':lot.key.startsWith('community:')?'community':lot.key==='crew'?'workers':lot.key==='office'?'automation':lot.key==='market'?'markets':lot.type==='house'||lot.type==='shed'?'finance':LOT_PAGE[BUILDINGS[lot.type].category];
             if(target && PAGES.find(p=>p.id===target)?.unlocked(s))go(target);else {setPanel(true);setJournal(false);}
           } else {setPanel(true);setJournal(false); if(kind==='plan') requestAnimationFrame(()=>document.querySelector('[data-coach=plan-picker]')?.scrollIntoView({block:'center'}));}
         }} />

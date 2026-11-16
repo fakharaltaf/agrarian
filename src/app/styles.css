@@ -903,3 +903,4 @@ body:has(.modal-bg) .shell .coach { display: none !important; }
 .dock-all:disabled { opacity: .45; cursor: default; }
 .civ-h { font: 800 15px var(--font); margin: 6px 0 -4px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
 @media (max-width: 480px) { .road-bar .seg .btn { padding-inline: 4px; font-size: 12.5px; } }
+.wl-note { background: #2a2216; color: #ffe9b0; font: 800 12px var(--font); padding: 3px 8px; border-radius: 999px; white-space: nowrap; pointer-events: none; }
