@@ -347,17 +347,10 @@ function UtilityBar({ s, r }: { s: GameState; r: Roading }) {
     else if (r.tool === 'upgrade') { const t = Math.min(top, Math.min(...st.map((id) => own[id])) + 1), n = st.filter((id) => own[id] < t).length; hint = n ? `${names[t]} · ${n} tiles · ${money(price(t) * n)} · homes at ${q(t)}${t === top ? ' · land freed' : ''}` : `Already ${names[top].toLowerCase()}`; }
     else hint = `Remove ${st.length} tiles`;
   }
-  return <div className="placement-bar road-bar" role="dialog" aria-label="Utility lines">
-    <div className="placement-info"><b>{UTIL_LABEL[net]}</b><span className="muted">{hint}</span></div>
-    <div className="seg" role="group" aria-label="Which lines">
-      {(['power', 'water', 'sewer'] as const).map((k) => <button key={k} className={`btn ${net === k ? 'primary' : 'ghost'}`} aria-pressed={net === k} title={UTIL_LABEL[k]} aria-label={UTIL_LABEL[k]} onClick={() => setNet(k)}>{UTIL_LABEL[k].split(' ')[0]}</button>)}
-    </div>
-    <div className="seg" role="group" aria-label="Line tool">
-      {(['draw', 'upgrade', 'remove'] as const).map((t) => <button key={t} className={`btn ${r.tool === t ? 'primary' : 'ghost'}`} aria-pressed={r.tool === t} onClick={() => setRoadTool(t)}>{t === 'draw' ? '✏ Lay' : t === 'upgrade' ? '⬆ Upgrade' : '✕ Remove'}</button>)}
-    </div>
-    <HideButton />
-    <button className="btn ghost" onClick={() => stopRoads()}>Done</button>
+  const tabs = <div className="dock-tabs" role="group" aria-label="Which lines">
+    {(['power', 'water', 'sewer'] as const).map((k) => <button key={k} className={net === k ? 'on' : ''} aria-pressed={net === k} aria-label={UTIL_LABEL[k].split(' ')[1]} onClick={() => setNet(k)}><span aria-hidden>{UTIL_LABEL[k].split(' ')[0]}</span><span className="tab-name"> {UTIL_LABEL[k].split(' ')[1]}</span></button>)}
   </div>;
+  return <LineDock label="Utility lines" head={tabs} hint={hint} tool={r.tool} draw="Lay" />;
 }
 
 function PipeBar({ s, r }: { s: GameState; r: Roading }) {
@@ -373,14 +366,7 @@ function PipeBar({ s, r }: { s: GameState; r: Roading }) {
     else hint = `Remove ${st.length} tiles of water line`;
     if (st.length && !st.some((id) => wetTiers(s, r.region).has(id))) hint = `Dry (red): not joined to the river · ${hint}`;
   }
-  return <div className="placement-bar road-bar" role="dialog" aria-label="Water lines">
-    <div className="placement-info"><b>💧 Water</b><span className="muted">{hint}</span></div>
-    <div className="seg" role="group" aria-label="Water line tool">
-      {(['draw', 'upgrade', 'remove'] as const).map((t) => <button key={t} className={`btn ${r.tool === t ? 'primary' : 'ghost'}`} aria-pressed={r.tool === t} onClick={() => setRoadTool(t)}>{t === 'draw' ? '✏ Dig' : t === 'upgrade' ? '⬆ Upgrade' : '✕ Remove'}</button>)}
-    </div>
-    <HideButton />
-    <button className="btn ghost" onClick={() => stopRoads()}>Done</button>
-  </div>;
+  return <LineDock label="Water lines" head={<b className="dock-title">💧 Irrigation</b>} hint={hint} tool={r.tool} draw="Dig" />;
 }
 
 function RoadBar({ s, r }: { s: GameState; r: Roading }) {
@@ -399,20 +385,24 @@ function RoadBar({ s, r }: { s: GameState; r: Roading }) {
     else if (r.tool === 'upgrade') { const g = Math.min(3, Math.min(...st.map((id) => w.roads[id])) + 1), n = st.filter((id) => w.roads[id] < g).length; hint = n ? `${n} tiles → ${ROAD_GRADES[g].toLowerCase()} · ${money(roadTilePrice(s, g) * n)}` : 'Already paved'; }
     else { const lost = cutsOff(s, r.region, st); hint = `Remove ${st.length} tiles${lost.length ? ` · cuts off ${lost.length} building${lost.length === 1 ? '' : 's'}` : ''}`; }
   }
-  return <div className="placement-bar road-bar" role="dialog" aria-label="Roads">
-    <div className="placement-info"><b>🛤 Roads</b><span className="muted">{hint}</span></div>
-    <div className="seg" role="group" aria-label="Road tool">
-      {(['draw', 'upgrade', 'remove'] as const).map((t) => <button key={t} className={`btn ${r.tool === t ? 'primary' : 'ghost'}`} aria-pressed={r.tool === t} onClick={() => setRoadTool(t)}>{t === 'draw' ? '✏ Draw' : t === 'upgrade' ? '⬆ Upgrade' : '✕ Remove'}</button>)}
-    </div>
-    <HideButton />
-    <button className="btn ghost" onClick={() => stopRoads()}>Done</button>
-  </div>;
+  return <LineDock label="Roads" head={<b className="dock-title">🛤 Roads</b>} hint={hint} tool={r.tool} draw="Draw" />;
 }
 
-/** Hide the buildings while working on roads and lines, so nothing stands in the way. */
-function HideButton() {
-  const hidden = useStore((x) => x.hideBuildings);
-  return <button className={`btn ${hidden ? 'primary' : 'ghost'}`} aria-pressed={hidden} aria-label={hidden ? "Show buildings" : "Hide buildings"} title="Hide buildings while you work on roads and lines" onClick={toggleHideBuildings}>{hidden ? '🏠 Show' : '🏚 Hide'}</button>;
+/** The dock for roads and lines: what you're working on (with Hide and Done), what the next tap does, then the tools at thumb height. */
+function LineDock({ label, head, hint, tool, draw }: { label: string; head: React.ReactNode; hint: string; tool: Roading['tool']; draw: string }) {
+  const hidden = useStore((x) => x.hideBuildings), bad = /^(Can't|Dry)/.test(hint);
+  const tools = [['draw', '✏', draw], ['upgrade', '⬆', 'Upgrade'], ['remove', '✕', 'Remove']] as const;
+  return <div className="placement-bar line-dock" role="dialog" aria-label={label}>
+    <div className="dock-head">
+      {head}
+      <button className={`dock-hide${hidden ? ' on' : ''}`} aria-pressed={hidden} title="Hide buildings while you work on roads and lines" onClick={toggleHideBuildings}>{hidden ? '🏠 Show' : '🏚 Hide'}<span className="wide"> buildings</span></button>
+      <button className="btn ghost dock-done" onClick={() => stopRoads()}>Done</button>
+    </div>
+    <p className={`dock-hint${bad ? ' bad' : ''}`} aria-live="polite">{hint}</p>
+    <div className="dock-tools" role="group" aria-label={`${label} tool`}>
+      {tools.map(([t, i, n]) => <button key={t} className={`${tool === t ? 'on' : ''} ${t}`} aria-pressed={tool === t} onClick={() => setRoadTool(t)}><span aria-hidden>{i}</span>{n}</button>)}
+    </div>
+  </div>;
 }
 
 function PlacementBar({ s, p }: { s: GameState; p: Placement }) {
