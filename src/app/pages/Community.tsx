@@ -56,7 +56,7 @@ export default function CommunityPage() {
     : <NextStep icon="✓" tone="good" title="Everyone has a home" text="Hire more hands and their families will follow." />;
 
   return <div className="stack community-page">
-    <PageHead title="Your settlement" sub={`${here} famil${here === 1 ? 'y' : 'ies'} · ${num(pop)} people`} />
+    <PageHead title="Your settlement" sub={`${num(households(s))} famil${households(s) === 1 ? 'y' : 'ies'} · ${num(pop)} people`} />
     <div className="civ-tiles four">
       <StatTile icon="🏠" value={`${households(s)}/${room}`} label="homes filled" tone={waiting > free ? 'ok' : 'good'} />
       <StatTile icon="🍞" value={food >= 99 ? '99+' : num(food, 1)} label="days of food" tone={toneOf(food, 5, 2)} />
