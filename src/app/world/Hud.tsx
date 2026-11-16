@@ -11,7 +11,7 @@ import { known, throughput } from '../../simulation/core';
 import { buildingMargin } from '../../simulation/processing';
 import { DISCOVERIES, ERA_UNLOCK_TEXT, dailyGoals, dailyPrize, forecast, herdOf, homePlotPrice, housing, isManual, isReady, objective, chapterGate, gateProgress, type GateRow, PAGES, seedShortfall, upgradeCost } from '../../simulation/engine';
 import type { CivicService, GameState } from '../../simulation/types';
-import { act, cancelPlacement, confirmPlacement, rotatePlacement, go, placementUse, setRoadTool, toggleHideBuildings, setNet, setSurveying, setZoneTool, startPipes, type Prospect, startPlacement, stopProspect, stopRoads, stopZoning, type Zoning, useGame, usePageState, useStore, type Placement, type Roading } from '../../stores/game';
+import { act, cancelPlacement, confirmPlacement, rotatePlacement, go, placementUse, setRoadTool, toggleHideBuildings, setNet, undo, redo, canUndo, canRedo, setSurveying, setZoneTool, startPipes, type Prospect, startPlacement, stopProspect, stopRoads, stopZoning, type Zoning, useGame, usePageState, useStore, type Placement, type Roading } from '../../stores/game';
 import { WATER_LEVEL, WATER_PRICE, WATER_TIERS, wetTiers, NET_PRICE, NET_TIERS, NET_TOP, NET_QUALITY, linesOf, type UtilityNet, pipeRoute, pipeStretch, cutsOff, footprintOf, forSaleAround, isRoad, MAP, ROAD_GRADES, ROAD_H, roadRoute, roadPick, roadTilePrice, worldOf, patchesAround, placeProblem, plotSide, PROBLEM_TEXT } from '../../simulation/world';
 import { buildingPrice, moveFee, parcelPrice } from '../../simulation/engine';
 import { homePrice } from '../../simulation/community-state';
@@ -395,6 +395,8 @@ function LineDock({ label, head, hint, tool, draw }: { label: string; head: Reac
   return <div className="placement-bar line-dock" role="dialog" aria-label={label}>
     <div className="dock-head">
       {head}
+      <button className="dock-undo" aria-label="Undo" title="Undo (Ctrl/⌘ Z)" disabled={!canUndo()} onClick={() => undo()}>↶</button>
+      <button className="dock-undo" aria-label="Redo" title="Redo (Ctrl/⌘ Shift Z)" disabled={!canRedo()} onClick={() => redo()}>↷</button>
       <button className={`dock-hide${hidden ? ' on' : ''}`} aria-pressed={hidden} title="Hide buildings while you work on roads and lines" onClick={toggleHideBuildings}>{hidden ? '🏠 Show' : '🏚 Hide'}<span className="wide"> buildings</span></button>
       <button className="btn ghost dock-done" onClick={() => stopRoads()}>Done</button>
     </div>

@@ -896,3 +896,5 @@ body:has(.modal-bg) .shell .coach { display: none !important; }
 /* a camera flash when the farm photo is taken: gone in half a second, whatever happens */
 .snapping .world::after { content: ''; position: absolute; inset: 0; background: #fff; z-index: 20; pointer-events: none; animation: flash .5s ease-out forwards; }
 @keyframes flash { from { opacity: .85; } to { opacity: 0; } }
+.dock-undo { font: 700 18px var(--font); color: var(--ink); background: none; border: 1px solid var(--line); border-radius: 999px; width: 36px; min-height: 36px; padding: 0; cursor: pointer; flex: none; }
+.dock-undo:disabled { opacity: .35; cursor: default; }

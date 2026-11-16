@@ -2,7 +2,8 @@
 // the engine; subscribers re-render on a version counter at most ~5 times a second.
 import { useSyncExternalStore } from 'react';
 import { CONFIG } from '../simulation/config';
-import { advance, createGame, dispatch as engineDispatch } from '../simulation/engine';
+import { advance, createGame } from '../simulation/engine';
+import { dispatchEdit, undoEdit, undoable, type Edit } from '../simulation/undo';
 import { BUILDINGS, type RegionId } from '../simulation/config';
 import { FOOTPRINT, SERVICE_FOOTPRINT, findSpot, homesCentre, homeFootprint, plotSide, worldOf, chunkAt, roadRoute, pipeRoute, rotOf, buildingUse, type NetKind } from '../simulation/world';
 import { SERVICE_DEFS } from '../simulation/town-state';
@@ -62,6 +63,23 @@ export const buildingsHidden = () => !!store.roading && store.hideBuildings;
 export const toggleHideBuildings = () => set({ hideBuildings: !store.hideBuildings });
 export const setCrimeMap = (on: boolean) => set({ crimeMap: on });
 export const crimeMapOn = () => store.crimeMap;
+
+// ---------------------------------------------------------------- undo: map edits can be taken back for a game day
+let undos: Edit[] = [], redos: Edit[] = [];
+const engineDispatch = (s: GameState, a: Action) => { const { r, edit } = dispatchEdit(s, a); if (edit) { undos = [...undos, edit].slice(-30); redos = []; } return r; };
+const fresh = () => { undos = undos.filter((e) => undoable(store.game, e)); redos = redos.filter((e) => undoable(store.game, e)); };
+export const canUndo = () => (fresh(), undos.length > 0);
+export const canRedo = () => (fresh(), redos.length > 0);
+export function undo() {
+  fresh(); const e = undos.pop(); if (!e) return false;
+  undoEdit(store.game, e); redos.push(e); sfx('click'); toast('Undone', 'ok'); bump(); return true;
+}
+export function redo() {
+  fresh(); const e = redos.pop(); if (!e) return false;
+  const { r, edit } = dispatchEdit(store.game, e.action);
+  if (!r.ok) { toast(r.error); redos = []; } else if (edit) undos.push(edit);
+  sfx(r.ok ? 'click' : 'error'); bump(); return r.ok;
+}
 
 // ---------------------------------------------------------------- persistence (IndexedDB, localStorage fallback)
 
@@ -169,7 +187,7 @@ export async function importSave(file: File) {
 }
 
 export function newGame() {
-  store.game = createGame();
+  store.game = createGame(); undos = []; redos = [];
   set({ speed: 1, away: null, page: 'farm', v: store.v + 1 });
   saveTo('auto', true);
 }
@@ -179,7 +197,7 @@ export function newGame() {
 export const offlineOn = () => { try { return localStorage.getItem('agrarian.ui.offline') !== 'false'; } catch { return true; } };
 
 function startFrom(game: GameState, savedAt: number, paused = false) {
-  store.game = game;
+  store.game = game; undos = []; redos = [];
   set({ v: store.v + 1, page: 'farm', ...(paused ? { speed: 0 as Speed } : {}) });
   const elapsed = Math.floor((Date.now() - savedAt) / 1000);
   const total = Math.min(elapsed, CONFIG.offlineCapTicks);

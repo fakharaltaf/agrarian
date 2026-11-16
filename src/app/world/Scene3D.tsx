@@ -13,7 +13,7 @@ import { fieldMovable, timingFactor, fertility, growth, isMature, isReady } from
 import { priceUsd, stored } from '../../simulation/core';
 import { spreadNeed } from '../../simulation/agriculture';
 import type { GameState } from '../../simulation/types';
-import { getGame, getSpeed, moveGhost, placementUse, startZoning, stopZoning, zoneHover, zoneTap, type Zoning, prospectHover, prospectTap, roadHover, roadTap, roadDragStart, buildingsHidden, crimeMapOn, setCrimeMap, useStore, startProspect, startRoads, startPipes, stopProspect, stopRoads, type Placement, type Roading , getPage } from '../../stores/game';
+import { getGame, getSpeed, moveGhost, placementUse, startZoning, stopZoning, zoneHover, zoneTap, type Zoning, prospectHover, prospectTap, roadHover, roadTap, roadDragStart, buildingsHidden, crimeMapOn, setCrimeMap, useStore, undo, redo, canUndo, canRedo, startProspect, startRoads, startPipes, stopProspect, stopRoads, type Placement, type Roading , getPage } from '../../stores/game';
 import { featureEra, stageAtLeast } from '../../simulation/stages';
 import { preloadArt, artRevision, artModel, playClip } from './art';
 import { money, num, pct0 } from '../format';
@@ -324,6 +324,7 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
     const wheel = (e: WheelEvent) => { e.preventDefault(); zoomBy(Math.exp(-e.deltaY * 0.0015)); };
     const key = (e: KeyboardEvent) => {
       const R = rig.current;
+      if ((e.metaKey || e.ctrlKey) && /^[zy]$/i.test(e.key) && !(e.target as HTMLElement).closest('input, select, textarea')) { e.preventDefault(); if (e.shiftKey || /y/i.test(e.key)) redo(); else undo(); return; }
       if (!R || (e.target as HTMLElement).closest('input, select, textarea, [role=dialog]')) return;
       if (e.key === 'q' || e.key === 'Q') R.yawTo += Math.PI / 2;
       else if (e.key === 'e' || e.key === 'E') R.yawTo -= Math.PI / 2;
@@ -392,6 +393,7 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
       {failed && <div className="world-loading">Your browser could not start 3D graphics (WebGL). Try another browser or enable hardware acceleration.</div>}
       {hover && <div className="world-tip" style={{ left: hover.x + 14, top: hover.y + 14 }}>{hover.text.filter(Boolean).map((t, i) => <div key={i} className={i ? 'muted' : ''}>{t}</div>)}</div>}
       <div className="world-zoom">
+        {(canUndo() || canRedo()) && <><button className="icon-btn" aria-label="Undo" title="Undo your last build, road, line, move or removal (Ctrl/⌘ Z)" disabled={!canUndo()} onClick={() => undo()}>↶</button><button className="icon-btn" aria-label="Redo" title="Redo (Ctrl/⌘ Shift Z)" disabled={!canRedo()} onClick={() => redo()}>↷</button></>}
         <button className="icon-btn" aria-label="Zoom in" onClick={() => ctl().zoom(1.25)}>+</button>
         <button className="icon-btn" aria-label="Zoom out" onClick={() => ctl().zoom(0.8)}>−</button>
         <button className="icon-btn" aria-label="Rotate left (Q)" title="Rotate (Q)" onClick={() => ctl().rotate(1)}>⟲</button>
