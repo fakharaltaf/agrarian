@@ -81,6 +81,7 @@ export function App() {
         <TopBar onLedger={() => setLedger(true)} onLog={() => setDrawer(true)} onSettings={() => setSettings(true)} onHelp={() => setHelp(true)} warnings={warnings} bare={bare} />
         <div className="stage">
           <Hud />
+          <DatePill />
           {Page && (
             <section className="page-drawer" role="dialog" aria-label={PAGES.find((p) => p.id === current)?.label}>
               {(current === 'community' || current === 'town' || current === 'city' || current === 'region' || current === 'nation') && <SheetGrip />}
@@ -261,6 +262,12 @@ const LEDGER_GROUPS: [string, string[]][] = [
   ['People & world', ['community', 'town', 'city', 'region', 'nation', 'world']],
 ];
 
+/** The date, always in view at the bottom of the map, so a sped-up game keeps a sense of time. */
+function DatePill() {
+  const s = useGame(), c = clock(s.tick);
+  return <div className="date-pill" aria-live="off"><b>{c.season} {c.day}</b><span>Year {c.year}</span><span className="date-hour">{c.hour}</span></div>;
+}
+
 function TopBar({ onLog, onSettings, onHelp, onLedger, warnings, bare }: { onLog: () => void; onSettings: () => void; onHelp: () => void; onLedger: () => void; warnings: number; bare: boolean }) {
   const s = useGame();
   const speed = useStore(x => x.speed);
@@ -270,7 +277,7 @@ function TopBar({ onLog, onSettings, onHelp, onLedger, warnings, bare }: { onLog
   return <header className="topbar game-strip">
     <LogoMark size={28} title="Agrarian"/><div className="cash-wrap"><CashCounter /><HaulChip /></div>
     <button className="icon-btn" aria-label={speed ? 'Pause simulation' : 'Resume simulation'} onClick={()=>setSpeed(speed?0:1)}>{speed?'❚❚':'▶'}</button>
-    <button className="btn time-toggle" data-coach="speed" aria-label="Time controls" aria-expanded={time} onClick={()=>{setTime(!time);setMenu(false);}}><span className="tt-date"><b>{c.season.slice(0, 3)} {c.day}</b><small>Year {c.year}<i> · {c.hour}</i></small></span><span className="tt-speed">{speed ? `${speed}×` : '❚❚'} ▾</span></button>
+    <button className="btn time-toggle" data-coach="speed" aria-label="Time controls" aria-expanded={time} onClick={()=>{setTime(!time);setMenu(false);}}>{speed || 0}× ▾</button>
     {!bare && <button className="btn ledger-btn" aria-label="Ledger" data-coach="ledger" onClick={onLedger} title="All pages: fields, markets, finance and more">📚 Ledger</button>}
     <button className="icon-btn" aria-label="Farm menu" aria-expanded={menu} onClick={()=>{setMenu(!menu);setTime(false);}}>☰{warnings>0&&<span className="dot">{warnings}</span>}</button>
     {time && <div className="strip-popover">
