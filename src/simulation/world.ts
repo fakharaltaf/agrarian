@@ -506,6 +506,23 @@ export function roadStretch(w: RegionWorld, x: number, y: number): number[] {
   return out.filter((id, i) => i === 0 || degree(id) < 3);
 }
 
+/** The road tiles from a to b along your own roads (the shortest way), both lanes where it runs as a wide road; [] if they don't join. */
+export function roadPath(w: RegionWorld, a: [number, number], b: [number, number]): number[] {
+  const own = (x: number, y: number) => inMap(x, y) && !!w.roads[tileId(x, y)];
+  if (!own(a[0], a[1]) || !own(b[0], b[1])) return [];
+  const start = tileId(a[0], a[1]), goal = tileId(b[0], b[1]), prev = new Map<number, number>([[start, start]]), q = [start];
+  for (let h = 0; h < q.length && !prev.has(goal); h++) { const [x, y] = tileAt(q[h]); for (const [dx, dy] of STEPS) { const n = tileId(x + dx, y + dy); if (!prev.has(n) && own(x + dx, y + dy)) { prev.set(n, q[h]); q.push(n); } } }
+  if (!prev.has(goal)) return [];
+  const path: number[] = [];
+  for (let id = goal; ; id = prev.get(id)!) { path.push(id); if (id === start) break; }
+  const inBlock = (x: number, y: number) => own(x, y) && [[1, 1], [1, -1], [-1, 1], [-1, -1]].some(([i, j]) => own(x + i, y) && own(x, y + j) && own(x + i, y + j));
+  const out = new Set(path);
+  for (const id of path) { const [x, y] = tileAt(id); if (inBlock(x, y)) for (const [dx, dy] of STEPS) if (inBlock(x + dx, y + dy)) out.add(tileId(x + dx, y + dy)); } // a wide road: take its other lane too
+  return [...out];
+}
+/** What an upgrade or removal covers: the stretch under a tap, or just the part dragged along (from at to to). */
+export const roadPick = (w: RegionWorld, at: [number, number], to?: [number, number]) => (to && (to[0] !== at[0] || to[1] !== at[1]) ? roadPath(w, at, to) : roadStretch(w, at[0], at[1]));
+
 // ---------------------------------------------------------------- the river and irrigation channels
 
 const rivers = new Map<RegionId, Set<number>>();

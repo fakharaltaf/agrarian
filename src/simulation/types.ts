@@ -482,8 +482,8 @@ export type Action =
   | { type: 'surveyOil'; region: RegionId; at: [number, number] }
   | { type: 'drillOil'; region: RegionId; at: [number, number] }
   | { type: 'buildRoad'; region: RegionId; from: [number, number]; to: [number, number] }
-  | { type: 'removeRoad'; region: RegionId; at: [number, number] }
-  | { type: 'upgradeRoad'; region: RegionId; at: [number, number] }
+  | { type: 'removeRoad'; region: RegionId; at: [number, number]; /** dragged to here: only the road between */ to?: [number, number] }
+  | { type: 'upgradeRoad'; region: RegionId; at: [number, number]; to?: [number, number] }
   | { type: 'buildPipe'; region: RegionId; from: [number, number]; to: [number, number]; net?: import('./world').NetKind }
   | { type: 'upgradePipe'; region: RegionId; at: [number, number]; net?: import('./world').NetKind }
   | { type: 'removePipe'; region: RegionId; at: [number, number]; net?: import('./world').NetKind }

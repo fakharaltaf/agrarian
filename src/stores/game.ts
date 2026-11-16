@@ -29,6 +29,8 @@ interface Store {
   /** Placing something new or moving something: a ghost footprint the player positions on the map. */
   placing: Placement | null;
   roading: Roading | null;
+  /** while on the road and line tools: buildings hidden, so roads and lines are easy to see and work on */
+  hideBuildings: boolean;
   prospect: Prospect | null;
   zoning: Zoning | null;
 }
@@ -42,7 +44,7 @@ export type Prospect = { region: RegionId; hover?: [number, number]; survey?: bo
 export const placementUse = (p: Pick<Placement, 'action' | 'key' | 'kind'>) => p.kind === 'move' ? undefined : p.action.type === 'buildHomes' ? 'home' as const : p.action.type === 'buyPlot' || p.action.type === 'buyParcel' ? 'field' as const : p.action.type === 'build' ? buildingUse(store.game, p.action.building) : undefined;
 export type Placement = { kind: 'new' | 'move'; action: Action; region: RegionId; w: number; d: number; label: string; key?: string; at: [number, number]; /** quarter turns; w and d are already turned */ rot?: number; /** placing one of several: how many are left, of how many */ left?: number; total?: number };
 
-let store: Store = { game: createGame(), v: 0, speed: 1, toasts: [], away: null, catchUp: null, page: 'farm', ready: false, placing: null, roading: null, prospect: null, zoning: null };
+let store: Store = { game: createGame(), v: 0, speed: 1, toasts: [], away: null, catchUp: null, page: 'farm', ready: false, placing: null, roading: null, hideBuildings: false, prospect: null, zoning: null };
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((l) => l());
 const set = (patch: Partial<Store>) => {
@@ -54,6 +56,8 @@ const bump = () => set({ v: store.v + 1 });
 export const getGame = () => store.game;
 export const getSpeed = () => store.speed;
 export const getPage = () => store.page;
+export const buildingsHidden = () => !!store.roading && store.hideBuildings;
+export const toggleHideBuildings = () => set({ hideBuildings: !store.hideBuildings });
 
 // ---------------------------------------------------------------- persistence (IndexedDB, localStorage fallback)
 
@@ -280,8 +284,13 @@ export function roadTap(at: [number, number] | null) {
     if (act(R.pipe ? { type: 'buildPipe', region: R.region, from: R.from, to: at, net: R.pipe } : { type: 'buildRoad', region: R.region, from: R.from, to: at })) set({ roading: { ...store.roading!, from: at } }); // keep drawing from here
     return;
   }
-  act(R.pipe ? { type: R.tool === 'upgrade' ? 'upgradePipe' : 'removePipe', region: R.region, at, net: R.pipe } : { type: R.tool === 'upgrade' ? 'upgradeRoad' : 'removeRoad', region: R.region, at });
+  // a drag along a road (from where it started to here) takes only that part; a tap takes the whole stretch
+  const seg = !R.pipe && R.from && (R.from[0] !== at[0] || R.from[1] !== at[1]) ? { at: R.from, to: at } : { at };
+  if (R.from) set({ roading: { ...R, from: undefined } });
+  act(R.pipe ? { type: R.tool === 'upgrade' ? 'upgradePipe' : 'removePipe', region: R.region, at, net: R.pipe } : { type: R.tool === 'upgrade' ? 'upgradeRoad' : 'removeRoad', region: R.region, ...seg });
 }
+/** Start dragging along a road with the upgrade or remove tool. */
+export const roadDragStart = (at: [number, number]) => store.roading && set({ roading: { ...store.roading, from: at, hover: at } });
 export const moveGhost = (at: [number, number]) => store.placing && set({ placing: { ...store.placing, at } });
 /** Turn what is being placed a quarter turn clockwise (fields are square plots and do not turn). */
 export function rotatePlacement() {

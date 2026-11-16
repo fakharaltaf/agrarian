@@ -12,13 +12,13 @@ import { fieldMovable, timingFactor, fertility, growth, isMature, isReady } from
 import { priceUsd, stored } from '../../simulation/core';
 import { spreadNeed } from '../../simulation/agriculture';
 import type { GameState } from '../../simulation/types';
-import { getGame, getSpeed, moveGhost, placementUse, startZoning, stopZoning, zoneHover, zoneTap, type Zoning, prospectHover, prospectTap, roadHover, roadTap, startProspect, startRoads, startPipes, stopProspect, stopRoads, type Placement, type Roading , getPage } from '../../stores/game';
+import { getGame, getSpeed, moveGhost, placementUse, startZoning, stopZoning, zoneHover, zoneTap, type Zoning, prospectHover, prospectTap, roadHover, roadTap, roadDragStart, buildingsHidden, startProspect, startRoads, startPipes, stopProspect, stopRoads, type Placement, type Roading , getPage } from '../../stores/game';
 import { featureEra, stageAtLeast } from '../../simulation/stages';
 import { preloadArt, artRevision, artModel, playClip } from './art';
 import { money, num, pct0 } from '../format';
 import { Modal } from '../ui';
 import { layoutRegion, type Layout, type Lot, type Plot } from './layout';
-import { CHUNK, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, LAND_HA_PER_PATCH, MAP, hasAccess, riverTiles, riverX, tileId, roadRoute, roadStretch, pipeRoute, pipeStretch, plotSide, fieldWater, wetTiers, linesOf, NET_TOP, UTILITY_NETS, netReach, doorstep, footprintOf, type NetKind, type UtilityNet, tileAt, forSaleAround,  ownedSet, ROAD_H, ROAD_Y, chunkAt, chunkOrigin, clearCost, clearedSet, isRoad, patchesAround, placeProblem, worldOf } from '../../simulation/world';
+import { CHUNK, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, LAND_HA_PER_PATCH, MAP, hasAccess, riverTiles, riverX, tileId, roadRoute, roadStretch, roadPick, pipeRoute, pipeStretch, plotSide, fieldWater, wetTiers, linesOf, NET_TOP, UTILITY_NETS, netReach, doorstep, footprintOf, type NetKind, type UtilityNet, tileAt, forSaleAround,  ownedSet, ROAD_H, ROAD_Y, chunkAt, chunkOrigin, clearCost, clearedSet, isRoad, patchesAround, placeProblem, worldOf } from '../../simulation/world';
 import { animal, buildCivic, buildCommunityHome, buildLot, box, cached, cyl, farmhand, hauler, mat, mesh, PAL, person, tree, vehicle, type Model } from './models';
 import { haulOf, MARKET_X, marketRoute } from '../../simulation/hauling';
 import { landCostOf, oilOf, oilPremium, oilReading, struckFields, SURVEY_R, surveyedAt } from '../../simulation/oil';
@@ -171,6 +171,7 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
         if (Math.abs(R.glide.x - R.target.x) + Math.abs(R.glide.z - R.target.z) < 0.02 && Math.abs(R.glide.zoom - R.zoom) < 0.005) R.glide = undefined;
       }
       syncLots(R, L);
+      R.lots.visible = R.storageProps.visible = !buildingsHidden(); // the road and line tools can hide buildings
       syncFields(R, L);
       if (R.shot || now - lastCrops > 400) { syncCrops(R, L, s); lastCrops = now; } // a photo redraws crops at once
       syncSelection(R, L, live.current.selected);
@@ -205,7 +206,7 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
   useEffect(() => {
     const c = canvas.current!;
     const pts = new Map<number, { x: number; y: number }>();
-    let moved = 0, pinch = 0, lastHover = 0, downAt = 0;
+    let moved = 0, pinch = 0, lastHover = 0, downAt = 0, dragging = false;
     const ray = new THREE.Raycaster();
     const pickAt = (sx: number, sy: number) => {
       const R = rig.current;
@@ -241,7 +242,12 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
     const down = (e: PointerEvent) => {
       c.setPointerCapture(e.pointerId);
       pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
-      moved = 0; downAt = performance.now();
+      moved = 0; downAt = performance.now(); dragging = false;
+      const Rd = live.current.roading;
+      if (pts.size === 1 && Rd && !Rd.pipe && Rd.tool !== 'draw') { // upgrade or remove: pressing on a road starts picking a part of it
+        const r = c.getBoundingClientRect(), g = groundAt(e.clientX - r.left, e.clientY - r.top);
+        if (g && worldOf(getGame(), Rd.region).roads[tileId(g[0], g[1])]) { dragging = true; roadDragStart(g); }
+      }
       if (pts.size === 2) { const [a, b] = [...pts.values()]; pinch = Math.hypot(a.x - b.x, a.y - b.y); }
     };
     const move = (e: PointerEvent) => {
@@ -273,12 +279,14 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
         return;
       }
       moved += Math.abs(dx) + Math.abs(dy);
+      if (dragging) { const r = c.getBoundingClientRect(); roadHover(groundAt(e.clientX - r.left, e.clientY - r.top)); return; } // along the road, not panning
       if (moved > 4) { pan(dx, dy); setHover(null); }
     };
     const up = (e: PointerEvent) => {
       const r = c.getBoundingClientRect();
       if (pts.size === 1 && moved <= 4 && live.current.zoning) { const g = groundAt(e.clientX - r.left, e.clientY - r.top); zoneHover(g); zoneTap(g); pts.delete(e.pointerId); return; }
       if (pts.size === 1 && moved <= 4 && live.current.prospect) { const g = groundAt(e.clientX - r.left, e.clientY - r.top); if (e.pointerType === 'mouse' || (live.current.prospect.hover?.[0] === g?.[0] && live.current.prospect.hover?.[1] === g?.[1])) prospectTap(g); else prospectHover(g); pts.delete(e.pointerId); return; } // on touch: first tap shows the odds, second drills
+      if (pts.size === 1 && dragging) { const g = groundAt(e.clientX - r.left, e.clientY - r.top); dragging = false; pts.delete(e.pointerId); if (g) { roadHover(g); roadTap(g); } return; }
       if (pts.size === 1 && moved <= 4 && live.current.roading) { const g = groundAt(e.clientX - r.left, e.clientY - r.top); roadHover(g); roadTap(g); pts.delete(e.pointerId); return; }
       if (pts.size === 1 && moved <= 4 && live.current.placing) {
         ghostTo(e.clientX - r.left, e.clientY - r.top);
@@ -1274,6 +1282,9 @@ function syncRoadPreview(R: Rig, s: GameState, Rd: Roading | null) {
     if (Rd.from && Rd.hover) { const r = kind ? pipeRoute(s, R.region, Rd.from, Rd.hover, kind) : roadRoute(s, R.region, Rd.from, Rd.hover); ok = !!r; tiles = r ?? [Rd.hover]; }
     else if (Rd.hover) tiles = [Rd.hover];
     if (Rd.from) { const m = mesh(cached('road-start', () => new THREE.CylinderGeometry(0.3, 0.3, 0.6, 12)), mat(0xffc94d, { emissive: 0x403000 }), Rd.from[0] + 0.5, 0.3, Rd.from[1] + 0.5, false); R.roadPrev.add(m); }
+  } else if (Rd.hover && Rd.from && !kind) { // dragging along a road: only the part between
+    tiles = roadPick(w, Rd.from, Rd.hover).map(tileAt);
+    ok = tiles.length > 0;
   } else if (Rd.hover) { // on the main road: the whole road, since that is what an upgrade covers
     tiles = kind ? pipeStretch(w, Rd.hover[0], Rd.hover[1], kind).map(tileAt) : isRoad(Rd.hover[1]) ? (Rd.tool === 'remove' ? [] : Array.from({ length: MAP.w * 2 }, (_, i) => [MAP.x0 + (i >> 1), ROAD_Y + (i & 1)] as [number, number])) : roadStretch(w, Rd.hover[0], Rd.hover[1]).map(tileAt);
     ok = tiles.length > 0;
@@ -1856,7 +1867,7 @@ function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el
     if (x < -60 || y < -20 || x > W + 60 || y > H + 20) continue;
     want.push({ key: `oil${f.i}`, x, y, cls: 'wl-name', html: `🛢 ${f.left >= 1000 ? `${Math.round(f.left / 1000)}k` : Math.round(f.left)} bbl left${f.wells.length > f.balanced ? ` · ⚠ ${f.wells.length}/${f.balanced} wells` : ''}` });
   }
-  if (zoomed) for (const m of R.models) {
+  if (zoomed && !buildingsHidden()) for (const m of R.models) {
     const lot = m.lot;
     if (lot.key.startsWith('community:')) continue; // rows of homes read at a glance; a label on each is just clutter
     const [x, y] = project(lot.x + lot.w / 2, 0, lot.y + lot.d + 0.3);

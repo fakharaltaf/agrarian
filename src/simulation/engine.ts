@@ -12,7 +12,7 @@ import {
 } from './config';
 import { buildingDivision, clamp, debt, factoryCrop, equity, freeSpace, has, known, log, marketWage, nextId, post, random, round2, todayBook, lean } from './core';
 import { addGoods, canGrow, clearField, fertilizeField, fieldsTick, frostNight, harvestField, isManual, isReady, newField, plantField, spoilageDaily } from './agriculture';
-import { reconcileWorld, unlink, accessNote, cutsOff, buyable, chunksIn, connect, placedIn, touch, useOf, buildingUse, INDUSTRY_TO_GROW, WATER_LEVEL, NET_PRICE, NET_TIERS, NET_TOP, linesOf, pipeRoute, pipeStretch, hasWater, isRoad, MAP, ROAD_GRADES, ROAD_H, roadRoute, roadStretch, roadTilePrice, tileId, canPlaceNew, LAND_HA_PER_PATCH,  own, ownedSet, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, clearCost, clearedSet, FOOTPRINT, footprintOf, forget, rotOf, turned, MOVE_DOWNTIME, placeNew, placeProblem, plotSide, PROBLEM_TEXT, seedWorld, TIMBER_PER_PATCH, worldOf } from './world';
+import { reconcileWorld, unlink, accessNote, cutsOff, buyable, chunksIn, connect, placedIn, touch, useOf, buildingUse, INDUSTRY_TO_GROW, WATER_LEVEL, NET_PRICE, NET_TIERS, NET_TOP, linesOf, pipeRoute, pipeStretch, hasWater, isRoad, MAP, ROAD_GRADES, ROAD_H, roadRoute, roadPick, roadTilePrice, tileId, canPlaceNew, LAND_HA_PER_PATCH,  own, ownedSet, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, clearCost, clearedSet, FOOTPRINT, footprintOf, forget, rotOf, turned, MOVE_DOWNTIME, placeNew, placeProblem, plotSide, PROBLEM_TEXT, seedWorld, TIMBER_PER_PATCH, worldOf } from './world';
 import { buyAnimals, livestockDaily, sellAnimals } from './livestock';
 import { claimDaily, startDay } from './daily';
 import { createMarkets, drawWeather, executeBuy, executeSell, quoteBuy, macroDaily, marketsDaily, marketsTick, priceFromInv } from './markets';
@@ -608,8 +608,8 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       return ok(`Removed ${run.length} tiles of water line.${dry.length ? ` ${dry.length === 1 ? `Field ${dry[0]} has` : `${dry.length} fields have`} no water now: dig a new ditch to the river.` : ''}`);
     }
     case 'removeRoad': {
-      const w = worldOf(s, a.region), stretch = roadStretch(w, a.at[0], a.at[1]);
-      if (!stretch.length) return fail(isRoad(a.at[1]) ? 'The main road stays.' : 'There is no road there.');
+      const w = worldOf(s, a.region), stretch = roadPick(w, a.at, a.to);
+      if (!stretch.length) return fail(isRoad(a.at[1]) ? 'The main road stays.' : a.to ? 'Drag along one road, from one point of it to another.' : 'There is no road there.');
       const lost = cutsOff(s, a.region, stretch);
       for (const id of stretch) delete w.roads[id];
       const gone = new Set(stretch);
@@ -627,8 +627,8 @@ export function dispatch(s: GameState, a: Action): ActionResult {
         w.main++;
         return ok(`The main road is now a ${ROAD_GRADES[w.main].toLowerCase()}.`);
       }
-      const stretch = roadStretch(w, a.at[0], a.at[1]);
-      if (!stretch.length) return fail('There is no road there.');
+      const stretch = roadPick(w, a.at, a.to);
+      if (!stretch.length) return fail(a.to ? 'Drag along one road, from one point of it to another.' : 'There is no road there.');
       const grade = Math.min(3, Math.min(...stretch.map((id) => w.roads[id])) + 1), todo = stretch.filter((id) => w.roads[id] < grade);
       if (!todo.length) return fail('This road is already paved.');
       const cost = roadTilePrice(s, grade) * todo.length;

@@ -11,8 +11,8 @@ import { known, throughput } from '../../simulation/core';
 import { buildingMargin } from '../../simulation/processing';
 import { DISCOVERIES, ERA_UNLOCK_TEXT, dailyGoals, dailyPrize, forecast, herdOf, homePlotPrice, housing, isManual, isReady, objective, chapterGate, gateProgress, type GateRow, PAGES, seedShortfall, upgradeCost } from '../../simulation/engine';
 import type { CivicService, GameState } from '../../simulation/types';
-import { act, cancelPlacement, confirmPlacement, rotatePlacement, go, placementUse, setRoadTool, setNet, setSurveying, setZoneTool, startPipes, type Prospect, startPlacement, stopProspect, stopRoads, stopZoning, type Zoning, useGame, usePageState, useStore, type Placement, type Roading } from '../../stores/game';
-import { WATER_LEVEL, WATER_PRICE, WATER_TIERS, wetTiers, NET_PRICE, NET_TIERS, NET_TOP, NET_QUALITY, linesOf, type UtilityNet, pipeRoute, pipeStretch, cutsOff, footprintOf, forSaleAround, isRoad, MAP, ROAD_GRADES, ROAD_H, roadRoute, roadStretch, roadTilePrice, worldOf, patchesAround, placeProblem, plotSide, PROBLEM_TEXT } from '../../simulation/world';
+import { act, cancelPlacement, confirmPlacement, rotatePlacement, go, placementUse, setRoadTool, toggleHideBuildings, setNet, setSurveying, setZoneTool, startPipes, type Prospect, startPlacement, stopProspect, stopRoads, stopZoning, type Zoning, useGame, usePageState, useStore, type Placement, type Roading } from '../../stores/game';
+import { WATER_LEVEL, WATER_PRICE, WATER_TIERS, wetTiers, NET_PRICE, NET_TIERS, NET_TOP, NET_QUALITY, linesOf, type UtilityNet, pipeRoute, pipeStretch, cutsOff, footprintOf, forSaleAround, isRoad, MAP, ROAD_GRADES, ROAD_H, roadRoute, roadPick, roadTilePrice, worldOf, patchesAround, placeProblem, plotSide, PROBLEM_TEXT } from '../../simulation/world';
 import { buildingPrice, moveFee, parcelPrice } from '../../simulation/engine';
 import { homePrice } from '../../simulation/community-state';
 import { servicePrice } from '../../simulation/town-state';
@@ -355,6 +355,7 @@ function UtilityBar({ s, r }: { s: GameState; r: Roading }) {
     <div className="seg" role="group" aria-label="Line tool">
       {(['draw', 'upgrade', 'remove'] as const).map((t) => <button key={t} className={`btn ${r.tool === t ? 'primary' : 'ghost'}`} aria-pressed={r.tool === t} onClick={() => setRoadTool(t)}>{t === 'draw' ? '✏ Lay' : t === 'upgrade' ? '⬆ Upgrade' : '✕ Remove'}</button>)}
     </div>
+    <HideButton />
     <button className="btn ghost" onClick={() => stopRoads()}>Done</button>
   </div>;
 }
@@ -377,6 +378,7 @@ function PipeBar({ s, r }: { s: GameState; r: Roading }) {
     <div className="seg" role="group" aria-label="Water line tool">
       {(['draw', 'upgrade', 'remove'] as const).map((t) => <button key={t} className={`btn ${r.tool === t ? 'primary' : 'ghost'}`} aria-pressed={r.tool === t} onClick={() => setRoadTool(t)}>{t === 'draw' ? '✏ Dig' : t === 'upgrade' ? '⬆ Upgrade' : '✕ Remove'}</button>)}
     </div>
+    <HideButton />
     <button className="btn ghost" onClick={() => stopRoads()}>Done</button>
   </div>;
 }
@@ -392,8 +394,8 @@ function RoadBar({ s, r }: { s: GameState; r: Roading }) {
     hint = w.main >= 3 ? 'The main road is already paved' : `Whole main road → ${ROAD_GRADES[w.main + 1].toLowerCase()} · ${money(roadTilePrice(s, w.main + 1) * MAP.w * ROAD_H)}`;
     if (r.tool === 'remove') hint = 'The main road stays';
   } else {
-    const st = h ? roadStretch(w, h[0], h[1]) : [];
-    if (!st.length) hint = r.tool === 'upgrade' ? 'Tap a road to upgrade that stretch (or the main road)' : 'Tap a stretch of road to remove it';
+    const st = h ? (r.from ? roadPick(w, r.from, h) : roadPick(w, h)) : [];
+    if (!st.length) hint = r.tool === 'upgrade' ? 'Tap a road to upgrade that stretch, or drag along it to pick part of it' : 'Tap a road to remove that stretch, or drag along it to pick part of it';
     else if (r.tool === 'upgrade') { const g = Math.min(3, Math.min(...st.map((id) => w.roads[id])) + 1), n = st.filter((id) => w.roads[id] < g).length; hint = n ? `${n} tiles → ${ROAD_GRADES[g].toLowerCase()} · ${money(roadTilePrice(s, g) * n)}` : 'Already paved'; }
     else { const lost = cutsOff(s, r.region, st); hint = `Remove ${st.length} tiles${lost.length ? ` · cuts off ${lost.length} building${lost.length === 1 ? '' : 's'}` : ''}`; }
   }
@@ -402,8 +404,15 @@ function RoadBar({ s, r }: { s: GameState; r: Roading }) {
     <div className="seg" role="group" aria-label="Road tool">
       {(['draw', 'upgrade', 'remove'] as const).map((t) => <button key={t} className={`btn ${r.tool === t ? 'primary' : 'ghost'}`} aria-pressed={r.tool === t} onClick={() => setRoadTool(t)}>{t === 'draw' ? '✏ Draw' : t === 'upgrade' ? '⬆ Upgrade' : '✕ Remove'}</button>)}
     </div>
+    <HideButton />
     <button className="btn ghost" onClick={() => stopRoads()}>Done</button>
   </div>;
+}
+
+/** Hide the buildings while working on roads and lines, so nothing stands in the way. */
+function HideButton() {
+  const hidden = useStore((x) => x.hideBuildings);
+  return <button className={`btn ${hidden ? 'primary' : 'ghost'}`} aria-pressed={hidden} aria-label={hidden ? "Show buildings" : "Hide buildings"} title="Hide buildings while you work on roads and lines" onClick={toggleHideBuildings}>{hidden ? '🏠 Show' : '🏚 Hide'}</button>;
 }
 
 function PlacementBar({ s, p }: { s: GameState; p: Placement }) {
