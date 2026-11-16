@@ -1,54 +1,90 @@
 import { useState } from 'react';
-import { act,go,useGame } from '../../stores/game';
-import { communityOf,population,workingAdults } from '../../simulation/community-state';
-import { cityOf,POLICE_CHARTERS,type PoliceCharter,type ZoneType } from '../../simulation/city-state';
-import { cityTrainingCost,policeReformCost,zoneCost } from '../../simulation/stages/city';
-import { districtPopulation,DISTRICT_NAMES,localEmployment,SERVICE_DEFS,serviceJobs,servicePrice,townOf,townWorkforce } from '../../simulation/town-state';
-import { plannedServiceCost,serviceDailyCost } from '../../simulation/stages/town';
-import { DISTRICT_IDS,type DistrictId } from '../../simulation/types';
+import { act, go, setCrimeMap, startPipes, useGame } from '../../stores/game';
+import { population } from '../../simulation/community-state';
+import { cityOf, POLICE_CHARTERS, type PoliceCharter } from '../../simulation/city-state';
+import { caseCost, cityTrainingCost, policeReformCost } from '../../simulation/stages/city';
+import { serviceJobs, servicePrice, serviceRadius, townOf } from '../../simulation/town-state';
+import { serviceDailyCost } from '../../simulation/stages/town';
 import { GOODS } from '../../simulation/config';
-import { Bar,Confirm,Info,Modal,PageHead,Seg } from '../ui';
-import { money,num,pct0 } from '../format';
+import { Bar, Info, Modal, PageHead, Seg } from '../ui';
+import { money, num, pct0 } from '../format';
 import { portrait } from '../world/portrait';
+import { BuildCard, NextStep, SettingRow, StatTile, toneOf } from './civic';
 
-const SERVICES=['sanitation','lighting','police'] as const;
-export default function CityPage(){
-  const s=useGame(),v=cityOf(s),t=townOf(s),c=communityOf(s);
-  const [district,setDistrict]=useState<DistrictId>('farmgate'),[tab,setTab]=useState<'care'|'district'|'justice'>('care'),[reform,setReform]=useState(false);
-  const charters=(changing=false)=><div className="charter-grid city-charters">{(Object.keys(POLICE_CHARTERS) as PoliceCharter[]).map(id=>{const d=POLICE_CHARTERS[id];return <article className="charter-tile" key={id}><div className="charter-crest">{d.icon}</div><h3>{d.name}</h3><strong>{id==='watch'?'3 staff · trust-led':id==='professional'?'6 staff · trained':'9 staff · strong control'}</strong><span>{id==='watch'?'Schools & happy homes':id==='professional'?'Balanced cost & freedom':'Higher cost · less happiness'}</span><button className="btn primary" aria-label={`${changing?'Reform':'Choose'} ${d.name}`} disabled={changing&&(v.charter===id||t.cash<policeReformCost(s))} onClick={()=>{if(act(changing?{type:'changePolice',charter:id}:{type:'startCity',charter:id}))setReform(false);}}>{changing?'Reform':'Choose'}</button></article>;})}</div>;
-  if(!v.active)return <Modal title="A city worth protecting" onClose={()=>go('farm')}><div className="charter-heading"><b>Your safety charter</b><span>Reversible · {money(policeReformCost(s))} + 7 days reform</span></div>{charters()}<div className="charter-heading"><b>One district · {money(servicePrice(s,'sanitation')+servicePrice(s,'lighting'))}</b><span>Utilities · {money(serviceDailyCost(s,'sanitation')+serviceDailyCost(s,'lighting'))}/day + station if chosen</span></div><p className="muted">Jobs and schools prevent crime too. No military commitment.</p></Modal>;
-  const pop=districtPopulation(s),d=v.districts[district],upkeep=plannedServiceCost(s);
-  const shortage=t.services.some(b=>b.active&&b.staffed<serviceJobs(s,b.type)*b.count)&&townWorkforce(s)<=t.publicJobs;
-  const service=SERVICES.find(type=>type!=='police'&&(d[type]<.9))??(v.crime>.1&&d.police<.9?'police':null);
-  // Low coverage with enough buildings means they aren't running (no money or no staff): building more only deepens the hole.
-  const built=service?t.services.filter(b=>b.type===service&&b.district===district&&b.active).reduce((n,b)=>n+SERVICE_DEFS[b.type].capacity*b.count,0):0;
-  const starved=!!service&&built>=pop[district]*.9;
-  const unfunded=t.services.some(b=>b.active&&!b.funded);
-  const existing=service?t.services.find(b=>b.type===service&&b.district===district&&(starved||!b.active||!b.funded||b.staffed<serviceJobs(s,b.type)*b.count))??t.services.find(b=>b.type===service&&b.district===district):undefined;
-  const project=service&&!existing?servicePrice(s,service):0;
-  const target=project+(upkeep+(service&&!existing?serviceDailyCost(s,service):0))*7;
-  const next=pop[district]===0?'homes':starved?(unfunded&&t.cash<upkeep*7?'fund':existing&&!existing.active?'resume':'homes'):t.cash<target?'fund':shortage?'homes':existing&&!existing.active?'resume':existing&&(!existing.funded||existing.staffed<serviceJobs(s,existing.type)*existing.count)?'wait':service?'build':'grow';
-  const amount=Math.ceil(Math.max(0,target-t.cash)/100)*100;
-  const primary=()=>{if(next==='fund'&&amount>s.cash){go(s.corp.incorporated?'corporation':'finance');return;}if(next==='fund')act({type:'fundTown',amount,direction:'toTown'});else if(next==='homes'||next==='grow')go('community');else if(next==='resume'&&existing)act({type:'toggleService',serviceId:existing.id});else if(service)act({type:'buildService',service,district});};
-  const label=next==='fund'?(amount>s.cash?'🪙 Review project funding':'🪙 Fund planned services'):next==='homes'?'🏘️ Homes for civic staff':next==='wait'?'⏱ Opens next morning':next==='resume'?`Resume ${SERVICE_DEFS[service!].name}`:next==='build'?`Build ${SERVICE_DEFS[service!].name}`:'🏘️ Grow the neighbourhood';
-  const nextCost=next==='fund'?amount:next==='build'?servicePrice(s,service!):0;
-  const meanCrime=v.crimeHistory.length?v.crimeHistory.reduce((n,x)=>n+x,0)/v.crimeHistory.length:v.crime;
-  return <div className="stack town-page city-page"><PageHead title="City watch"/>
-    <div className="town-purse"><b>🪙 {money(t.cash)}</b><span>🛡 {pct0(meanCrime)} crime</span><Info text="Seven completed civic-day crime observations keep the safety signal steady at high speed. Actual incidents and daily coverage use the underlying daily state. Utilities and officers draw paid adults from the same public workforce as schools. Company cash remains separate."/></div>
-    <button className="btn primary community-next" data-coach="city-next" disabled={next==='wait'||next!=='fund'&&nextCost>t.cash} onClick={primary}><span>{label}</span><b>{nextCost?money(nextCost):'Homes & jobs'}</b></button>
-    <div className="town-districts" aria-label="City neighbourhood">{DISTRICT_IDS.map(id=><button className={`btn ${id===district?'gold':'ghost'}`} aria-pressed={id===district} key={id} onClick={()=>setDistrict(id)}><span>{DISTRICT_NAMES[id]}</span><small>{num(pop[id])}</small></button>)}</div>
-    <div className="community-strip" data-coach="city-safety"><span><b>🚿 {pct0(d.sanitation)}</b><small>sanitation</small></span><span><b>⚡ {pct0(d.lighting)}</b><small>lighting</small></span><span><b>🛡 {pct0(d.police)}</b><small>watch</small></span></div>
-    <div data-coach="city-decisions"><Seg label="City decisions" value={tab} onChange={setTab} options={[{v:'care',label:'Care'},{v:'district',label:'District'},{v:'justice',label:'Justice'}]}/></div>
-    {tab==='care'&&<div className="town-services">{SERVICES.filter(type=>type!=='police'||v.crime>=.1||t.services.some(b=>b.type==='police')||t.services.some(b=>b.type==='sanitation')).map(type=>{
-      const def=SERVICE_DEFS[type],built=t.services.find(b=>b.type===type&&b.district===district),price=servicePrice(s,type),image=portrait(`civic:${type}`);
-      const payoff=type==='sanitation'?'Healthier homes':type==='lighting'?'Safer, lit streets':`${POLICE_CHARTERS[v.charter!].name} · trained response`;
-      return <article className="town-service" key={type}><div className="town-portrait">{image&&<img src={image} alt=""/>}<b>{def.icon}</b></div><div className="town-service-body"><h3>{def.name} {built&&<small>×{built.count}</small>}</h3><strong>{def.capacity} residents · {payoff}</strong><span>👥 {serviceJobs(s,type)} jobs · ⚡ {def.kwh} kWh/day</span><Bar value={d[type]} label={`${def.name} coverage`}/><span>{money(price)} → {money(serviceDailyCost(s,type))}/day</span><button className="btn primary" disabled={price>t.cash||pop[district]===0} onClick={()=>act({type:'buildService',service:type,district})}>Build</button></div>{built&&<div className="town-service-status"><span>{!built.active?'Paused':built.funded?`${built.staffed}/${serviceJobs(s,type)*built.count} paid staff`: 'Needs funding or staff'}</span><button className="btn ghost" onClick={()=>act({type:'toggleService',serviceId:built.id})}>{built.active?'Pause':'Resume'}</button></div>}</article>;
-    })}<article className="city-case"><h3>🪙 Delegate the public purse</h3><span>{money(upkeep)}/day → funded services</span><button className={`btn ${v.autoFund?'gold':'ghost'}`} aria-pressed={v.autoFund} onClick={()=>act({type:'setCityFunding',enabled:!v.autoFund})}>{v.autoFund?'Automatic advances · on':'Enable automatic advances'}</button><Info text="Optional company advances top up fourteen days of planned upkeep, once daily. Each transfer is capped at 20% of current company cash and respects your automation cash reserve. These are repayable public loans, not free revenue. No borrowing occurs automatically."/></article><button className="btn ghost" onClick={()=>go('town')}>🪙 Public budget & schools</button></div>}
-    {tab==='district'&&<div className="stack"><div className="community-strip"><span><b>☺ {pct0(c.happiness)}</b><small>happiness</small></span><span><b>👥 {num(localEmployment(s))}/{num(workingAdults(s))}</b><small>adult jobs</small></span><span><b>📚 {pct0(t.education)}</b><small>schooling</small></span></div><details className="town-budget"><summary>👥 Neighbouring employers · {num(v.neighbourJobs)} jobs</summary><div className="stack"><strong>{money(v.neighbourPayroll)} paid today</strong>{v.employers.length?v.employers.map(e=><div className="town-cash-flow" key={e.id}><span>{s.competitors.find(b=>b.id===e.id)?.name??'Local employer'}<b>{e.jobs} jobs</b></span><span>Wages to households<b>{money(e.wages)}</b></span></div>):<span>No neighbouring hires today</span>}<Info text="These wages come from competitors’ existing, already-charged labour bills. Public services and your factories get resident adults first; remaining adults can take neighbouring jobs. Taxes collect only from real wages. A 1.1× offer can attract an employed resident to your crew; wages already earned are retained."/></div></details><h3>Zone · {DISTRICT_NAMES[district]}</h3><div className="city-zones">{(['farm','residential','industrial'] as ZoneType[]).map(zone=><Confirm key={zone} label={`${zone==='farm'?'🌾':zone==='residential'?'🏠':'⚙'} ${zone}${d.zone===zone?' ✓':''}`} title={`Rezone ${DISTRICT_NAMES[district]}?`} body={<> {money(zoneCost(s))} public works. {zone==='industrial'?'+5% industry per resident share; happiness −0.4 points/day.':zone==='residential'?'+0.4 happiness points/day per resident share; industry −5%.':'No industry bonus or zoning happiness change.'} Existing homes stay.</>} disabled={d.zone===zone||t.cash<zoneCost(s)} className={`btn ${d.zone===zone?'gold':'ghost'}`} onConfirm={()=>act({type:'setZone',district,zone})}/>)}</div><Info text="Zoning bonuses are weighted by the residents living in each district. Empty districts give no free productivity. Industry always consumes the full recipe inputs. Homes and people are never removed by rezoning."/><button className="btn" onClick={()=>go('town')}>Schools, water & healthcare</button><button className="btn" onClick={()=>go('community')}>Homes & food</button></div>}
-    {tab==='justice'&&<div className="stack" data-coach="city-justice"><h3>{POLICE_CHARTERS[v.charter!].icon} {POLICE_CHARTERS[v.charter!].name}</h3><div className="row wrap"><button className="btn" disabled={s.tick<v.reformUntil} onClick={()=>setReform(true)}>Change charter</button><Confirm label={`Train · ${money(cityTrainingCost(s))}`} title="Train your officers?" body={<> {money(cityTrainingCost(s))} from the public treasury · 30 days. Suppression training {pct0(v.training)} → {pct0(v.training<1.25?1.25:1.5)}. Staff and recurring costs still apply.</>} disabled={v.training>=1.5||v.trainingUntil>=0||t.cash<cityTrainingCost(s)||!t.services.some(b=>b.type==='police'&&b.active)} onConfirm={()=>act({type:'trainPolice'})}/></div><span>Training {pct0(v.training)} {v.trainingUntil>=0?`·${Math.ceil((v.trainingUntil-s.tick)/24)} days left`:''}</span><Seg label="Default civic response" value={v.justice} onChange={policy=>act({type:'setJustice',policy})} options={[{v:'rehabilitate',label:'Rehabilitate'},{v:'punish',label:'Punish'}]}/><Info text={`Cases last seven days, then use your chosen default only if the public treasury can afford it. Rehabilitation: ${money(250*s.macro.cpi)}, adds 2.5 prevention points that slowly decay. Punishment: ${money(100*s.macro.cpi)}, crime −5 points now, happiness −1 point. Jobs and schools prevent incidents without waiting for cases.`}/>
-      {v.case?<article className="city-case"><h3>{v.case.kind==='gang'?'⚖':'📦'} {v.case.kind} · open case</h3><strong>{num(v.case.lost)} {GOODS[v.case.good].name} lost</strong><span>{Math.max(0,Math.ceil((v.case.deadline-s.tick)/24))} days to respond</span><div className="row wrap">{(['rehabilitate','punish'] as const).map(answer=><button className="btn primary" key={answer} disabled={t.cash<(answer==='rehabilitate'?250:100)*s.macro.cpi} onClick={()=>act({type:'resolveCityCase',answer})}>{answer==='rehabilitate'?'Rehabilitate':'Punish'} · {money((answer==='rehabilitate'?250:100)*s.macro.cpi)}</button>)}</div></article>:<div className="city-case"><b>🛡 No open case</b><span>{v.solved} resolved · {v.rehabilitated} rehabilitated</span></div>}
-      <Bar value={1-meanCrime} label="Public safety"/><small>{num(population(s))} residents · prevention {pct0(v.prevention)}</small>
-    </div>}
-    {reform&&<Modal title="Reform the watch" onClose={()=>setReform(false)}><div className="charter-heading"><b>{money(policeReformCost(s))} · 7 days without suppression</b><span>Existing officers remain paid.</span></div>{charters(true)}</Modal>}
+const CHARTER_LINE: Record<PoliceCharter, [string, string]> = {
+  watch: ['3 staff a watchhouse · neighbours keep watch', 'Works best in a happy, schooled town'],
+  professional: ['6 staff a watchhouse · trained officers', 'Balanced cost and freedom'],
+  strict: ['9 staff a watchhouse · firm control', 'Cuts the most crime · families less happy'],
+};
+const CASE_LOOK = { theft: ['📦', 'Theft'], smuggling: ['🚚', 'Smuggling'], gang: ['⚠', 'A gang moved in'] } as const;
+
+export default function CityPage() {
+  const s = useGame(), v = cityOf(s), t = townOf(s);
+  const [reform, setReform] = useState(false);
+  const charters = (changing: boolean) => <div className="charter-grid city-charters">{(Object.keys(POLICE_CHARTERS) as PoliceCharter[]).map((id) => {
+    const d = POLICE_CHARTERS[id];
+    return <article className="charter-tile" key={id}><div className="charter-crest">{d.icon}</div><h3>{d.name}</h3><strong>{CHARTER_LINE[id][0]}</strong><span>{CHARTER_LINE[id][1]}</span>
+      <button className="btn primary" aria-label={`${changing ? 'Reform to' : 'Choose'} ${d.name}`} disabled={changing && (v.charter === id || s.cash < policeReformCost(s))} onClick={() => { if (act(changing ? { type: 'changePolice', charter: id } : { type: 'startCity', charter: id })) setReform(false); }}>{changing ? (v.charter === id ? 'Current' : `Reform · ${money(policeReformCost(s))}`) : 'Choose'}</button></article>;
+  })}</div>;
+
+  if (!v.active) return <div className="town-page"><Modal title="A city worth protecting" onClose={() => go('farm')}>
+    <div className="civ-intro"><img src={portrait('civic:police')} alt="" /><p>Your town is becoming a city. More people and more wealth bring crime: thefts from your stores, smugglers, even gangs.</p></div>
+    <ol className="civ-steps">
+      <li><b>Lit streets are safer:</b> homes on your power lines see less crime.</li>
+      <li><b>A watchhouse</b> cuts crime on the streets within its reach. Place it where the 🛡 crime map shows red.</li>
+      <li><b>Jobs, schools and happy homes</b> prevent crime before it starts. The farm pays for the watch.</li>
+    </ol>
+    <div className="charter-heading"><b>How will your city keep order?</b><span>You can reform it later · {money(policeReformCost(s))}</span></div>
+    {charters(false)}
+  </Modal></div>;
+
+  const pop = population(s), homes = v.homes ?? [], families = homes.reduce((n, h) => n + h.families, 0);
+  const unsafe = families ? homes.filter((h) => (v.homeCrime?.[h.id] ?? 0) > 0.2).reduce((n, h) => n + h.families, 0) / families : 0;
+  const lit = t.power ?? 0, stations = t.services.filter((b) => b.type === 'police'), charter = POLICE_CHARTERS[v.charter ?? 'watch'];
+  const idle = stations.find((b) => b.active && b.staffed < serviceJobs(s, 'police') * b.count), paused = stations.find((b) => !b.active);
+  const price = servicePrice(s, 'police'), place = () => act({ type: 'buildService', service: 'police', district: 'farmgate' });
+  const showMap = () => { setCrimeMap(true); go('farm'); };
+  const days = v.case ? Math.max(0, Math.ceil((v.case.deadline - s.tick) / 24)) : 0;
+
+  const next = v.case
+    ? <NextStep icon={CASE_LOOK[v.case.kind][0]} tone="bad" title={`${CASE_LOOK[v.case.kind][1]} · ${num(v.case.lost)} ${GOODS[v.case.good].name.toLowerCase()} stolen`}
+      text={<>{v.case.kind === 'gang' ? 'Families grow unhappier each day until you answer. ' : v.case.kind === 'smuggling' ? 'Town shops buy 30% less from you until you answer. ' : ''}{days} day{days === 1 ? '' : 's'} left, then your default ({v.justice === 'rehabilitate' ? 'rehabilitate' : 'punish'}) applies.</>}
+      action={<div className="row wrap civ-case-acts">{(['rehabilitate', 'punish'] as const).map((answer) => <button key={answer} className={`btn ${answer === 'rehabilitate' ? 'primary' : 'ghost'}`} disabled={s.cash < caseCost(s, answer)} title={answer === 'rehabilitate' ? 'Builds lasting prevention' : 'Crime drops now; families a little less happy'} onClick={() => act({ type: 'resolveCityCase', answer })}>{answer === 'rehabilitate' ? 'Rehabilitate' : 'Punish'} · {money(caseCost(s, answer))}</button>)}</div>} />
+    : paused ? <NextStep icon="⏸" tone="bad" title="A watchhouse is closed" text="Its streets have no watch until you reopen it." action={<button className="btn primary" onClick={() => act({ type: 'toggleService', serviceId: paused.id })}>Reopen</button>} />
+    : !stations.length ? <NextStep icon="🛡" title={v.crime > 0.1 ? `Crime is ${pct0(v.crime)}: place your first watchhouse` : 'Place your first watchhouse'} text={`It cuts crime on the streets within ${Math.round(serviceRadius({ type: 'police' }))} tiles. Put it among the homes.`} action={<button className="btn primary" disabled={price > s.cash} onClick={place}>Place · {money(price)}</button>} />
+    : idle ? <NextStep icon="👥" tone="bad" title="Watchhouses are short of officers" text="Officers come from your own families. Build homes so more adults move in." action={<button className="btn primary" onClick={() => go('community')}>Build homes</button>} />
+    : v.crime <= 0.2 ? <NextStep icon="✓" tone="good" title={`Streets are safe · ${pct0(v.crime)} crime`} text={unsafe > 0 ? `${pct0(unsafe)} of families still live on a rough street.` : 'Keep the watch and lights reaching new homes as the city grows.'} action={unsafe > 0 ? <button className="btn ghost" onClick={showMap}>🛡 Crime map</button> : undefined} />
+    : lit < 0.7 ? <NextStep icon="💡" title={`Only ${pct0(lit)} of homes have lit streets`} text="Dark streets draw crime. Run power lines from the power station to the homes." action={<button className="btn primary" onClick={() => startPipes('heartland', 'power')}>🔌 Lay lines</button>} />
+    : v.police < 0.8 ? <NextStep icon="🛡" title={`${pct0(unsafe)} of families live on rough streets`} text="Place a watchhouse where the crime map shows red." action={<div className="row wrap civ-case-acts"><button className="btn primary" disabled={price > s.cash} onClick={place}>Place · {money(price)}</button><button className="btn ghost" onClick={showMap}>🛡 Map</button></div>} />
+    : <NextStep icon="👥" title="Crime comes from idle hands and unhappy homes" text="Every street is lit and watched. More jobs, schooling and happiness lower it further; officer training helps too." action={<button className="btn ghost" onClick={() => go('community')}>Settlement</button>} />;
+
+  return <div className="stack town-page city-page">
+    <PageHead title="City watch" sub={`${num(pop)} people · ${charter.icon} ${charter.name}`} />
+    <div className="civ-tiles four" data-coach="city-safety">
+      <StatTile icon="🛡" value={pct0(v.crime)} label="crime" tone={v.crime <= 0.2 ? 'good' : v.crime <= 0.35 ? 'ok' : 'bad'} />
+      <StatTile icon="💡" value={pct0(lit)} label="lit streets" tone={toneOf(lit, 0.7, 0.4)} />
+      <StatTile icon="👮" value={pct0(v.police)} label="watched" tone={toneOf(v.police, 0.7, 0.4)} />
+      <StatTile icon="🚿" value={pct0(t.sanitation ?? 0)} label="drains" tone={toneOf(t.sanitation ?? 0, 0.7, 0.4)} />
+    </div>
+    <div data-coach="city-next">{next}</div>
+    <div className="civ-builds">
+      <BuildCard img={portrait('civic:police')} fallback="🛡" name={<>Watchhouse{stations.length > 0 && <small> ×{stations.reduce((n, b) => n + b.count, 0)}</small>}</>}
+        lines={[`Cuts crime within ${Math.round(serviceRadius({ type: 'police' }))} tiles · upgrade for more`, `${serviceJobs(s, 'police')} officers · ${money(Math.round(serviceDailyCost(s, 'police')))}/day`, <Bar thin key="b" value={v.police} label="Families within a watchhouse's reach" color={v.police >= 0.7 ? 'var(--up)' : 'var(--gold)'} />]}
+        action={<button className="btn primary" disabled={price > s.cash} onClick={place}>Place · {money(price)}</button>} />
+    </div>
+    <section className="card stack s" data-coach="city-justice">
+      <SettingRow name={`${charter.icon} ${charter.name}`} effect={s.tick < v.reformUntil ? `Reforming: no extra watch for ${Math.ceil((v.reformUntil - s.tick) / 24)} more days` : CHARTER_LINE[v.charter ?? 'watch'][1]}>
+        <button className="btn ghost sm" disabled={s.tick < v.reformUntil} onClick={() => setReform(true)}>Change</button>
+      </SettingRow>
+      <SettingRow name={`Officer training · ${pct0(v.training)}`} effect={v.trainingUntil >= 0 ? `${Math.ceil((v.trainingUntil - s.tick) / 24)} days to go` : v.training >= 1.5 ? 'Fully trained' : `30 days · each watchhouse cuts more crime`}>
+        {v.training < 1.5 && v.trainingUntil < 0 && <button className="btn ghost sm" disabled={!stations.length || s.cash < cityTrainingCost(s)} onClick={() => act({ type: 'trainPolice' })}>Train · {money(cityTrainingCost(s))}</button>}
+      </SettingRow>
+      <SettingRow name="If a case goes unanswered" effect={v.justice === 'rehabilitate' ? `After 7 days · ${money(caseCost(s, 'rehabilitate'))}, lasting prevention` : `After 7 days · ${money(caseCost(s, 'punish'))}, crime falls now, families less happy`}>
+        <Seg label="Default response" value={v.justice} onChange={(policy) => act({ type: 'setJustice', policy })} options={[{ v: 'rehabilitate', label: 'Rehab' }, { v: 'punish', label: 'Punish' }]} />
+      </SettingRow>
+    </section>
+    {v.neighbourJobs > 0 && <details className="town-budget" data-coach="city-decisions"><summary>👥 Neighbouring employers · {num(v.neighbourJobs)} jobs · {money(v.neighbourPayroll)} paid today</summary><div className="stack">{v.employers.map((e) => <div className="town-cash-flow" key={e.id}><span>{s.competitors.find((b) => b.id === e.id)?.name ?? 'Local employer'}<b>{e.jobs} jobs</b></span><span>Wages to households<b>{money(e.wages)}</b></span></div>)}<Info text="Your factories and public services hire resident adults first; the rest can work for neighbouring farms. A 1.1× offer can win an employed neighbour over to your crew." /></div></details>}
+    <p className="small muted civ-foot">{v.solved} case{v.solved === 1 ? '' : 's'} answered · {v.rehabilitated} rehabilitated · prevention {pct0(v.prevention)}. Watchhouses are paid by the farm. <button className="btn ghost sm" onClick={showMap}>🛡 Crime map</button><button className="btn ghost sm" onClick={() => go('town')}>Town services →</button></p>
+    {reform && <Modal title="Reform the watch" onClose={() => setReform(false)}><div className="charter-heading"><b>{money(policeReformCost(s))} · 7 days without the extra watch</b><span>Officers stay paid while they retrain.</span></div>{charters(true)}</Modal>}
   </div>;
 }

@@ -489,12 +489,12 @@ function ServiceCard({ s, svc, onClose }: { s: GameState; svc: CivicService; onC
   return <Card title={<>{d.icon} {d.name} <span className="muted">· level {lv}</span></>} actions={<button className="icon-btn" onClick={onClose} aria-label="Close">✕</button>}>
     <div className="stack s">
       {net ? <><div className="row between small"><span className="muted">Families on its lines</span><b>{used} / {cap}</b></div><Bar value={cap ? used / cap : 0} label={`${used} / ${cap} families on its lines`} color={full ? 'var(--gold)' : 'var(--up)'} /></>
-        : <p className="small">Full service for <b>{Math.round(serviceRadius(svc))} tiles</b>, fading out over the next {Math.round(serviceRadius(svc) * 0.75)}.</p>}
+        : <p className="small">{svc.type === 'police' ? 'Cuts crime' : 'Full service'} for <b>{Math.round(serviceRadius(svc))} tiles</b>, fading out over the next {Math.round(serviceRadius(svc) * 0.75)}.</p>}
       {full && <div className="callout warn">Full: upgrade it or build another to serve more homes.</div>}
       <div className="row wrap">
         {lv < 3 && <button className="btn primary sm" disabled={price > s.cash} onClick={() => act({ type: 'upgradeService', serviceId: svc.id })}>⬆ Level {lv + 1} · {money(price)}</button>}
         {net && <button className="btn ghost sm" onClick={() => { startPipes('heartland', net); onClose(); }}>🔌 Lay lines</button>}
-        <button className="btn ghost sm" onClick={() => go('town')}>Town</button>
+        {svc.type === 'police' ? <button className="btn ghost sm" onClick={() => go('city')}>City watch</button> : <button className="btn ghost sm" onClick={() => go('town')}>Town</button>}
       </div>
     </div>
   </Card>;
@@ -519,7 +519,6 @@ function LotPanel({ s, lot, region, onClose }: { s: GameState; lot: Lot; region:
   if(lot.service?.type==='barracks')return <Card title="Barracks"><button className="btn primary" onClick={()=>go('nation')}>Open Nation</button></Card>;
   if(lot.service?.type==='watchtower')return <Card title="Watchtower & militia"><button className="btn primary" onClick={()=>go('region')}>Open Region map</button></Card>;
   if(lot.service&&canUpgradeService(lot.service.type))return <ServiceCard s={s} svc={townOf(s).services.find((b)=>b.id===lot.service!.id)??lot.service} onClose={onClose} />;
-  if(lot.service&&['sanitation','lighting','police'].includes(lot.service.type))return <Card title="City watch"><button className="btn primary" onClick={()=>go('city')}>Open City watch</button></Card>;
   if (lot.key.startsWith('civic:')) return <Card title="Town services"><button className="btn primary" onClick={() => go('town')}>Open Town hall</button></Card>;
   if (lot.key.startsWith('community:')) return <Card title="Your neighbourhood"><div className="community-strip"><span title="People living here · homes filled">🏘️ {population(s)} people · {households(s)}/{homeFamilies(s)} homes</span><span>☺ {pct0(communityOf(s).happiness)}</span></div><button className="btn primary" onClick={() => go('community')}>Homes & families</button></Card>;
   if(lot.key==='market') return s.legacyProgression || stageAtLeast(s, 'market-town') ? <SellCard s={s} r={region}/> : <HomesteadTraderCard s={s}/>;

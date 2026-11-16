@@ -1,5 +1,6 @@
 import { homesExposed, nuisanceOf, nuisanceSources, NUISANCE_LOOK, type NuisanceKind } from '../../simulation/nuisance';
 import { oilOpen } from '../../simulation/stages/shared';
+import { cityActive, cityOf } from '../../simulation/city-state';
 import { SERVICE_DEFS, SERVICE_GROUPS, serviceJobs, serviceRadius, townOf, UTILITY_OF, heatAt } from '../../simulation/town-state';
 import type { ServiceType } from '../../simulation/types';
 import { communityOf, households, population, residentWorkers } from '../../simulation/community-state';
@@ -12,13 +13,13 @@ import { fieldMovable, timingFactor, fertility, growth, isMature, isReady } from
 import { priceUsd, stored } from '../../simulation/core';
 import { spreadNeed } from '../../simulation/agriculture';
 import type { GameState } from '../../simulation/types';
-import { getGame, getSpeed, moveGhost, placementUse, startZoning, stopZoning, zoneHover, zoneTap, type Zoning, prospectHover, prospectTap, roadHover, roadTap, roadDragStart, buildingsHidden, startProspect, startRoads, startPipes, stopProspect, stopRoads, type Placement, type Roading , getPage } from '../../stores/game';
+import { getGame, getSpeed, moveGhost, placementUse, startZoning, stopZoning, zoneHover, zoneTap, type Zoning, prospectHover, prospectTap, roadHover, roadTap, roadDragStart, buildingsHidden, crimeMapOn, setCrimeMap, useStore, startProspect, startRoads, startPipes, stopProspect, stopRoads, type Placement, type Roading , getPage } from '../../stores/game';
 import { featureEra, stageAtLeast } from '../../simulation/stages';
 import { preloadArt, artRevision, artModel, playClip } from './art';
 import { money, num, pct0 } from '../format';
 import { Modal } from '../ui';
 import { layoutRegion, type Layout, type Lot, type Plot } from './layout';
-import { CHUNK, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, LAND_HA_PER_PATCH, MAP, hasAccess, riverTiles, riverX, tileId, roadRoute, roadStretch, roadPick, pipeRoute, pipeStretch, plotSide, fieldWater, wetTiers, linesOf, NET_TOP, UTILITY_NETS, netReach, doorstep, footprintOf, type NetKind, type UtilityNet, tileAt, forSaleAround,  ownedSet, ROAD_H, ROAD_Y, chunkAt, chunkOrigin, clearCost, clearedSet, isRoad, patchesAround, placeProblem, worldOf } from '../../simulation/world';
+import { homesCentre, CHUNK, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, LAND_HA_PER_PATCH, MAP, hasAccess, riverTiles, riverX, tileId, roadRoute, roadStretch, roadPick, pipeRoute, pipeStretch, plotSide, fieldWater, wetTiers, linesOf, NET_TOP, UTILITY_NETS, netReach, doorstep, footprintOf, type NetKind, type UtilityNet, tileAt, forSaleAround,  ownedSet, ROAD_H, ROAD_Y, chunkAt, chunkOrigin, clearCost, clearedSet, isRoad, patchesAround, placeProblem, worldOf } from '../../simulation/world';
 import { animal, buildCivic, buildCommunityHome, buildLot, box, cached, cyl, farmhand, hauler, mat, mesh, PAL, person, tree, vehicle, type Model } from './models';
 import { haulOf, MARKET_X, marketRoute } from '../../simulation/hauling';
 import { landCostOf, oilOf, oilPremium, oilReading, struckFields, SURVEY_R, surveyedAt } from '../../simulation/oil';
@@ -86,6 +87,11 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
   const canvas = useRef<HTMLCanvasElement>(null);
   const overlay = useRef<HTMLDivElement>(null);
   const rig = useRef<Rig | null>(null);
+  const crimeMap = useStore((x) => x.crimeMap);
+  useEffect(() => { // turning the crime map on glides to the homes
+    const R = rig.current, c = crimeMap && R ? homesCentre(worldOf(getGame(), 'heartland')) : null;
+    if (R && c && R.region === 'heartland') R.glide = { x: c[0], z: c[1], zoom: Math.max(R.zoom, 0.55) };
+  }, [crimeMap]);
   const live = useRef({ region, selected, onPick, plantLabel, onAction, selectedLot, placing, forestAt, placeCost, roading, prospect, zoning });
   live.current = { region, selected, onPick, plantLabel, onAction, selectedLot, placing, forestAt, placeCost, roading, prospect, zoning };
   const [hover, setHover] = useState<{ x: number; y: number; text: string[] } | null>(null);
@@ -394,6 +400,7 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
         {oilOpen(getGame()) && <button className={`icon-btn${prospect ? ' on' : ''}`} aria-label="Oil" title="Oil: survey and drill" onClick={() => prospect ? stopProspect() : startProspect(region)}>🛢</button>}
         <button data-coach="roads-btn" className={`icon-btn${roading && !roading.pipe ? ' on' : ''}`} aria-label="Roads" title="Roads: draw, upgrade or remove" onClick={() => roading && !roading.pipe ? stopRoads() : startRoads(region)}>🛤</button>
         {townOf(getGame()).active && <button className={`icon-btn${roading?.pipe && roading.pipe !== 'irrigation' ? ' on' : ''}`} aria-label="Utilities" title="Town utilities: power, water and sewage lines" onClick={() => roading?.pipe && roading.pipe !== 'irrigation' ? stopRoads() : startPipes(region, 'power')}>🔌</button>}
+        {cityActive(getGame()) && <button className={`icon-btn${crimeMap ? ' on' : ''}`} aria-label="Crime map" aria-pressed={crimeMap} title="Crime map: green streets are safe, red ones need a watchhouse or lights" onClick={() => setCrimeMap(!crimeMap)}>🛡</button>}
         {featureEra(getGame(), 2) && <button className={`icon-btn${roading?.pipe === 'irrigation' ? ' on' : ''}`} aria-label="Water lines" title="Water lines: dig ditches, upgrade them to pipes and bury them" onClick={() => roading?.pipe === 'irrigation' ? stopRoads() : startPipes(region)}>💧</button>}
       </div>
 
@@ -721,7 +728,8 @@ function syncCrops(R: Rig, L: Layout, s: GameState) {
 
 /** The placement ghost (green where it fits, red where it does not) and the forest patches about to be cleared. */
 function syncGhost(R: Rig, s: GameState, P: Placement | null, forest: [number, number] | null) {
-  const sig = P ? `${P.region}:${P.at}:${P.w}x${P.d}r${P.rot ?? 0}:${P.key ?? ''}:${worldOf(s, P.region).cleared.length}` : forest ? `f${forest}:${worldOf(s, R.region).queue.length}` : '';
+  const crime = !P && !forest && R.region === 'heartland' && crimeMapOn() && cityActive(s) ? cityOf(s) : null;
+  const sig = P ? `${P.region}:${P.at}:${P.w}x${P.d}r${P.rot ?? 0}:${P.key ?? ''}:${worldOf(s, P.region).cleared.length}` : forest ? `f${forest}:${worldOf(s, R.region).queue.length}` : crime ? `crime:${crime.lastDay}:${crime.case?.id ?? ''}:${Object.keys(worldOf(s, 'heartland').pos).length}` : '';
   if (sig === R.ghostSig) return;
   R.ghostSig = sig;
   clear(R.ghost);
@@ -773,6 +781,17 @@ function syncGhost(R: Rig, s: GameState, P: Placement | null, forest: [number, n
         const hx = q[0] + 1.5, hz = q[1] + 1.5, v = Math.max(...heats.map(([x, z, r2]) => heatAt(Math.hypot(hx - x, hz - z), r2)));
         R.ghost.add(mesh(pin, new THREE.MeshBasicMaterial({ color: v >= 0.99 ? 0x4cc35a : v > 0 ? 0xf2b82c : 0xe0533d }), hx, 2.6, hz, false));
       }
+    }
+    return;
+  }
+  // the City's crime map: a disc and a marker over each home, green on safe streets, amber from 10%, red over 20%; the open case's street gets a tall red marker
+  if (crime) {
+    const pos = worldOf(s, 'heartland').pos, pin = cached('reach-pin', () => new THREE.OctahedronGeometry(0.32, 0)), disc = cached('crime-disc', () => new THREE.CircleGeometry(2.2, 32).rotateX(-Math.PI / 2));
+    for (const h of crime.homes ?? []) {
+      const q = pos[`home:${h.id}`]; if (!q) continue;
+      const v = crime.homeCrime?.[h.id] ?? 0, color = v > 0.2 ? 0xe0533d : v > 0.1 ? 0xf2b82c : 0x4cc35a, x = q[0] + 1.5, z = q[1] + 1.5, hit = crime.case?.home === h.id;
+      R.ghost.add(mesh(disc, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.32, depthWrite: false }), x, 0.06, z, false));
+      const m = mesh(pin, new THREE.MeshBasicMaterial({ color }), x, hit ? 3.6 : 2.6, z, false); if (hit) m.scale.setScalar(1.8); R.ghost.add(m);
     }
     return;
   }
