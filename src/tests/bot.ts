@@ -30,7 +30,7 @@ export function botAct(s: GameState, strategy: Strategy = 'balanced', civicPrior
   }
   const P = s.automation.policies;
   const civic = civicPriority && communityOf(s).active;
-  const civicReady = !civic || (townOf(s).active && townOf(s).education >= .8 && townOf(s).water >= .8 && townOf(s).cash >= plannedServiceCost(s) * 14 && (!cityActive(s)||cityOf(s).sanitation>=.7));
+  const civicReady = !civic || (townOf(s).active && townOf(s).education >= .8 && townOf(s).water >= .8 && (!cityActive(s)||(townOf(s).sanitation??0)>=.7));
   if (!s.legacyProgression && canStartSettlement(s)) dispatch(s, { type: 'startSettlement', charter: 'free' });
   const settled = townOf(s).active && townOf(s).education >= .6 && townOf(s).water >= .6;
   const homeGap = cityActive(s) ? 16 : 8;

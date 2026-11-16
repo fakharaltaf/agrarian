@@ -55,13 +55,13 @@ export function parseSave(text: string): SaveFile {
   }
   for(const employer of g.competitors)if(!finite(employer.payrollDay)||!finite(employer.payrollToday)||employer.payrollToday<0)throw new Error('Save file employer payroll is corrupt.');
   const city=g.stageState.city as unknown as ReturnType<typeof createCityState>;
-  if(typeof city.autoFund!=='boolean'||typeof city.active!=='boolean'||(city.active&&city.charter===null)||(city.charter!==null&&!Object.prototype.hasOwnProperty.call(POLICE_CHARTERS,city.charter))
-    ||!['rehabilitate','punish'].includes(city.justice)||!['crime','sanitation','lighting','police','prevention','training','lastDay','enteredAt','reformUntil','trainingUntil','trainingTarget','nextCaseDay','solved','rehabilitated','punished','threatAt','safeDays','neighbourJobs','neighbourPayroll','employmentDay'].every(k=>finite((city as unknown as Record<string,unknown>)[k]))
+  if(typeof city.active!=='boolean'||(city.active&&city.charter===null)||(city.charter!==null&&!Object.prototype.hasOwnProperty.call(POLICE_CHARTERS,city.charter))
+    ||!['rehabilitate','punish'].includes(city.justice)||!['crime','police','prevention','training','lastDay','enteredAt','reformUntil','trainingUntil','trainingTarget','nextCaseDay','solved','rehabilitated','punished','threatAt','safeDays','neighbourJobs','neighbourPayroll','employmentDay'].every(k=>finite((city as unknown as Record<string,unknown>)[k]))
     ||!Array.isArray(city.crimeHistory)||city.crimeHistory.length>7||!city.crimeHistory.every(finite)
     ||!Array.isArray(city.caseHistory)||city.caseHistory.length>12||!Array.isArray(city.employers)||city.employers.length>g.competitors.length||city.employers.some(e=>![e.id,e.jobs,e.wages].every(finite)||!Number.isInteger(e.jobs)||e.jobs<0||e.wages<0))throw new Error('Save file civic safety state is corrupt.');
   if(!Number.isInteger(city.neighbourJobs)||city.neighbourJobs<0||city.neighbourJobs!==city.employers.reduce((n,e)=>n+e.jobs,0)||Math.abs(city.neighbourPayroll-city.employers.reduce((n,e)=>n+e.wages,0))>.01||city.employers.some(e=>!g.competitors.some(c=>c.id===e.id)))throw new Error('Save file local employment is corrupt.');
-  for(const district of Object.values(city.districts))if(!district||!['farm','residential','industrial'].includes(district.zone)||![district.rezonedAt,district.sanitation,district.lighting,district.police].every(finite))throw new Error('Save file district state is corrupt.');
-  if(city.case&&(!GOOD_IDS.includes(city.case.good)||!['id','opened','deadline','lost'].every(k=>finite((city.case as unknown as Record<string,unknown>)[k]))))throw new Error('Save file civic case is corrupt.');
+  if((city.homeCrime&&(typeof city.homeCrime!=='object'||!Object.values(city.homeCrime).every(finite)))||(city.homes&&(!Array.isArray(city.homes)||city.homes.some(h=>![h.id,h.families,h.power,h.watch].every(finite)))))throw new Error('Save file civic safety state is corrupt.');
+  if(city.case&&(!GOOD_IDS.includes(city.case.good)||!['theft','smuggling','gang'].includes(city.case.kind)||!['id','opened','deadline','lost'].every(k=>finite((city.case as unknown as Record<string,unknown>)[k]))))throw new Error('Save file civic case is corrupt.');
   for (const [r, w] of Object.entries(g.world ?? {})) {
     if (!REGION_IDS.includes(r as never) || !w || !Array.isArray(w.cleared) || !Array.isArray(w.queue) || typeof w.pos !== 'object' || w.pos === null
       || !w.cleared.every((c) => Number.isInteger(c) && c >= 0 && c < CHUNKS_X * CHUNKS_Y)
@@ -115,12 +115,6 @@ export function migrate(g: Omit<GameState, 'version'> & { version: number }): Ga
   }
   g.stageState.city ??= createCityState() as unknown as Record<string,unknown>;
   for(const [key,value] of Object.entries(createCityState()))g.stageState.city[key] ??= value;
-  const districts=createCityState().districts;
-  for(const id of Object.keys(districts) as (keyof typeof districts)[]){
-    const saved=g.stageState.city.districts as Record<string,Record<string,unknown>>;
-    saved[id] ??= districts[id] as unknown as Record<string,unknown>;
-    for(const [key,value] of Object.entries(districts[id]))saved[id][key] ??= value;
-  }
   g.stageState.nation ??= createNationState() as unknown as Record<string,unknown>;
   for(const [key,value] of Object.entries(createNationState()))g.stageState.nation[key] ??= value;
   g.stageState.region ??= createRegionState() as unknown as Record<string,unknown>;

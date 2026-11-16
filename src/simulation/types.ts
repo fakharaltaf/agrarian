@@ -423,10 +423,8 @@ export type Action =
   | { type: 'buildHomes'; tier: HomeTier; count: number; at?: [number, number]; rot?: number }
   | { type: 'setLarder'; enabled: boolean }
   | { type: 'settleWorker'; workerId: number }
-  | { type: 'setCityFunding'; enabled:boolean }
   | { type: 'startCity'; charter: import('./city-state').PoliceCharter }
   | { type: 'changePolice'; charter: import('./city-state').PoliceCharter }
-  | { type: 'setZone'; district: DistrictId; zone: import('./city-state').ZoneType }
   | { type: 'trainPolice' }
   | { type: 'setJustice'; policy: import('./city-state').JusticePolicy }
   | { type: 'resolveCityCase'; answer: import('./city-state').JusticePolicy }

@@ -1,31 +1,36 @@
-// Compact civic state: three existing neighbourhoods, never one record per citizen.
+// Compact civic state: per-home safety on the map, the police charter, and open cases. Never one record per citizen.
 import type { GoodId } from './config';
-import type { DistrictId, GameState } from './types';
+import type { GameState } from './types';
 export type PoliceCharter = 'watch' | 'professional' | 'strict';
 export type JusticePolicy = 'rehabilitate' | 'punish';
-export type ZoneType = 'farm' | 'residential' | 'industrial';
-export interface CityDistrict {
-  zone: ZoneType; rezonedAt: number; sanitation: number; lighting: number; police: number;
-}
+/** theft: goods taken from your stores; smuggling: town shops buy less from you while it runs; gang: happiness falls each day until answered. */
+export type CaseKind = 'theft' | 'smuggling' | 'gang';
 export interface CityCase {
-  id: number; district: DistrictId; kind: 'theft' | 'smuggling' | 'gang'; opened: number; deadline: number;
+  id: number; kind: CaseKind; opened: number; deadline: number;
   good: GoodId; lost: number;
+  /** the home whose street it happened on (shown on the map) */
+  home?: number;
 }
+/** What reaches one home, from Town's daily pass: street power along the lines and the watch within a watchhouse's reach (0–1). */
+export interface HomeCover { id: number; families: number; power: number; watch: number }
 export interface CityState {
-  active: boolean; autoFund:boolean; enteredAt: number; charter: PoliceCharter | null; reformUntil: number;
-  justice: JusticePolicy; districts: Record<DistrictId,CityDistrict>;
+  active: boolean; enteredAt: number; charter: PoliceCharter | null; reformUntil: number;
+  justice: JusticePolicy;
   training: number; trainingUntil: number; trainingTarget: number;
-  lastDay: number; crime: number; crimeHistory: number[]; sanitation: number; lighting: number; police: number;
+  lastDay: number; crime: number; crimeHistory: number[];
+  /** share of families inside a working watchhouse's reach, weighted by how well */
+  police: number;
+  homes?: HomeCover[];
+  /** crime on each home's street, by home id */
+  homeCrime?: Record<number, number>;
   case: CityCase | null; nextCaseDay: number; prevention: number;
   neighbourJobs:number; neighbourPayroll:number; employers:{id:number;jobs:number;wages:number}[]; employmentDay:number;
   solved: number; rehabilitated: number; punished: number; caseHistory: {day:number;kind:string;answer:string}[];
   threatAt: number; safeDays: number;
 }
 export function createCityState(): CityState {
-  const district=(zone:ZoneType):CityDistrict=>({zone,rezonedAt:-1,sanitation:0,lighting:0,police:0});
-  return {active:false,autoFund:false,enteredAt:-1,charter:null,reformUntil:-1,justice:'rehabilitate',
-    districts:{farmgate:district('farm'),orchard:district('residential'),heights:district('residential')},
-    training:1,trainingUntil:-1,trainingTarget:1,lastDay:-1,crime:0,crimeHistory:[],sanitation:0,lighting:0,police:0,
+  return {active:false,enteredAt:-1,charter:null,reformUntil:-1,justice:'rehabilitate',
+    training:1,trainingUntil:-1,trainingTarget:1,lastDay:-1,crime:0,crimeHistory:[],police:0,homes:[],homeCrime:{},
     case:null,nextCaseDay:-1,prevention:0,neighbourJobs:0,neighbourPayroll:0,employers:[],employmentDay:-1,solved:0,rehabilitated:0,punished:0,caseHistory:[],threatAt:-1,safeDays:0};
 }
 export const cityOf=(s:GameState):CityState=>(s.stageState.city??=createCityState() as unknown as Record<string,unknown>) as unknown as CityState;
@@ -36,3 +41,5 @@ export const POLICE_CHARTERS:Record<PoliceCharter,{name:string;icon:string;staff
 };
 export const cityActive=(s:GameState)=>!!(s.stageState.city as unknown as CityState|undefined)?.active;
 export const policeJobs=(s:GameState)=>6*(cityActive(s)?POLICE_CHARTERS[cityOf(s).charter??'watch'].staff:1);
+/** Crime on a home's street, from the last civic day (0 before City begins). */
+export const crimeAt=(s:GameState,home:number)=>cityOf(s).homeCrime?.[home]??0;

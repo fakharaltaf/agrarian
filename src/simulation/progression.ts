@@ -12,7 +12,6 @@ import { communityOf, population, homeCapacity, familiesHere, homeFamilies } fro
 import { settlementTick, canStartSettlement } from './stages/settlement';
 import { canStartTown, townDaily } from './stages/town';
 import { canStartCity, cityDaily } from './stages/city';
-import { plannedServiceCost, serviceDailyCost } from './stages/town';
 import { dailyArrivals, wellbeing } from './stages/settlement';
 import { canStartRegion, regionDaily, protection as regionProtection } from './stages/region';
 import { nextMarketDay } from './stages/market-town';
@@ -20,7 +19,7 @@ import { canStartNation, nationDaily, soldiers } from './stages/nation';
 import { nationActive, nationOf } from './nation-state';
 import { regionActive, regionOf, NEIGHBOURS, NEIGHBOUR_IDS } from './region-state';
 import { cityActive, cityOf } from './city-state';
-import { townOf } from './town-state';
+import { serviceJobs, townOf } from './town-state';
 import type { GameState } from './types';
 
 export const totalHa = (s: GameState) => s.fields.reduce((a, f) => a + f.ha, 0);
@@ -87,8 +86,8 @@ export function advanceEra(s: GameState): string | null {
 
 export interface Discovery { id: string; title: string; text: string; page?: string; when: (s: GameState) => boolean }
 export const DISCOVERIES: Discovery[] = [
-  {id:'cityReady',title:'A city worth protecting',text:'400 residents are ready for district utilities and a safety charter. Preview the City watch when you choose; your farm and town keep running.',page:'city',when:canStartCity},
-  {id:'cityCase',title:'A response to theft',text:'The City watch has an open case. Rehabilitation invests in prevention; punishment costs less today but reduces happiness. Neither replaces jobs and schools.',page:'city',when:s=>cityActive(s)&&!!cityOf(s).case},
+  {id:'cityReady',title:'A city worth protecting',text:'400 residents are ready to become a city. Choose how your town keeps order; your farm and town keep running.',page:'city',when:canStartCity},
+  {id:'cityCase',title:'A response to theft',text:'The City watch has an open case. Rehabilitation builds prevention; punishment costs less today but lowers happiness. Neither replaces jobs and schools.',page:'city',when:s=>cityActive(s)&&!!cityOf(s).case},
   {id:'nationReady',title:'A nation takes shape',text:'Your answer to the rival has made you a power in the region. Choose Army, Alliance or Neutrality on the Nation page.',page:'nation',when:canStartNation},
   {id:'nationVictory',title:'The first campaign',text:'Every soldier lost is a resident. Weariness lowers happiness; neighbours remember. Keep the army fed and drilled.',page:'nation',when:s=>nationActive(s)&&nationOf(s).history.length>0},
   {id:'regionReady',title:'Neighbours at the gate',text:'Caravans from four neighbouring settlements now reach your city. Open the Region map to choose open borders or walls & tolls.',page:'region',when:canStartRegion},
@@ -233,7 +232,7 @@ export function chapterGate(s: GameState): GateRow[] | null {
     case 'town': return [row('Residents', population(s), 400), row('Schooling', t.education, .6, 'pct'), row('Health', t.health, .7, 'pct'), row('Fed', c.fed, .9, 'pct')];
     case 'city': {
       if (cityOf(s).threatAt >= 0) return [row('Caravans have arrived', 1, 1)];
-      return [row('Residents', population(s), 1200), row('Fed', c.fed, .9, 'pct'), row('Sanitation', cityOf(s).sanitation, .7, 'pct'), row('Crime', cityOf(s).crime, .2, 'pct', true)];
+      return [row('Residents', population(s), 1200), row('Fed', c.fed, .9, 'pct'), row('Drains', t.sanitation ?? 0, .7, 'pct'), row('Crime', cityOf(s).crime, .2, 'pct', true)];
     }
     case 'region': { const v = regionOf(s); return [row('Answer the rival’s demand', v.answered ? 1 : 0, 1)]; }
     default: return null;
@@ -281,7 +280,7 @@ export function objective(s: GameState): { title: string; hint: string; page?: s
     if(!ns.some(n=>n.treaty))return {title:`Sign a trade treaty with ${NEIGHBOURS[best].leader}`,hint:'No tariffs on your caravans to them.',page:'region'};
     if(ns.filter(n=>n.route).length<2)return {title:'Open a second caravan route',hint:'More neighbours fed, more trust, more road protection later.',page:'region'};
     return {title:`A rival is watching · day ${Math.min(days,60)}/60`,hint:'Keep caravans on the road; a rival will make a move.',page:'region'};}
-  if(canStartCity(s))return {title:'A city worth protecting',hint:'Preview sanitation, lighting and your safety charter.',page:'city'};
+  if(canStartCity(s))return {title:'A city worth protecting',hint:'Choose how your city keeps order.',page:'city'};
   if(cityActive(s)&&s.stageId==='city')return civicObjective(s);
   if (canStartTown(s)) return { title: 'Newcomers want to settle', hint: 'Welcome them on the Town page.', page: 'town' };
   if (townOf(s).active && s.stageId === 'town') return civicObjective(s);
@@ -365,14 +364,10 @@ export function civicObjective(s: GameState): { title: string; hint: string; pag
   const gate = (chapterGate(s) ?? []).filter((r) => !r.done).map((r) => `${r.label} ${r.fmt === 'pct' ? pctTxt(r.now) : Math.floor(r.now).toLocaleString()}/${r.fmt === 'pct' ? pctTxt(r.target) : r.target.toLocaleString()}`).join(' · ');
   const hint = (x: string) => gate ? `${x} Next chapter: ${gate}.` : x;
   if (!homeCapacity(s)) return { title: 'Build the first cottage', hint: 'A home makes room for a worker’s family.', page: 'community' };
-  if (city && cityOf(s).case) return { title: 'Choose a response to theft', hint: hint('Rehabilitation builds prevention; punishment acts now but costs happiness.'), page: 'city' };
+  const open = city ? cityOf(s).case : null;
+  if (open) return { title: open.kind === 'gang' ? 'A gang has moved in: answer it' : open.kind === 'smuggling' ? 'Smugglers undercut the town shops' : 'Choose a response to theft', hint: hint('Rehabilitation builds prevention; punishment acts now but costs happiness.'), page: 'city' };
   if (town && !t.services.length) return { title: 'Build the first school', hint: hint('Place it near the homes: it only serves families within its reach.'), page: 'town' };
-  const upkeep = plannedServiceCost(s);
-  if (city && upkeep > 0 && t.cash < upkeep * 7) {
-    const days = Math.floor(t.cash / upkeep);
-    return { title: `The treasury is running low · ${days} day${days === 1 ? '' : 's'} left`, hint: hint(`Services close when it runs dry. Taxes cover ${pctTxt(Math.min(1, t.lastTax / upkeep))} of upkeep; fund the rest from the farm.`), page: 'town' };
-  }
-  if (city && t.services.some((b) => b.active && !b.funded && t.cash >= serviceDailyCost(s, b.type) * b.count)) return { title: 'Services need resident staff', hint: hint('Public jobs are filled by your own families. Build homes so more adults move in.'), page: 'community' };
+  if (city && t.services.some((b) => b.active && !b.funded && serviceJobs(s, b.type) > 0)) return { title: 'Services need resident staff', hint: hint('Public jobs are filled by your own families. Build homes so more adults move in.'), page: 'community' };
   if (c.fed < .9) return { title: `Families are going hungry · fed ${pctTxt(c.fed)}`, hint: hint('Keep food in storage and turn on the larder policy.'), page: 'community' };
   if (c.happiness < (s.stageId === 'settlement' ? .6 : .65)) {
     const w = wellbeing(s), weakest = (Object.entries({ food: w.fed, homes: w.housed, warmth: w.warm, jobs: w.jobs }) as [string, number][]).sort((a, b) => a[1] - b[1])[0][0];
@@ -387,12 +382,11 @@ export function civicObjective(s: GameState): { title: string; hint: string; pag
   }
   if (town && t.education < .6) return { title: `A school place for every child · ${pctTxt(t.education)}/60%`, hint: hint('Place schools near the homes: each one only teaches the children within its reach.'), page: 'town' };
   if (town && t.health < .7) return { title: `Keep families healthy · ${pctTxt(t.health)}/70%`, hint: hint('Clean water, a clinic within reach and full larders keep families well.'), page: 'town' };
-  if (city && cityOf(s).sanitation < .7) return { title: `City sanitation · ${pctTxt(cityOf(s).sanitation)}/70%`, hint: hint('Sanitation works in each district protect health.'), page: 'city' };
-  if (city && cityOf(s).crime > .2) return { title: `Bring crime under 20% · now ${pctTxt(cityOf(s).crime)}`, hint: hint('Street lighting, jobs and schools lower crime; a watchhouse adds policing.'), page: 'city' };
+  if (city && (t.sanitation ?? 0) < .7) return { title: `Drains for the homes · ${pctTxt(t.sanitation ?? 0)}/70%`, hint: hint('Run sewage lines from a sanitation works to the homes (🔌 on the map); upgrade it when it is full.'), page: 'town' };
+  if (city && cityOf(s).crime > .2) return { title: `Bring crime under 20% · now ${pctTxt(cityOf(s).crime)}`, hint: hint(t.services.some((b) => b.type === 'police') ? 'Place another watchhouse where the 🛡 map shows red streets, and light them with power lines.' : 'Place a watchhouse among the homes, and light the streets with power lines.'), page: 'city' };
   const target = s.stageId === 'settlement' ? 80 : town ? 400 : 1200;
   const perDay = dailyArrivals(s) * 4, days = Math.ceil(Math.max(0, target - pop) / Math.max(1, perDay));
-  const next = city && pop >= 600 && Object.values(cityOf(s).districts).every((d) => d.rezonedAt < 0) ? ' Try zoning a district.' : '';
-  return { title: `Grow to ${target.toLocaleString()} residents · ${pop.toLocaleString()}/${target.toLocaleString()}`, hint: hint(`About ${days} day${days === 1 ? '' : 's'} at today’s pace if homes keep up.${next}`), page: 'community' };
+  return { title: `Grow to ${target.toLocaleString()} residents · ${pop.toLocaleString()}/${target.toLocaleString()}`, hint: hint(`About ${days} day${days === 1 ? '' : 's'} at today’s pace if homes keep up.`), page: 'community' };
 }
 
 // ---------------------------------------------------------------- milestones (endgame)
@@ -429,7 +423,7 @@ export interface PageDef { id: string; label: string; purpose: string; unlocked:
 export const PAGES: PageDef[] = [
   {id:'nation',label:'Nation',purpose:'Your army, league or embassy.',unlocked:s=>nationActive(s)||canStartNation(s)},
   {id:'region',label:'Region',purpose:'Neighbours, caravans, diplomacy and defence.',unlocked:s=>regionActive(s)||canStartRegion(s)},
-  {id:'city',label:'City watch',purpose:'District utilities, everyday safety and justice.',unlocked:s=>cityActive(s)||canStartCity(s)},
+  {id:'city',label:'City watch',purpose:'Safe streets: watchhouses, police and justice.',unlocked:s=>cityActive(s)||canStartCity(s)},
   { id: 'town', label: 'Town hall', purpose: 'Schools, healthcare and a separate public budget.', unlocked: s => townOf(s).active || canStartTown(s) },
   { id: 'community', label: 'Community', purpose: 'Homes, families, food and life in your settlement.', unlocked: s => communityOf(s).active || canStartSettlement(s) },
   { id: 'overview', label: 'Overview', purpose: 'Your business at a glance.', unlocked: (s) => s.era >= 2 },

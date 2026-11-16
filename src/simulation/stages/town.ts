@@ -68,7 +68,8 @@ export const TOWN_ORDER_PREMIUM = 1.2;
 export function townOrders(s: GameState) {
   const t = townOf(s), people = population(s), inv = s.regions.heartland.inventory;
   t.orders = (Object.entries(TOWN_ORDER) as [GoodId, number][]).map(([good, per]) => {
-    const want = Math.floor(people * per), spare = Math.max(0, inv[good] - larderReserve(s, good)), sold = Math.floor(Math.min(want, spare));
+    const want = Math.floor(people * per * (cityOf(s).case?.kind === 'smuggling' ? 0.7 : 1)), // smugglers sell to the shops while a smuggling case is open
+          spare = Math.max(0, inv[good] - larderReserve(s, good)), sold = Math.floor(Math.min(want, spare));
     const value = round2(sold * priceUsd(s, 'heartland', good) * TOWN_ORDER_PREMIUM);
     if (sold > 0) {
       inv[good] -= sold;
@@ -135,7 +136,7 @@ export function townDaily(s: GameState) {
   // edge; upgrades widen it). Power, water and sewage reach homes only along their lines, nearest homes first, up to the
   // families the building can serve; the weakest line tier on the way sets how well.
   const w=worldOf(s,'heartland');
-  const homes=c.homes.map(h=>{const p=w.pos[`home:${h.id}`],fp=footprintOf(s,`home:${h.id}`);return p&&fp?{x:p[0]+fp.w/2,y:p[1]+fp.d/2,door:doorstep(p[0],p[1],fp).map(([x,y])=>tileId(x,y)),families:HOME_DEFS[h.tier].families*h.count}:null;}).filter(Boolean) as {x:number;y:number;door:number[];families:number}[];
+  const homes=c.homes.map(h=>{const p=w.pos[`home:${h.id}`],fp=footprintOf(s,`home:${h.id}`);return p&&fp?{id:h.id,x:p[0]+fp.w/2,y:p[1]+fp.d/2,door:doorstep(p[0],p[1],fp).map(([x,y])=>tileId(x,y)),families:HOME_DEFS[h.tier].families*h.count}:null;}).filter(Boolean) as {id:number;x:number;y:number;door:number[];families:number}[];
   const total=homes.reduce((n,h)=>n+h.families,0);
   const working=(b:typeof t.services[number])=>b.active&&b.funded&&(SERVICE_DEFS[b.type].jobs===0||b.staffed>0)&&hasAccess(s,'heartland',`svc:${b.id}`);
   const heat=(types:readonly ServiceType[])=>{
@@ -160,14 +161,16 @@ export function townDaily(s: GameState) {
   };
   const share=(q:number[])=>total?homes.reduce((n,h,i)=>n+h.families*q[i],0)/total:0;
   const wellQ=heat(['well']),pipedQ=lines(['waterTower','waterworks']);
-  const cover={school:share(heat(SERVICE_GROUPS.school)),water:share(wellQ.map((v,i)=>Math.max(v,pipedQ[i]))),medical:share(heat(SERVICE_GROUPS.medical)),sanitation:share(lines(SERVICE_GROUPS.sanitation)),power:share(lines(SERVICE_GROUPS.power))};
+  const powerQ=lines(SERVICE_GROUPS.power);
+  const cover={school:share(heat(SERVICE_GROUPS.school)),water:share(wellQ.map((v,i)=>Math.max(v,pipedQ[i]))),medical:share(heat(SERVICE_GROUPS.medical)),sanitation:share(lines(SERVICE_GROUPS.sanitation)),power:share(powerQ)};
+  if(cityActive(s)){const watchQ=heat(['police']);cityOf(s).homes=homes.map((h,i)=>({id:h.id,families:h.families,power:powerQ[i],watch:watchQ[i]}));} // the City reads street power and the watch per home
   for(const id of DISTRICT_IDS){const v=t.coverage[id];v.school=cover.school;v.water=cover.water;v.medical=cover.medical;v.road=1;}
   t.sanitation=cover.sanitation;t.power=cover.power;t.medical=cover.medical;
   const people=population(s);
   let school=0,water=0,medical=0,roads=0;
   school=cover.school;water=cover.water;medical=cover.medical;roads=1;
   t.education=school;t.water=water;t.roads=roads;
-  const sanitation=cityActive(s)?cityOf(s).sanitation:(t.sanitation??0);
+  const sanitation=t.sanitation??0;
   const wellbeing=clamp(c.fed*.45+t.water*.3+medical*.25-.1*(1-sanitation)-NUISANCE_WEIGHT.smoke*settlementExposure(s).smoke,0,1); // smoke and fumes over the homes
   t.health=clamp(t.health+(wellbeing-t.health)*.15,0,1);
   const requested=factoryJobs(s);

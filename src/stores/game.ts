@@ -31,6 +31,8 @@ interface Store {
   roading: Roading | null;
   /** while on the road and line tools: buildings hidden, so roads and lines are easy to see and work on */
   hideBuildings: boolean;
+  /** the City's crime map: a marker over each home, coloured by crime on its street */
+  crimeMap: boolean;
   prospect: Prospect | null;
   zoning: Zoning | null;
 }
@@ -44,7 +46,7 @@ export type Prospect = { region: RegionId; hover?: [number, number]; survey?: bo
 export const placementUse = (p: Pick<Placement, 'action' | 'key' | 'kind'>) => p.kind === 'move' ? undefined : p.action.type === 'buildHomes' ? 'home' as const : p.action.type === 'buyPlot' || p.action.type === 'buyParcel' ? 'field' as const : p.action.type === 'build' ? buildingUse(store.game, p.action.building) : undefined;
 export type Placement = { kind: 'new' | 'move'; action: Action; region: RegionId; w: number; d: number; label: string; key?: string; at: [number, number]; /** quarter turns; w and d are already turned */ rot?: number; /** placing one of several: how many are left, of how many */ left?: number; total?: number };
 
-let store: Store = { game: createGame(), v: 0, speed: 1, toasts: [], away: null, catchUp: null, page: 'farm', ready: false, placing: null, roading: null, hideBuildings: false, prospect: null, zoning: null };
+let store: Store = { game: createGame(), v: 0, speed: 1, toasts: [], away: null, catchUp: null, page: 'farm', ready: false, placing: null, roading: null, hideBuildings: false, crimeMap: false, prospect: null, zoning: null };
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((l) => l());
 const set = (patch: Partial<Store>) => {
@@ -58,6 +60,8 @@ export const getSpeed = () => store.speed;
 export const getPage = () => store.page;
 export const buildingsHidden = () => !!store.roading && store.hideBuildings;
 export const toggleHideBuildings = () => set({ hideBuildings: !store.hideBuildings });
+export const setCrimeMap = (on: boolean) => set({ crimeMap: on });
+export const crimeMapOn = () => store.crimeMap;
 
 // ---------------------------------------------------------------- persistence (IndexedDB, localStorage fallback)
 
@@ -238,7 +242,7 @@ export function toast(text: string, kind: Toast['kind'] = 'error') {
 }
 
 const SOUND: Partial<Record<Action['type'], Sfx>> = {
-  startCity:'celebrate',changePolice:'buy',setZone:'buy',trainPolice:'buy',resolveCityCase:'pop',
+  startCity:'celebrate',changePolice:'buy',trainPolice:'buy',resolveCityCase:'pop',
   startTown: 'celebrate', buildService: 'buy', fundTown: 'coin', answerPetition: 'pop',
   plant: 'plant', fertilize: 'plant', harvest: 'harvest', sell: 'coin', sellAnimals: 'coin', deliverContract: 'coin',
   buy: 'buy', buyPlot: 'buy', buyParcel: 'buy', buyMachine: 'buy', build: 'buy', hire: 'buy', buyAnimals: 'buy', upgradeBuilding: 'buy',
