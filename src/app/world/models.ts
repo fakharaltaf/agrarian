@@ -956,3 +956,207 @@ export function buildCivic(type: string, w: number, d: number, level = 1): Model
   group.traverse(o=>{if((o as THREE.Mesh).isMesh&&o.userData.window&&!windows.includes(o as THREE.Mesh))windows.push(o as THREE.Mesh);});
   return {group,windows,smoke};
 }
+
+// ---------------------------------------------------------------- city commerce: shops → markets → mall
+export type ShopKind = 'baker' | 'dairy' | 'butcher' | 'grocer' | 'general';
+const SHOP_LOOK: Record<ShopKind, { wall: number; roof: number; a: number; b: number; sign: number }> = {
+  baker: { wall: 0xf0dfb8, roof: 0xb5643c, a: 0xd98a3a, b: 0xfff3dc, sign: 0x8a5a2b },
+  dairy: { wall: 0xf4f2ec, roof: 0x4f7aa0, a: 0x5b8fc0, b: 0xf4f2ec, sign: 0x2f5f8f },
+  butcher: { wall: 0xb0604a, roof: 0x5a4a44, a: 0xa8322c, b: 0xf4f2ec, sign: 0x6e1f1c },
+  grocer: { wall: 0xe6dcc0, roof: 0x4f7a52, a: 0x4f8a4a, b: 0xf1e6cc, sign: 0x2f5f33 },
+  general: { wall: 0xb98a5a, roof: 0x6b4a36, a: 0xc99a2e, b: 0x7a4a2f, sign: 0x4a3222 },
+};
+const disc = (r: number, color: number, x: number, y: number, z: number) => { const m = cyl(r, 0.04, color, x, 0, z, 16); m.rotation.x = Math.PI / 2; m.position.y = y; return m; };
+const crate = (g: THREE.Group, x: number, z: number, fruit: number, y = 0, tilt = 0) => {
+  const c = new THREE.Group(); c.add(box(0.3, 0.1, 0.24, PAL.wood, 0, 0, 0));
+  for (const [dx, dz] of [[-0.08, -0.05], [0.08, -0.05], [-0.08, 0.06], [0.08, 0.06], [0, 0]]) c.add(sphere(0.055, fruit, dx, 0.12, dz));
+  c.position.set(x, y, z); c.rotation.x = tilt; g.add(c);
+};
+const sack = (g: THREE.Group, x: number, z: number, c = 0xd8c9a0) => { const m = sphere(0.14, c, x, 0.12, z); m.scale.set(1, 1.2, 0.8); g.add(m); };
+const churn = (g: THREE.Group, x: number, z: number) => { g.add(cyl(0.09, 0.26, PAL.metal, x, 0, z, 10), cyl(0.06, 0.08, PAL.metal, x, 0.26, z, 10), cyl(0.075, 0.02, PAL.metalDark, x, 0.34, z, 10)); };
+const lampPost = (g: THREE.Group, x: number, z: number, h = 0.9) => { g.add(box(0.04, h, 0.04, PAL.metalDark, x, 0, z), box(0.12, 0.1, 0.12, 0xffe2a0, x, h, z, { emissive: 0x6b5a2a })); };
+const planter = (g: THREE.Group, x: number, z: number, r = 0.2) => { g.add(box(r * 1.6, 0.14, r * 1.6, PAL.stoneDark, x, 0, z), sphere(r, 0x5f8f4a, x, 0.14 + r * 0.8, z)); };
+const carProp = (g: THREE.Group, x: number, z: number, c: number, rot = 0) => {
+  const k = new THREE.Group(); k.add(box(0.36, 0.14, 0.7, c, 0, 0.07, 0), box(0.32, 0.13, 0.36, c, 0, 0.21, -0.03), box(0.33, 0.09, 0.3, PAL.window, 0, 0.23, -0.03));
+  for (const [dx, dz] of [[-0.18, -0.22], [0.18, -0.22], [-0.18, 0.22], [0.18, 0.22]]) { const w = cyl(0.07, 0.05, 0x2a2a2a, 0, 0, 0, 10); w.rotation.z = Math.PI / 2; w.position.set(dx, 0.07, dz); k.add(w); }
+  k.position.set(x, 0, z); k.rotation.y = rot; g.add(k);
+};
+/** A market stall: a table of goods under a striped awning on four posts. */
+const stall = (g: THREE.Group, x: number, z: number, a: number, b: number, goods: number, rot = 0) => {
+  const k = new THREE.Group();
+  for (const [dx, dz] of [[-0.36, -0.2], [0.36, -0.2], [-0.36, 0.2], [0.36, 0.2]]) k.add(box(0.04, 0.62, 0.04, PAL.woodDark, dx, 0, dz));
+  k.add(box(0.76, 0.05, 0.44, PAL.wood, 0, 0.26, 0));
+  for (let i = 0; i < 4; i++) { const s = box(0.2, 0.03, 0.56, i % 2 ? b : a, -0.3 + i * 0.2, 0.62, 0); s.rotation.x = 0.18; k.add(s); }
+  for (const dx of [-0.22, 0, 0.22]) for (const dz of [-0.08, 0.1]) k.add(sphere(0.06, goods, dx, 0.36, dz));
+  k.position.set(x, 0, z); k.rotation.y = rot; g.add(k);
+};
+const finish = (group: THREE.Group, smoke: THREE.Vector3[] = []): Model => {
+  const windows: THREE.Mesh[] = [];
+  group.traverse((o) => { if ((o as THREE.Mesh).isMesh && o.userData.window) windows.push(o as THREE.Mesh); });
+  return { group, windows, smoke };
+};
+const glassWin = (g: THREE.Group, w: number, h: number, x: number, y: number, z: number, side = false) => { const m = side ? box(0.03, h, w, PAL.window, x, y, z) : box(w, h, 0.03, PAL.window, x, y, z); m.userData.window = true; g.add(m); };
+
+/** A high-street shop on a 3×3 lot: shopfront with a display window and striped awning, a flat above, and its trade set out on the pavement. */
+export function buildShop(kind: ShopKind, w = 3, d = 3): Model {
+  const g = new THREE.Group(), L = SHOP_LOOK[kind], smoke: THREE.Vector3[] = [];
+  const bw = w - 0.7, bd = d - 1.4, x0 = 0.35, z0 = 0.25, cx = w / 2, cz = z0 + bd / 2, front = z0 + bd, gh = 0.9, uh = 0.6, top = gh + uh;
+  g.add(box(w - 0.1, 0.05, d - 0.1, PAL.stone, w / 2, 0, d / 2, { rough: 1 }));
+  g.add(box(w - 0.1, 0.02, d - front - 0.05, 0xcfc6b2, w / 2, 0.05, (front + d - 0.05) / 2, { rough: 1 })); // pavement
+  g.add(box(bw, top, bd, L.wall, cx, 0, cz));
+  g.add(box(bw + 0.04, 0.14, bd + 0.04, PAL.stoneDark, cx, 0, cz)); // plinth
+  // shopfront: display window on a stall riser, door to the right, a painted fascia across the top
+  g.add(box(bw - 0.1, 0.72, 0.04, L.sign, cx, 0.1, front + 0.005));
+  glassWin(g, bw * 0.55, 0.48, cx - bw * 0.17, 0.26, front + 0.03);
+  for (const dx of [-0.27, 0, 0.27]) g.add(box(0.025, 0.48, 0.045, L.b, cx - bw * 0.17 + dx * bw * 0.68, 0.26, front + 0.035)); // glazing bars
+  g.add(box(0.34, 0.62, 0.05, PAL.door, cx + bw * 0.3, 0.1, front + 0.03)); glassWin(g, 0.2, 0.24, cx + bw * 0.3, 0.4, front + 0.06);
+  g.add(box(bw, 0.16, 0.06, L.sign, cx, gh - 0.04, front + 0.02), box(bw * 0.6, 0.07, 0.07, L.b, cx, gh, front + 0.025)); // fascia and its lettering band
+  awning(g, bw, x0, gh - 0.1, front + 0.02, L.a, L.b);
+  // the flat above
+  for (const x of [cx - bw * 0.25, cx + bw * 0.25]) { g.add(box(0.36, 0.38, 0.02, PAL.white, x, gh + 0.14, front + 0.005)); glassWin(g, 0.28, 0.3, x, gh + 0.18, front + 0.012); g.add(box(0.02, 0.3, 0.035, PAL.white, x, gh + 0.18, front + 0.016)); }
+  for (const z of [cz - bd / 4, cz + bd / 4]) glassWin(g, 0.24, 0.28, x0 + bw + 0.01, gh + 0.18, z, true);
+  g.add(box(bw + 0.08, 0.06, bd + 0.08, PAL.white, cx, top - 0.03, cz));
+  // hanging sign on a bracket
+  g.add(box(0.03, 0.03, 0.4, PAL.metalDark, x0 + bw - 0.1, gh + 0.42, front + 0.2));
+  const hang = disc(0.15, L.a, x0 + bw - 0.1, gh + 0.22, front + 0.34); hang.rotation.z = Math.PI / 2; g.add(hang);
+  if (kind === 'general') { // a boarded false front and a porch on posts
+    g.add(box(bw + 0.1, 0.55, 0.08, L.wall, cx, top, front - 0.02), box(bw + 0.16, 0.06, 0.12, L.b, cx, top + 0.55, front - 0.02), box(bw * 0.7, 0.24, 0.03, 0xf1e6cc, cx, top + 0.14, front + 0.03));
+    g.add(gable(bw, bd - 0.1, 0.4, L.roof, cx, top, cz - 0.05));
+    for (const x of [x0 + 0.1, x0 + bw - 0.1]) g.add(box(0.06, gh - 0.14, 0.06, PAL.woodDark, x, 0.05, front + 0.45));
+    barrel(g, x0 + 0.25, front + 0.55); barrel(g, x0 + 0.5, front + 0.62, 0x7a5a3c); sack(g, cx - 0.1, front + 0.7); sack(g, cx + 0.15, front + 0.62, 0xc9b98a);
+    g.add(box(0.5, 0.05, 0.16, PAL.wood, x0 + bw - 0.4, 0.2, front + 0.75), box(0.5, 0.18, 0.03, PAL.wood, x0 + bw - 0.4, 0.22, front + 0.84)); // bench
+  } else {
+    g.add(gable(bw, bd, 0.5, L.roof, cx, top, cz), box(bw + 0.3, 0.05, 0.08, 0x3a2a22, cx, top + 0.49, cz));
+  }
+  if (kind === 'baker') { // oven chimney, baskets of loaves, a flour sack
+    smoke.push(chimney(g, x0 + 0.3, cz - 0.2, top + 0.15, 0.75));
+    for (const [x, c] of [[x0 + 0.3, 0xc98a4a], [x0 + 0.68, 0xe0b46a]] as const) crate(g, x, front + 0.55, c, 0.18, 0.25);
+    g.add(box(0.8, 0.18, 0.3, PAL.woodDark, x0 + 0.5, 0, front + 0.55)); sack(g, x0 + bw - 0.35, front + 0.6);
+  } else if (kind === 'dairy') { // churns by the door and a big bottle on the roof
+    for (const [dx, dz] of [[0.2, 0.5], [0.42, 0.62], [0.64, 0.5]]) churn(g, x0 + dx, front + dz);
+    g.add(box(0.5, 0.3, 0.5, L.wall, cx, top + 0.2, cz), cyl(0.2, 0.6, 0xfafafa, cx, top + 0.5, cz, 14), cyl(0.09, 0.2, 0xfafafa, cx, top + 1.1, cz, 14, 0.2), cyl(0.1, 0.07, L.a, cx, top + 1.3, cz, 14), cyl(0.205, 0.16, L.a, cx, top + 0.68, cz, 14)); // a bottle for a sign
+    g.add(box(0.4, 0.3, 0.3, 0xdfe6ea, x0 + bw - 0.35, 0.05, front + 0.6), box(0.36, 0.2, 0.02, PAL.window, x0 + bw - 0.35, 0.12, front + 0.76)); // chilled cabinet
+  } else if (kind === 'butcher') { // a rail of joints under the awning and a chopping block
+    g.add(box(bw * 0.5, 0.025, 0.025, PAL.metalDark, cx - bw * 0.17, 0.58, front + 0.3));
+    for (let i = 0; i < 4; i++) { const ham = cone(0.06, 0.2, 0x9c3a34, cx - bw * 0.36 + i * 0.3, 0.36, front + 0.3, 8); ham.rotation.x = Math.PI; ham.position.y = 0.47; g.add(ham); }
+    g.add(cyl(0.14, 0.3, PAL.wood, x0 + bw - 0.3, 0.05, front + 0.6, 10)); smoke.push(chimney(g, x0 + bw - 0.3, cz - 0.2, top + 0.15, 0.6));
+  } else if (kind === 'grocer') { // sloping stands of fruit and vegetables right across the pavement
+    const fruits = [0xc94c4c, 0xe7a23b, 0x6fa84a, 0xb98a5a, 0xd9c84a, 0x7fb04f];
+    for (let i = 0; i < 6; i++) crate(g, x0 + 0.22 + (i % 3) * 0.36, front + 0.45 + Math.floor(i / 3) * 0.3, fruits[i], 0.3 - Math.floor(i / 3) * 0.14, 0.3);
+    g.add(box(1.1, 0.16, 0.62, PAL.woodDark, x0 + 0.58, 0.05, front + 0.6)); planter(g, x0 + bw - 0.25, front + 0.75, 0.16);
+  }
+  lampPost(g, w - 0.3, d - 0.3, 0.85);
+  return finish(g, smoke);
+}
+
+/** Four shops of a kind merged: a market hall on a 6×6 lot, each with its own landmark. */
+export function buildMarketHall(kind: ShopKind, w = 6, d = 6): Model {
+  const g = new THREE.Group(), L = SHOP_LOOK[kind], smoke: THREE.Vector3[] = [], cx = w / 2;
+  g.add(box(w - 0.1, 0.05, d - 0.1, 0xcfc6b2, w / 2, 0, d / 2, { rough: 1 }));
+  const goods = { baker: 0xd9a05a, dairy: 0xfafafa, butcher: 0x9c3a34, grocer: 0xc94c4c, general: 0xc99a2e }[kind];
+  if (kind === 'grocer') {
+    // Farmers' market: an open timber pavilion with a cupola, stalls under it and out on the square
+    const pw = 4.6, pd = 3.0, z0 = 0.5, ph = 1.35;
+    for (const x of [0, 1, 2, 3]) for (const z of [0, 1]) g.add(box(0.12, ph, 0.12, PAL.woodDark, cx - pw / 2 + 0.2 + x * ((pw - 0.4) / 3), 0.05, z0 + 0.2 + z * (pd - 0.4)));
+    g.add(box(pw, 0.1, pd, PAL.wood, cx, ph, z0 + pd / 2), gable(pw, pd, 1.0, L.roof, cx, ph + 0.1, z0 + pd / 2), box(pw + 0.3, 0.06, 0.1, 0x2f4a33, cx, ph + 1.08, z0 + pd / 2));
+    g.add(box(0.7, 0.4, 0.7, PAL.cream, cx, ph + 0.95, z0 + pd / 2)); const cup = cone(0.6, 0.45, L.roof, cx, ph + 1.35, z0 + pd / 2, 4); cup.rotation.y = Math.PI / 4; g.add(cup);
+    const f = [0xc94c4c, 0xe7a23b, 0x6fa84a, 0xd9c84a, 0xb98a5a, 0x8a5fb0];
+    for (let i = 0; i < 4; i++) for (let j = 0; j < 2; j++) crate(g, cx - 1.6 + i * 1.05, z0 + 0.9 + j * 1.2, f[(i + j * 2) % 6], 0.3, 0.2), g.add(box(0.8, 0.26, 0.4, PAL.wood, cx - 1.6 + i * 1.05, 0.05, z0 + 0.9 + j * 1.2));
+    for (let i = 0; i < 4; i++) stall(g, cx - 1.8 + i * 1.2, d - 1.25, [0x4f8a4a, 0xd98a3a, 0xa8322c, 0x5b8fc0][i], 0xf4f2ec, f[i]);
+    for (let i = 0; i < 9; i++) g.add(box(0.14, 0.14, 0.02, [0xc94c4c, 0xe7a23b, 0x5b8fc0][i % 3], cx - pw / 2 + 0.4 + i * 0.48, ph - 0.22, z0 + pd + 0.02)); // bunting
+    g.add(box(0.7, 0.3, 0.45, PAL.wood, 0.9, 0.2, d - 0.6), cyl(0.2, 0.05, PAL.woodDark, 0.6, 0.2, d - 0.35, 12)); // handcart
+    planter(g, w - 0.6, d - 0.6, 0.26); planter(g, 0.6, 0.6, 0.22);
+  } else if (kind === 'general') {
+    // Commercial market: a two-storey arcade round a courtyard, with a clock tower
+    const fh = 0.85, top = fh * 2;
+    const block = (bx: number, bz: number, bw: number, bd: number) => { g.add(box(bw, top, bd, 0xe8d9b8, bx, 0.05, bz), box(bw + 0.1, 0.14, bd + 0.1, 0xb98a5a, bx, top + 0.05, bz), box(bw - 0.16, 0.02, bd - 0.16, 0xd9cdb4, bx, top + 0.19, bz), box(bw + 0.06, 0.05, bd + 0.06, 0xb98a5a, bx, fh, bz)); };
+    block(cx, 1.2, 5.2, 1.6); block(0.95, 3.3, 1.5, 2.8); block(w - 0.95, 3.3, 1.5, 2.8);
+    for (let i = 0; i < 7; i++) { const x = cx - 1.8 + i * 0.6; g.add(box(0.1, fh - 0.1, 0.1, PAL.white, x, 0.05, 2.05)); if (i < 6) { glassWin(g, 0.34, 0.5, x + 0.3, 0.12, 2.01); glassWin(g, 0.3, 0.36, x + 0.3, fh + 0.22, 2.01); } }
+    for (const sx of [-1, 1]) for (let i = 0; i < 4; i++) { const z = 2.3 + i * 0.62; glassWin(g, 0.36, 0.5, cx + sx * 2.29, 0.12, z, true); glassWin(g, 0.3, 0.36, cx + sx * 2.29, fh + 0.22, z, true); const a = box(0.34, 0.03, 0.5, [0xa8322c, 0xc99a2e, 0x4f8a8b, 0x4f8a4a][i], cx + sx * 2.05, fh - 0.2, z); a.rotation.z = sx * 0.3; g.add(a); }
+    for (const sx of [-1, 1]) { // wing ends face the street: a shopfront each, and windows down the outer walls
+      const x = cx + sx * (w / 2 - 0.95);
+      glassWin(g, 0.9, 0.5, x, 0.14, 4.71); glassWin(g, 0.34, 0.36, x - 0.3, fh + 0.22, 4.71); glassWin(g, 0.34, 0.36, x + 0.3, fh + 0.22, 4.71); awning(g, 1.1, x - 0.55, fh - 0.14, 4.71, sx < 0 ? 0xa8322c : 0x4f8a8b, 0xf4f2ec);
+      for (let i = 0; i < 4; i++) { glassWin(g, 0.36, 0.44, cx + sx * (w / 2 - 0.19), 0.16, 2.3 + i * 0.62, true); glassWin(g, 0.3, 0.36, cx + sx * (w / 2 - 0.19), fh + 0.22, 2.3 + i * 0.62, true); }
+    }
+    for (let i = 0; i < 2; i++) { glassWin(g, 0.3, 0.36, cx + 2.61, fh + 0.22, 0.8 + i * 0.7, true); glassWin(g, 0.36, 0.44, cx + 2.61, 0.16, 0.8 + i * 0.7, true); }
+    g.add(box(0.9, 3.3, 0.9, 0xe8d9b8, cx, 0.05, 1.2), box(1.0, 0.1, 1.0, 0xb98a5a, cx, 2.6, 1.2)); g.add(disc(0.28, 0xfafafa, cx, 2.95, 1.67), disc(0.04, 0x2a2216, cx, 2.95, 1.7));
+    { const side = disc(0.28, 0xfafafa, cx + 0.47, 2.95, 1.2); side.rotation.z = Math.PI / 2; g.add(side); }
+    const cap = cone(0.75, 0.6, L.roof, cx, 3.35, 1.2, 4); cap.rotation.y = Math.PI / 4; g.add(cap);
+    g.add(cyl(0.45, 0.12, PAL.stone, cx, 0.05, 3.6, 12), cyl(0.36, 0.04, 0x7fb6d6, cx, 0.17, 3.6, 12), cyl(0.06, 0.4, PAL.stone, cx, 0.17, 3.6, 8)); // fountain
+    stall(g, cx - 0.95, 4.9, 0xa8322c, 0xf4f2ec, goods); stall(g, cx + 0.95, 4.9, 0x4f8a8b, 0xf4f2ec, 0xd673a4); stall(g, cx, 2.7, 0xc99a2e, 0xf4f2ec, 0x8a5fb0, Math.PI);
+    lampPost(g, 0.5, d - 0.4); lampPost(g, w - 0.5, d - 0.4);
+  } else {
+    // Bakers' hall, Dairy hall and Meat market: a big gabled hall with a tall glazed front, awnings and its trade outside
+    const hw = 4.8, hd = 3.3, z0 = 0.45, cz = z0 + hd / 2, front = z0 + hd, wh = 1.7, rh = 1.15;
+    g.add(box(hw + 0.08, 0.16, hd + 0.08, PAL.stoneDark, cx, 0.05, cz), box(hw, wh, hd, L.wall, cx, 0.05, cz), gable(hw, hd, rh, L.roof, cx, wh + 0.05, cz), box(hw + 0.3, 0.06, 0.1, 0x3a2a22, cx, wh + rh + 0.03, cz));
+    g.add(box(hw + 0.1, 0.07, hd + 0.1, PAL.white, cx, wh - 0.02, cz));
+    g.add(box(hw * 0.6, 0.34, 0.7, L.wall, cx, wh + rh - 0.2, cz), gable(hw * 0.6, 0.7, 0.3, L.roof, cx, wh + rh + 0.14, cz)); for (let i = 0; i < 5; i++) glassWin(g, 0.36, 0.2, cx - hw * 0.24 + i * hw * 0.12, wh + rh - 0.1, cz + 0.36); // roof lantern
+    for (const sx of [-1, 1]) g.add(box(0.14, wh, 0.1, PAL.white, cx + sx * (hw / 2 - 0.07), 0.05, front + 0.02), box(0.14, wh, 0.1, PAL.white, cx + sx * 0.75, 0.05, front + 0.02)); // pilasters
+    g.add(box(1.2, 1.05, 0.05, PAL.door, cx, 0.05, front + 0.02)); glassWin(g, 1.0, 0.36, cx, 1.15, front + 0.03); g.add(disc(0.6, PAL.white, cx, 1.52, front + 0.0)); // arched doorway
+    for (const sx of [-1, 1]) { glassWin(g, 1.1, 0.7, cx + sx * 1.6, 0.75, front + 0.02); for (const dx of [-0.28, 0, 0.28]) g.add(box(0.03, 0.7, 0.045, PAL.white, cx + sx * 1.6 + dx, 0.75, front + 0.025)); awning(g, 1.25, cx + sx * 1.6 - 0.625, 0.62, front + 0.02, L.a, L.b); }
+    for (let i = 0; i < 4; i++) glassWin(g, 0.5, 0.6, cx + hw / 2 + 0.01, 0.7, z0 + 0.5 + i * 0.78, true);
+    g.add(box(2.2, 0.3, 0.06, L.sign, cx, wh - 0.42, front + 0.04), box(1.5, 0.1, 0.07, L.b, cx, wh - 0.32, front + 0.045)); // name board
+    if (kind === 'baker') {
+      g.add(disc(0.36, PAL.window, cx, wh + 0.5, front + 0.13), disc(0.42, PAL.white, cx, wh + 0.5, front + 0.12)); // rose window in the gable
+      smoke.push(chimney(g, cx - 1.7, cz - 0.5, wh + 0.4, 1.1), chimney(g, cx + 1.7, cz - 0.5, wh + 0.4, 1.1));
+      stall(g, cx - 1.7, d - 1.1, L.a, L.b, 0xc98a4a); stall(g, cx + 1.7, d - 1.1, L.a, L.b, 0xe0b46a);
+      for (const [x, z] of [[cx - 0.5, d - 0.8], [cx - 0.2, d - 0.7], [cx + 0.2, d - 0.85]]) sack(g, x, z);
+      g.add(box(0.7, 0.3, 0.45, PAL.wood, w - 0.8, 0.2, d - 0.6), cyl(0.2, 0.05, PAL.woodDark, w - 0.5, 0.2, d - 0.35, 12)); crate(g, w - 0.8, d - 0.6, 0xc98a4a, 0.5);
+    } else if (kind === 'dairy') {
+      g.add(cyl(0.42, 1.5, 0xfafafa, 0.9, 0.05, d - 1.0, 14), cyl(0.2, 0.45, 0xfafafa, 0.9, 1.55, d - 1.0, 14, 0.42), cyl(0.22, 0.12, L.a, 0.9, 2.0, d - 1.0, 14), box(0.9, 0.12, 0.9, PAL.stoneDark, 0.9, 0, d - 1.0)); // the giant bottle
+      for (let i = 0; i < 5; i++) churn(g, cx - 0.6 + i * 0.3, d - 0.9 + (i % 2) * 0.14);
+      g.add(box(0.75, 0.55, 1.3, 0xf4f2ec, w - 0.9, 0.12, d - 1.1), box(0.7, 0.4, 0.4, L.a, w - 0.9, 0.12, d - 0.35), box(0.6, 0.18, 0.02, PAL.window, w - 0.9, 0.34, d - 0.14)); // milk float
+      for (const dx of [-0.6, 0.6]) g.add(box(0.5, 0.3, 0.4, PAL.metal, cx + dx, wh + 0.55, cz - 0.9));
+    } else {
+      g.add(box(1.5, 1.1, 1.6, 0xe9ecec, w - 1.0, 0.05, 1.3), box(1.6, 0.08, 1.7, PAL.metalDark, w - 1.0, 1.15, 1.3)); for (const dz of [-0.4, 0.4]) g.add(box(0.4, 0.25, 0.4, PAL.metal, w - 1.0, 1.23, 1.3 + dz)); // cold room
+      g.add(box(1.9, 0.03, 0.03, PAL.metalDark, cx - 1.6, 0.6, front + 0.42)); for (let i = 0; i < 6; i++) { const ham = cone(0.07, 0.24, 0x9c3a34, cx - 2.4 + i * 0.32, 0, front + 0.42, 8); ham.rotation.x = Math.PI; ham.position.y = 0.47; g.add(ham); }
+      smoke.push(chimney(g, cx - 1.6, cz - 0.6, wh + 0.4, 1.0));
+      stall(g, cx + 1.5, d - 1.1, L.a, L.b, goods); g.add(cyl(0.2, 0.36, PAL.wood, cx - 0.4, 0.05, d - 0.8, 10), cyl(0.2, 0.36, PAL.wood, cx + 0.2, 0.05, d - 0.7, 10));
+    }
+    lampPost(g, 0.45, d - 0.4); lampPost(g, w - 0.45, d - 0.4); planter(g, 0.6, 0.7, 0.24);
+  }
+  return finish(g, smoke);
+}
+
+/** Four markets merged: a two-storey mall with a glass atrium and a car park on a 12×12 lot; its upgrade adds an office tower. */
+export function buildMall(w = 12, d = 12, tower = false): Model {
+  const g = new THREE.Group(), cx = w / 2, bw = 10.4, bd = 6.2, z0 = 0.5, cz = z0 + bd / 2, front = z0 + bd, fh = 1.05, top = fh * 2;
+  const wall = 0xe9e2d2, band = 0xb5643c, glass = mat(PAL.glass, { opacity: 0.8, rough: 0.2 });
+  g.add(box(w - 0.1, 0.05, d - 0.1, 0xcfc6b2, w / 2, 0, d / 2, { rough: 1 }));
+  g.add(box(bw, top, bd, wall, cx, 0.05, cz), box(bw + 0.14, 0.2, bd + 0.14, band, cx, top + 0.05, cz), box(bw + 0.06, 0.08, bd + 0.06, band, cx, fh, cz), box(bw - 0.3, 0.04, bd - 0.3, 0xa39d90, cx, top + 0.22, cz));
+  for (const sx of [-1, 1]) for (let i = 0; i < 3; i++) { const sk = box(1.0, 0.1, 0.7, 0, cx + sx * (2.4 + (i % 2) * 1.5), top + 0.26, z0 + 1.1 + i * 1.9); sk.material = glass; g.add(sk); }
+  // glass atrium down the middle, rising through the roof, and a glazed entrance under a canopy
+  const at = gable(bd + 0.6, 2.0, 0.9, 0, cx, top + 0.5, cz); at.material = glass; at.rotation.y = Math.PI / 2; g.add(at);
+  g.add(box(2.0, 0.5, bd + 0.6, 0xf4f2ec, cx, top, cz));
+  for (let i = 0; i < 6; i++) g.add(box(2.3, 0.05, 0.06, PAL.white, cx, top + 0.5, z0 + 0.2 + i * (bd / 5)));
+  const ent = box(2.6, top + 0.3, 0.5, 0, cx, 0.05, front + 0.2); ent.material = glass; ent.userData.window = true; g.add(ent);
+  for (const dx of [-1.3, -0.45, 0.45, 1.3]) g.add(box(0.06, top + 0.3, 0.06, PAL.white, cx + dx, 0.05, front + 0.46));
+  g.add(box(3.4, 0.1, 1.2, band, cx, 0.95, front + 0.9), box(0.1, 0.9, 0.1, PAL.white, cx - 1.5, 0.05, front + 1.4), box(0.1, 0.9, 0.1, PAL.white, cx + 1.5, 0.05, front + 1.4));
+  g.add(box(0.5, 2.6, 0.3, 0x2a3540, w - 0.9, 0.05, d - 0.6), box(0.56, 0.5, 0.36, band, w - 0.9, 2.1, d - 0.6), box(0.4, 0.3, 0.38, 0xffe2a0, w - 0.9, 1.6, d - 0.6, { emissive: 0x6b5a2a }), box(0.4, 0.3, 0.38, 0xf4f2ec, w - 0.9, 1.15, d - 0.6)); // sign pylon by the road
+  // shopfronts on both floors, each with its own colour
+  const cols = [0xa8322c, 0x4f8a8b, 0xc99a2e, 0x4f8a4a, 0x6b7fa8, 0xd98a3a, 0xb5643c, 0x5b8fc0];
+  for (const sx of [-1, 1]) for (let i = 0; i < 4; i++) {
+    const x = cx + sx * (1.75 + i * 0.95);
+    glassWin(g, 0.7, 0.56, x, 0.2, front + 0.01); glassWin(g, 0.7, 0.5, x, fh + 0.28, front + 0.01);
+    awning(g, 0.75, x - 0.375, 0.82, front + 0.01, cols[(i + (sx > 0 ? 4 : 0)) % 8], 0xf4f2ec);
+  }
+  for (const sx of [-1, 1]) for (let i = 0; i < 6; i++) { glassWin(g, 0.6, 0.5, cx + sx * (bw / 2 + 0.01), 0.22, z0 + 0.6 + i * 1.0, true); glassWin(g, 0.6, 0.46, cx + sx * (bw / 2 + 0.01), fh + 0.3, z0 + 0.6 + i * 1.0, true); }
+  for (const [x, z] of [[cx - 3.6, cz - 1.5], [cx - 3.0, cz + 1.2], [cx + 3.4, cz - 1.0], [cx + 2.8, cz + 1.6]]) g.add(box(0.7, 0.3, 0.5, PAL.metal, x, top + 0.24, z)); // rooftop plant
+  // car park
+  const pz = front + 2.6;
+  g.add(box(w - 0.6, 0.02, 3.6, 0x55585a, cx, 0.05, pz + 0.55, { rough: 1 }));
+  for (let i = 0; i <= 12; i++) if (Math.abs(0.9 + i * 0.85 - cx) > 1.2) g.add(box(0.03, 0.01, 0.9, 0xf4f2ec, 0.9 + i * 0.85, 0.07, pz + 1.7), box(0.03, 0.01, 0.9, 0xf4f2ec, 0.9 + i * 0.85, 0.07, pz - 0.2));
+  [[1.3, 1.7, 0xa8322c], [3.0, 1.7, 0xf4f2ec], [8.95, 1.7, 0x4f7aa0], [10.65, 1.7, 0xc99a2e], [2.15, -0.2, 0x4f8a4a], [9.8, -0.2, 0x8f979b], [3.85, -0.2, 0x2a3540]].forEach(([x, dz, c]) => carProp(g, x, pz + dz, c));
+  for (const x of [0.6, 4.0, 8.0, w - 0.6]) { planter(g, x, front + 0.9, 0.26); lampPost(g, x, d - 0.35, 1.2); }
+  if (tower) { // the office tower: bands of glass, a crown and a mast
+    const tw = 2.8, tx = cx - bw / 2 + tw / 2 + 0.3, tz = z0 + tw / 2 + 0.3, th = 9.0, floors = 12;
+    g.add(box(tw, th, tw, 0xdfe4e6, tx, top + 0.05, tz));
+    for (let f = 0; f < floors; f++) { const y = top + 0.3 + f * (th / floors); glassWin(g, tw - 0.3, 0.42, tx, y, tz + tw / 2 + 0.01); glassWin(g, tw - 0.3, 0.42, tx + tw / 2 + 0.01, y, tz, true); glassWin(g, tw - 0.3, 0.42, tx - tw / 2 - 0.01, y, tz, true); }
+    for (const sx of [-1, 1]) g.add(box(0.12, th, 0.12, PAL.white, tx + sx * (tw / 2 - 0.04), top + 0.05, tz + tw / 2), box(0.12, th, 0.12, PAL.white, tx + sx * (tw / 2 - 0.04), top + 0.05, tz - tw / 2));
+    g.add(box(tw + 0.16, 0.25, tw + 0.16, band, tx, top + th, tz));
+    const sw = tw - 0.8, sh = 2.2; g.add(box(sw, sh, sw, 0xdfe4e6, tx, top + th + 0.25, tz));
+    for (let f = 0; f < 3; f++) { const y = top + th + 0.5 + f * 0.7; glassWin(g, sw - 0.3, 0.42, tx, y, tz + sw / 2 + 0.01); glassWin(g, sw - 0.3, 0.42, tx + sw / 2 + 0.01, y, tz, true); }
+    g.add(box(sw + 0.14, 0.2, sw + 0.14, band, tx, top + th + 0.25 + sh, tz), box(sw - 0.7, 0.4, sw - 0.7, 0xc9d0d3, tx, top + th + 0.45 + sh, tz), box(0.05, 1.6, 0.05, PAL.metalDark, tx, top + th + 0.85 + sh, tz), sphere(0.07, 0xc0392b, tx, top + th + 2.5 + sh, tz, { emissive: 0x7a1a12 }));
+  }
+  return finish(g);
+}
