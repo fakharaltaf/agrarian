@@ -788,24 +788,56 @@ export function buildCommunityHome(tier: string, w: number, d: number, key = '')
     group.add(gable(w - 0.4, hd, 0.7, ROOFS[Math.floor(seed * ROOFS.length)], w / 2, wallH, z0 + hd / 2));
     group.add(box(w - 0.3, 0.18, 0.06, PAL.white, w / 2, 0, d - 0.15));
   } else {
-    // apartments: a four-storey block with balconies, an entrance canopy, a parapet and a water tank
-    const wall = [0xd8cfc0, 0xc9b49a, 0xbfc6c9, 0xd6c2a8][Math.floor(seed * 4)], bw = w - 0.6, bd = d - 1.2, floors = 4, fh = 0.78, cx = w / 2, cz = 0.4 + bd / 2;
+    // apartments: a four-storey block on a stone ground floor, a glazed stair tower rising past the roof,
+    // windows with sills on the front and side, coloured balconies, a water tank on legs and a small yard
+    const wall = [0xd8cfc0, 0xb8705a, 0xaebcc4, 0xd9b77e][Math.floor(hashStr(key + 'w') * 4)], trim = 0xeee6d6;
+    const accent = [0x4f8a8b, 0xb5643c, 0xc99a2e, 0x6b7fa8][Math.floor(hashStr(key + 'a') * 4)];
+    const bw = w - 0.6, bd = d - 1.2, floors = 4, fh = 0.78, top = floors * fh, cx = w / 2, cz = 0.4 + bd / 2, front = cz + bd / 2, side = cx + bw / 2;
+    const win = (o: THREE.Mesh) => { o.userData.window = true; group.add(o); };
     group.add(box(w - 0.1, 0.05, d - 0.1, PAL.stone, w / 2, 0, d / 2, { rough: 1 }));
-    group.add(box(bw, floors * fh, bd, wall, cx, 0, cz));
-    group.add(box(bw + 0.1, 0.18, bd + 0.1, PAL.stoneDark, cx, floors * fh, cz)); // parapet
-    group.add(box(bw - 0.12, 0.04, bd - 0.12, PAL.roofGrey, cx, floors * fh + 0.12, cz));
-    group.add(cyl(0.22, 0.4, PAL.metalDark, cx + bw / 2 - 0.4, floors * fh + 0.14, cz - 0.2, 10)); // water tank
-    const front = cz + bd / 2 + 0.01;
-    for (let f = 0; f < floors; f++) for (let c = 0; c < 4; c++) {
-      const x = cx - bw / 2 + (c + 0.5) * (bw / 4);
-      if (f === 0 && c === 1) continue; // the entrance
-      const win = box(0.32, 0.36, 0.03, PAL.window, x, f * fh + 0.25, front); win.userData.window = true; group.add(win);
-      if (f > 0 && c % 2 === 0) { group.add(box(0.5, 0.05, 0.22, PAL.stone, x, f * fh + 0.18, front + 0.1)); group.add(box(0.5, 0.16, 0.02, PAL.metalDark, x, f * fh + 0.23, front + 0.21)); } // balcony
+    group.add(box(bw + 0.04, fh, bd + 0.04, PAL.stoneDark, cx, 0, cz)); // stone ground floor
+    group.add(box(bw, top - fh, bd, wall, cx, fh, cz));
+    for (let f = 1; f < floors; f++) group.add(box(bw + 0.06, 0.05, bd + 0.06, trim, cx, f * fh - 0.02, cz)); // floor bands
+    group.add(box(bw + 0.12, 0.16, bd + 0.12, 0x8f877b, cx, top, cz)); // parapet
+    group.add(box(bw - 0.1, 0.04, bd - 0.1, 0x6f6c66, cx, top + 0.1, cz));
+    const col = (c: number) => cx - bw / 2 + (c + 0.5) * (bw / 4);
+    for (let f = 0; f < floors; f++) {
+      for (const c of [0, 2, 3]) { // column 1 is the stair tower
+        const x = col(c), y = f * fh + 0.24;
+        win(box(0.32, 0.36, 0.03, PAL.window, x, y, front + 0.01));
+        group.add(box(0.4, 0.04, 0.07, trim, x, y - 0.04, front + 0.03)); // sill
+        if (f > 0 && c !== 2) { // balconies at the corners, railings in the block's colour
+          group.add(box(0.52, 0.05, 0.26, PAL.stone, x, f * fh + 0.16, front + 0.13));
+          group.add(box(0.52, 0.18, 0.02, accent, x, f * fh + 0.21, front + 0.26));
+          for (const dx of [-0.25, 0.25]) group.add(box(0.02, 0.18, 0.26, accent, x + dx, f * fh + 0.21, front + 0.13));
+          if (hashStr(key + f + c) > 0.5) group.add(sphere(0.07, 0x5f8f4a, x + 0.16, f * fh + 0.3, front + 0.2)); // a pot plant
+        }
+      }
+      for (const z of [cz - bd / 4, cz + bd / 4]) { // side windows
+        win(box(0.03, 0.36, 0.3, PAL.window, side + 0.01, f * fh + 0.24, z));
+        group.add(box(0.07, 0.04, 0.38, trim, side + 0.03, f * fh + 0.2, z));
+      }
     }
-    const ex = cx - bw / 2 + 1.5 * (bw / 4);
-    group.add(box(0.4, 0.6, 0.04, PAL.door, ex, 0, front));
-    group.add(box(0.7, 0.05, 0.4, PAL.roofGrey, ex, 0.68, front + 0.18)); // canopy
-    for (const x of [0.35, w - 0.35]) group.add(sphere(0.25, 0x5f8f4a, x, 0.25, d - 0.4));
+    // the stair tower: lighter, stood proud of the front, glazed on every landing, with a roof house for the stairs
+    const sx = col(1);
+    group.add(box(0.5, top + 0.4, 0.2, trim, sx, 0, front + 0.08));
+    group.add(box(0.58, 0.06, 0.26, PAL.roofGrey, sx, top + 0.4, front + 0.08));
+    group.add(box(0.5, 0.4, 0.6, trim, sx, top, front - 0.3)); // stair roof house
+    group.add(box(0.56, 0.06, 0.66, 0x8f877b, sx, top + 0.4, front - 0.3));
+    for (let f = 1; f < floors; f++) win(box(0.2, 0.5, 0.03, PAL.window, sx, f * fh + 0.1, front + 0.19));
+    group.add(box(0.36, 0.58, 0.04, PAL.door, sx, 0, front + 0.18));
+    group.add(box(0.72, 0.05, 0.42, accent, sx, 0.66, front + 0.36)); // canopy
+    group.add(box(0.22, 0.28, 0.02, PAL.white, col(0), fh - 0.32, front + 0.03)); // house number plate
+    // roof: a water tank on legs and an aerial
+    const tx = cx + bw / 2 - 0.45, tz = cz - 0.15;
+    for (const [dx, dz] of [[-0.15, -0.15], [0.15, -0.15], [-0.15, 0.15], [0.15, 0.15]]) group.add(box(0.04, 0.3, 0.04, PAL.metalDark, tx + dx, top + 0.12, tz + dz));
+    group.add(cyl(0.24, 0.38, PAL.metal, tx, top + 0.42, tz, 12));
+    group.add(box(0.03, 0.6, 0.03, PAL.metalDark, cx - bw / 2 + 0.35, top + 0.12, cz - 0.3), box(0.36, 0.02, 0.02, PAL.metalDark, cx - bw / 2 + 0.35, top + 0.6, cz - 0.3));
+    // the yard: a path to the door, hedges, a bench and the bins
+    group.add(box(0.5, 0.03, d - front - 0.1, 0xd9cdb4, sx, 0.03, (front + d - 0.05) / 2, { rough: 1 }));
+    for (const x of [0.4, w - 0.4]) group.add(box(0.7, 0.26, 0.24, 0x5f8f4a, x, 0, d - 0.3));
+    group.add(box(0.5, 0.05, 0.16, PAL.wood, col(2.5), 0.18, d - 0.6), box(0.5, 0.18, 0.03, PAL.wood, col(2.5), 0.2, d - 0.67));
+    for (const dx of [0, 0.22]) group.add(box(0.18, 0.26, 0.18, [0x3f6b45, 0x4b5a63][dx ? 1 : 0], side - 0.12 - dx, 0, front + 0.3));
   }
   group.traverse((o) => { if ((o as THREE.Mesh).isMesh && o.userData.window && !windows.includes(o as THREE.Mesh)) windows.push(o as THREE.Mesh); });
   return { group, smoke, windows };
