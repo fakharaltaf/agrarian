@@ -107,6 +107,9 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.05;
+    // a farm photo renders at up to 3840 wide (what the GPU allows) with a sharper shadow map
+    const gl = renderer.getContext(), shotW = Math.min(3840, renderer.capabilities.maxTextureSize, gl.getParameter(gl.MAX_VIEWPORT_DIMS)[0]);
+    const shadowRes = (n: number) => { if (sun.shadow.mapSize.x === n) return; sun.shadow.mapSize.set(n, n); sun.shadow.map?.dispose(); sun.shadow.map = null; };
     const scene = new THREE.Scene();
     const camera = new THREE.OrthographicCamera(-10, 10, 10, -10, -200, 400);
     const hemi = new THREE.HemisphereLight(0xfff4e0, 0xb59a70, 0.8); // warm sky and sunlit-earth bounce
@@ -150,8 +153,9 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
         R.people.clear();R.haulers.clear();R.neighbours.length=0;
         const mk=R.units.getObjectByName('village-market');if(mk)R.units.remove(mk);R.lastStockTick=-1;
       }
-      const pr = renderer.getPixelRatio(), W = R.shot ? 1600 / pr : c.clientWidth, H = R.shot ? 900 / pr : c.clientHeight; // a photo is always 1600×900
+      const pr = renderer.getPixelRatio(), W = R.shot ? shotW / pr : c.clientWidth, H = R.shot ? (shotW * 9) / 16 / pr : c.clientHeight; // a photo is drawn big (up to 4K), then scaled down for smooth edges
       if (!W || !H) return;
+      shadowRes(R.shot ? Math.min(4096, renderer.capabilities.maxTextureSize) : 2048);
       const size=`${W}:${H}`;
       if(size!==viewSize&&!R.shot){viewSize=size;framed=false;}
       if (c.width !== Math.round(W * renderer.getPixelRatio()) || c.height !== Math.round(H * renderer.getPixelRatio())) renderer.setSize(W, H, false);
@@ -416,9 +420,9 @@ const canShareFile = (blob: Blob) => { try { return !!navigator.canShare?.({ fil
 /** The farm photo: the captured map with the Agrarian watermark bottom left and the farm's date and size bottom right. */
 async function farmPhoto(raw: string, s: GameState, r: RegionId): Promise<{ url: string; blob: Blob }> {
   const shot = new Image(); shot.src = raw; await shot.decode();
-  const c = document.createElement('canvas'); c.width = shot.naturalWidth; c.height = shot.naturalHeight;
+  const c = document.createElement('canvas'); c.width = Math.min(2560, shot.naturalWidth); c.height = Math.round((c.width * 9) / 16); // 2560×1440, scaled down from the big render
   const g = c.getContext('2d')!, u = c.width / 1000, pad = Math.round(24 * u);
-  g.drawImage(shot, 0, 0);
+  g.imageSmoothingQuality = 'high'; g.drawImage(shot, 0, 0, c.width, c.height);
   const fade = g.createLinearGradient(0, c.height * 0.7, 0, c.height); fade.addColorStop(0, 'rgba(20,16,12,0)'); fade.addColorStop(1, 'rgba(20,16,12,0.45)');
   g.fillStyle = fade; g.fillRect(0, c.height * 0.7, c.width, c.height * 0.3);
   try {
