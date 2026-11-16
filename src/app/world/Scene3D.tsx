@@ -827,7 +827,7 @@ function syncDeco(R: Rig, L: Layout, s: GameState) {
     }
   }
   // the farm's boundary: low posts and a rail wherever land you own meets land you don't
-  const gates: Gate[] = [], owned = ownedSet(w), rails: THREE.Matrix4[] = [], posts: THREE.Matrix4[] = [], turn = new THREE.Quaternion().setFromAxisAngle(up, Math.PI / 2), flat = new THREE.Quaternion(), one = new THREE.Vector3(1, 1, 1);
+  const water = riverTiles(R.region), gates: Gate[] = [], owned = ownedSet(w), rails: THREE.Matrix4[] = [], posts: THREE.Matrix4[] = [], turn = new THREE.Quaternion().setFromAxisAngle(up, Math.PI / 2), flat = new THREE.Quaternion(), one = new THREE.Vector3(1, 1, 1);
   for (let gy = Math.max(0, gy0); gy <= Math.min(CHUNKS_Y - 1, gy1); gy++) for (let gxx = Math.max(0, gx0); gxx <= Math.min(CHUNKS_X - 1, gx1); gxx++) {
     const c = gy * CHUNKS_X + gxx;
     if (!owned.has(c)) continue;
@@ -835,7 +835,9 @@ function syncDeco(R: Rig, L: Layout, s: GameState) {
     const edge = (nx: number, ny: number) => nx < 0 || ny < 0 || nx >= CHUNKS_X || ny >= CHUNKS_Y || !owned.has(ny * CHUNKS_X + nx);
     // the fence gives way where a road or track crosses the line (road on both sides) and along the main road; a track that only runs beside it keeps its fence
     const open = (tx: number, ty: number) => isRoad(ty) || w.roads[tileId(tx, ty)] !== undefined;
-    const gap = (ax: number, ay: number, bx: number, by: number) => (open(ax, ay) && open(bx, by)) || isRoad(ay) || isRoad(by);
+    // and it stops at the river: no posts in the water or on its banks
+    const wet = (tx: number, ty: number) => [-2, -1, 0, 1, 2].some((dx) => water.has(tileId(tx + dx, ty)));
+    const gap = (ax: number, ay: number, bx: number, by: number) => (open(ax, ay) && open(bx, by)) || isRoad(ay) || isRoad(by) || wet(ax, ay) || wet(bx, by);
     const side = (x: number, z: number, along: boolean, inX: number, inZ: number) => {
       let run = -1; // where a road crosses: stout posts either side and a five-bar gate swung open into the farm
       for (let i = 0; i <= CHUNK; i++) {
