@@ -8,7 +8,7 @@ import {
 import { Coach, resetTips, tipsOff, tipsOn } from './Coach';
 import { clock, money, stamp } from './format';
 import { Icon } from './icons';
-import { LogoMark } from './Logo';
+import { LogoMark, Wordmark } from './Logo';
 import { Bar, Modal, usePref } from './ui';
 import { FieldsPage } from './pages/Fields';
 import { Hud } from './world/Hud';
@@ -120,8 +120,7 @@ function TitleScreen({ onPlay, onHelp }: { onPlay: () => void; onHelp: () => voi
   return (
     <div className="title-screen" role="dialog" aria-modal="true" aria-label="Welcome to Agrarian">
       <div className="title-card">
-        <LogoMark size={104} />
-        <h1 className="title-name">Agrarian</h1>
+        <h1 className="title-name"><Wordmark layout="stacked" size={58} /></h1>
         <p className="title-tag">Grow a little farm into a farming empire.</p>
         <ul className="title-points">
           <li><span>🌱</span>Plant, harvest and sell — one field at a time</li>
@@ -258,7 +257,7 @@ function TopBar({ onLog, onSettings, onHelp, onLedger, warnings, bare }: { onLog
   const [menu, setMenu] = useState(false);
   const c = clock(s.tick);
   return <header className="topbar game-strip">
-    <LogoMark size={28}/><div className="cash-wrap"><CashCounter /><HaulChip /></div>
+    <LogoMark size={28} title="Agrarian"/><div className="cash-wrap"><CashCounter /><HaulChip /></div>
     <button className="icon-btn" aria-label={speed ? 'Pause simulation' : 'Resume simulation'} onClick={()=>setSpeed(speed?0:1)}>{speed?'❚❚':'▶'}</button>
     <button className="btn time-toggle" data-coach="speed" aria-label="Time controls" aria-expanded={time} onClick={()=>{setTime(!time);setMenu(false);}}>{speed || 0}× ▾</button>
     {!bare && <button className="btn ledger-btn" aria-label="Ledger" data-coach="ledger" onClick={onLedger} title="All pages: fields, markets, finance and more">📚 Ledger</button>}

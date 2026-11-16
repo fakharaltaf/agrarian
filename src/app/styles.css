@@ -424,7 +424,12 @@ body { overflow: hidden; }
 .fc-icon { font-size: 15px; line-height: 1.2; }
 
 /* ---------- brand ---------- */
-.wordmark { display: inline-flex; align-items: center; gap: 0.4em; font-weight: 900; letter-spacing: -0.01em; color: var(--accent); }
+.wordmark { display: inline-block; vertical-align: middle; flex: none; }
+/* Logo faces follow the theme; values mirror TONES in logoArt.ts (dark lifts the reds off the dark ground). */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) { --logo-base: #ad4638; --logo-roofL: #b8493a; --logo-roofR: #9a3a2e; --logo-wallL: #cf5b46; --logo-wallR: #ad4638; --logo-ink: #f4ebdc; }
+}
+:root[data-theme='dark'] { --logo-base: #ad4638; --logo-roofL: #b8493a; --logo-roofR: #9a3a2e; --logo-wallL: #cf5b46; --logo-wallR: #ad4638; --logo-ink: #f4ebdc; }
 .side .brand { padding: 4px 0 10px; }
 .title-screen { position: fixed; inset: 0; z-index: 150; display: grid; place-items: center; padding: 16px;
   background: radial-gradient(ellipse at 50% 35%, color-mix(in srgb, var(--sun) 28%, transparent), transparent 60%), color-mix(in srgb, var(--bg) 62%, transparent);
@@ -432,7 +437,8 @@ body { overflow: hidden; }
 .title-card { width: min(460px, 100%); display: grid; justify-items: center; gap: 10px; text-align: center; padding: 30px 28px 22px; border-radius: 28px;
   background: var(--surface); border: 2px solid color-mix(in srgb, var(--sun) 45%, var(--line)); box-shadow: var(--shadow-lg); animation: rise 0.5s cubic-bezier(.2,.9,.3,1.2); }
 @keyframes rise { from { opacity: 0; transform: translateY(18px) scale(0.97); } }
-.title-name { font-size: 48px; font-weight: 900; color: var(--accent); letter-spacing: -0.02em; line-height: 1; margin-top: 4px; }
+.title-name { line-height: 0; margin: 2px 0 4px; }
+.title-name .wordmark { width: min(300px, 70vw); height: auto; }
 .title-tag { font-size: 17px; font-weight: 700; color: var(--muted); }
 .title-points { list-style: none; padding: 0; margin: 8px 0 6px; display: grid; gap: 8px; text-align: left; font-weight: 600; }
 .title-points li { display: flex; gap: 10px; align-items: center; }
