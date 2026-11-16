@@ -180,12 +180,13 @@ export const machineUpgradeCost = (s: GameState, m: { type: keyof typeof MACHINE
 /** Moving fee: a tenth of a building's price; fields by area; homes, services and landmarks a flat amount. */
 const orchard = (f: Field) => !!f.crop && !!CROPS[f.crop].perennial;
 /** Orchards, vineyards and greenhouse fields move with what stands on them; other fields must be harvested first. */
-export const fieldMovable = (f: Field) => !f.crop || orchard(f) || !!f.greenhouse;
+/** Any field can move, planted or not: a growing crop is lifted and moved with it (at a fee). */
+export const fieldMovable = (_f: Field) => true;
 export function moveFee(s: GameState, r: RegionId, key: string) {
   const [kind, id] = key.split(':');
   if (kind === 'b') { const b = s.buildings.find((x) => x.id === +id); return b ? Math.round(buildingPrice(s, b.type, r) * 0.1) : 0; }
-  // trees and vines, or a greenhouse, are lifted and moved with the field: $200/ha each on top of the plain $20/ha
-  if (kind === 'field') { const f = s.fields.find((x) => x.id === +id); return f ? Math.round((20 + (orchard(f) ? 200 : 0) + (f.greenhouse ? 200 : 0)) * f.ha * s.macro.cpi) : 0; }
+  // trees and vines, or a greenhouse, are lifted and moved with the field: $200/ha each on top of the plain $20/ha; a growing crop $80/ha
+  if (kind === 'field') { const f = s.fields.find((x) => x.id === +id); return f ? Math.round((20 + (orchard(f) ? 200 : f.crop ? 80 : 0) + (f.greenhouse ? 200 : 0)) * f.ha * s.macro.cpi) : 0; }
   // the farmhouse, trader, bunkhouse, office and hall: a small fee; homes and public buildings cost more to move
   if (['farmhouse', 'shed', 'market', 'crew', 'office'].includes(key)) return Math.round(25 * s.macro.cpi);
   return Math.round(500 * s.macro.cpi);
@@ -504,8 +505,6 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       const now = footprintOf(s, a.key), fp = now && turned(now, (rot - was + 4) % 4); // the footprint it will have, turned as asked
       if (!fp || !Array.isArray(a.at) || a.at.length !== 2) return fail('Choose where to move it.');
       const [kind, id] = a.key.split(':');
-      const fieldToMove = kind === 'field' ? s.fields.find((f) => f.id === +id) : undefined;
-      if (fieldToMove && !fieldMovable(fieldToMove)) return fail('Harvest the field before moving it.');
       if (kind === 'b' && s.buildings.find((x) => x.id === +id)?.type === 'oilWell') return fail('An oil well stays where it was drilled: demolish it and drill a new one instead.');
       const problem = placeProblem(s, a.region, a.at[0], a.at[1], fp, a.key);
       if (problem) return fail(PROBLEM_TEXT[problem]);

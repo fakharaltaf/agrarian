@@ -43,7 +43,7 @@ it('a chosen spot must be cleared, free and off the road; forest can be cleared 
   expect(w.pos[`b:${barn.id}`]).toEqual(spot);
 });
 
-it('moving costs a fee, idles a building briefly, and fields must be empty', () => {
+it('moving costs a fee, idles a building briefly, and a planted field moves with its crop', () => {
   const s = createGame(1005); s.legacyProgression = true; s.era = 4; post(s, 'prize', 1e6, 'fixture');
   expect(dispatch(s, { type: 'build', region: 'heartland', building: 'flourMill' }).ok).toBe(true);
   const mill = s.buildings[0], key = `b:${mill.id}`, to = findSpot(s, 'heartland', { w: 2, d: 2 })!;
@@ -54,7 +54,8 @@ it('moving costs a fee, idles a building briefly, and fields must be empty', () 
   expect(mill.movedUntil).toBeGreaterThan(s.tick);
   const f = s.fields[0];
   expect(dispatch(s, { type: 'plant', fieldId: f.id, crop: 'wheat' }).ok).toBe(true);
-  expect(dispatch(s, { type: 'moveObject', region: 'heartland', key: `field:${f.id}`, at: findSpot(s, 'heartland', { w: 2, d: 2 })! }).ok).toBe(false);
+  expect(dispatch(s, { type: 'moveObject', region: 'heartland', key: `field:${f.id}`, at: findSpot(s, 'heartland', { w: 2, d: 2 })! }).ok).toBe(true);
+  expect(f.crop).toBe('wheat');
 });
 
 
@@ -73,16 +74,15 @@ it('a new farm starts with just its farmhouse; landmarks appear with their chapt
   expect(w.pos.farmhouse).toEqual(home);
 });
 
-it('orchards, vineyards and greenhouse fields move with what stands on them, for a higher fee', () => {
+it('fields move with what stands on them: a growing crop, orchards and greenhouses, each for a higher fee', () => {
   const s = createGame(1008); s.legacyProgression = true; s.era = 4; post(s, 'prize', 1e6, 'fixture');
   const [plain, orch, glass] = [0, 1, 2].map(() => { dispatch(s, { type: 'buyPlot' }); return s.fields[s.fields.length - 1]; });
   plain.crop = 'wheat'; orch.crop = 'apples'; glass.crop = 'wheat'; glass.greenhouse = true;
   const move = (f: typeof plain) => dispatch(s, { type: 'moveObject', region: 'heartland', key: `field:${f.id}`, at: findSpot(s, 'heartland', { w: 2, d: 2 })! });
-  expect(move(plain).ok).toBe(false); // ordinary crops are harvested first
-  for (const f of [orch, glass]) {
+  for (const [f, fee] of [[plain, 100], [orch, 220], [glass, 300]] as const) { // $20/ha, plus $80 for a growing crop, $200 for trees, $200 for glass
     const cash = s.cash;
     expect(move(f).ok).toBe(true);
-    expect(cash - s.cash).toBeCloseTo(220 * f.ha * s.macro.cpi, 0);
+    expect(cash - s.cash).toBeCloseTo(fee * f.ha * s.macro.cpi, 0);
     expect(f.crop).toBeTruthy();
   }
 });
