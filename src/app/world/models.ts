@@ -800,7 +800,7 @@ export function buildCommunityHome(tier: string, w: number, d: number, key = '')
 }
 
 /** Small civic landmarks use the farm palette and shared geometry caches. */
-export function buildCivic(type: string, w: number, d: number): Model {
+export function buildCivic(type: string, w: number, d: number, level = 1): Model {
   const group = new THREE.Group(), windows: THREE.Mesh[] = [], smoke: THREE.Vector3[] = [];
   group.add(box(w-.1,.08,d-.1,PAL.stone,w/2,0,d/2));
   if(type==='lighting'){ // power station: brick turbine hall, tall stack, fenced transformer yard, a pylon carrying the line out
@@ -814,49 +814,65 @@ export function buildCivic(type: string, w: number, d: number): Model {
     for(const [dx,dz] of [[-.18,-.18],[.18,-.18],[-.18,.18],[.18,.18]]){const leg=box(.04,2.6,.04,PAL.metalDark,px+dx*.55,0,pz+dz*.55);leg.rotation.set(dz*.25,0,-dx*.25);group.add(leg);}
     for(const y of [1.9,2.35])group.add(box(.9,.04,.05,PAL.metalDark,px,y,pz));
     for(const dx of [-.42,0,.42])group.add(cyl(.025,.14,0xd9d2c0,px+dx,2.2,pz,6));
+    if(level>1){group.add(box(.32,.38,.26,0x6f7d6a,2.35,.12,2.55));for(const dx of [-.09,0,.09])group.add(cyl(.025,.2,0xd9d2c0,2.35+dx,.5,2.55,6));} // a third transformer
+    if(level===3){group.add(cyl(.14,2.4,PAL.brick,1.15,0,.45,10,.1));smoke.push(new THREE.Vector3(1.15,2.55,.45));} // a second boiler stack
   } else if(type==='sanitation'){ // treatment works: two settling tanks with turning bridges and a pump house
     for(const [x,z,r] of [[.95,1.05,.72],[2.25,2.2,.55]] as const){
       group.add(cyl(r,.45,PAL.stone,x,.08,z,18),cyl(r-.07,.03,0x5f7d6b,x,.5,z,18),box(r*2,.06,.12,PAL.metalDark,x,.58,z),cyl(.06,.2,PAL.metalDark,x,.5,z,8));
     }
     shed(group,.9,.75,.75,PAL.creamDark,PAL.roofBlue,1.9,.25,{door:'house',roofH:.3});
     group.add(box(.07,.07,1.1,PAL.metal,1.6,.2,1.6)); // pipe between the tanks
+    if(level>1)group.add(cyl(.42,.45,PAL.stone,.6,.08,2.35,16),cyl(.36,.03,0x5f7d6b,.6,.5,2.35,16)); // a third tank
+    if(level===3)group.add(mesh(cached('sanDome',()=>new THREE.SphereGeometry(.38,14,7,0,Math.PI*2,0,Math.PI/2)),mat(0x4f6b45,{rough:.7}),2.35,.85,.65),cyl(.38,.1,PAL.stone,2.35,.75,.65,14)); // a sludge digester on the pump house roof
   } else if(type==='watchtower'){
     for(const [x,z] of [[.6,.6],[w-.6,.6],[.6,d-.6],[w-.6,d-.6]])group.add(box(.14,3,.14,PAL.wood,x,.1,z));
     group.add(box(w-.6,.12,d-.6,PAL.wood,w/2,3,d/2),box(w-.6,.4,.08,PAL.wood,w/2,3.1,.55),box(w-.6,.4,.08,PAL.wood,w/2,3.1,d-.55));
     group.add(gable(w-.4,d-.4,.7,PAL.barnRed,w/2,3.5,d/2));
     const fire=sphere(.14,0xffb055,w/2,3.35,d/2,{emissive:0x804010});windows.push(fire);group.add(fire);
   } else if(type==='waterTower'){
-    for(const [x,z] of [[w/2-.6,d/2-.6],[w/2+.6,d/2-.6],[w/2-.6,d/2+.6],[w/2+.6,d/2+.6]])group.add(box(.1,2.4,.1,PAL.metalDark,x,.1,z));
-    group.add(cyl(.85,.9,0x7fa7c4,w/2,2.5,d/2,16),cone(.9,.4,PAL.roofGrey,w/2,3.4,d/2,16));
-    group.add(box(.06,2.4,.06,PAL.metal,w/2,.1,d/2)); // feed pipe
+    const legs=[2.4,2.9,3.4][level-1]??2.4,r=[.85,1,1.15][level-1]??.85; // a taller tower with a bigger tank each level
+    for(const [x,z] of [[w/2-.6,d/2-.6],[w/2+.6,d/2-.6],[w/2-.6,d/2+.6],[w/2+.6,d/2+.6]])group.add(box(.1,legs,.1,PAL.metalDark,x,.1,z));
+    group.add(cyl(r,.9+level*.15,0x7fa7c4,w/2,legs+.1,d/2,16),cone(r+.05,.4,PAL.roofGrey,w/2,legs+1+level*.15,d/2,16));
+    group.add(box(.06,legs,.06,PAL.metal,w/2,.1,d/2)); // feed pipe
+    if(level===3)shed(group,.8,.6,.6,PAL.creamDark,PAL.roofBlue,.2,d-.8,{door:'house',windows:0,roofH:.25}); // pump house
   } else if(type==='road') {
     group.add(box(w-.1,.05,d-.1,PAL.roofGrey,w/2,.09,d/2));
     for(let i=0;i<Math.min(18,Math.ceil(d/2));i++)group.add(box(.06,.02,.4,PAL.white,w/2,.15,.4+i*2));
     group.add(box(.08,1.8,.08,PAL.wood,.2,.1,.5),sphere(.16,0xffd889,.2,2,.5,{emissive:0x806020}));
   } else if(type==='well'&&artModel('well',1,1)) {
-    prop(group,'well',1.5,1.5,w/2,d/2); // a well is a small thing: the rest of its plot is the yard round it
+    prop(group,'well',1.5,1.5,level>1?1.0:w/2,level>1?1.0:d/2); // a well is a small thing: the rest of its plot is the yard round it
+    if(level>1){trough(group,w-.7,1.0,.9);group.add(box(.12,.6,.12,PAL.metalDark,w-.7,0,.6),box(.3,.06,.06,PAL.metalDark,w-.6,.55,.6));} // a hand pump and trough
+    if(level===3){shed(group,.9,.7,.7,PAL.creamDark,PAL.roofBlue,.4,d-1.0,{door:'house',windows:0,roofH:.3});group.add(cyl(.32,1.2,PAL.metal,w-.6,0,d-.6,12));} // a borehole pump house and storage tank
   } else if(type==='well'||type==='waterworks') {
     group.add(cyl(type==='well'?.55:1,1,PAL.creamDark,w/2,.1,d/2));
     group.add(cyl(type==='well'?.42:.85,.04,0x65a8bb,w/2,1.1,d/2));
     group.add(box(.12,1,.12,PAL.wood,w/2-.6,1,d/2),box(.12,1,.12,PAL.wood,w/2+.6,1,d/2));
     group.add(gable(1.6,1.3,.5,PAL.roofBlue,w/2,2,d/2));
+    if(level>1)group.add(cyl(.35,1.3,PAL.metal,w-.4,.1,.4,12)); // a storage tank, then a filter bed
+    if(level===3)group.add(box(1.2,.25,.6,PAL.stone,.8,.1,d-.4),box(1.1,.03,.5,0x65a8bb,.8,.35,d-.4));
   } else if(type==='park') {
     const a=tree(.7,mat(PAL.roofGreen));a.position.set(w/2,0,d/2);group.add(a);
     group.add(box(1,.12,.35,PAL.wood,w/2,.35,d-.5));
   } else {
-    if(type==='school'){ // a one-room schoolhouse with a bell cupola, a flagpole and a playground
-      shed(group,w-.6,1.5,1.3,0xc96f4f,PAL.roofGreen,.3,.3,{door:'house',windows:3,roofH:.6});
-      group.add(box(.34,.3,.34,PAL.white,w/2,1.75,1.05),cone(.3,.35,PAL.roofGreen,w/2,2.05,1.05,4),cyl(.07,.1,0xc9a44a,w/2,1.8,1.05,8));
+    if(type==='school'){ // a one-room schoolhouse with a bell cupola, a flagpole and a playground; then two storeys, then a sports hall
+      const wh=level>1?2.1:1.3;
+      shed(group,w-.6,1.5,wh,0xc96f4f,PAL.roofGreen,.3,.3,{door:'house',windows:3,roofH:.6});
+      if(level>1)for(const x of [.75,w/2,w-.75]){const win=box(.26,.24,.03,PAL.window,x,1.5,1.81);win.userData.window=true;group.add(win);} // upper-floor classrooms
+      group.add(box(.34,.3,.34,PAL.white,w/2,wh+.45,1.05),cone(.3,.35,PAL.roofGreen,w/2,wh+.75,1.05,4),cyl(.07,.1,0xc9a44a,w/2,wh+.5,1.05,8));
+      if(level===3){shed(group,1.0,.75,.9,0xd8cfbd,PAL.roofGrey,w-1.15,d-.95,{door:'roller',windows:0,roofH:.25});}
       group.add(box(.04,1.9,.04,PAL.metal,.3,0,d-.4),box(.35,.22,.02,0x3a6fb0,.48,1.62,d-.4));
-      group.add(box(1,.04,.6,0xe0c98f,w-.8,.06,d-.55)); // sandpit
+      if(level<3){group.add(box(1,.04,.6,0xe0c98f,w-.8,.06,d-.55)); // sandpit
       for(const x of [w-1.25,w-.35])group.add(box(.05,.75,.05,PAL.metalDark,x,0,d-.25));
-      group.add(box(.95,.05,.05,PAL.metalDark,w-.8,.75,d-.25),box(.22,.03,.1,PAL.barnRed,w-.8,.3,d-.25));
+      group.add(box(.95,.05,.05,PAL.metalDark,w-.8,.75,d-.25),box(.22,.03,.1,PAL.barnRed,w-.8,.3,d-.25));}
     } else if(type==='clinic'||type==='hospital'){ // white clinic with a red-cross sign, a covered entrance and a bench
-      shed(group,w-.6,1.6,1.2,PAL.white,0x5f8fa8,.3,.25,{door:'house',windows:4,roofH:.4});
+      const wh=[1.2,1.9,2.6][level-1]??1.2; // a clinic, a two-storey health centre, then a small hospital with an ambulance
+      shed(group,w-.6,1.6,wh,PAL.white,0x5f8fa8,.3,.25,{door:'house',windows:4,roofH:.4});
+      for(let f=1;f<level;f++)for(let i=0;i<4;i++){const win=box(.24,.22,.03,PAL.window,.6+i*(w-1.2)/3,.6+f*.7,1.86);win.userData.window=true;group.add(win);}
+      if(level===3)group.add(box(.6,.38,.32,PAL.white,w-.55,0,d-.3),box(.62,.06,.34,PAL.barnRed,w-.55,.2,d-.3));
       group.add(box(.8,.05,.5,PAL.roofGrey,w/2,1.0,1.95),box(.05,1,.05,PAL.metalDark,w/2-.35,0,2.15),box(.05,1,.05,PAL.metalDark,w/2+.35,0,2.15));
       group.add(box(.05,1.1,.05,PAL.metalDark,.45,0,d-.35),box(.55,.55,.04,PAL.white,.45,1.1,d-.35));
       group.add(box(.4,.1,.05,PAL.barnRed,.45,1.32,d-.32),box(.1,.4,.05,PAL.barnRed,.45,1.17,d-.32));
-      group.add(box(.6,.08,.18,PAL.wood,w-.7,.22,d-.35));
+      if(level<3)group.add(box(.6,.08,.18,PAL.wood,w-.7,.22,d-.35));
     } else if(type==='hall'){ // town hall: stone front with columns, a pediment and a clock tower
       group.add(box(w-.6,1.5,1.4,0xd8cfbd,w/2,0,1));
       group.add(gable(w-.5,1.5,.5,PAL.roofGrey,w/2,1.5,1));

@@ -447,7 +447,7 @@ function turnPoint(l: Lot, x: number, z: number): [number, number] {
   return [l.w / 2 + dx * Math.cos(a) + dz * Math.sin(a), l.d / 2 - dx * Math.sin(a) + dz * Math.cos(a)];
 }
 function syncLots(R: Rig, L: Layout) {
-  const sig = L.lots.map((l) => `${l.key}:${l.type}@${l.x},${l.y}r${l.rot}:${l.buildings.length}:${l.buildings.map((b) => b.level).join('')}`).join('|');
+  const sig = L.lots.map((l) => `${l.key}:${l.type}@${l.x},${l.y}r${l.rot}:${l.buildings.length}:${l.buildings.map((b) => b.level).join('')}:${l.service?.level ?? 1}`).join('|');
   if (sig === R.sig.lots) return;
   R.sig.lots = sig;
   clear(R.lots);
@@ -455,7 +455,7 @@ function syncLots(R: Rig, L: Layout) {
   R.pick = R.pick.filter((o) => o.userData.kind !== 'lot');
   for (const lot of L.lots) {
     const bw = lot.rot % 2 ? lot.d : lot.w, bd = lot.rot % 2 ? lot.w : lot.d; // built unturned, then turned about its centre
-    const model = lot.key.startsWith('civic:') ? buildCivic(lot.key.split(':')[1], bw, bd) : lot.key.startsWith('community:') ? buildCommunityHome(lot.key.split(':')[1], bw, bd, lot.key) : buildLot(lot.type, bw, bd, lot.key === 'crew' || lot.key === 'office' || lot.key === 'market' ? lot.key : '', Math.max(1, ...lot.buildings.map((b) => b.level)));
+    const model = lot.key.startsWith('civic:') ? buildCivic(lot.key.split(':')[1], bw, bd, lot.service?.level ?? 1) : lot.key.startsWith('community:') ? buildCommunityHome(lot.key.split(':')[1], bw, bd, lot.key) : buildLot(lot.type, bw, bd, lot.key === 'crew' || lot.key === 'office' || lot.key === 'market' ? lot.key : '', Math.max(1, ...lot.buildings.map((b) => b.level)));
     const inner = new THREE.Group(); inner.add(...model.group.children); inner.position.set(-bw / 2, 0, -bd / 2); model.group.add(inner);
     model.group.position.set(lot.x + lot.w / 2, 0, lot.y + lot.d / 2); model.group.rotation.y = (lot.rot * Math.PI) / 2;
     model.smoke = model.smoke.map((p) => { const [x, z] = turnPoint(lot, p.x, p.z); return new THREE.Vector3(x, p.y, z); });
