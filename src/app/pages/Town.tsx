@@ -43,7 +43,7 @@ export default function TownPage() {
   const cover: Record<Cover, number> = { education: t.education, water: t.water, medical: t.medical ?? 0, sanitation: t.sanitation ?? 0, power: t.power ?? 0 };
   const upkeep = t.services.filter((b) => b.active).reduce((n, b) => n + serviceDailyCost(s, b.type) * b.count, 0);
   const newcomers = c.cohorts.filter((g) => g.name.includes('newcomers')).length, free = homeFamilies(s) - c.cohorts.length;
-  const open = SERVICES.filter((x) => serviceAvailable(s, x.type));
+  const open = SERVICES.filter((x) => serviceAvailable(s, x.type)), parks = t.services.filter((b) => b.type === 'park').length;
   const place = (type: ServiceType) => act({ type: 'buildService', service: type, district: 'farmgate' });
   // the weakest service the player can do something about
   const weakest = open.filter((x) => x.type !== 'well').map((x) => ({ ...x, v: cover[x.cover] })).sort((a, b) => a.v - b.v)[0];
@@ -67,6 +67,12 @@ export default function TownPage() {
         lines={[does, `${UTILITY_FAMILIES[type] ? `${UTILITY_FAMILIES[type]} families by its lines` : `Reaches ${SERVICE_RADIUS[type] ?? 10} tiles`} · ${d.jobs} staff · ${money(Math.round(serviceDailyCost(s, type)))}/day`, <Bar thin key="b" value={cover[key]} label={`${d.name} coverage`} color={cover[key] >= 0.7 ? 'var(--up)' : 'var(--gold)'} />]}
         action={<button className="btn primary" disabled={price > s.cash} onClick={() => place(type)}>Place · {money(price)}</button>} />;
     })}</div>
+    <h2 className="civ-h">Parks</h2>
+    <div className="civ-builds">
+      <BuildCard img={portrait('civic:park')} fallback="🌳" name={<>Park{parks > 0 && <small> ×{parks}</small>}</>}
+        lines={['Lay it out as gardens (happier families), a playground (less crime) or a sports ground (healthier families): choose on the park itself.', `Reaches ${SERVICE_RADIUS.park} tiles · three levels, each a richer park that counts for more`, <Bar thin key="b" value={Math.max(t.parks?.garden ?? 0, t.parks?.play ?? 0, t.parks?.sport ?? 0)} label="Families within a park's reach" color="var(--up)" />]}
+        action={<button className="btn primary" disabled={servicePrice(s, 'park') > s.cash} onClick={() => place('park')}>Place · {money(servicePrice(s, 'park'))}</button>} />
+    </div>
     {!cityActive(s) && <ShopsSection />}
     <p className="small muted civ-foot">Coverage is the share of families served, weighted by how well. Services cost {money(Math.round(upkeep))}/day, paid by the farm. <button className="btn ghost sm" onClick={() => go('community')}>Housing tax & pay cut →</button></p>
   </div>;

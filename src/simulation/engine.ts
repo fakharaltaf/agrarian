@@ -1064,7 +1064,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       return fail('The village trader is not available in this chapter.');
     case 'startNation': case 'launchCampaign': case 'trainArmy': case 'inviteAlly': case 'answerAid': case 'castVote': case 'setEmbargo': case 'hireSpies': case 'hireMercenaries': case 'mediate':
     case 'startRegion': case 'setBorder': case 'setRoute': case 'giftNeighbour': case 'signTreaty': case 'resolveRaid': case 'answerDemand':
-    case 'startCity': case 'changePolice': case 'trainPolice': case 'setJustice': case 'resolveCityCase': case 'setGst': case 'mergeService': case 'demolishService':
+    case 'startCity': case 'changePolice': case 'trainPolice': case 'setJustice': case 'resolveCityCase': case 'setGst': case 'mergeService': case 'demolishService': case 'setPark':
     case 'startTown': case 'fundTown': case 'setTownTax': case 'buildService': case 'upgradeService': case 'toggleService': case 'changeSchools': case 'answerPetition':
     case 'startSettlement': case 'buildHomes': case 'setLarder': case 'settleWorker': case 'setSettlementPay': case 'upgradeHome':
       return fail('Community actions are not available here.');

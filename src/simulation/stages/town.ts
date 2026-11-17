@@ -12,7 +12,7 @@ import { larderReserve } from './settlement';
 import { GOODS, WORK_HOURS, type GoodId } from '../config';
 import { clamp, electricityPrice, log, marketWage, nextId, post, priceUsd, random, reservedStock, round2 } from '../core';
 import { communityOf, familiesHere, population, workingAdults, children, residentWorkers } from '../community-state';
-import { createTownState, districtPopulation, factoryJobs, localEmployment, payHouseholds, schoolChangeCost, SERVICE_DEFS, SERVICE_GROUPS, servicePrice, serviceJobs, townOf, townWorkforce, UTILITY_OF, utilityFamilies, serviceRadius, heatAt, levelCapacity, canUpgradeService, levelOf, serviceUpgradePrice, SHOP_GOODS, SHOP_TYPES, isShop, officeJobs, mergeGroup, sellsKind, shopPull, svcSize, svcSide, serviceName } from '../town-state';
+import { createTownState, districtPopulation, factoryJobs, localEmployment, payHouseholds, schoolChangeCost, SERVICE_DEFS, SERVICE_GROUPS, servicePrice, serviceJobs, townOf, townWorkforce, UTILITY_OF, utilityFamilies, serviceRadius, heatAt, levelCapacity, canUpgradeService, levelOf, serviceUpgradePrice, SHOP_GOODS, SHOP_TYPES, isShop, officeJobs, PARK_EFFECT, PARK_KINDS, mergeGroup, sellsKind, shopPull, svcSize, svcSide, serviceName } from '../town-state';
 import { homeUnits } from '../community-state';
 import { doorstep, footprintOf, hasAccess, netReach, NET_QUALITY, tileId, worldOf } from '../world';
 
@@ -21,7 +21,7 @@ export function serviceAvailable(s: GameState, type: ServiceType): boolean {
   const t=townOf(s);
   if(type==='sanitation'||type==='lighting'||type==='waterTower')return t.active||cityActive(s); // the town's own utilities
   if(type==='police'||type==='mall'||type==='office')return cityActive(s);
-  if(isShop(type))return t.active; // shops open in the Town; they merge into markets in the City
+  if(isShop(type)||type==='park')return t.active; // shops open in the Town; they merge into markets in the City
   if(type==='watchtower')return regionActive(s);
   if(type==='barracks')return nationActive(s)&&nationOf(s).path==='army';
   if(type==='school'||type==='well') return true;
@@ -146,7 +146,7 @@ export function townDaily(s: GameState) {
   const total=homes.reduce((n,h)=>n+h.families,0);
   const working=(b:typeof t.services[number])=>b.active&&b.funded&&(SERVICE_DEFS[b.type].jobs===0||b.staffed>0)&&hasAccess(s,'heartland',`svc:${b.id}`);
   const heat=(types:readonly ServiceType[])=>{
-    const live=t.services.filter(b=>types.includes(b.type)&&working(b)).map(b=>{const p=w.pos[`svc:${b.id}`];return p?{x:p[0]+1.5,y:p[1]+1.5,r:serviceRadius(b)}:null;}).filter(Boolean) as {x:number;y:number;r:number}[];
+    const live=t.services.filter(b=>types.includes(b.type)&&working(b)).map(b=>{const p=w.pos[`svc:${b.id}`];return p?{x:p[0]+svcSide(b)/2,y:p[1]+svcSide(b)/2,r:serviceRadius(b)}:null;}).filter(Boolean) as {x:number;y:number;r:number}[];
     return homes.map(h=>Math.max(0,...live.map(v=>heatAt(Math.hypot(v.x-h.x,v.y-h.y),v.r))));
   };
   const lines=(types:readonly ServiceType[])=>{
@@ -173,6 +173,12 @@ export function townDaily(s: GameState) {
     const live=t.services.filter(b=>sellsKind(b,kind)&&working(b)).map(b=>{const p=w.pos[`svc:${b.id}`],half=svcSide(b)/2;return p?{x:p[0]+half,y:p[1]+half,r:serviceRadius(b),pull:shopPull(b)}:null;}).filter(Boolean) as {x:number;y:number;r:number;pull:number}[];
     return homes.map(h=>Math.max(0,...live.map(v=>heatAt(Math.hypot(v.x-h.x,v.y-h.y),v.r)*v.pull)));
   };
+  // parks: each kind's reach over the families, a bigger park counting for more (level 1 half, level 3 in full)
+  t.parks={};
+  for(const kind of ['garden','play','sport'] as const){
+    const live=t.services.filter(b=>b.type==='park'&&(b.park??'garden')===kind&&working(b)).map(b=>{const p=w.pos[`svc:${b.id}`];return p?{x:p[0]+svcSide(b)/2,y:p[1]+svcSide(b)/2,r:serviceRadius(b),k:[.5,.75,1][levelOf(b)-1]}:null;}).filter(Boolean) as {x:number;y:number;r:number;k:number}[];
+    if(live.length)t.parks[kind]=share(homes.map(h=>Math.max(0,...live.map(v=>heatAt(Math.hypot(v.x-h.x,v.y-h.y),v.r)*v.k))));
+  }
   {const watchQ=heat(['police']),shopQ=SHOP_TYPES.map(shopHeat);cityOf(s).homes=homes.map((h,i)=>({id:h.id,families:h.families,power:powerQ[i],watch:watchQ[i],shops:Object.fromEntries(SHOP_TYPES.map((k,j)=>[k,shopQ[j][i]]).filter(([,v])=>v))}));} // the City reads street power and the watch per home
   for(const id of DISTRICT_IDS){const v=t.coverage[id];v.school=cover.school;v.water=cover.water;v.medical=cover.medical;v.road=1;}
   t.sanitation=cover.sanitation;t.power=cover.power;t.medical=cover.medical;
@@ -181,7 +187,7 @@ export function townDaily(s: GameState) {
   school=cover.school;water=cover.water;medical=cover.medical;roads=1;
   t.education=school;t.water=water;t.roads=roads;
   const sanitation=t.sanitation??0;
-  const wellbeing=clamp(c.fed*.45+t.water*.3+medical*.25-.1*(1-sanitation)-NUISANCE_WEIGHT.smoke*settlementExposure(s).smoke,0,1); // smoke and fumes over the homes
+  const wellbeing=clamp(c.fed*.45+t.water*.3+medical*.25-.1*(1-sanitation)-NUISANCE_WEIGHT.smoke*settlementExposure(s).smoke+PARK_EFFECT.sport*(t.parks.sport??0),0,1); // smoke and fumes over the homes
   t.health=clamp(t.health+(wellbeing-t.health)*.15,0,1);
   const requested=factoryJobs(s);
   t.industrialJobs=Math.min(adults,requested);t.factoryShare=requested?t.industrialJobs/requested:0;
@@ -191,6 +197,7 @@ export function townDaily(s: GameState) {
   for(const w of s.workers) if(w.resident && w.region==='heartland') w.skill=Math.min(1.6,w.skill+training*t.education);
   const parks=t.services.some(b=>b.type==='park'&&b.funded);
   const goodwill=(t.goodwillUntil>=today||parks)?.04:0;
+  c.happiness=clamp(c.happiness+PARK_EFFECT.garden*.1*(t.parks.garden??0),0,1); // gardens: a steady lift for the families in reach
   c.happiness=clamp(c.happiness+(.02*t.education*(t.charter==='public'?1:.5)+.015*t.roads+goodwill*.1-.04*t.taxRate-.03*(1-t.health)),0,1);
   const unemployment=people?Math.max(0,1-localEmployment(s)/Math.max(1,workingAdults(s))):0;
   const target=people>=400?clamp(.05+.3*unemployment+.25*(1-c.happiness)+.15*(1-t.roads)+.1*(1-t.education)-.15*c.happiness,0,.8):0;
@@ -216,7 +223,7 @@ function action(s: GameState,a:Action):ActionResult|null {
     log(s,'opportunity','Newcomers want to settle here too. Homes inside the reach of a school, a clinic and a water tower keep them healthy and happy.','town');
     return {ok:true};
   }
-  if(!['fundTown','setTownTax','buildService','upgradeService','toggleService','mergeService','demolishService','changeSchools','answerPetition'].includes(a.type))return null;
+  if(!['fundTown','setTownTax','buildService','upgradeService','toggleService','mergeService','demolishService','setPark','changeSchools','answerPetition'].includes(a.type))return null;
   if(!t.active)return fail('Begin the Town chapter first.');
   if(a.type==='fundTown') {
     if(!Number.isFinite(a.amount)||a.amount<=0||a.amount!==round2(a.amount))return fail('Use a positive amount in whole cents.');
@@ -250,24 +257,33 @@ function action(s: GameState,a:Action):ActionResult|null {
   }
   if(a.type==='mergeService') {
     const b=t.services.find(x=>x.id===a.serviceId),g=b&&mergeGroup(s,b.id);
-    if(!b||!g)return fail('Only shops and markets merge.');
-    if(!cityActive(s))return fail('Shops merge into markets once your town is a City.');
-    if(!g.complete)return fail(`${g.members.length} of 4 in place: ${svcSize(b)===2?'four markets':`four ${SERVICE_DEFS[b.type].name.toLowerCase()}s`} must stand together in a square.`);
+    if(!b||!g)return fail('Four of the same building, at the same level, merge when they stand in a square.');
+    if(isShop(b.type)&&!cityActive(s))return fail('Shops merge into markets once your town is a City.');
+    if(!g.complete)return fail(`${g.members.length} of 4 in place: ${svcSize(b)===2?'four markets':`four of the same ${SERVICE_DEFS[b.type].name.toLowerCase()}`} must stand together in a square.`);
     if(g.members.some(x=>!x.active))return fail('Reopen all four first.');
     if(s.cash<g.price)return fail(`Merging costs $${g.price.toLocaleString()}.`);
     // the four give up their ground and tracks; the new building takes the whole square, lanes included, if nothing else is in the way
     const w0=worldOf(s,'heartland'),before=structuredClone({pos:w0.pos,rot:w0.rot,roads:w0.roads,links:w0.links}),side=g.step*2-1;
     for(const x of g.members)forget(s,'heartland',`svc:${x.id}`);
     const lifted=liftTracks(s,'heartland',g.origin[0],g.origin[1],side,side);
-    const blocked=placeProblem(s,'heartland',g.origin[0],g.origin[1],{w:side,d:side},undefined,'shop');
+    const blocked=placeProblem(s,'heartland',g.origin[0],g.origin[1],{w:side,d:side},undefined,isShop(b.type)?'shop':undefined);
     if(blocked){Object.assign(w0,before);touch(w0);return fail(blocked==='road'?'A road runs between them: remove it first.':'Something stands between them: clear the lanes first.');}
     post(s,'building',-g.price,`${g.into} (four merged)`,'heartland','corporate');
     const cost=round2(g.members.reduce((n,x)=>n+x.cost,0)+g.price),kinds=[...new Set(g.members.flatMap(x=>x.kinds??[x.type as ShopType]))];
     for(const x of g.members)if(x!==b)t.services.splice(t.services.indexOf(x),1);
-    if(svcSize(b)===2){b.type='mall';b.kinds=kinds;b.count=1;b.size=4;b.level=1;}else{b.size=2;b.count=3;} // a market is run by three shops' worth of staff
+    if(!isShop(b.type)){b.size=2;b.count=g.members.reduce((n,x)=>n+x.count,0);} // four as one: it reaches further, or serves a quarter more families
+    else if(svcSize(b)===2){b.type='mall';b.kinds=kinds;b.count=1;b.size=4;b.level=1;}else{b.size=2;b.count=3;} // a market is run by three shops' worth of staff
     b.cost=cost;b.staffed=0;w0.pos[`svc:${b.id}`]=g.origin;touch(w0);connect(s,'heartland',`svc:${b.id}`);for(const k of lifted)if(w0.pos[k])connect(s,'heartland',k);
-    log(s,'opportunity',`${g.into} opened: it reaches ${Math.round(serviceRadius(b))} tiles and draws more custom than the shops it replaced.`,'city');
+    log(s,'opportunity',isShop(b.type)||b.type==='mall'?`${g.into} opened: it reaches ${Math.round(serviceRadius(b))} tiles and draws more custom than the shops it replaced.`:`${g.into} opened: four as one, it ${UTILITY_OF[b.type]?`serves ${Math.round(utilityFamilies(b))} families along its lines`:`reaches ${Math.round(serviceRadius(b))} tiles`}.`,'town');
     return {ok:true,note:`🎉 ${g.into} opened!`};
+  }
+  if(a.type==='setPark') { // re-landscape a park: free while it is new, a quarter of its price afterwards
+    const b=t.services.find(x=>x.id===a.serviceId);if(!b||b.type!=='park')return fail('That is not a park.');
+    if(!['garden','play','sport'].includes(a.kind))return fail('Choose gardens, a playground or a sports ground.');
+    if((b.park??'garden')===a.kind)return {ok:true};
+    const cost=b.park?round2(servicePrice(s,'park')*.25):0;if(cost>s.cash)return fail(`Re-landscaping costs $${cost.toLocaleString()}.`);
+    if(cost)post(s,'building',-cost,'Park re-landscaped','heartland','corporate');
+    b.park=a.kind;return {ok:true,note:`The park is now ${PARK_KINDS[a.kind].name.toLowerCase()}.`};
   }
   if(a.type==='demolishService') { // half of what it cost comes back, like any building; its lines stay in the ground
     const b=t.services.find(x=>x.id===a.serviceId);if(!b||b.type==='road')return fail('Service not found.');
@@ -330,6 +346,6 @@ function action(s: GameState,a:Action):ActionResult|null {
   return null;
 }
 export const town:StageModule={id:'town',title:'Town',legacyEras:[],eraUnlocks:{},
-  actionTypes:['startTown','fundTown','setTownTax','buildService','upgradeService','toggleService','mergeService','demolishService','changeSchools','answerPetition'],
+  actionTypes:['startTown','fundTown','setTownTax','buildService','upgradeService','toggleService','mergeService','demolishService','setPark','changeSchools','answerPetition'],
   tips:['town-budget','town-services'],discoveries:['townSchool','townClinic','townCrime'],
   tick:townDaily,handleAction:action,createState:()=>createTownState() as unknown as Record<string,unknown>};

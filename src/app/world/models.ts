@@ -850,6 +850,15 @@ export function buildCommunityHome(tier: string, w: number, d: number, key = '',
 
 /** Small civic landmarks use the farm palette and shared geometry caches. */
 export function buildCivic(type: string, w: number, d: number, level = 1, key = ''): Model {
+  if (type.startsWith('park') && w < 6) return buildPark((type.split('-')[1] ?? 'garden') as 'garden' | 'play' | 'sport', level, w, d);
+  if (w >= 6 && type !== 'mall' && !type.startsWith('shop')) { // four merged into one: the same building grown to fill the square, in grounds of its own
+    const inner = buildCivic(type, 3, 3, level, key), g = new THREE.Group(), k = (w - 1.2) / 3;
+    inner.group.scale.setScalar(k); inner.group.position.set(0.6, 0, 0.6); g.add(inner.group);
+    g.add(box(w - 0.1, 0.05, d - 0.1, PAL.stone, w / 2, 0, d / 2, { rough: 1 }));
+    for (const [x, z] of [[0.4, 0.4], [w - 0.4, 0.4], [0.4, d - 0.4], [w - 0.4, d - 0.4]]) planter(g, x, z, 0.22);
+    lampPost(g, w / 2 - 1, d - 0.3, 1.0); lampPost(g, w / 2 + 1, d - 0.3, 1.0);
+    return { group: g, windows: inner.windows, smoke: inner.smoke.map((p) => new THREE.Vector3(0.6 + p.x * k, p.y * k, 0.6 + p.z * k)) };
+  }
   if (type.startsWith('shop')) return w >= 6 ? buildMarketHall(type.slice(4).toLowerCase() as ShopKind, w, d) : buildShop(type.slice(4).toLowerCase() as ShopKind, w, d);
   if (type === 'mall') return buildMall(w, d, level > 1);
   if (type === 'office') return buildOffice(Math.max(1, Math.min(3, level)) as 1 | 2 | 3, w, d, key);
@@ -1282,4 +1291,37 @@ export function buildWorks(type: string, size: 2 | 4, w: number, d: number): Mod
   g.add(box(Math.min(hw, 2.4), 0.26, 0.4, PAL.stoneDark, 0.25 + hw / 2, 0.06, d - 0.75 > 0.25 + hd + (big ? hd + 0.5 : 0) + 0.3 ? 0.25 + hd + (big ? hd + 0.5 : 0) + 0.25 : d - 0.3)); // loading dock
   lampPost(g, w - 0.3, d - 0.3, 0.9);
   return finish(g, smoke);
+}
+
+// ---------------------------------------------------------------- parks: gardens, a playground or a sports ground, each richer by level
+export function buildPark(kind: 'garden' | 'play' | 'sport', level = 1, w = 3, d = 3): Model {
+  const g = new THREE.Group(), cx = w / 2, cz = d / 2, lawn = 0x86a85a, path = 0xd9cdb4;
+  g.add(box(w - 0.1, 0.05, d - 0.1, lawn, cx, 0, cz, { rough: 1 }));
+  const tr = (x: number, z: number, k = 0.6, pine = 0) => { const t = tree(k, mat(0x5f8f4a), pine); t.position.set(x, 0.05, z); g.add(t); };
+  const bench = (x: number, z: number) => g.add(box(0.4, 0.05, 0.14, PAL.wood, x, 0.2, z), box(0.4, 0.16, 0.03, PAL.wood, x, 0.22, z - 0.07), box(0.04, 0.16, 0.12, PAL.metalDark, x - 0.16, 0.05, z), box(0.04, 0.16, 0.12, PAL.metalDark, x + 0.16, 0.05, z));
+  if (kind === 'garden') {
+    g.add(box(0.3, 0.02, d - 0.2, path, cx, 0.05, cz, { rough: 1 }), box(w - 0.2, 0.02, 0.3, path, cx, 0.05, cz, { rough: 1 }));
+    const beds = [[0.7, 0.7], [w - 0.7, 0.7], [0.7, d - 0.7], [w - 0.7, d - 0.7]] as const, cols = [0xc94c4c, 0xe7a23b, 0xd673a4, 0x8a5fb0];
+    beds.forEach(([x, z], i) => { g.add(box(0.8, 0.06, 0.8, 0x6b4a2f, x, 0.05, z)); for (let k = 0; k < (level > 1 ? 9 : 4); k++) g.add(sphere(0.07, cols[(i + k) % 4], x - 0.25 + (k % 3) * 0.25, 0.16, z - 0.25 + Math.floor(k / 3) * 0.25)); if (level === 1) tr(x, z, 0.45); });
+    if (level >= 2) g.add(cyl(0.42, 0.14, PAL.stone, cx, 0.05, cz, 14), cyl(0.34, 0.04, 0x7fb6d6, cx, 0.19, cz, 14), cyl(0.06, 0.45, PAL.stone, cx, 0.19, cz, 8), sphere(0.09, 0x9fd0e6, cx, 0.7, cz)); // fountain
+    else bench(cx + 0.5, cz - 0.3);
+    if (level >= 3) { for (const [dx, dz] of [[-0.45, -0.45], [0.45, -0.45], [-0.45, 0.45], [0.45, 0.45]]) g.add(box(0.05, 0.7, 0.05, PAL.white, cx + dx, 0.05, cz + dz + 0.0)); const roof = cone(0.85, 0.4, 0x4f7a52, cx, 0.75, cz, 8); g.add(roof); for (const [x, z] of [[0.35, cz], [w - 0.35, cz]]) lampPost(g, x, z, 0.7); }
+  } else if (kind === 'play') {
+    g.add(box(w - 0.9, 0.03, d - 0.9, 0xe2c98f, cx, 0.05, cz, { rough: 1 })); // sand
+    const swing = (x: number, z: number) => { g.add(box(0.04, 0.6, 0.04, 0xc0392b, x - 0.3, 0.05, z), box(0.04, 0.6, 0.04, 0xc0392b, x + 0.3, 0.05, z), box(0.68, 0.04, 0.04, 0xc0392b, x, 0.65, z)); for (const dx of [-0.12, 0.12]) g.add(box(0.012, 0.4, 0.012, PAL.metalDark, x + dx, 0.25, z), box(0.14, 0.02, 0.08, PAL.wood, x + dx, 0.24, z)); };
+    swing(0.9, 0.9); const slide = box(0.22, 0.04, 0.9, 0xe7a23b, w - 0.9, 0.35, 0.95); slide.rotation.x = -0.5; g.add(slide, box(0.3, 0.6, 0.3, 0x5b8fc0, w - 0.9, 0.05, 0.5));
+    if (level >= 2) { g.add(cyl(0.34, 0.05, 0x4f8a8b, 0.95, 0.14, d - 0.95, 12), cyl(0.03, 0.3, PAL.metalDark, 0.95, 0.05, d - 0.95, 6)); const saw = box(0.9, 0.04, 0.12, 0x4f8a4a, w - 0.95, 0.22, d - 0.95); saw.rotation.z = 0.2; g.add(saw, box(0.08, 0.18, 0.14, PAL.metalDark, w - 0.95, 0.05, d - 0.95)); }
+    if (level >= 3) { g.add(box(0.7, 0.7, 0.7, 0xb98a5a, cx, 0.05, cz), cone(0.55, 0.45, 0xc0392b, cx, 0.75, cz, 4), box(0.3, 0.04, 0.8, 0xe7a23b, cx + 0.55, 0.4, cz + 0.2)); swing(cx, d - 0.55); }
+    tr(0.35, cz, 0.5); tr(w - 0.35, cz, 0.5, 1); bench(cx, 0.35);
+  } else {
+    g.add(box(w - 0.6, 0.02, d - 1.0, 0x6fa84a, cx, 0.05, cz, { rough: 1 }));
+    for (const [bw, bd] of [[w - 0.6, 0.03], [0.03, d - 1.0]] as const) for (const s of [-1, 1]) g.add(box(bw, 0.01, bd, 0xf4f2ec, cx + (bd > 1 ? s * (w - 0.6) / 2 : 0), 0.07, cz + (bd > 1 ? 0 : s * (d - 1.0) / 2)));
+    g.add(box(0.03, 0.01, d - 1.0, 0xf4f2ec, cx, 0.07, cz), cyl(0.3, 0.01, 0xf4f2ec, cx, 0.065, cz, 16), cyl(0.27, 0.012, 0x6fa84a, cx, 0.066, cz, 16));
+    for (const s of [-1, 1]) g.add(box(0.03, 0.3, 0.03, PAL.white, cx + s * (w - 0.6) / 2, 0.05, cz - 0.3), box(0.03, 0.3, 0.03, PAL.white, cx + s * (w - 0.6) / 2, 0.05, cz + 0.3), box(0.03, 0.03, 0.63, PAL.white, cx + s * (w - 0.6) / 2, 0.33, cz)); // goals
+    if (level >= 2) for (let k = 0; k < 3; k++) g.add(box(w - 1.0, 0.12, 0.14, [0x8f979b, 0x7a8286, 0x6a7276][k], cx, 0.05 + k * 0.12, 0.42 - k * 0.14)); // a stand
+    else bench(cx, 0.3);
+    if (level >= 3) { for (const [x, z] of [[0.3, 0.3], [w - 0.3, 0.3], [0.3, d - 0.3], [w - 0.3, d - 0.3]]) g.add(box(0.05, 1.5, 0.05, PAL.metalDark, x, 0.05, z), box(0.3, 0.14, 0.08, 0xffe2a0, x, 1.5, z, { emissive: 0x6b5a2a })); g.add(box(0.7, 0.4, 0.5, 0xe9e2d2, w - 0.6, 0.05, d - 0.4), box(0.76, 0.05, 0.56, 0x4f7aa0, w - 0.6, 0.45, d - 0.4)); }
+    tr(0.3, d - 0.35, 0.45);
+  }
+  return finish(g);
 }

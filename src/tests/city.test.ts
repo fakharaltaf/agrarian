@@ -228,3 +228,40 @@ it('Apartments grow into a mid-rise and a tower when their needs are met; office
   expect(t.officePay!).toBeGreaterThan(0); expect(c.householdCash).toBeGreaterThan(savings);
   expect(parseSave(JSON.stringify({ game: s })).game).toEqual(s);
 });
+
+it('Four of the same town building in a square merge into one bigger one: a plant serves a quarter more families, a campus reaches further', async () => {
+  const W = await import('../simulation/world');
+  const { mergeGroup, serviceName, serviceRadius, utilityFamilies } = await import('../simulation/town-state');
+  const s = ready(), t = townOf(s), w = W.worldOf(s, 'heartland'), o: [number, number] = [W.MAP.x0 + 40, W.MAP.y0 + 8];
+  const chunks = [...new Set(Array.from({ length: 256 }, (_, i) => W.chunkAt(o[0] + (i % 16), o[1] + Math.floor(i / 16))))];
+  w.owned = [...new Set([...w.owned, ...chunks])]; w.cleared = [...new Set([...w.cleared, ...chunks])]; W.touch(w);
+  const four = (service: 'sanitation' | 'school', ox: number) => { const ids: number[] = []; for (let k = 0; k < 4; k++) { expect(dispatch(s, { type: 'buildService', service, district: 'farmgate', at: [o[0] + ox + (k % 2) * 4, o[1] + Math.floor(k / 2) * 4] }).ok).toBe(true); ids.push(t.services.at(-1)!.id); } return ids; };
+  const san = four('sanitation', 0), before = san.reduce((n, id) => n + utilityFamilies(t.services.find((b) => b.id === id)!), 0);
+  t.services.find((b) => b.id === san[1])!.level = 2; expect(mergeGroup(s, san[0])!.complete).toBe(false); // one at another level does not join
+  t.services.find((b) => b.id === san[1])!.level = 1;
+  expect(dispatch(s, { type: 'mergeService', serviceId: san[0] }).ok).toBe(true);
+  const plant = t.services.find((b) => b.id === san[0])!;
+  expect(serviceName(plant)).toBe('Sanitation plant'); expect(utilityFamilies(plant)).toBeCloseTo(before * 1.25, 5); expect(W.footprintOf(s, `svc:${plant.id}`)).toEqual({ w: 7, d: 7 }); expect(t.services.filter((b) => b.type === 'sanitation').length).toBe(1);
+  const sch = four('school', 8), r1 = serviceRadius(t.services.find((b) => b.id === sch[0])!);
+  expect(dispatch(s, { type: 'mergeService', serviceId: sch[2] }).ok).toBe(true);
+  expect(serviceName(t.services.find((b) => b.id === sch[2])!)).toBe('School campus'); expect(serviceRadius(t.services.find((b) => b.id === sch[2])!)).toBeCloseTo(r1 * 1.8, 5);
+  expect(dispatch(s, { type: 'mergeService', serviceId: sch[2] }).ok).toBe(false); // already merged
+});
+
+it('Parks: laid out as gardens, a playground or a sports ground, each reaching the homes around it and counting for more at a higher level', async () => {
+  const W = await import('../simulation/world');
+  const { townDaily } = await import('../simulation/stages/town');
+  const s = ready(), t = townOf(s), c = communityOf(s), w = W.worldOf(s, 'heartland'), o: [number, number] = [W.MAP.x0 + 40, W.MAP.y0 + 8];
+  const chunks = [...new Set(Array.from({ length: 144 }, (_, i) => W.chunkAt(o[0] + (i % 12), o[1] + Math.floor(i / 12))))];
+  w.owned = [...new Set([...w.owned, ...chunks])]; w.cleared = [...new Set([...w.cleared, ...chunks])]; W.touch(w);
+  expect(dispatch(s, { type: 'zoneLand', region: 'heartland', chunks: chunks.slice(0, 2), zone: 'res' }).ok).toBe(true);
+  expect(dispatch(s, { type: 'buildHomes', tier: 'cottage', count: 1, at: o }).ok).toBe(true); c.homes = c.homes.slice(-1); // one home, by the park
+  expect(dispatch(s, { type: 'buildService', service: 'park', district: 'farmgate' }).ok).toBe(true); // on the farm's own cleared land, by a road
+  const park = t.services.at(-1)!, pp = w.pos[`svc:${park.id}`]; w.pos[`home:${c.homes[0].id}`] = [pp[0] + 4, pp[1]]; W.touch(w);
+  const day = (n: number) => { t.lastDay = -1; s.tick = 24 * n; townDaily(s); };
+  day(70); expect(t.parks!.garden).toBeCloseTo(0.5, 5); expect(t.parks!.play).toBeUndefined(); // a new park is gardens, at half strength
+  const cash = s.cash; expect(dispatch(s, { type: 'setPark', serviceId: park.id, kind: 'play' }).ok).toBe(true); expect(s.cash).toBe(cash); // the first layout is free
+  expect(dispatch(s, { type: 'upgradeService', serviceId: park.id }).ok).toBe(true); expect(dispatch(s, { type: 'upgradeService', serviceId: park.id }).ok).toBe(true);
+  day(71); expect(t.parks!.play).toBeCloseTo(1, 5); expect(t.parks!.garden).toBeUndefined();
+  const c2 = s.cash; expect(dispatch(s, { type: 'setPark', serviceId: park.id, kind: 'sport' }).ok).toBe(true); expect(c2 - s.cash).toBeGreaterThan(0); // changing it later costs
+});

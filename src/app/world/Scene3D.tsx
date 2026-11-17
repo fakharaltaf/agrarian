@@ -535,7 +535,7 @@ function turnPoint(l: Lot, x: number, z: number): [number, number] {
 }
 const OUTLINE_FILL = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.35, depthWrite: false }), OUTLINE_EDGE = new THREE.LineBasicMaterial({ color: 0x2a2216 });
 function syncLots(R: Rig, L: Layout) {
-  const sig = L.lots.map((l) => `${l.key}:${l.type}@${l.x},${l.y}r${l.rot}:${l.buildings.length}:${l.buildings.map((b) => b.level).join('')}:${l.service?.level ?? 1}:${l.w}:${l.level ?? 1}:${l.buildings[0]?.size ?? 1}`).join('|');
+  const sig = L.lots.map((l) => `${l.key}:${l.type}@${l.x},${l.y}r${l.rot}:${l.buildings.length}:${l.buildings.map((b) => b.level).join('')}:${l.service?.level ?? 1}:${l.w}:${l.level ?? 1}:${l.buildings[0]?.size ?? 1}:${l.service?.park ?? ''}`).join('|');
   if (sig === R.sig.lots) return;
   R.sig.lots = sig;
   clear(R.lots); clear(R.outlines);
@@ -546,7 +546,7 @@ function syncLots(R: Rig, L: Layout) {
     const edge = new THREE.LineSegments(cached(`fpe${lot.w}x${lot.d}`, () => new THREE.EdgesGeometry(new THREE.BoxGeometry(lot.w - 0.1, 0.5, lot.d - 0.1))), OUTLINE_EDGE); edge.position.set(lot.x + lot.w / 2, 0.25, lot.y + lot.d / 2);
     R.outlines.add(fill, edge);
     const bw = lot.rot % 2 ? lot.d : lot.w, bd = lot.rot % 2 ? lot.w : lot.d; // built unturned, then turned about its centre
-    const model = lot.key.startsWith('civic:') ? buildCivic(lot.key.split(':')[1], bw, bd, lot.service?.level ?? 1, lot.key) : lot.key.startsWith('community:') ? buildCommunityHome(lot.key.split(':')[1], bw, bd, lot.key, lot.level ?? 1) : (lot.buildings[0]?.size ?? 1) > 1 ? buildWorks(lot.type, lot.buildings[0].size === 4 ? 4 : 2, bw, bd) : buildLot(lot.type, bw, bd, lot.key === 'crew' || lot.key === 'office' || lot.key === 'market' ? lot.key : '', Math.max(1, ...lot.buildings.map((b) => b.level)));
+    const model = lot.key.startsWith('civic:') ? buildCivic(lot.service?.type === 'park' ? `park-${lot.service.park ?? 'garden'}` : lot.key.split(':')[1], bw, bd, lot.service?.level ?? 1, lot.key) : lot.key.startsWith('community:') ? buildCommunityHome(lot.key.split(':')[1], bw, bd, lot.key, lot.level ?? 1) : (lot.buildings[0]?.size ?? 1) > 1 ? buildWorks(lot.type, lot.buildings[0].size === 4 ? 4 : 2, bw, bd) : buildLot(lot.type, bw, bd, lot.key === 'crew' || lot.key === 'office' || lot.key === 'market' ? lot.key : '', Math.max(1, ...lot.buildings.map((b) => b.level)));
     const inner = new THREE.Group(); inner.add(...model.group.children); inner.position.set(-bw / 2, 0, -bd / 2); model.group.add(inner);
     model.group.position.set(lot.x + lot.w / 2, 0, lot.y + lot.d / 2); model.group.rotation.y = (lot.rot * Math.PI) / 2;
     model.smoke = model.smoke.map((p) => { const [x, z] = turnPoint(lot, p.x, p.z); return new THREE.Vector3(x, p.y, z); });

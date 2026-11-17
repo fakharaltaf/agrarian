@@ -3,7 +3,7 @@ import type { Action, ActionResult, GameState } from '../types';
 import { GOOD_IDS, GOODS } from '../config';
 import { clamp, log, nextId, post, priceUsd, random, reservedStock, round2 } from '../core';
 import { communityOf, population, workingAdults } from '../community-state';
-import { localEmployment, townOf, SHOP_GOODS, SHOP_TYPES } from '../town-state';
+import { localEmployment, townOf, PARK_EFFECT, SHOP_GOODS, SHOP_TYPES } from '../town-state';
 import { TOWN_ORDER_PREMIUM } from './town';
 import { larderReserve } from './settlement';
 import { cityActive, cityOf, createCityState, POLICE_CHARTERS, shopReach, type HomeCover, type JusticePolicy } from '../city-state';
@@ -22,7 +22,7 @@ function cityPressure(s:GameState){
   const t=townOf(s),c=communityOf(s),v=cityOf(s),pop=population(s);
   const unemployed=1-clamp(localEmployment(s)/Math.max(1,workingAdults(s)),0,1);
   const inequality=(100-s.values.prosperityFairness)/100;
-  return .08+.08*Math.log2(Math.max(1,pop/400))+.28*unemployed+.22*(1-c.happiness)+.12*inequality+.1*(1-t.education)+.08*(1-t.roads)-.24*c.happiness-.1*t.education-v.prevention;
+  return .08+.08*Math.log2(Math.max(1,pop/400))+.28*unemployed+.22*(1-c.happiness)+.12*inequality+.1*(1-t.education)+.08*(1-t.roads)-.24*c.happiness-.1*t.education-v.prevention-PARK_EFFECT.play*(t.parks?.play??0);
 }
 /** How much a watchhouse in full reach takes off a street's crime, by charter and training (none during a reform). A community watch works best in a happy, schooled town. */
 export function watchStrength(s:GameState){

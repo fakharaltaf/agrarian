@@ -3,7 +3,7 @@ import { upgradeNeedsPower } from '../../simulation/stages/shared';
 import { bestCrop } from '../crops';
 import { DRILL_PRICE, wellField, oilReading, readingWord, struckFields, SURVEY_PRICE, SURVEY_R, surveyedAt } from '../../simulation/oil';
 import {cityActive} from '../../simulation/city-state';
-import { isShop, officeJobs, serviceName, svcSize, SERVICE_RADIUS } from '../../simulation/town-state';
+import { isShop, officeJobs, PARK_KINDS, serviceName, svcSize, SERVICE_RADIUS } from '../../simulation/town-state';
 import { townOf, SERVICE_DEFS, UTILITY_OF, levelOf, serviceUpgradePrice, utilityFamilies, serviceRadius, canUpgradeService } from '../../simulation/town-state';
 // Everything that floats over the world: objective, selection panel, market, land, region switcher.
 import { useEffect, useRef, useState } from 'react';
@@ -24,7 +24,7 @@ import { money, num, pct0 } from '../format';
 import { BatchPanel, FieldPanel, HomesteadTraderCard, RecentLog, SellCard } from '../pages/Fields';
 import { NEXT_STAGE, STAGES, stageAtLeast } from '../../simulation/stages';
 import { unlockedRegions } from '../pages/shared';
-import { Bar, Card, Confirm, Modal, Select, usePref } from '../ui';
+import { Bar, Card, Confirm, Modal, Select, usePref , Seg } from '../ui';
 import { AdvisorPill } from '../Advisor';
 import { Scene3D, fertilisePlan, lotName, type WorldPick } from './Scene3D';
 import { layoutRegion, type Lot } from './layout';
@@ -507,6 +507,9 @@ function ServiceCard({ s, svc, onClose }: { s: GameState; svc: CivicService; onC
     <div className="stack s">
       {net ? <><div className="row between small"><span className="muted">Families on its lines</span><b>{used} / {cap}</b></div><Bar value={cap ? used / cap : 0} label={`${used} / ${cap} families on its lines`} color={full ? 'var(--gold)' : 'var(--up)'} /></>
         : reach && <p className="small">{svc.type === 'police' ? 'Cuts crime' : isShop(svc.type) || svc.type === 'mall' ? 'Sells to homes' : 'Full service'} for <b>{Math.round(serviceRadius(svc))} tiles</b>, fading out over the next {Math.round(serviceRadius(svc) * 0.75)}.</p>}
+      {svc.type === 'park' && <><p className="small">{PARK_KINDS[svc.park ?? 'garden'].does}. A bigger park counts for more.</p>
+        <Seg label="Park layout" value={svc.park ?? 'garden'} onChange={(kind) => act({ type: 'setPark', serviceId: svc.id, kind })} options={(Object.keys(PARK_KINDS) as (keyof typeof PARK_KINDS)[]).map((k) => ({ v: k, label: `${PARK_KINDS[k].icon} ${PARK_KINDS[k].name}` }))} />
+        {svc.park && <p className="small muted">Changing the layout costs {money(Math.round(servicePrice(s, 'park') * 0.25))}.</p>}</>}
       {full && <div className="callout warn">Full: upgrade it or build another to serve more homes.</div>}
       <div className="row wrap">
         {officeJobs(svc) > 0 && <p className="small">Outside firms offer <b>{officeJobs(svc)} desks</b> to your residents and pay their wages.</p>}
