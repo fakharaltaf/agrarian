@@ -23,9 +23,9 @@ import { money, num, pct0 } from '../format';
 import { Modal } from '../ui';
 import { layoutRegion, type Layout, type Lot, type Plot } from './layout';
 import { doorTiles, frontageAt, meets, pressureOf, reachTime, roadTile, travelFrom } from '../../simulation/access';
-import { isBridge } from '../../simulation/world';
+import { bridgeAt, isBridge } from '../../simulation/world';
 import { wooded, beltRoute, wideRoadRoute, homesCentre, CHUNK, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, LAND_HA_PER_PATCH, MAP, hasAccess, riverTiles, riverX, tileId, roadStretch, roadPick, pipeRoute, pipeStretch, plotSide, fieldWater, wetTiers, linesOf, NET_TOP, UTILITY_NETS, netReach, doorstep, footprintOf, type NetKind, type UtilityNet, tileAt, forSaleAround,  ownedSet, ROAD_H, ROAD_Y, chunkAt, chunkOrigin, clearCost, clearedSet, isRoad, patchesAround, placeProblem, worldOf } from '../../simulation/world';
-import { animal, buildCivic, buildCommunityHome, buildLot, buildWorks, box, cached, cyl, farmhand, hauler, mat, mesh, PAL, person, tree, vehicle, type Model } from './models';
+import { animal, buildBridge, buildCivic, buildCommunityHome, buildLot, buildWorks, box, cached, cyl, farmhand, hauler, mat, mesh, PAL, person, tree, vehicle, type Model } from './models';
 import { haulOf, MARKET_X, marketRoute } from '../../simulation/hauling';
 import { landCostOf, oilOf, oilPremium, oilReading, struckFields, SURVEY_R, surveyedAt } from '../../simulation/oil';
 
@@ -1321,25 +1321,14 @@ function syncRoads(R: Rig, s: GameState) {
   }
   if (beltTrees.length) R.roadsG.add(...beltTrees);
   // bridges: a paved deck on stone piers over the water (the river and its wet margins), with railings along its open sides and ramps down to the banks
-  // by level: a timber bridge on wooden trestles, a stone bridge with parapets on arched piers, a concrete bridge with steel rails and lamps
-  { const DECK = [0, 0x7a5636, 0xb8b3a8, 0x55565a], PIER = [0, 0x4e3824, PAL.stoneDark, 0xc9c6bf], RAIL = [0, 0x5e4228, 0xc4bfb3, 0xe8e6e0], parts: THREE.Object3D[] = [];
-    const roadAt = (x: number, y: number) => isRoad(y) || w.roads[tileId(x, y)] !== undefined;
-    const onDeck = (x: number, y: number) => w.roads[tileId(x, y)] !== undefined && isBridge(R.region, tileId(x, y));
-    for (const k of ids) { const id = Number(k), [x, y] = tileAt(id); if (!isBridge(R.region, id)) continue;
-      const g = Math.max(1, Math.min(3, w.roads[id])), deck = mat(DECK[g]), rail = mat(RAIL[g]), pier = mat(PIER[g]);
-      parts.push(mesh(cached('bridgedeck', () => new THREE.BoxGeometry(1.02, 0.1, 1.02)), deck, x + 0.5, 0.2, y + 0.5));
-      if (g === 1) { for (const o of [-0.35, 0.35]) parts.push(mesh(cached('trestle', () => new THREE.BoxGeometry(0.08, 0.3, 0.08)), pier, x + 0.5 + o, 0.02, y + 0.5)); }
-      else if ((x + y) % 2 === 0) parts.push(mesh(cached(`bridgepier${g}`, () => new THREE.BoxGeometry(g === 2 ? 0.34 : 0.2, 0.3, g === 2 ? 0.7 : 0.5)), pier, x + 0.5, 0.0, y + 0.5));
-      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) if (!roadAt(x + dx, y + dy)) {
-        const along = dx === 0, tall = g === 2 ? 0.2 : 0.14, thick = g === 2 ? 0.1 : 0.05;
-        parts.push(mesh(cached(`rail${along}${g}`, () => new THREE.BoxGeometry(along ? 1 : thick, tall, along ? thick : 1)), rail, x + 0.5 + dx * 0.47, 0.25 + tall / 2, y + 0.5 + dy * 0.47));
-        if (g === 3 && (x + y) % 3 === 0) { parts.push(mesh(cached('bridgelamp', () => new THREE.BoxGeometry(0.04, 0.5, 0.04)), rail, x + 0.5 + dx * 0.47, 0.5, y + 0.5 + dy * 0.47)); parts.push(mesh(cached('bridgelampH', () => new THREE.BoxGeometry(0.1, 0.05, 0.1)), mat(0xfff2c0), x + 0.5 + dx * 0.4, 0.75, y + 0.5 + dy * 0.4)); }
-      }
+  // bridges: one model each, centred on the river and spanning bank to bank, flush with the road; the level sets timber, stone or concrete
+  { const seen = new Set<number>();
+    for (const k of ids) { const id = Number(k); if (seen.has(id) || !isBridge(R.region, id)) continue;
+      const span = bridgeAt(s, R.region, tileAt(id)); span.forEach((t) => seen.add(t));
+      const rows = [...new Set(span.map((t) => tileAt(t)[1]))], y0 = Math.min(...rows), d = Math.max(...rows) - y0 + 1;
+      const cx = rows.reduce((a, y) => a + riverX(R.region, y) + 1, 0) / rows.length, level = Math.min(...span.map((t) => w.roads[t]));
+      const m = buildBridge(level, d); m.position.set(cx, 0, y0 + d / 2); R.roadsG.add(m);
     }
-    for (const k of ids) { const id = Number(k), [x, y] = tileAt(id); if (isBridge(R.region, id)) continue; // ramps: the land tile at each end rises to meet the deck
-      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) if (onDeck(x + dx, y + dy)) { const g = Math.max(1, Math.min(3, w.roads[tileId(x + dx, y + dy)])), ramp = mesh(cached(dx ? 'rampx' : 'rampz', () => new THREE.BoxGeometry(dx ? 1.02 : 1.0, 0.05, dx ? 1.0 : 1.02)), mat(DECK[g]), x + 0.5, 0.13, y + 0.5); ramp.rotation.set(-dy * 0.24, 0, dx * 0.24); parts.push(ramp); }
-    }
-    if (parts.length) R.roadsG.add(...parts);
   }
   // where a track meets the main road its mouth widens into a soft rounded fan, so the corners are not cut square
   for (const [mx, mz, mg] of mouths) surface.disc(mx, mz, [[0.5, C(ROAD_COL[Math.min(mg, g)]), 1], [0.82, C(ROAD_COL[Math.min(mg, g)]), 0]], 0.05, 24);

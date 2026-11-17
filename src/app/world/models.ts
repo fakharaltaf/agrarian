@@ -1381,6 +1381,32 @@ export function buildPark(kind: 'garden' | 'play' | 'sport', level = 1, w = 3, d
 }
 
 // ---------------------------------------------------------------- the parking complex: open decks that rise a level at a time
+/** A bridge over the river, centred on the water and spanning bank to bank (5.2 long along x), d tiles deep along z. Level 1 is the timber bridge the main road crosses on; 2 stone with parapets on piers; 3 concrete with steel rails and lamps. */
+export function buildBridge(level: number, d: number) {
+  const g = new THREE.Group(), add = (...m: THREE.Object3D[]) => g.add(...m), edges = [-d / 2 - 0.05, d / 2 + 0.05];
+  if (level <= 1) {
+    add(box(5.2, 0.12, d + 0.2, PAL.wood, 0, 0.06, 0));
+    for (let i = -2; i <= 2; i++) add(box(0.1, 0.1, d + 0.2, PAL.woodDark, i * 1.2, 0.0, 0)); // cross beams under the planks
+    for (const z of edges) { add(box(5.2, 0.06, 0.06, PAL.woodDark, 0, 0.45, z)); for (let i = -2; i <= 2; i++) add(box(0.08, 0.42, 0.08, PAL.woodDark, i * 1.2, 0.06, z)); }
+    for (const x of [-1.8, 0, 1.8]) for (const z of [-d / 2 + 0.1, d / 2 - 0.1]) add(box(0.14, 0.3, 0.14, PAL.woodDark, x, -0.24, z)); // trestle legs into the water
+  } else if (level === 2) {
+    add(box(5.4, 0.14, d + 0.3, PAL.stone, 0, 0.05, 0));
+    add(box(5.0, 0.1, d + 0.2, PAL.stoneDark, 0, -0.05, 0));
+    for (const x of [-1.15, 1.15]) add(box(0.55, 0.4, d + 0.5, PAL.stoneDark, x, -0.35, 0)); // piers with cutwaters
+    for (const z of edges.map((e) => e + Math.sign(e) * 0.03)) { add(box(5.4, 0.26, 0.14, 0xc9c1b0, 0, 0.12, z)); add(box(5.5, 0.05, 0.2, PAL.stoneDark, 0, 0.38, z)); for (const x of [-2.7, 2.7]) add(box(0.3, 0.42, 0.3, PAL.stoneDark, x, 0.06, z)); }
+  } else {
+    add(box(5.8, 0.14, d + 0.3, 0x55565a, 0, 0.05, 0));
+    for (const z of edges.map((e) => e + Math.sign(e) * 0.08)) {
+      add(box(5.8, 0.16, 0.1, 0xc9c6bf, 0, -0.02, z)); // the girder's face
+      add(box(5.8, 0.04, 0.04, 0xe8e6e0, 0, 0.42, z)); add(box(5.8, 0.03, 0.03, 0xe8e6e0, 0, 0.3, z));
+      for (let i = -7; i <= 7; i++) add(box(0.04, 0.26, 0.04, 0xe8e6e0, i * 0.4, 0.19, z));
+      for (const x of [-2, 2]) { add(box(0.06, 0.8, 0.06, 0x7d8085, x, 0.19, z)); add(box(0.16, 0.06, 0.16, 0xfff2c0, x, 0.99, z, { emissive: 0x6b5a20 })); }
+    }
+    for (const x of [-1.3, 1.3]) add(cyl(0.18, 0.4, 0xc9c6bf, x, -0.35, -d / 4), cyl(0.18, 0.4, 0xc9c6bf, x, -0.35, d / 4));
+  }
+  g.traverse((o) => { o.castShadow = true; o.receiveShadow = true; });
+  return g;
+}
 export function buildParking(level = 1, w = 3, d = 3, key = ''): Model {
   const g = new THREE.Group(), decks = [2, 3, 5][Math.max(1, Math.min(3, level)) - 1], dh = 0.42, bw = w - 0.4, bd = d - 0.5, cx = w / 2, cz = 0.25 + bd / 2;
   const concrete = 0xc9c3b4, band = [0x2f5f8f, 0x4f8a4a, 0xb5643c][pick(key + 'p', 3)];
