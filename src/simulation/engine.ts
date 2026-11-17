@@ -222,10 +222,10 @@ export function factoryMerge(s: GameState, id: number) {
   if (!p || !fp) return null;
   const into = mergedName(b.type, BUILDINGS[b.type].name, (b.size ?? 1) * 2);
   const mate = s.buildings.find((x) => { if (x === b || x.type !== b.type || x.region !== b.region || (x.size ?? 1) !== (b.size ?? 1)) return false; const q = w.pos[`b:${x.id}`], fq = footprintOf(s, `b:${x.id}`); return !!q && !!fq && fq.w === fp.w && fq.d === fp.d && ((q[1] === p[1] && Math.abs(q[0] - p[0]) === fp.w + 1) || (q[0] === p[0] && Math.abs(q[1] - p[1]) === fp.d + 1)); });
-  if (!mate) return { b, mate: null, into, ready: false, price: 0, why: b.level < 3 ? 'Raise it to level 3 first.' : `Stand another ${BUILDINGS[b.type].name.toLowerCase()}${b.size === 2 ? ' works' : ''} beside it, a lane apart.` };
+  if (!mate) return { b, mate: null, into, ready: false, price: 0, why: b.level < 3 ? `upgrade it to level 3 first (now level ${b.level}), then stand another beside it` : `Stand another ${BUILDINGS[b.type].name.toLowerCase()}${b.size === 2 ? ' works' : ''} beside it, a lane apart.` };
   const q = w.pos[`b:${mate.id}`]!, origin: [number, number] = [Math.min(p[0], q[0]), Math.min(p[1], q[1])], span: [number, number] = q[1] === p[1] ? [fp.w * 2 + 1, fp.d] : [fp.w, fp.d * 2 + 1];
   const ready = b.level >= 3 && mate.level >= 3 && b.active && mate.active;
-  return { b, mate, into, ready, origin, span, price: Math.round((b.cost + mate.cost) * 0.25), why: ready ? '' : b.level < 3 || mate.level < 3 ? 'Both must be level 3.' : 'Both must be running.' };
+  return { b, mate, into, ready, origin, span, price: Math.round((b.cost + mate.cost) * 0.25), why: ready ? '' : b.level < 3 || mate.level < 3 ? `upgrade both to level 3 first (now level ${b.level} and ${mate.level})` : 'both must be running' };
 }
 /** One crew clears forest patch by patch; each finished patch adds timber to storage. */
 function worldTick(s: GameState) {
@@ -751,7 +751,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
     case 'mergeBuilding': {
       const g = factoryMerge(s, a.buildingId);
       if (!g) return fail('Only food factories and animal houses merge.');
-      if (!g.mate || !g.ready) return fail(g.why);
+      if (!g.mate || !g.ready) return fail(`To merge, ${g.why}.`);
       if (streetJammed(s, g.b.region, `b:${g.b.id}`) || streetJammed(s, g.mate.region, `b:${g.mate.id}`)) return fail(JAM_TEXT);
       if (g.price > s.cash) return fail(`Merging costs $${g.price.toLocaleString()}.`);
       const { b, mate } = g, w = worldOf(s, b.region), before = structuredClone({ pos: w.pos, rot: w.rot, roads: w.roads, links: w.links });
