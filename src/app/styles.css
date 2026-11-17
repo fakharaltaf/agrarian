@@ -906,3 +906,4 @@ body:has(.modal-bg) .shell .coach { display: none !important; }
 .wl-note { background: #2a2216; color: #ffe9b0; font: 800 12px var(--font); padding: 3px 8px; border-radius: 999px; white-space: nowrap; pointer-events: none; }
 .need-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; font-size: 14px; color: var(--muted); }
 .need-list .met { color: var(--up); }
+.dock-as { font: 700 13px var(--font); color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; height: 36px; padding: 0 6px; max-width: 150px; flex: none; }

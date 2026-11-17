@@ -356,6 +356,8 @@ export interface TownState { /** how well each kind of park reaches the families
 }
 
 export interface GameState {
+  /** what new roads, lines and town buildings are built as (1–3), once the City lets you choose: saves upgrading each one after */
+  buildAs?: { road?: number; line?: number; service?: number };
   version: 15;
   seed: number;
   rng: number;
@@ -538,6 +540,7 @@ export type Action =
   | { type: 'upgradeHome'; homeId: number }
   | { type: 'mergeBuilding'; buildingId: number }
   | { type: 'setPark'; serviceId: number; kind: ParkKind }
+  | { type: 'setBuildAs'; what: 'road' | 'line' | 'service'; level: number }
   | { type: 'clearField'; fieldId: number };
 
 export type ActionResult = { ok: true; note?: string } | { ok: false; error: string };

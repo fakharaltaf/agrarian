@@ -1,5 +1,6 @@
 import { regionActive } from '../region-state';
-import { canPlaceNew, connect, forget, liftTracks, placeNew, placeProblem, SERVICE_FOOTPRINT, touch } from '../world';
+import { buildAs, canPlaceNew, connect, forget, liftTracks, placeNew, placeProblem, SERVICE_FOOTPRINT, touch } from '../world';
+import type { CivicService } from '../types';
 import type { ShopType } from '../types';
 import { NUISANCE_WEIGHT, settlementExposure } from '../nuisance';
 import { nationActive, nationOf } from '../nation-state';
@@ -340,7 +341,12 @@ function action(s: GameState,a:Action):ActionResult|null {
     if(!group&&a.service!=='road'){const room=canPlaceNew(s,'heartland',SERVICE_FOOTPRINT,a.at,isShop(a.service)?'shop':undefined,a.rot);if(room)return fail(room);}
     post(s,'building',-cost,`${count} ${SERVICE_DEFS[a.service].name}`,'heartland','corporate');
     if(group){group.count+=count;group.cost=round2(group.cost+cost);}
-    else{const svc={id:nextId(s),type:a.service,district:a.district,count,cost,active:true,staffed:0,funded:false};t.services.push(svc);if(a.service!=='road')placeNew(s,'heartland',`svc:${svc.id}`,a.at,a.rot);}
+    else{
+      const svc:CivicService={id:nextId(s),type:a.service,district:a.district,count,cost,active:true,staffed:0,funded:false};
+      // built straight to the chosen level (a City setting), if the cash is there for each step
+      for(let want=canUpgradeService(a.service)?buildAs(s,'service'):1;levelOf(svc)<want;){const up=serviceUpgradePrice(s,svc);if(up>s.cash)break;post(s,'building',-up,`${SERVICE_DEFS[a.service].name} to level ${levelOf(svc)+1}`,'heartland','corporate');svc.level=levelOf(svc)+1;svc.cost=round2(svc.cost+up);}
+      t.services.push(svc);if(a.service!=='road')placeNew(s,'heartland',`svc:${svc.id}`,a.at,a.rot);
+    }
     return {ok:true};
   }
   return null;

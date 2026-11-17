@@ -572,6 +572,14 @@ export const NET_TIERS: Record<NetKind, readonly string[]> = { irrigation: WATER
 export const NET_PRICE: Record<NetKind, number[]> = { irrigation: WATER_PRICE, power: [0, 20, 60], water: [0, 15, 45], sewer: [0, 8, 25, 60] };
 /** How well a home on a utility line is served, by the weakest tier on its way to the building. */
 export const NET_QUALITY: Record<UtilityNet, number[]> = { power: [0, 0.8, 1], water: [0, 0.8, 1], sewer: [0, 0.6, 0.8, 1] };
+/** Building straight to a chosen level comes with the City: by then the player has upgraded things by hand and knows what each level does. */
+export const buildAsOpen = (s: GameState) => !!(s.stageState.city as { active?: boolean } | undefined)?.active;
+export const buildAs = (s: GameState, what: 'road' | 'line' | 'service') => (buildAsOpen(s) ? Math.max(1, Math.min(3, s.buildAs?.[what] ?? 1)) : 1);
+/** A new road tile built straight to this grade: every grade's price on the way up. */
+export const roadBuildPrice = (s: GameState, grade = buildAs(s, 'road')) => Array.from({ length: grade }, (_, i) => roadTilePrice(s, i + 1)).reduce((a, b) => a + b, 0);
+/** The tier a new line of this kind is laid at, and what a tile of it costs. */
+export const lineBuildTier = (s: GameState, net: NetKind) => Math.min(NET_TOP[net], buildAs(s, 'line'));
+export const lineBuildPrice = (s: GameState, net: NetKind, tier = lineBuildTier(s, net)) => Math.round(Array.from({ length: tier }, (_, i) => NET_PRICE[net][i + 1]).reduce((a, b) => a + b, 0) * s.macro.cpi);
 /** Every tile of these lines (or the farm roads, not the main road) one tier up, and what that costs. */
 export type LineKind = NetKind | 'road';
 export const lineTiles = (w: RegionWorld, kind: LineKind) => (kind === 'road' ? w.roads : linesOf(w, kind));

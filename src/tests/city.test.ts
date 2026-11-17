@@ -265,3 +265,19 @@ it('Parks: laid out as gardens, a playground or a sports ground, each reaching t
   day(71); expect(t.parks!.play).toBeCloseTo(1, 5); expect(t.parks!.garden).toBeUndefined();
   const c2 = s.cash; expect(dispatch(s, { type: 'setPark', serviceId: park.id, kind: 'sport' }).ok).toBe(true); expect(c2 - s.cash).toBeGreaterThan(0); // changing it later costs
 });
+
+it('In the City, new roads, lines and town buildings can be built straight to a chosen level for the full price of each step', async () => {
+  const W = await import('../simulation/world');
+  const s = ready(), t = townOf(s), w = W.worldOf(s, 'heartland');
+  expect(dispatch(s, { type: 'setBuildAs', what: 'road', level: 3 }).ok).toBe(false); // not before the City
+  dispatch(s, { type: 'startCity', charter: 'watch' });
+  for (const what of ['road', 'line', 'service'] as const) expect(dispatch(s, { type: 'setBuildAs', what, level: 3 }).ok).toBe(true);
+  expect(W.roadBuildPrice(s)).toBeCloseTo(W.roadTilePrice(s, 1) + W.roadTilePrice(s, 2) + W.roadTilePrice(s, 3), 2);
+  const before = new Set(Object.keys(w.roads)), cash = s.cash;
+  expect(dispatch(s, { type: 'buildRoad', region: 'heartland', from: [-10, -6], to: [6, -6] }).ok).toBe(true);
+  const fresh = Object.keys(w.roads).filter((k) => !before.has(k)); expect(fresh.length).toBeGreaterThan(0); expect(fresh.every((k) => w.roads[+k] === 3)).toBe(true);
+  expect(cash - s.cash).toBeCloseTo(W.roadBuildPrice(s) * fresh.length, 1);
+  expect(W.lineBuildTier(s, 'power')).toBe(2); expect(W.lineBuildTier(s, 'sewer')).toBe(3); // each kind to its own top
+  expect(dispatch(s, { type: 'buildService', service: 'school', district: 'farmgate' }).ok).toBe(true); expect(t.services.at(-1)!.level).toBe(3);
+  expect(parseSave(JSON.stringify({ game: s })).game).toEqual(s);
+});

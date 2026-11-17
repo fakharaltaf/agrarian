@@ -13,7 +13,7 @@ import {
 import { buildingDivision, clamp, debt, factoryCrop, equity, freeSpace, has, known, log, marketWage, nextId, post, random, round2, todayBook, lean } from './core';
 import { coverOf, coverPrice, COVERS } from './agriculture';
 import { addGoods, canGrow, clearField, fertilizeField, fieldsTick, frostNight, harvestField, isManual, isReady, newField, plantField, spoilageDaily } from './agriculture';
-import { liftTracks, riverTiles, chunkAt, COMMERCIAL, type Use, type Zone, reconcileWorld, unlink, accessNote, cutsOff, buyable, chunksIn, connect, placedIn, touch, useOf, buildingUse, INDUSTRY_TO_GROW, WATER_LEVEL, NET_PRICE, NET_TIERS, NET_TOP, linesOf, lineTiles, lineTop, upgradeAllPlan, pipeRoute, pipeStretch, hasWater, isRoad, MAP, ROAD_GRADES, ROAD_H, roadRoute, roadPick, roadTilePrice, tileId, canPlaceNew, LAND_HA_PER_PATCH,  own, ownedSet, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, clearCost, clearedSet, FOOTPRINT, footprintOf, forget, rotOf, turned, MOVE_DOWNTIME, placeNew, placeProblem, plotSide, PROBLEM_TEXT, seedWorld, TIMBER_PER_PATCH, worldOf } from './world';
+import { buildAs, buildAsOpen, lineBuildPrice, lineBuildTier, roadBuildPrice, liftTracks, riverTiles, chunkAt, COMMERCIAL, type Use, type Zone, reconcileWorld, unlink, accessNote, cutsOff, buyable, chunksIn, connect, placedIn, touch, useOf, buildingUse, INDUSTRY_TO_GROW, WATER_LEVEL, NET_PRICE, NET_TIERS, NET_TOP, linesOf, lineTiles, lineTop, upgradeAllPlan, pipeRoute, pipeStretch, hasWater, isRoad, MAP, ROAD_GRADES, ROAD_H, roadRoute, roadPick, roadTilePrice, tileId, canPlaceNew, LAND_HA_PER_PATCH,  own, ownedSet, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, clearCost, clearedSet, FOOTPRINT, footprintOf, forget, rotOf, turned, MOVE_DOWNTIME, placeNew, placeProblem, plotSide, PROBLEM_TEXT, seedWorld, TIMBER_PER_PATCH, worldOf } from './world';
 import { buyAnimals, livestockDaily, sellAnimals } from './livestock';
 import { claimDaily, startDay } from './daily';
 import { createMarkets, drawWeather, executeBuy, executeSell, quoteBuy, macroDaily, marketsDaily, marketsTick, priceFromInv } from './markets';
@@ -603,11 +603,11 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       const tiles = roadRoute(s, a.region, a.from, a.to);
       if (!tiles) return fail('A road cannot get there: keep to your own cleared land and go around buildings.');
       if (!tiles.length) return fail('There is already a road all the way.');
-      const cost = roadTilePrice(s, 1) * tiles.length;
+      const grade = buildAs(s, 'road'), cost = Math.round(roadBuildPrice(s, grade) * tiles.length * 100) / 100;
       if (cost > s.cash) return fail(`That road costs $${cost.toLocaleString()}.`);
-      post(s, 'building', -cost, `Dirt track (${tiles.length} tiles)`, a.region);
+      post(s, 'building', -cost, `${ROAD_GRADES[grade]} (${tiles.length} tiles)`, a.region);
       const w = worldOf(s, a.region);
-      for (const [x, y] of tiles) w.roads[tileId(x, y)] = 1;
+      for (const [x, y] of tiles) w.roads[tileId(x, y)] = grade;
       touch(w);
       return ok();
     }
@@ -616,11 +616,11 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       const net = a.net ?? 'irrigation', name = NET_TIERS[net][1].toLowerCase(), tiles = pipeRoute(s, a.region, a.from, a.to, net);
       if (!tiles) return fail(`A ${name} cannot get there: keep to your own cleared land and go around buildings.`);
       if (!tiles.length) return fail('There is already a line all the way.');
-      const cost = Math.round(NET_PRICE[net][1] * s.macro.cpi * tiles.length);
+      const tier = lineBuildTier(s, net), cost = lineBuildPrice(s, net, tier) * tiles.length;
       if (cost > s.cash) return fail(`That ${name} costs $${cost.toLocaleString()}.`);
-      post(s, net === 'irrigation' ? 'irrigation' : 'building', -cost, `${net === 'irrigation' ? 'Irrigation ditch' : NET_TIERS[net][1]} (${tiles.length} tiles)`, a.region);
+      post(s, net === 'irrigation' ? 'irrigation' : 'building', -cost, `${NET_TIERS[net][tier]} (${tiles.length} tiles)`, a.region);
       const w = worldOf(s, a.region), own = linesOf(w, net);
-      for (const [x, y] of tiles) own[tileId(x, y)] = 1;
+      for (const [x, y] of tiles) own[tileId(x, y)] = tier;
       touch(w);
       return ok();
     }
@@ -720,6 +720,12 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       post(s, 'maintenance', -cost, `Forest clearing (${chunks.length} patch${chunks.length === 1 ? '' : 'es'})`, a.region);
       for (const c of chunks) w.queue.push({ chunk: c, hours: CLEAR_HOURS });
       return ok(`The crew will clear ${chunks.length} patch${chunks.length === 1 ? '' : 'es'} over about ${chunks.length * CLEAR_HOURS} hours and sell the timber.`);
+    }
+    case 'setBuildAs': {
+      if (!buildAsOpen(s)) return fail('Choosing what to build as comes with the City.');
+      if (!['road', 'line', 'service'].includes(a.what) || ![1, 2, 3].includes(a.level)) return fail('Choose level 1, 2 or 3.');
+      (s.buildAs ??= {})[a.what] = a.level;
+      return ok();
     }
     case 'mergeBuilding': {
       const g = factoryMerge(s, a.buildingId);

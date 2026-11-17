@@ -1,12 +1,13 @@
 import { act, go, startPipes, useGame } from '../../stores/game';
 import { money, num, pct0 } from '../format';
-import { Bar, Modal, PageHead } from '../ui';
+import { Bar, Modal, PageHead, Seg } from '../ui';
 import { communityOf, familiesHere, homeFamilies, population } from '../../simulation/community-state';
 import { SERVICE_DEFS, SERVICE_RADIUS, servicePrice, townOf, UTILITY_FAMILIES, UTILITY_OF } from '../../simulation/town-state';
 import { serviceAvailable, serviceDailyCost } from '../../simulation/stages/town';
 import type { ServiceType } from '../../simulation/types';
 import { portrait } from '../world/portrait';
-import { BuildCard, NextStep, StatTile, toneOf } from './civic';
+import { BuildCard, NextStep, SettingRow, StatTile, toneOf } from './civic';
+import { buildAs, buildAsOpen } from '../../simulation/world';
 import { ShopsSection } from './Shops';
 import { cityActive } from '../../simulation/city-state';
 import { GOODS, type GoodId } from '../../simulation/config';
@@ -67,6 +68,9 @@ export default function TownPage() {
         lines={[does, `${UTILITY_FAMILIES[type] ? `${UTILITY_FAMILIES[type]} families by its lines` : `Reaches ${SERVICE_RADIUS[type] ?? 10} tiles`} · ${d.jobs} staff · ${money(Math.round(serviceDailyCost(s, type)))}/day`, <Bar thin key="b" value={cover[key]} label={`${d.name} coverage`} color={cover[key] >= 0.7 ? 'var(--up)' : 'var(--gold)'} />]}
         action={<button className="btn primary" disabled={price > s.cash} onClick={() => place(type)}>Place · {money(price)}</button>} />;
     })}</div>
+    {buildAsOpen(s) && <section className="card stack s"><SettingRow name="New town buildings open at" effect="Schools, clinics, wells, parks and utilities are built straight to this level, at the full price of each step.">
+      <Seg label="Level for new town buildings" value={buildAs(s, 'service')} onChange={(level) => act({ type: 'setBuildAs', what: 'service', level })} options={[1, 2, 3].map((v) => ({ v, label: `Level ${v}` }))} />
+    </SettingRow></section>}
     <h2 className="civ-h">Parks</h2>
     <div className="civ-builds">
       <BuildCard img={portrait('civic:park')} fallback="🌳" name={<>Park{parks > 0 && <small> ×{parks}</small>}</>}

@@ -14,7 +14,7 @@ import { planQuote } from '../../simulation/engine';
 import { DISCOVERIES, ERA_UNLOCK_TEXT, dailyGoals, dailyPrize, forecast, herdOf, homePlotPrice, housing, isManual, isReady, objective, chapterGate, gateProgress, type GateRow, PAGES, seedShortfall, upgradeCost } from '../../simulation/engine';
 import type { CivicService, GameState } from '../../simulation/types';
 import { act, cancelPlacement, confirmPlacement, planPlacementHere, rotatePlacement, go, placementUse, setRoadTool, toggleHideBuildings, setNet, undo, redo, canUndo, canRedo, setSurveying, setZoneTool, startPipes, type Prospect, startPlacement, stopProspect, stopRoads, stopZoning, type Zoning, useGame, usePageState, useStore, type Placement, type Roading } from '../../stores/game';
-import { WATER_LEVEL, WATER_PRICE, WATER_TIERS, wetTiers, NET_PRICE, NET_TIERS, NET_TOP, NET_QUALITY, linesOf, upgradeAllPlan, type LineKind, type UtilityNet, pipeRoute, pipeStretch, cutsOff, footprintOf, forSaleAround, isRoad, MAP, ROAD_GRADES, ROAD_H, roadRoute, roadPick, roadTilePrice, worldOf, patchesAround, placeProblem, plotSide, PROBLEM_TEXT } from '../../simulation/world';
+import { WATER_LEVEL, WATER_PRICE, WATER_TIERS, wetTiers, NET_PRICE, NET_TIERS, NET_TOP, NET_QUALITY, linesOf, upgradeAllPlan, buildAs, buildAsOpen, lineBuildPrice, roadBuildPrice, type LineKind, type UtilityNet, pipeRoute, pipeStretch, cutsOff, footprintOf, forSaleAround, isRoad, MAP, ROAD_GRADES, ROAD_H, roadRoute, roadPick, roadTilePrice, worldOf, patchesAround, placeProblem, plotSide, PROBLEM_TEXT } from '../../simulation/world';
 import { buildingPrice, moveFee, parcelPrice } from '../../simulation/engine';
 import { APARTMENT_FAMILIES, homeLevel, homeUpgradePrice } from '../../simulation/community-state';
 import { homeUpgradeNeeds } from '../../simulation/stages/settlement';
@@ -343,11 +343,11 @@ const UTIL_LABEL: Record<UtilityNet, string> = { power: '⚡ Power', water: '�
 /** The town's utility lines: power from the power station, water from the water tower, sewage to the sanitation works. */
 function UtilityBar({ s, r }: { s: GameState; r: Roading }) {
   const net = r.pipe as UtilityNet, top = NET_TOP[net], names = NET_TIERS[net], own = linesOf(worldOf(s, r.region), net), h = r.hover;
-  const price = (t: number) => Math.round(NET_PRICE[net][t] * s.macro.cpi), q = (t: number) => `${Math.round(NET_QUALITY[net][t] * 100)}%`;
+  const price = (t: number) => Math.round(NET_PRICE[net][t] * s.macro.cpi), q = (t: number) => `${Math.round(NET_QUALITY[net][t] * 100)}%`, lay = lineBuildPrice(s, net);
   let hint: string;
   if (r.tool === 'draw') {
     const route = r.from && h ? pipeRoute(s, r.region, r.from, h, net) : null;
-    hint = !r.from ? `Tap its building (or a line) to start · ${money(price(1))} a tile` : !h ? 'Tap a home (or a spot) to run the line there' : route ? `${route.length} tiles · ${money(price(1) * route.length)} · tap to lay` : 'Can\'t get there: keep to your own cleared land';
+    hint = !r.from ? `Tap its building (or a line) to start · ${money(lay)} a tile` : !h ? 'Tap a home (or a spot) to run the line there' : route ? `${route.length} tiles · ${money(lay * route.length)} · tap to lay` : 'Can\'t get there: keep to your own cleared land';
   } else {
     const st = h ? pipeStretch(worldOf(s, r.region), h[0], h[1], net) : [];
     if (!st.length) hint = r.tool === 'upgrade' ? names.slice(1).map((n, i) => `${n} ${q(i + 1)}`).join(' → ') : 'Tap a line to remove that run';
@@ -357,7 +357,7 @@ function UtilityBar({ s, r }: { s: GameState; r: Roading }) {
   const tabs = <div className="dock-tabs" role="group" aria-label="Which lines">
     {(['power', 'water', 'sewer'] as const).map((k) => <button key={k} className={net === k ? 'on' : ''} aria-pressed={net === k} aria-label={UTIL_LABEL[k].split(' ')[1]} onClick={() => setNet(k)}><span aria-hidden>{UTIL_LABEL[k].split(' ')[0]}</span><span className="tab-name"> {UTIL_LABEL[k].split(' ')[1]}</span></button>)}
   </div>;
-  return <LineDock label="Utility lines" head={tabs} hint={hint} tool={r.tool} draw="Lay" all={{ region: r.region, nets: ['power', 'water', 'sewer'] }} />;
+  return <LineDock label="Utility lines" head={tabs} hint={hint} tool={r.tool} draw="Lay" all={{ region: r.region, nets: ['power', 'water', 'sewer'] }} as={{ what: 'line', names: names.slice(1) }} />;
 }
 
 function PipeBar({ s, r }: { s: GameState; r: Roading }) {
@@ -365,7 +365,7 @@ function PipeBar({ s, r }: { s: GameState; r: Roading }) {
   let hint: string;
   if (r.tool === 'draw') {
     const route = r.from && h ? pipeRoute(s, r.region, r.from, h) : null;
-    hint = !r.from ? 'Tap beside the river (or on a line) to start a ditch' : !h ? `Tap where it goes next · ${money(price(1))} a tile · fields at ${pct(1)}` : route ? `${route.length} tiles of ditch · ${money(price(1) * route.length)} · tap to dig` : 'Can\'t get there: keep to your own cleared land';
+    hint = !r.from ? 'Tap beside the river (or on a line) to start a ditch' : !h ? `Tap where it goes next · ${money(lineBuildPrice(s, 'irrigation'))} a tile · fields at ${pct(Math.min(3, buildAs(s, 'line')))}` : route ? `${route.length} tiles of ${WATER_TIERS[Math.min(3, buildAs(s, 'line'))].toLowerCase()} · ${money(lineBuildPrice(s, 'irrigation') * route.length)} · tap to dig` : 'Can\'t get there: keep to your own cleared land';
   } else {
     const st = h ? pipeStretch(w, h[0], h[1]) : [];
     if (!st.length) hint = r.tool === 'upgrade' ? `Tap a line: ditch → pipe (${pct(2)}) → buried (${pct(3)}, frees the land)` : 'Tap a line to remove that run';
@@ -373,11 +373,11 @@ function PipeBar({ s, r }: { s: GameState; r: Roading }) {
     else hint = `Remove ${st.length} tiles of water line`;
     if (st.length && !st.some((id) => wetTiers(s, r.region).has(id))) hint = `Dry (red): not joined to the river · ${hint}`;
   }
-  return <LineDock label="Water lines" head={<b className="dock-title">💧 Irrigation</b>} hint={hint} tool={r.tool} draw="Dig" all={{ region: r.region, nets: ['irrigation'] }} />;
+  return <LineDock label="Water lines" head={<b className="dock-title">💧 Irrigation</b>} hint={hint} tool={r.tool} draw="Dig" all={{ region: r.region, nets: ['irrigation'] }} as={{ what: 'line', names: WATER_TIERS.slice(1) }} />;
 }
 
 function RoadBar({ s, r }: { s: GameState; r: Roading }) {
-  const w = worldOf(s, r.region), price = roadTilePrice(s, 1), h = r.hover;
+  const w = worldOf(s, r.region), price = roadBuildPrice(s), h = r.hover;
   // what the next tap would do, with its price, before you commit
   let hint: string;
   if (r.tool === 'draw') {
@@ -392,12 +392,12 @@ function RoadBar({ s, r }: { s: GameState; r: Roading }) {
     else if (r.tool === 'upgrade') { const g = Math.min(3, Math.min(...st.map((id) => w.roads[id])) + 1), n = st.filter((id) => w.roads[id] < g).length; hint = n ? `${n} tiles → ${ROAD_GRADES[g].toLowerCase()} · ${money(roadTilePrice(s, g) * n)}` : 'Already paved'; }
     else { const lost = cutsOff(s, r.region, st); hint = `Remove ${st.length} tiles${lost.length ? ` · cuts off ${lost.length} building${lost.length === 1 ? '' : 's'}` : ''}`; }
   }
-  return <LineDock label="Roads" head={<b className="dock-title">🛤 Roads</b>} hint={hint} tool={r.tool} draw="Draw" all={{ region: r.region, nets: ['road'] }} />;
+  return <LineDock label="Roads" head={<b className="dock-title">🛤 Roads</b>} hint={hint} tool={r.tool} draw="Draw" all={{ region: r.region, nets: ['road'] }} as={{ what: 'road', names: ROAD_GRADES.slice(1) }} />;
 }
 
 /** The dock for roads and lines: what you're working on (with Hide and Done), what the next tap does, then the tools at thumb height. */
 const UndoIcon = ({ redo }: { redo?: boolean }) => <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden style={redo ? { transform: 'scaleX(-1)' } : undefined}><path d="M9 14 4 9l5-5" /><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" /></svg>;
-function LineDock({ label, head, hint, tool, draw, all }: { label: string; head: React.ReactNode; hint: string; tool: Roading['tool']; draw: string; all?: { region: RegionId; nets: LineKind[] } }) {
+function LineDock({ label, head, hint, tool, draw, all, as }: { label: string; head: React.ReactNode; hint: string; tool: Roading['tool']; draw: string; all?: { region: RegionId; nets: LineKind[] }; /** what a new one is built as: the choices, and which of road or line it sets */ as?: { what: 'road' | 'line'; names: readonly string[] } }) {
   const s = useGame(), plan = all && tool === 'upgrade' ? upgradeAllPlan(s, worldOf(s, all.region), all.nets) : null;
   const hidden = useStore((x) => x.hideBuildings), bad = /^(Can't|Dry)/.test(hint);
   const tools = [['draw', '✏', draw], ['upgrade', '⬆', 'Upgrade'], ['remove', '✕', 'Remove']] as const;
@@ -409,6 +409,7 @@ function LineDock({ label, head, hint, tool, draw, all }: { label: string; head:
     </div>
     <div className={`dock-hint${bad ? ' bad' : ''}`}>
       <p aria-live="polite">{hint}</p>
+      {as && tool === 'draw' && buildAsOpen(s) && <select className="dock-as" aria-label="Build as" title="What new ones are built as" value={Math.min(as.names.length, buildAs(s, as.what))} onChange={(e) => act({ type: 'setBuildAs', what: as.what, level: +e.target.value })}>{as.names.map((n, i) => <option key={n} value={i + 1}>{n}</option>)}</select>}
       {plan && plan.tiles > 0 && <button className="dock-all" disabled={plan.cost > s.cash} title={`Raise all ${plan.tiles} tiles one step${all!.nets.includes('road') ? ' (the main road is upgraded on its own)' : ''}`} onClick={() => act({ type: 'upgradeAllLines', ...all! })}>⬆ All · {money(plan.cost)}</button>}
       <button className="dock-undo" aria-label="Undo" title="Undo (Ctrl/⌘ Z)" disabled={!canUndo()} onClick={() => undo()}><UndoIcon /></button>
       <button className="dock-undo" aria-label="Redo" title="Redo (Ctrl/⌘ Shift Z)" disabled={!canRedo()} onClick={() => redo()}><UndoIcon redo /></button>
@@ -440,7 +441,7 @@ function placementCost(s: GameState, p: Placement) {
   if (a.type === 'buyParcel') return parcelPrice(s, a.region, a.ha);
   if (a.type === 'build') return buildingPrice(s, a.building, a.region);
   if (a.type === 'buildHomes') return homePrice(s, a.tier) * a.count;
-  if (a.type === 'buildService') return servicePrice(s, a.service) * (a.block ? 4 : a.count ?? 1);
+  if (a.type === 'buildService') { let c = servicePrice(s, a.service) * (a.block ? 4 : a.count ?? 1); if (canUpgradeService(a.service)) for (let lv = 1; lv < buildAs(s, 'service'); lv++) c += serviceUpgradePrice(s, { type: a.service, level: lv, count: 1 }); return c; }
   return 0;
 }
 
