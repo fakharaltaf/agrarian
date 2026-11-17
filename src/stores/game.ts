@@ -78,7 +78,7 @@ export const roadLanes = () => store.roadLanes;
 
 // ---------------------------------------------------------------- undo: map edits can be taken back for a game day
 let undos: Edit[] = [], redos: Edit[] = [];
-const engineDispatch = (s: GameState, a: Action) => { const { r, edit } = dispatchEdit(s, a); if (edit) { undos = [...undos, edit].slice(-30); redos = []; } return r; };
+const engineDispatch = (s: GameState, a: Action) => { const { r, edit } = dispatchEdit(s, a); if (edit) { undos = [...undos, edit].slice(-30); redos = []; } if (r.ok) saveSoon(); return r; };
 const fresh = () => { undos = undos.filter((e) => undoable(store.game, e)); redos = redos.filter((e) => undoable(store.game, e)); };
 export const canUndo = () => (fresh(), undos.length > 0);
 export const canRedo = () => (fresh(), redos.length > 0);
@@ -248,8 +248,10 @@ function startFrom(game: GameState, savedAt: number, paused = false) {
   setTimeout(chunk, 0);
 }
 
+const LEAVE = 'agrarian.leave';
 export async function boot() {
-  const t = await get('auto');
+  let t = await get('auto');
+  try { const l = localStorage.getItem(LEAVE); localStorage.removeItem(LEAVE); if (l && (!t || JSON.parse(l).savedAt > JSON.parse(t).savedAt)) { t = l; void put('auto', l); } } catch { /* keep the database save */ }
   if (t) {
     try {
       const f = parseSave(t);
@@ -377,7 +379,6 @@ export function act(a: Action, success?: string) {
   if (a.type !== 'seeTip' && a.type !== 'startDay') sfx(r.ok ? SOUND[a.type] ?? 'click' : 'error');
   if (!r.ok) toast(r.error);
   else if (r.note || success) toast(r.note ?? success!, 'ok');
-  if (r.ok) saveSoon();
   bump();
   return r.ok;
 }
@@ -425,8 +426,10 @@ setInterval(() => store.ready && !store.catchUp && saveTo('auto', true), 15000);
 /** Save a moment after anything the player does, so a reload straight after keeps it: saving as the page closes may not finish in time. */
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 function saveSoon() { clearTimeout(saveTimer); saveTimer = setTimeout(() => store.ready && !store.catchUp && saveTo('auto', true), 800); }
-addEventListener('visibilitychange', () => document.visibilityState === 'hidden' && store.ready && saveTo('auto', true));
-addEventListener('pagehide', () => store.ready && saveTo('auto', true));
+/** Leaving the page: the database write may not finish before the page goes, so a copy is written to local storage at once too; boot takes whichever is newer. */
+function saveOnLeave() { if (!store.ready) return; const t = serialize(); try { localStorage.setItem(LEAVE, t); } catch { /* too big or blocked: the database save below still runs */ } void put('auto', t); }
+addEventListener('visibilitychange', () => document.visibilityState === 'hidden' && saveOnLeave());
+addEventListener('pagehide', saveOnLeave);
 
 // ---------------------------------------------------------------- React binding
 
