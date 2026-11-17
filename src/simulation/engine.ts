@@ -631,7 +631,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       if (!s.regions[a.region]?.unlocked) return fail('You have no operations there.');
       const plan = bridgePlan(s, a.region, a.at, Math.max(1, Math.min(5, Math.round(a.lanes ?? 1))));
       if ('error' in plan) return fail(plan.error);
-      const grade = buildAs(s, 'road'), cost = Math.round(roadBuildPrice(s, grade) * BRIDGE_COST * plan.tiles.length);
+      const grade = 1, cost = Math.round(roadBuildPrice(s, grade) * BRIDGE_COST * plan.tiles.length); // every bridge starts as timber, like the main road's; upgrade it to stone or concrete
       if (cost > s.cash) return fail(`A ${BRIDGE_GRADES[grade].toLowerCase()} here costs $${cost.toLocaleString()}.`);
       post(s, 'building', -cost, `${BRIDGE_GRADES[grade]} (${plan.tiles.length} tiles)`, a.region);
       const w = worldOf(s, a.region);

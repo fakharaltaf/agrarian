@@ -396,7 +396,7 @@ function RoadBar({ s, r }: { s: GameState; r: Roading }) {
     const route = r.from && h ? wideRoadRoute(s, r.region, r.from, h, lanes) : null;
     hint = !r.from ? 'Tap where the road starts' : !h ? `Tap where it goes next · ${money(price)} a tile` : route ? `${route.length} tiles · ${money(price * route.length)} · tap to build` : groundProblem(s, r.region, h[0], h[1], 'road') ?? (lanes > 1 ? `A ${lanes}-lane road needs open land ${lanes} tiles wide all the way` : 'No way through from here: try a point in between');
   } else if (r.tool === 'bridge') {
-    const plan = h ? bridgePlan(s, r.region, h, lanes) : null, g = buildAs(s, 'road');
+    const plan = h ? bridgePlan(s, r.region, h, lanes) : null, g = 1;
     hint = !plan ? 'Tap the river where the bridge should cross' : 'error' in plan ? plan.error : `${BRIDGE_GRADES[g]} · ${plan.tiles.length} tiles · ${money(roadBuildPrice(s, g) * BRIDGE_COST * plan.tiles.length)} · tap to build`;
   } else if (h && isRoad(h[1])) {
     hint = w.main >= 3 ? 'The main road is already paved' : `Whole main road → ${ROAD_GRADES[w.main + 1].toLowerCase()} · ${money(roadTilePrice(s, w.main + 1) * MAP.w * ROAD_H)}`;
@@ -408,7 +408,7 @@ function RoadBar({ s, r }: { s: GameState; r: Roading }) {
     else { const lost = cutsOff(s, r.region, st); hint = `Remove ${st.length} tiles${lost.length ? ` · cuts off ${lost.length} building${lost.length === 1 ? '' : 's'}` : ''}`; }
   }
   { const id = h ? tileId(h[0], h[1]) : -1, x = id >= 0 && w.roads[id] !== undefined ? pressureOf(s, w, id) : 0; if (x > 0.05) { const cars = townOf(s).flow?.[id] ?? 0; hint += ` · 🚦 ${cars} cars a lane, ${laneCapacity(w, id)} at ease (${Math.round(x * 100)}%)${x >= 1 ? ': upgrade or widen it' : ''}`; } }
-  return <LineDock label="Roads" head={<b className="dock-title">🛤 Roads</b>} hint={hint} tool={r.tool} draw="Draw" bridge all={{ region: r.region, nets: ['road'] }} as={{ what: 'road', names: (r.tool === 'bridge' ? BRIDGE_GRADES : ROAD_GRADES).slice(1) }} extra={(r.tool === 'draw' || r.tool === 'bridge') && <select className="dock-as" aria-label="Lanes" title="How many lanes wide new roads are" value={lanes} onChange={(e) => setRoadLanes(+e.target.value)}>{[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n} lane{n > 1 ? 's' : ''}</option>)}</select>} />;
+  return <LineDock label="Roads" head={<b className="dock-title">🛤 Roads</b>} hint={hint} tool={r.tool} draw="Draw" bridge all={{ region: r.region, nets: ['road'] }} as={{ what: 'road', names: ROAD_GRADES.slice(1) }} extra={(r.tool === 'draw' || r.tool === 'bridge') && <select className="dock-as" aria-label="Lanes" title="How many lanes wide new roads are" value={lanes} onChange={(e) => setRoadLanes(+e.target.value)}>{[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n} lane{n > 1 ? 's' : ''}</option>)}</select>} />;
 }
 
 /** The dock for roads and lines: what you're working on (with Hide and Done), what the next tap does, then the tools at thumb height. */
@@ -426,7 +426,7 @@ function LineDock({ label, head, hint, tool, draw, all, as, noUpgrade, extra, br
     <div className={`dock-hint${bad ? ' bad' : ''}`}>
       <p aria-live="polite">{hint}</p>
       {extra}
-      {as && (tool === 'draw' || tool === 'bridge') && buildAsOpen(s) && <select className="dock-as" aria-label="Build as" title="What new ones are built as" value={Math.min(as.names.length, buildAs(s, as.what))} onChange={(e) => act({ type: 'setBuildAs', what: as.what, level: +e.target.value })}>{as.names.map((n, i) => <option key={n} value={i + 1}>{n}</option>)}</select>}
+      {as && tool === 'draw' && buildAsOpen(s) && <select className="dock-as" aria-label="Build as" title="What new ones are built as" value={Math.min(as.names.length, buildAs(s, as.what))} onChange={(e) => act({ type: 'setBuildAs', what: as.what, level: +e.target.value })}>{as.names.map((n, i) => <option key={n} value={i + 1}>{n}</option>)}</select>}
       {plan && plan.tiles > 0 && <button className="dock-all" disabled={plan.cost > s.cash} title={`Raise all ${plan.tiles} tiles one step${all!.nets.includes('road') ? ' (the main road is upgraded on its own)' : ''}`} onClick={() => act({ type: 'upgradeAllLines', ...all! })}>⬆ All · {money(plan.cost)}</button>}
       <button className="dock-undo" aria-label="Undo" title="Undo (Ctrl/⌘ Z)" disabled={!canUndo()} onClick={() => undo()}><UndoIcon /></button>
       <button className="dock-undo" aria-label="Redo" title="Redo (Ctrl/⌘ Shift Z)" disabled={!canRedo()} onClick={() => redo()}><UndoIcon redo /></button>
