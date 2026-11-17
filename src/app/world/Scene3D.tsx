@@ -1225,16 +1225,18 @@ function syncRoads(R: Rig, s: GameState) {
     for (let x = x0; x < x1; x += 2) marks.seg(x, cz, x + 0.9, cz, [[-0.04, C(0xf2d77a), 1], [0.04, C(0xf2d77a), 1]]);
   }
   // tracks: a ribbon between each pair of neighbouring tiles (and onto the main road); a round patch only where they turn, meet or end
-  const at = (x: number, y: number) => (isRoad(y) ? -1 : w.roads[tileId(x, y)] ?? 0);
+  const onBridge = (x: number, y: number) => isBridge(R.region, tileId(x, y)); // the deck is the road there: no surface painted under or round it
+  const at = (x: number, y: number) => (isRoad(y) ? -1 : onBridge(x, y) ? 0 : w.roads[tileId(x, y)] ?? 0);
   const HALF = 0.36, STEPS4 = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
   const linksAt = (x: number, y: number) => STEPS4.filter(([dx, dy]) => at(x + dx, y + dy) !== 0);
   const straight = (x: number, y: number) => { const d = linksAt(x, y); return d.length === 2 && d[0][0] === -d[1][0] && d[0][1] === -d[1][1]; };
   const through = (x: number, y: number) => linksAt(x, y).length === 1 || straight(x, y); // ruts run on through it
   // gravel and paved tracks laid side by side merge into one wide road: no verge or ruts between them
-  const hard = (x: number, y: number) => (w.roads[tileId(x, y)] ?? 0) >= 2;
+  const hard = (x: number, y: number) => !onBridge(x, y) && (w.roads[tileId(x, y)] ?? 0) >= 2;
   const wide = (x: number, y: number, dx: number, dy: number) => hard(x, y) && (hard(x + dy, y + dx) || hard(x - dy, y - dx) || hard(x + dx + dy, y + dy + dx) || hard(x + dx - dy, y + dy - dx));
   for (const k of ids) {
     const id = Number(k), [x, y] = tileAt(id), gr = w.roads[id], ax = x + 0.5, az = y + 0.5;
+    if (onBridge(x, y)) continue;
     const dirs = linksAt(x, y);
     if (!straight(x, y)) {
       verge.disc(ax, az, [[HALF, C(VERGE_COL[gr]), 0.3], [HALF + 0.2, C(VERGE_COL[gr]), 0]], 0.06);
