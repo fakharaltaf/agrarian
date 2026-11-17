@@ -1,5 +1,5 @@
 import { STAGE_IDS } from './stages/types';
-import { JAM_TEXT, streetJammed } from './access';
+import { trafficRoom } from './access';
 import { FOOD_FACTORY , LIVESTOCK_HOUSE, mergedName , MERGEABLE, STORE_OR_POWER } from './core';
 import { energyMix, oilOpen, upgradeNeedsPower } from './stages/shared';
 import { bestRetailCentre } from './facility-levels';
@@ -760,11 +760,18 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       (s.buildAs ??= {})[a.what] = a.level;
       return ok();
     }
+    case 'setLayout': { // flip a merged building's layout: which side its halls and its yard stand
+      const t = s.stageState.town as unknown as { services?: { id: number; size?: number; layout?: number }[] } | undefined;
+      const x = a.buildingId !== undefined ? s.buildings.find((b) => b.id === a.buildingId) : t?.services?.find((b) => b.id === a.serviceId);
+      if (!x || (x.size ?? 1) < 2) return fail('Only merged buildings have a layout to switch.');
+      x.layout = x.layout ? 0 : 1;
+      return ok();
+    }
     case 'mergeBuilding': {
       const g = factoryMerge(s, a.buildingId);
       if (!g) return fail('Only factories, animal houses, stores and power plants merge.');
       if (!g.mate || !g.ready) return fail(`To merge, ${g.why}.`);
-      if (streetJammed(s, g.b.region, `b:${g.b.id}`) || streetJammed(s, g.mate.region, `b:${g.mate.id}`)) return fail(JAM_TEXT);
+      for (const x of [g.b, g.mate]) { const room = trafficRoom(s, x.region, `b:${x.id}`, 3); if (!room.ok) return fail(room.why); }
       if (g.price > s.cash) return fail(`Merging costs $${g.price.toLocaleString()}.`);
       const { b, mate } = g, w = worldOf(s, b.region), before = structuredClone({ pos: w.pos, rot: w.rot, roads: w.roads, links: w.links });
       forget(s, b.region, `b:${b.id}`); forget(s, b.region, `b:${mate.id}`);
@@ -1026,7 +1033,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       if (!b) return fail('No such building.');
       if (!known(s, 'upgrades')) return fail('Upgrades are not available yet.');
       if (b.level >= 3) return fail('Already at the highest level.');
-      if (streetJammed(s, b.region, `b:${b.id}`)) return fail(JAM_TEXT);
+      { const room = trafficRoom(s, b.region, `b:${b.id}`, b.level + 1); if (!room.ok) return fail(room.why); }
       if (buildingUse(s, b.type, b.level + 1) === 'industry' && placeProblem(s, b.region, ...(worldOf(s, b.region).pos[`b:${b.id}`] ?? [NaN, NaN]), footprintOf(s, `b:${b.id}`) ?? { w: 1, d: 1 }, `b:${b.id}`, 'industry') === 'zone')
         return fail(`${BUILDINGS[b.type].name}s grow into ${INDUSTRY_TO_GROW.has(b.type) ? 'industrial plants' : 'bigger plants'} only on industrial land: zone the land under it industrial (🏘 Zones), or move it there.`);
       const cost = upgradeCost(s, b);

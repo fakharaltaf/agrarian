@@ -11,7 +11,7 @@ import { factoryJobs, localEmployment, townOf } from '../town-state';
 import { executeBuy, quoteBuy } from '../markets';
 import { shopMood } from '../city-state';
 import { homeUnits, homeLevel, homeUpgradePrice, APARTMENT_FAMILIES } from '../community-state';
-import { JAM_TEXT, streetJammed, streetJammedAt, APARTMENT_NEED, doorTiles, frontageAt, frontageOf, meets, needText } from '../access';
+import { JAM_TEXT, streetJammedAt, trafficRoom, APARTMENT_NEED, doorTiles, frontageAt, frontageOf, meets, needText } from '../access';
 import { communityOf, createSettlementState, familySize, HOME_DEFS, homePrice, homeCapacity, households, population, availableResidents, recruitableResidents } from '../community-state';
 import { CONFIG, WORK_HOURS } from '../config';
 
@@ -59,7 +59,7 @@ export function homeUpgradeNeeds(s: GameState, h: CommunityHome) {
   const next = homeLevel(h) + 1, l = doorLines(s, h.id), city = !!(s.stageState.city as { active?: boolean } | undefined)?.active;
   if (h.tier !== 'apartment' || next > 3) return [];
   const street = APARTMENT_NEED[next - 1], road = { need: needText(street)[0].toUpperCase() + needText(street).slice(1), met: meets(frontageOf(worldOf(s, 'heartland'), doorTiles(s, 'heartland', `home:${h.id}`)), street) };
-  const flowing = { need: 'Traffic flowing on its street', met: !streetJammed(s, 'heartland', `home:${h.id}`) };
+  const room = trafficRoom(s, 'heartland', `home:${h.id}`, next), flowing = { need: room.need, met: room.ok };
   return next === 2
     ? [road, flowing, { need: 'Your town is a City', met: city }, { need: 'A power line at the door', met: l.power >= 1 }, { need: 'A water pipe at the door', met: l.water >= 1 }]
     : [road, flowing, { need: '800 residents', met: population(s) >= 800 }, { need: 'Underground power cable at the door', met: l.power >= NET_TOP.power }, { need: 'Buried water main at the door', met: l.water >= NET_TOP.water }, { need: 'Underground sewer at the door', met: l.sewer >= NET_TOP.sewer }];

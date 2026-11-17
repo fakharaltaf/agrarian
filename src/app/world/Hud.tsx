@@ -1,4 +1,4 @@
-import { frontageAt, JAM_TEXT, laneCapacity, meets, needText, pressureOf, streetJammed, streetJammedAt } from '../../simulation/access';
+import { frontageAt, JAM_TEXT, laneCapacity, meets, needText, pressureOf, streetJammedAt, trafficRoom } from '../../simulation/access';
 import { homesReached, nuisanceOf, NUISANCE_LOOK, type NuisanceKind } from '../../simulation/nuisance';
 import { upgradeNeedsPower } from '../../simulation/stages/shared';
 import { bestCrop } from '../crops';
@@ -254,6 +254,7 @@ export function Hud() {
           else if(kind==='move'){ const f=s.fields.find(x=>x.id===id); if(f){ const side=plotSide(f.ha); startPlacement({kind:'move',key:`field:${id}`,region:f.region,w:side,d:side,label:`Field ${id}`,action:{type:'seeTip',tip:''}}); setSel([]); } }
           else if(kind==='merge'&&lot?.service){ if(act({type:'mergeService',serviceId:lot.service.id})) setLot(null); }
           else if(kind==='merge'&&lot?.buildings[0]){ if(act({type:'mergeBuilding',buildingId:lot.buildings[0].id})) setLot(null); }
+          else if(kind==='layout'&&lot){ act(lot.buildings[0]?{type:'setLayout',buildingId:lot.buildings[0].id}:{type:'setLayout',serviceId:lot.service?.id}); }
           else if(kind==='homeup'&&lot){ setPanel(true); setJournal(false); }
           else if(kind==='movelot'&&lot){ const fp=footprintOf(s,lot.place); if(fp){ startPlacement({kind:'move',key:lot.place,region,w:fp.w,d:fp.d,label:lotName(lot),action:{type:'seeTip',tip:''}}); setLot(null); } }
           else if(kind==='plant'||kind==='harvest') act(kind==='harvest'?{type:'harvest',fieldId:id}:{type:'plant',fieldId:id,crop});
@@ -516,7 +517,7 @@ function HerdInfo({ s, lot }: { s: GameState; lot: Lot }) {
 function ServiceCard({ s, svc, onClose }: { s: GameState; svc: CivicService; onClose: () => void }) {
   const d = SERVICE_DEFS[svc.type], net = UTILITY_OF[svc.type], lv = levelOf(svc), price = serviceUpgradePrice(s, svc), [used, cap] = svc.serving ?? [0, Math.round(utilityFamilies(svc))];
   const full = !!net && cap > 0 && used >= cap;
-  const jammed = streetJammed(s, 'heartland', `svc:${svc.id}`), grows = canUpgradeService(svc.type) || (isShop(svc.type) && svcSize(svc) >= 2), reach = !!SERVICE_RADIUS[svc.type] || svc.type === 'mall';
+  const room = trafficRoom(s, 'heartland', `svc:${svc.id}`, levelOf(svc) + 1), jammed = !room.ok, grows = canUpgradeService(svc.type) || (isShop(svc.type) && svcSize(svc) >= 2), reach = !!SERVICE_RADIUS[svc.type] || svc.type === 'mall';
   return <Card title={<>{d.icon} {serviceName(svc)}{grows && <span className="muted"> · level {lv}</span>}</>} actions={<button className="icon-btn" onClick={onClose} aria-label="Close">✕</button>}>
     <div className="stack s">
       {net ? <><div className="row between small"><span className="muted">Families on its lines</span><b>{used} / {cap}</b></div><Bar value={cap ? used / cap : 0} label={`${used} / ${cap} families on its lines`} color={full ? 'var(--gold)' : 'var(--up)'} /></>
@@ -525,7 +526,7 @@ function ServiceCard({ s, svc, onClose }: { s: GameState; svc: CivicService; onC
       {svc.type === 'park' && <><p className="small">{PARK_KINDS[svc.park ?? 'garden'].does}. A bigger park counts for more.</p>
         <Seg label="Park layout" value={svc.park ?? 'garden'} onChange={(kind) => act({ type: 'setPark', serviceId: svc.id, kind })} options={(Object.keys(PARK_KINDS) as (keyof typeof PARK_KINDS)[]).map((k) => ({ v: k, label: `${PARK_KINDS[k].icon} ${PARK_KINDS[k].name}` }))} />
         {svc.park && <p className="small muted">Changing the layout costs {money(Math.round(servicePrice(s, 'park') * 0.25))}.</p>}</>}
-      {jammed && <div className="callout warn">🚦 {JAM_TEXT}</div>}
+      {jammed && grows && <div className="callout warn">🚦 {room.why}</div>}
       {full && <div className="callout warn">Full: upgrade it or build another to serve more homes.</div>}
       <div className="row wrap">
         {officeJobs(svc) > 0 && <p className="small">Outside firms offer <b>{officeJobs(svc)} desks</b> to your residents and pay their wages.</p>}
@@ -630,7 +631,7 @@ function LotPanel({ s, lot, region, onClose }: { s: GameState; lot: Lot; region:
         {known(s, 'upgrades') && bs.map((b, i) => b.level < 3 && (
           <div key={b.id} className="row between small">
             <span className="muted">{bs.length > 1 ? `#${i + 1} ` : ''}Level {b.level} → {b.level + 1}: {(() => { const now = throughput(b), next = throughput({ type: b.type, level: b.level + 1 }); return `+${Math.round((next / now - 1) * 100)}%`; })()} {d.recipe ? 'output' : d.category === 'livestock' ? 'space' : 'capacity'}</span>
-            {streetJammed(s, b.region, `b:${b.id}`) ? <span className="faint small" title={JAM_TEXT}>🚦 Street jammed</span> : upgradeNeedsPower(s, b) ? <span className="faint small" title={upgradeNeedsPower(s, b)!}>⚡ Needs your own power</span> : <Confirm label={`Upgrade · ${money(upgradeCost(s, b))}`} className="btn ghost sm" disabled={upgradeCost(s, b) > s.cash} title={`Upgrade ${d.name.toLowerCase()} to level ${b.level + 1}?`} body={<>Costs <b>{money(upgradeCost(s, b))}</b>. {d.recipe ? 'More output per hour, but staff cost rises 30%.' : d.category === 'livestock' ? 'Room for more animals.' : 'More storage space.'}{nuisanceChange(b)}</>} onConfirm={() => act({ type: 'upgradeBuilding', buildingId: b.id })} confirmLabel="Upgrade" />}
+            {!trafficRoom(s, b.region, `b:${b.id}`, b.level + 1).ok ? <span className="faint small" title={trafficRoom(s, b.region, `b:${b.id}`, b.level + 1).why}>🚦 {trafficRoom(s, b.region, `b:${b.id}`, b.level + 1).need}</span> : upgradeNeedsPower(s, b) ? <span className="faint small" title={upgradeNeedsPower(s, b)!}>⚡ Needs your own power</span> : <Confirm label={`Upgrade · ${money(upgradeCost(s, b))}`} className="btn ghost sm" disabled={upgradeCost(s, b) > s.cash} title={`Upgrade ${d.name.toLowerCase()} to level ${b.level + 1}?`} body={<>Costs <b>{money(upgradeCost(s, b))}</b>. {d.recipe ? 'More output per hour, but staff cost rises 30%.' : d.category === 'livestock' ? 'Room for more animals.' : 'More storage space.'}{nuisanceChange(b)}</>} onConfirm={() => act({ type: 'upgradeBuilding', buildingId: b.id })} confirmLabel="Upgrade" />}
           </div>
         ))}
         <div className="row wrap">

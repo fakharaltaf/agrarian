@@ -39,9 +39,9 @@ it('Nothing grows on a jammed street: upgrades wait until the traffic flows', as
   const s = createGame(1025); s.legacyProgression = true; s.era = 6; post(s, 'prize', 1e6, 'fixture'); s.discovered = [...new Set([...(s.discovered ?? []), 'upgrades'])];
   expect(dispatch(s, { type: 'build', region: 'heartland', building: 'barn' }).ok).toBe(true);
   const b = s.buildings.at(-1)!, door = (await import('../simulation/access')).doorTiles(s, 'heartland', `b:${b.id}`), road = door.find((id) => W.worldOf(s, 'heartland').roads[id] !== undefined)!;
-  (s.stageState.town as Record<string, unknown>) = { ...(s.stageState.town as object), traffic: { [road]: 2 } };
+  (s.stageState.town as Record<string, unknown>) = { ...(s.stageState.town as object), traffic: { [road]: 2 }, flow: { [road]: 1000 } };
   expect(streetJammed(s, 'heartland', `b:${b.id}`)).toBe(true);
-  { const r1 = dispatch(s, { type: 'upgradeBuilding', buildingId: b.id }); expect(r1.ok ? '' : r1.error).toMatch(/jammed/); }
-  (s.stageState.town as Record<string, unknown>).traffic = {};
+  { const r1 = dispatch(s, { type: 'upgradeBuilding', buildingId: b.id }); expect(r1.ok ? '' : r1.error).toMatch(/% full/); }
+  (s.stageState.town as Record<string, unknown>).traffic = {}; (s.stageState.town as Record<string, unknown>).flow = {};
   expect(dispatch(s, { type: 'upgradeBuilding', buildingId: b.id }).ok).toBe(true);
 });

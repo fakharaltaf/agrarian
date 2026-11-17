@@ -1,5 +1,5 @@
 import { regionActive } from '../region-state';
-import { JAM_TEXT, streetJammed, streetJammedAt, APARTMENT_NEED, doorTiles, frontageAt, frontageOf, meets, needText, reachTime, trafficOf, travelCached } from '../access';
+import { JAM_TEXT, streetJammedAt, trafficRoom, APARTMENT_NEED, doorTiles, frontageAt, frontageOf, meets, needText, reachTime, trafficOf, travelCached } from '../access';
 import { buildAs, canPlaceNew, connect, forget, liftTracks, placeNew, placeProblem, SERVICE_FOOTPRINT, touch } from '../world';
 import type { CivicService } from '../types';
 import type { ShopType } from '../types';
@@ -269,7 +269,7 @@ function action(s: GameState,a:Action):ActionResult|null {
     if(!canUpgradeService(b.type)&&!(isShop(b.type)&&svcSize(b)>=2))return fail(isShop(b.type)?'Shops grow by merging: four of a kind in a square become a market.':'This service has no upgrades.');
     if(levelOf(b)>=(b.type==='mall'?2:3))return fail('Already at the top level.');
     if((b.type==='office'&&levelOf(b)===2||b.type==='mall')&&population(s)<800)return fail('A tower needs a city of 800 residents.');
-    if(streetJammed(s,'heartland',`svc:${b.id}`))return fail(JAM_TEXT);
+    {const room=trafficRoom(s,'heartland',`svc:${b.id}`,levelOf(b)+1);if(!room.ok)return fail(room.why);}
     {const need=serviceNeed({...b,level:levelOf(b)+1});if(!meets(frontageOf(worldOf(s,'heartland'),doorTiles(s,'heartland',`svc:${b.id}`)),need))return fail(`Level ${levelOf(b)+1} needs ${needText(need)}: widen or pave the street it stands on.`);}
     const cost=serviceUpgradePrice(s,b);if(s.cash<cost)return fail(`Upgrading costs $${cost.toLocaleString()}.`);
     post(s,'building',-cost,`${serviceName(b)} to level ${levelOf(b)+1}`,'heartland','corporate');
@@ -283,7 +283,7 @@ function action(s: GameState,a:Action):ActionResult|null {
     if(isShop(b.type)&&!cityActive(s))return fail('Shops merge into markets once your town is a City.');
     if(!g.complete)return fail(`${g.members.length} of 4 in place: ${svcSize(b)===2?'four markets':`four of the same ${SERVICE_DEFS[b.type].name.toLowerCase()}`} must stand together in a square.`);
     if(g.members.some(x=>!x.active))return fail('Reopen all four first.');
-    if(g.members.some(x=>streetJammed(s,'heartland',`svc:${x.id}`)))return fail(JAM_TEXT);
+    for(const x of g.members){const room=trafficRoom(s,'heartland',`svc:${x.id}`,3);if(!room.ok)return fail(room.why);}
     {const side0=g.step*2-1,need=serviceNeed({type:svcSize(b)===2?'mall':b.type,size:svcSize(b)===2?4:2});if(!meets(frontageAt(worldOf(s,'heartland'),g.origin[0],g.origin[1],side0,side0),need))return fail(`${g.into} needs ${needText(need)}.`);}
     if(s.cash<g.price)return fail(`Merging costs $${g.price.toLocaleString()}.`);
     // the four give up their ground and tracks; the new building takes the whole square, lanes included, if nothing else is in the way

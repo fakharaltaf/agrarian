@@ -92,6 +92,18 @@ export function streetJammed(s: GameState, r: RegionId, key: string) {
   const slow = (s.stageState.town as { traffic?: Record<number, number> } | undefined)?.traffic ?? {};
   return spread(worldOf(s, r), doorTiles(s, r, key), 2).some((id) => (slow[id] ?? 1) >= JAM);
 }
+/** How hard the street at a placed thing's door is pressed: the busiest tile within a short drive, as cars over what it carries. */
+export function streetPressure(s: GameState, r: RegionId, key: string) {
+  if (r !== 'heartland') return 0;
+  const w = worldOf(s, r); return Math.max(0, ...spread(w, doorTiles(s, r, key), 2).map((id) => pressureOf(s, w, id)));
+}
+/** Room the street must have left before a building grows to this level: it brings more cars, so the bigger it gets, the more headroom it needs. */
+export const HEADROOM = [1, 1, 0.8, 0.6];
+/** Whether the street can take the traffic of the next level, and the words for the check. */
+export function trafficRoom(s: GameState, r: RegionId, key: string, nextLevel: number) {
+  const p = streetPressure(s, r, key), cap = HEADROOM[Math.max(0, Math.min(3, nextLevel))];
+  return { ok: p < cap, need: `Street traffic under ${Math.round(cap * 100)}% of capacity (now ${Math.round(p * 100)}%)`, why: `The street at its door is ${Math.round(p * 100)}% full; level ${nextLevel} needs it under ${Math.round(cap * 100)}%. Widen or pave it, add another route, or put a parking complex nearby.` };
+}
 export const JAM_TEXT = 'The street outside is jammed: widen it, pave it, add another route or a parking complex nearby before this grows.';
 // ---------------------------------------------------------------- frontage: the street a building stands on
 /** The widest street within a short drive of these door tiles, and its grade: what a building fronts onto. */
