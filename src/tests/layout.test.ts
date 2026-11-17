@@ -328,3 +328,25 @@ it('stores merge too: two level-3 cold stores make a cold warehouse that holds m
   const r = dispatch(s, { type: 'mergeBuilding', buildingId: ids[0] }); if (!r.ok) console.log('M', r.error); expect(r.ok).toBe(true);
   W.touch(w); expect(capacity(s, 'heartland').cold).toBeCloseTo(before * 1.3, 3);
 });
+
+it('a road can bridge the river on land you own, at a bridge price', async () => {
+  const W = await import('../simulation/world');
+  const s = createGame(1028); s.legacyProgression = true; s.era = 4; post(s, 'prize', 5e6, 'fixture');
+  const w = W.worldOf(s, 'heartland'), y = 30, rx = W.riverX('heartland', y);
+  const chunks = [...new Set(Array.from({ length: 14 }, (_, i) => W.chunkAt(rx - 6 + i, y)))]; w.owned = [...new Set([...w.owned, ...chunks])]; w.cleared = [...new Set([...w.cleared, ...chunks])]; W.touch(w);
+  const cash = s.cash, r = dispatch(s, { type: 'buildRoad', region: 'heartland', from: [rx - 4, y], to: [rx + 5, y] }); if (!r.ok) console.log(r.error); expect(r.ok).toBe(true);
+  expect(w.roads[W.tileId(rx, y)]).toBe(3); expect(cash - s.cash).toBeGreaterThan(W.roadBuildPrice(s, 3) * 6);
+});
+
+it('placing on your own road offers to take the road up, and places at once', async () => {
+  const W = await import('../simulation/world');
+  const { planQuote } = await import('../simulation/engine');
+  const s = createGame(1029); s.legacyProgression = true; s.era = 4; post(s, 'prize', 1e6, 'fixture');
+  const w = W.worldOf(s, 'heartland'), o = W.findSpot(s, 'heartland', { w: 8, d: 6 })!, y = o[1] + 2;
+  expect(dispatch(s, { type: 'buildRoad', region: 'heartland', from: [o[0] + 1, y], to: [o[0] + 6, y] }).ok).toBe(true);
+  const at: [number, number] = [o[0] + 2, y - 1], act = { type: 'build', region: 'heartland', building: 'barn' } as const;
+  expect(dispatch(s, { ...act, at }).ok).toBe(false);
+  const q = planQuote(s, 'heartland', at, 3, 2, act); expect(q.ok).toBe(true); expect(q.roads.length).toBeGreaterThan(0);
+  const n = s.buildings.length; expect(dispatch(s, { type: 'planPlacement', region: 'heartland', action: act, at, w: 3, d: 2, label: 'Barn' }).ok).toBe(true);
+  expect(s.buildings.length).toBe(n + 1); expect(q.roads.every((id) => w.roads[id] === undefined || !W.footprintOf(s, `b:${s.buildings.at(-1)!.id}`))).toBe(true);
+});

@@ -15,7 +15,7 @@ import {
 import { buildingDivision, clamp, debt, factoryCrop, equity, freeSpace, has, known, log, marketWage, nextId, post, random, round2, todayBook, lean } from './core';
 import { coverOf, coverPrice, COVERS } from './agriculture';
 import { addGoods, canGrow, clearField, fertilizeField, fieldsTick, frostNight, harvestField, isManual, isReady, newField, plantField, spoilageDaily } from './agriculture';
-import { growFarmhouse, groundProblem, wideRoadRoute, BELT_PRICE, beltRoute, beltStretch, buildAs, buildAsOpen, lineBuildPrice, lineBuildTier, roadBuildPrice, liftTracks, riverTiles, chunkAt, COMMERCIAL, type Use, type Zone, reconcileWorld, unlink, accessNote, cutsOff, buyable, chunksIn, connect, placedIn, touch, useOf, buildingUse, INDUSTRY_TO_GROW, WATER_LEVEL, NET_PRICE, NET_TIERS, NET_TOP, linesOf, lineTiles, lineTop, upgradeAllPlan, pipeRoute, pipeStretch, hasWater, isRoad, MAP, ROAD_GRADES, ROAD_H, roadPick, roadTilePrice, tileId, canPlaceNew, LAND_HA_PER_PATCH,  own, ownedSet, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, clearCost, clearedSet, FOOTPRINT, footprintOf, forget, rotOf, turned, MOVE_DOWNTIME, placeNew, placeProblem, plotSide, PROBLEM_TEXT, seedWorld, TIMBER_PER_PATCH, worldOf } from './world';
+import { BRIDGE_COST, isBridge, clearOpenPatches, growFarmhouse, groundProblem, wideRoadRoute, BELT_PRICE, beltRoute, beltStretch, buildAs, buildAsOpen, lineBuildPrice, lineBuildTier, roadBuildPrice, liftTracks, riverTiles, chunkAt, COMMERCIAL, type Use, type Zone, reconcileWorld, unlink, accessNote, cutsOff, buyable, chunksIn, connect, placedIn, touch, useOf, buildingUse, INDUSTRY_TO_GROW, WATER_LEVEL, NET_PRICE, NET_TIERS, NET_TOP, linesOf, lineTiles, lineTop, upgradeAllPlan, pipeRoute, pipeStretch, hasWater, isRoad, MAP, ROAD_GRADES, ROAD_H, roadPick, roadTilePrice, tileId, canPlaceNew, LAND_HA_PER_PATCH,  own, ownedSet, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, clearCost, clearedSet, FOOTPRINT, footprintOf, forget, rotOf, turned, MOVE_DOWNTIME, placeNew, placeProblem, plotSide, PROBLEM_TEXT, seedWorld, TIMBER_PER_PATCH, worldOf } from './world';
 import { buyAnimals, livestockDaily, sellAnimals } from './livestock';
 import { claimDaily, startDay } from './daily';
 import { createMarkets, drawWeather, executeBuy, executeSell, quoteBuy, macroDaily, marketsDaily, marketsTick, priceFromInv } from './markets';
@@ -196,7 +196,7 @@ export function moveFee(s: GameState, r: RegionId, key: string) {
 }
 /** What it takes to make the ground under a placement yours and clear: the patches to buy and to clear, the price, and how long the crew needs. */
 export function planQuote(s: GameState, r: RegionId, at: [number, number], fw: number, fd: number, action: Action) {
-  const bad = (error: string) => ({ ok: false as const, error, cost: 0, hours: 0, buy: [] as number[], clear: [] as number[], chunks: [] as number[], zone: undefined as Zone | undefined });
+  const bad = (error: string) => ({ ok: false as const, error, cost: 0, hours: 0, buy: [] as number[], clear: [] as number[], roads: [] as number[], chunks: [] as number[], zone: undefined as Zone | undefined });
   if (!['build', 'buildService', 'buildHomes', 'buyPlot', 'buyParcel'].includes(action.type)) return bad('That cannot be planned ahead.');
   if (![at[0], at[1], fw, fd].every(Number.isInteger) || fw < 1 || fd < 1 || fw > 40 || fd > 40) return bad('Choose a spot on the map.');
   const w = worldOf(s, r), set = new Set<number>();
@@ -204,16 +204,17 @@ export function planQuote(s: GameState, r: RegionId, at: [number, number], fw: n
   const chunks = [...set], owned = ownedSet(w), cleared = clearedSet(w), queued = new Set(w.queue.map((j) => j.chunk));
   const need = chunks.filter((c) => !owned.has(c)), buy = buyable(w, need), clear = chunks.filter((c) => !cleared.has(c) && !queued.has(c));
   if (buy.length !== need.length) return bad('That land does not join land you own or the main road.');
-  if (!buy.length && !chunks.some((c) => !cleared.has(c))) return bad('That land is already yours and clear.');
   // anything else in the way (water, a road, another building) cannot be bought or cleared away
   const use: Use | undefined = action.type === 'buildHomes' ? 'home' : action.type === 'buyPlot' || action.type === 'buyParcel' ? 'field' : action.type === 'build' ? buildingUse(s, action.building) : action.type === 'buildService' && COMMERCIAL.test(action.service) ? 'shop' : undefined;
   const zone: Zone | undefined = use === 'home' ? 'res' : use === 'shop' ? 'com' : use === 'industry' ? 'ind' : undefined;
   const river = riverTiles(r);
-  for (let y = at[1]; y < at[1] + fd; y++) for (let x = at[0]; x < at[0] + fw; x++) { if (river.has(tileId(x, y))) return bad(PROBLEM_TEXT.water); if (isRoad(y) || w.roads[tileId(x, y)]) return bad(PROBLEM_TEXT.road); }
+  const roads: number[] = []; // your own roads in the way are taken up (the main road stays)
+  for (let y = at[1]; y < at[1] + fd; y++) for (let x = at[0]; x < at[0] + fw; x++) { if (river.has(tileId(x, y))) return bad(PROBLEM_TEXT.water); if (isRoad(y)) return bad('The main road stays: choose a spot off it.'); if (w.roads[tileId(x, y)] !== undefined) roads.push(tileId(x, y)); }
+  if (!buy.length && !chunks.some((c) => !cleared.has(c)) && !roads.length) return bad('That land is already yours and clear.');
   if (placedIn(s, r).some((p) => p.x - 1 < at[0] + fw && p.x + p.w + 1 > at[0] && p.y - 1 < at[1] + fd && p.y + p.d + 1 > at[1])) return bad(PROBLEM_TEXT.occupied);
   for (const c of chunks) if (owned.has(c) && cleared.has(c) && (zone ? w.zones[c] !== zone : use === 'field' ? !!w.zones[c] : w.zones[c] === 'res' || w.zones[c] === 'com')) return bad(PROBLEM_TEXT.zone);
   const cost = Math.round((landCostOf(s, r, buy) + clearCost(s) * clear.length) * 100) / 100;
-  return { ok: true as const, error: '', cost, hours: (w.queue.length + clear.length) * CLEAR_HOURS, buy, clear, chunks, zone };
+  return { ok: true as const, error: '', cost, hours: clear.length ? (w.queue.length + clear.length) * CLEAR_HOURS : 0, buy, clear, roads, chunks, zone };
 }
 /** The factory beside this one that it could merge with: the same kind and size, both at level 3, a lane apart and squarely in line. */
 export function factoryMerge(s: GameState, id: number) {
@@ -241,6 +242,7 @@ export function factoryMerge(s: GameState, id: number) {
 /** One crew clears forest patch by patch; each finished patch adds timber to storage. */
 function worldTick(s: GameState) {
   if (s.tick % 24 === 2 && growFarmhouse(s, Math.max(1, Math.min(7, (STAGE_IDS as readonly string[]).indexOf(s.stageId) + 1)))) log(s, 'opportunity', 'Your farmhouse has grown with the farm: a bigger house for a bigger concern.', 'farm');
+  if (s.tick % 24 === 3) for (const r of REGION_IDS) { const w0 = s.world?.[r]; if (w0) clearOpenPatches(r, w0); }
   if (s.tick % 6 === 1) reconcileWorld(s, { farmMarket: s.stats.harvests > 0, crew: stageAtLeast(s, 'farm-business'), office: s.legacyProgression ? s.era >= 3 : stageAtLeast(s, 'industry'), hall: !!s.stageState.town?.active });
   for (const r of REGION_IDS) {
     const w = s.world?.[r];
@@ -617,11 +619,12 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       const lanes = Math.max(1, Math.min(5, Math.round(a.lanes ?? 1))), tiles = wideRoadRoute(s, a.region, a.from, a.to, lanes);
       if (!tiles) return fail(groundProblem(s, a.region, a.to[0], a.to[1], 'road') ?? (lanes > 1 ? `A ${lanes}-lane road cannot fit there: it needs open cleared land of yours ${lanes} tiles wide all the way.` : 'No way through: buildings, fields, water or trees block every path. Try a point in between.'));
       if (!tiles.length) return fail('There is already a road all the way.');
-      const grade = buildAs(s, 'road'), cost = Math.round(roadBuildPrice(s, grade) * tiles.length * 100) / 100;
-      if (cost > s.cash) return fail(`That road costs $${cost.toLocaleString()}.`);
-      post(s, 'building', -cost, `${ROAD_GRADES[grade]} (${tiles.length} tiles)`, a.region);
+      const span = tiles.filter(([x, y]) => isBridge(a.region, tileId(x, y))).length, grade = buildAs(s, 'road');
+      const cost = Math.round((roadBuildPrice(s, grade) * (tiles.length - span) + roadBuildPrice(s, 3) * BRIDGE_COST * span) * 100) / 100;
+      if (cost > s.cash) return fail(`That road${span ? ` and its ${span}-tile bridge` : ''} costs $${cost.toLocaleString()}.`);
+      post(s, 'building', -cost, `${ROAD_GRADES[grade]} (${tiles.length} tiles${span ? `, a bridge of ${span}` : ''})`, a.region);
       const w = worldOf(s, a.region);
-      for (const [x, y] of tiles) w.roads[tileId(x, y)] = grade;
+      for (const [x, y] of tiles) w.roads[tileId(x, y)] = isBridge(a.region, tileId(x, y)) ? 3 : grade; // a bridge is built paved
       touch(w);
       return ok();
     }
@@ -764,7 +767,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       const t = s.stageState.town as unknown as { services?: { id: number; size?: number; layout?: number }[] } | undefined;
       const x = a.buildingId !== undefined ? s.buildings.find((b) => b.id === a.buildingId) : t?.services?.find((b) => b.id === a.serviceId);
       if (!x || (x.size ?? 1) < 2) return fail('Only merged buildings have a layout to switch.');
-      x.layout = x.layout ? 0 : 1;
+      x.layout = ((x.layout ?? 0) + 1) % 4; // yard beside, beside on the other side, in front, behind
       return ok();
     }
     case 'mergeBuilding': {
@@ -795,6 +798,13 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       if (q.buy.length) { post(s, 'land', -landCostOf(s, a.region, q.buy), `Land: ${q.buy.length} patch${q.buy.length === 1 ? '' : 'es'} (${q.buy.length * LAND_HA_PER_PATCH} ha)`, a.region); own(w, q.buy); }
       if (q.clear.length) { post(s, 'maintenance', -clearCost(s) * q.clear.length, `Forest clearing (${q.clear.length} patch${q.clear.length === 1 ? '' : 'es'})`, a.region); for (const c of q.clear) w.queue.push({ chunk: c, hours: CLEAR_HOURS }); }
       if (q.zone) for (const c of q.chunks) if (!clearedSet(w).has(c) && !w.zones[c]) w.zones[c] = q.zone; // fresh land is zoned for what will stand on it
+      if (q.roads.length) { // take up the roads in the way, and lay fresh tracks for anything that used them
+        const gone = new Set(q.roads), hit = Object.keys(w.links).filter((k) => w.links[k].some((id) => gone.has(id)));
+        for (const id of q.roads) delete w.roads[id];
+        for (const k of hit) w.links[k] = w.links[k].filter((id) => !gone.has(id));
+        touch(w); for (const k of hit) if (w.pos[k]) connect(s, a.region, k);
+      }
+      if (!q.buy.length && !q.clear.length) { const res = dispatch(s, { ...a.action, at: a.at, ...(a.rot ? { rot: a.rot } : {}) } as Action); return res.ok ? ok(`Road taken up; ${a.label} placed.`) : res; } // nothing to wait for: place it now
       (w.plans ??= []).push({ action: { ...a.action, at: a.at, ...(a.rot ? { rot: a.rot } : {}) } as Action, chunks: q.chunks, at: a.at, w: a.w, d: a.d, label: a.label });
       touch(w);
       return ok(`Land bought. Your ${a.label} goes up when the crew has cleared it, in about ${q.hours} hours.`);

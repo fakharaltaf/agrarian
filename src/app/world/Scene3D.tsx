@@ -23,7 +23,7 @@ import { money, num, pct0 } from '../format';
 import { Modal } from '../ui';
 import { layoutRegion, type Layout, type Lot, type Plot } from './layout';
 import { doorTiles, frontageAt, meets, pressureOf, reachTime, roadTile, travelFrom } from '../../simulation/access';
-import { beltRoute, wideRoadRoute, homesCentre, CHUNK, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, LAND_HA_PER_PATCH, MAP, hasAccess, riverTiles, riverX, tileId, roadStretch, roadPick, pipeRoute, pipeStretch, plotSide, fieldWater, wetTiers, linesOf, NET_TOP, UTILITY_NETS, netReach, doorstep, footprintOf, type NetKind, type UtilityNet, tileAt, forSaleAround,  ownedSet, ROAD_H, ROAD_Y, chunkAt, chunkOrigin, clearCost, clearedSet, isRoad, patchesAround, placeProblem, worldOf } from '../../simulation/world';
+import { wooded, beltRoute, wideRoadRoute, homesCentre, CHUNK, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, LAND_HA_PER_PATCH, MAP, hasAccess, riverTiles, riverX, tileId, roadStretch, roadPick, pipeRoute, pipeStretch, plotSide, fieldWater, wetTiers, linesOf, NET_TOP, UTILITY_NETS, netReach, doorstep, footprintOf, type NetKind, type UtilityNet, tileAt, forSaleAround,  ownedSet, ROAD_H, ROAD_Y, chunkAt, chunkOrigin, clearCost, clearedSet, isRoad, patchesAround, placeProblem, worldOf } from '../../simulation/world';
 import { animal, buildCivic, buildCommunityHome, buildLot, buildWorks, box, cached, cyl, farmhand, hauler, mat, mesh, PAL, person, tree, vehicle, type Model } from './models';
 import { haulOf, MARKET_X, marketRoute } from '../../simulation/hauling';
 import { landCostOf, oilOf, oilPremium, oilReading, struckFields, SURVEY_R, surveyedAt } from '../../simulation/oil';
@@ -323,7 +323,8 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
         else if (u?.kind === 'buy') live.current.onPick({ kind: 'buy' });
         else {
           const g = groundAt(e.clientX - r.left, e.clientY - r.top), R = rig.current;
-          const forest = g && R && !isRoad(g[1]) && !clearedSet(worldOf(getGame(), R.region)).has(chunkAt(g[0], g[1]));
+          const w0 = R ? worldOf(getGame(), R.region) : null, c0 = g ? chunkAt(g[0], g[1]) : -1;
+          const forest = g && R && w0 && !isRoad(g[1]) && !clearedSet(w0).has(c0) && (!ownedSet(w0).has(c0) || wooded(R.region, c0)); // owned river with no trees: nothing to fell
           live.current.onPick(forest && g ? { kind: 'forest', x: g[0], y: g[1] } : { kind: 'none' });
         }
         setHover(null);
@@ -557,9 +558,12 @@ function syncLots(R: Rig, L: Layout) {
     const edge = new THREE.LineSegments(cached(`fpe${lot.w}x${lot.d}`, () => new THREE.EdgesGeometry(new THREE.BoxGeometry(lot.w - 0.1, 0.5, lot.d - 0.1))), OUTLINE_EDGE); edge.position.set(lot.x + lot.w / 2, 0.25, lot.y + lot.d / 2);
     R.outlines.add(fill, edge);
     const bw = lot.rot % 2 ? lot.d : lot.w, bd = lot.rot % 2 ? lot.w : lot.d; // built unturned, then turned about its centre
-    const model = lot.key.startsWith('civic:') ? buildCivic(lot.service?.type === 'park' ? `park-${lot.service.park ?? 'garden'}` : lot.key.split(':')[1], bw, bd, lot.service?.level ?? 1, lot.key) : lot.key.startsWith('community:') ? buildCommunityHome(lot.key.split(':')[1], bw, bd, lot.key, lot.level ?? 1) : (lot.buildings[0]?.size ?? 1) > 1 ? buildWorks(lot.type, lot.buildings[0].size === 4 ? 4 : 2, bw, bd) : buildLot(lot.type, lot.key === 'house' ? 3 : bw, lot.key === 'house' ? 3 : bd, lot.key === 'crew' || lot.key === 'office' || lot.key === 'market' ? lot.key : '', lot.key === 'house' ? lot.level ?? 1 : Math.max(1, ...lot.buildings.map((b) => b.level)));
+    const merged = (lot.buildings[0]?.size ?? lot.service?.size ?? 1) > 1, lay = merged ? (lot.buildings[0]?.layout ?? lot.service?.layout ?? 0) % 4 : 0, [mw, md] = lay >= 2 ? [bd, bw] : [bw, bd]; // layouts 2 and 3 lay the yard in front or behind
+    const model = lot.key.startsWith('civic:') ? buildCivic(lot.service?.type === 'park' ? `park-${lot.service.park ?? 'garden'}` : lot.key.split(':')[1], mw, md, lot.service?.level ?? 1, lot.key) : lot.key.startsWith('community:') ? buildCommunityHome(lot.key.split(':')[1], bw, bd, lot.key, lot.level ?? 1) : (lot.buildings[0]?.size ?? 1) > 1 ? buildWorks(lot.type, lot.buildings[0].size === 4 ? 4 : 2, mw, md) : buildLot(lot.type, lot.key === 'house' ? 3 : bw, lot.key === 'house' ? 3 : bd, lot.key === 'crew' || lot.key === 'office' || lot.key === 'market' ? lot.key : '', lot.key === 'house' ? lot.level ?? 1 : Math.max(1, ...lot.buildings.map((b) => b.level)));
     const inner = new THREE.Group(); inner.add(...model.group.children); inner.position.set(-bw / 2, 0, -bd / 2); model.group.add(inner);
-    if ((lot.buildings[0]?.layout ?? lot.service?.layout) && ((lot.buildings[0]?.size ?? lot.service?.size ?? 1) > 1)) { inner.scale.x = -1; inner.position.x = bw / 2; if (model.pen) model.pen = { ...model.pen, x0: bw - model.pen.x1, x1: bw - model.pen.x0 }; model.smoke = model.smoke.map((p) => new THREE.Vector3(bw - p.x, p.y, p.z)); } // the other layout: halls and yard swap sides
+    if (lay === 1) { inner.scale.x = -1; inner.position.x = bw / 2; if (model.pen) model.pen = { ...model.pen, x0: bw - model.pen.x1, x1: bw - model.pen.x0 }; model.smoke = model.smoke.map((p) => new THREE.Vector3(bw - p.x, p.y, p.z)); } // the yard on the other side
+    else if (lay === 2) { inner.rotation.y = -Math.PI / 2; inner.position.set(bw / 2, 0, -bd / 2); const P = model.pen; if (P) model.pen = { x0: bw - P.z1, x1: bw - P.z0, z0: P.x0, z1: P.x1 }; model.smoke = model.smoke.map((p) => new THREE.Vector3(bw - p.z, p.y, p.x)); } // halls along one end, the yard running out in front
+    else if (lay === 3) { inner.rotation.y = Math.PI / 2; inner.position.set(-bw / 2, 0, bd / 2); const P = model.pen; if (P) model.pen = { x0: P.z0, x1: P.z1, z0: bd - P.x1, z1: bd - P.x0 }; model.smoke = model.smoke.map((p) => new THREE.Vector3(p.z, p.y, bd - p.x)); } // halls along the other end, the yard behind
     if (lot.key === 'house' && lot.w > 3) { inner.scale.setScalar(lot.w / 3); inner.position.set(-lot.w / 2, 0, -lot.w / 2); model.smoke = model.smoke.map((p) => p.clone().multiplyScalar(lot.w / 3)); } // the grown farmhouse: the chapter's house drawn larger on its bigger ground
     model.group.position.set(lot.x + lot.w / 2, 0, lot.y + lot.d / 2); model.group.rotation.y = (lot.rot * Math.PI) / 2;
     model.smoke = model.smoke.map((p) => { const [x, z] = turnPoint(lot, p.x, p.z); return new THREE.Vector3(x, p.y, z); });
@@ -954,7 +958,7 @@ function syncDeco(R: Rig, L: Layout, s: GameState) {
     const dense = hash(c * 0.37 + 5), n = Math.round(sparse ? 3 + dense * 3 : 6 + dense * 6);
     const river = riverTiles(R.region);
     for (const p of patchTrees(c, ox, oy, n)) {
-      if (inside && [-2, -1, 0, 1, 2].some((d) => river.has(tileId(Math.floor(p.x) + d, Math.floor(p.z))))) continue; // keep the banks clear
+      if ([-2, -1, 0, 1, 2].some((d) => river.has(tileId(Math.floor(p.x) + d, Math.floor(p.z))))) continue; // no trees in the river or on its banks, owned land or not
       if (p.z >= MAP.y0 + MAP.h && Math.abs(p.x - riverX(R.region, Math.floor(p.z)) - 1) < 3.5) continue; // and where it flows on past the map
       let ty = 0;
       if (p.z < MAP.y0) { // on the mountains: trees thin out up the slopes, none on rock or in the gorge
@@ -1042,7 +1046,7 @@ function animateFelling(R: Rig, s: GameState, t: number) {
   if (R.felling?.chunk !== job.chunk) {
     if (R.felling) { R.units.remove(R.felling.extras); R.felling.trees.forEach((o) => R.units.remove(o)); }
     const [ox, oy] = chunkOrigin(job.chunk), dense = hash(job.chunk * 0.37 + 5);
-    const trees = patchTrees(job.chunk, ox, oy, Math.round(6 + dense * 6)).map((p) => {
+    const wet = riverTiles(R.region), trees = patchTrees(job.chunk, ox, oy, Math.round(6 + dense * 6)).filter((p) => ![-2, -1, 0, 1, 2].some((d) => wet.has(tileId(Math.floor(p.x) + d, Math.floor(p.z))))).map((p) => {
       const g = new THREE.Group(), pivot = new THREE.Group(), tr = tree(1, R.crownMat, p.kind === 1 ? 1 : 0);
       pivot.add(tr); g.add(pivot);
       if (seasonOf(s) === 'Winter') tr.traverse((o) => { if (o.userData.crown) o.visible = false; });
@@ -1314,6 +1318,21 @@ function syncRoads(R: Rig, s: GameState) {
     if (!has(1, 0)) grass.seg(x1 - k / 2, y0, x1 - k / 2, y1, [[-k / 2, KERB, 1], [k / 2, KERB, 1]]);
   }
   if (beltTrees.length) R.roadsG.add(...beltTrees);
+  // bridges: a paved deck on stone piers over the water (the river and its wet margins), with railings along its open sides and ramps down to the banks
+  { const deck = mat(0x5c5a56), stoneM = mat(PAL.stoneDark), railM = mat(0xd9d4c7), parts: THREE.Object3D[] = [];
+    const overWater = (x: number, y: number) => Math.abs(x + 0.5 - (riverX(R.region, y) + 1)) < 1.9 && y >= MAP.y0 && y < MAP.y0 + MAP.h;
+    const roadAt = (x: number, y: number) => isRoad(y) || w.roads[tileId(x, y)] !== undefined;
+    const onDeck = (x: number, y: number) => roadAt(x, y) && overWater(x, y);
+    for (const k of ids) { const id = Number(k), [x, y] = tileAt(id); if (!overWater(x, y)) continue;
+      parts.push(mesh(cached('bridgedeck', () => new THREE.BoxGeometry(1.02, 0.1, 1.02)), deck, x + 0.5, 0.2, y + 0.5));
+      if ((x + y) % 2 === 0) parts.push(mesh(cached('bridgepier', () => new THREE.BoxGeometry(0.22, 0.25, 0.22)), stoneM, x + 0.5, 0.0, y + 0.5));
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) if (!roadAt(x + dx, y + dy)) { const along = dx === 0; parts.push(mesh(cached(`rail${along}`, () => new THREE.BoxGeometry(along ? 1 : 0.05, 0.14, along ? 0.05 : 1)), railM, x + 0.5 + dx * 0.48, 0.32, y + 0.5 + dy * 0.48)); }
+    }
+    for (const k of ids) { const id = Number(k), [x, y] = tileAt(id); if (overWater(x, y)) continue; // ramps: the land tile at each end rises to meet the deck
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) if (onDeck(x + dx, y + dy)) { const ramp = mesh(cached(dx ? 'rampx' : 'rampz', () => new THREE.BoxGeometry(dx ? 1.02 : 1.0, 0.05, dx ? 1.0 : 1.02)), deck, x + 0.5, 0.13, y + 0.5); ramp.rotation.set(-dy * 0.24, 0, dx * 0.24); parts.push(ramp); }
+    }
+    if (parts.length) R.roadsG.add(...parts);
+  }
   // where a track meets the main road its mouth widens into a soft rounded fan, so the corners are not cut square
   for (const [mx, mz, mg] of mouths) surface.disc(mx, mz, [[0.5, C(ROAD_COL[Math.min(mg, g)]), 1], [0.82, C(ROAD_COL[Math.min(mg, g)]), 0]], 0.05, 24);
   const layers = [verge.mesh(true), surface.mesh(true, roadGrain()), grass.mesh(true, roadGrain()), marks.mesh(true, roadGrain())];
@@ -2091,7 +2110,7 @@ function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el
       const merge=mg?.complete?button('merge:0',`⧉ Merge into ${mg.into} · ${money(mg.price)}`):fm?.ready?button('merge:0',`⧉ Merge into a ${fm.into} · ${money(fm.price)}`):'';
       if(fm&&!fm.ready&&(fm.mate||lot.buildings[0].level>=3)){const [hx,hy]=project(lot.x+lot.w/2,0.6,lot.y+lot.d+0.5);want.push({key:'merge-hint',x:hx,y:hy,html:`To merge: ${fm.why}`,cls:'wl-note'});}
       if(mg&&!mg.complete&&mg.members.length>1){const [hx,hy]=project(mg.origin[0]+mg.step-0.5,0.6,mg.origin[1]+mg.step-0.5);want.push({key:'merge-hint',x:hx,y:hy,html:`${mg.members.length}/4 for a ${mg.into}`,cls:'wl-note'});}
-      want.push({key:'place-act',x:Math.max(100,Math.min(W-100,px)),y:Math.max(80,Math.min(H-30,py)),html:merge+(((lot.buildings[0]?.size ?? lot.service?.size ?? 1) > 1) ? button('layout:0','⇄ Layout') : '')+(lot.key.startsWith('community:apartment:')&&(lot.level??1)<3?button('homeup:0',(lot.level??1)===1?'⬆ Mid-rise':'⬆ Tower'):'')+button('place:0',label)+(lot.type==='oilWell'?'':button('movelot:0','✥ Move'))+button('inspect:0','ⓘ'),cls:'wl-radial'});
+      want.push({key:'place-act',x:Math.max(100,Math.min(W-100,px)),y:Math.max(80,Math.min(H-30,py)),html:merge+(((lot.buildings[0]?.size ?? lot.service?.size ?? 1) > 1) ? button('layout:0',`⇄ Layout ${((lot.buildings[0]?.layout ?? lot.service?.layout ?? 0) % 4) + 1}/4`) : '')+(lot.key.startsWith('community:apartment:')&&(lot.level??1)<3?button('homeup:0',(lot.level??1)===1?'⬆ Mid-rise':'⬆ Tower'):'')+button('place:0',label)+(lot.type==='oilWell'?'':button('movelot:0','✥ Move'))+button('inspect:0','ⓘ'),cls:'wl-radial'});
     }
   }
   const st=stored(s,R.region), store=L.lots.find(l=>l.type!=='house'&&l.type!=='shed'&&BUILDINGS[l.type].category==='storage');

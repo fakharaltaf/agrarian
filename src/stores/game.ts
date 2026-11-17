@@ -1,5 +1,6 @@
 // The bridge between the pure simulation and React. The GameState object is mutated in place by
 // the engine; subscribers re-render on a version counter at most ~5 times a second.
+import { planQuote } from '../simulation/engine';
 import { APARTMENT_NEED } from '../simulation/access';
 import { serviceNeed } from '../simulation/town-state';
 import { useSyncExternalStore } from 'react';
@@ -356,7 +357,7 @@ export function confirmPlacement() {
   const a = (p.kind === 'move' ? { type: 'moveObject', region: p.region, key: p.key!, at: p.at, rot: p.rot } : { ...p.action, at: p.at, ...(p.rot ? { rot: p.rot } : {}) }) as Action;
   const r = engineDispatch(store.game, a);
   sfx(r.ok ? 'buy' : 'error');
-  if (!r.ok) { toast(r.error); bump(); return false; }
+  if (!r.ok) { const q = p.kind === 'new' ? planQuote(store.game, p.region, p.at, p.w, p.d, p.action) : null; toast(q?.ok ? `${r.error} Use “${q.buy.length || q.clear.length ? 'Buy & clear' : 'Remove road & place'}” in the bar to clear the way.` : r.error); bump(); return false; }
   if (r.note) toast(r.note, 'ok');
   set({ placing: null });
   // several at once are placed one after another, each where the player chooses

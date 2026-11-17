@@ -74,6 +74,18 @@ export function chunksIn(x: number, y: number, fw: number, fd: number) {
   return out;
 }
 export function own(w: RegionWorld, chunks: number[]) { const set = ownedSet(w); for (const c of chunks) if (!set.has(c)) { set.add(c); w.owned.push(c); } }
+/** Does a patch have any trees on it? A patch that is all river and riverbank has none: it is open from the start. */
+export function wooded(r: RegionId, c: number) {
+  const [ox, oy] = chunkOrigin(c), river = riverTiles(r);
+  for (let y = oy; y < oy + CHUNK; y++) for (let x = ox; x < ox + CHUNK; x++) if (![-2, -1, 0, 1, 2].some((d) => river.has(tileId(x + d, y)))) return true;
+  return false;
+}
+/** Owned patches with no trees to fell count as cleared (the river and its banks). */
+export function clearOpenPatches(r: RegionId, w: RegionWorld) {
+  const cleared = clearedSet(w); let n = 0;
+  for (const c of w.owned) if (!cleared.has(c) && !wooded(r, c)) { cleared.add(c); w.cleared.push(c); n++; }
+  if (n) touch(w);
+}
 /** A new farm owns a 24×24-tile valley around its yard (the main road runs through it); everything else is for sale. */
 export const START_LAND = { x: -12, y: -8, w: 24, h: 24 };
 /** Price of one 4×4-tile patch (about 4 ha): the region's land price, a little dearer for every patch already bought. */
@@ -303,7 +315,7 @@ export function patchesAround(s: GameState, r: RegionId, x: number, y: number, s
     const xx = cx + dx, yy = cy + dy;
     if (xx < 0 || yy < 0 || xx >= CHUNKS_X || yy >= CHUNKS_Y) continue;
     const c = yy * CHUNKS_X + xx;
-    if (owned.has(c) && !set.has(c) && !queued.has(c)) out.push(c);
+    if (owned.has(c) && !set.has(c) && !queued.has(c) && wooded(r, c)) out.push(c);
   }
   return out;
 }
@@ -486,7 +498,7 @@ export const accessNote = (s: GameState, r: RegionId, key: string) => hasAccess(
 /** A road several lanes wide: the route between the two taps, widened to the right and below by this many tiles. New tiles only; null if any of it is blocked. */
 export function wideRoadRoute(s: GameState, r: RegionId, from: [number, number], to: [number, number], lanes: number) {
   if (lanes <= 1) return roadRoute(s, r, from, to);
-  const w = worldOf(s, r), open = openGround(s, r), can = (x: number, y: number) => open(x, y) || isRoadTile(w, x, y);
+  const w = worldOf(s, r), open = openGround(s, r), bridge = bridgeable(s, r), can = (x: number, y: number) => open(x, y) || isRoadTile(w, x, y) || bridge(x, y);
   if (!can(from[0], from[1]) || !can(to[0], to[1])) return null;
   const path = route(can, [from], (x, y) => x === to[0] && y === to[1]);
   if (!path) return null;
@@ -496,9 +508,14 @@ export function wideRoadRoute(s: GameState, r: RegionId, from: [number, number],
   if (tiles.some(([x, y]) => !can(x, y))) return null;
   return tiles.filter(([x, y]) => !isRoadTile(w, x, y));
 }
+/** A road may cross the river on land you own: a bridge. */
+export const bridgeable = (s: GameState, r: RegionId) => { const w = worldOf(s, r), river = riverTiles(r), owned = ownedSet(w); return (x: number, y: number) => inMap(x, y) && river.has(tileId(x, y)) && owned.has(chunkAt(x, y)) && !w.belts?.[tileId(x, y)]; };
+/** A bridge tile costs this many times a paved road tile. */
+export const BRIDGE_COST = 6;
+export const isBridge = (r: RegionId, id: number) => riverTiles(r).has(id);
 export function roadRoute(s: GameState, r: RegionId, from: [number, number], to: [number, number]) {
-  const w = worldOf(s, r), open = openGround(s, r);
-  const can = (x: number, y: number) => open(x, y) || isRoadTile(w, x, y);
+  const w = worldOf(s, r), open = openGround(s, r), bridge = bridgeable(s, r);
+  const can = (x: number, y: number) => open(x, y) || isRoadTile(w, x, y) || bridge(x, y);
   if (!can(from[0], from[1]) || !can(to[0], to[1])) return null;
   const path = route(can, [from], (x, y) => x === to[0] && y === to[1]);
   return path ? [...path, to].filter(([x, y]) => !isRoadTile(w, x, y)) : null;
@@ -636,7 +653,7 @@ export function growFarmhouse(s: GameState, tier: number) {
 export function groundProblem(s: GameState, r: RegionId, x: number, y: number, what: 'road' | 'belt'): string | null {
   const w = worldOf(s, r), id = tileId(x, y);
   if (!inMap(x, y)) return 'That is off the edge of the map.';
-  if (riverTiles(r).has(id)) return 'That is the river.';
+  if (riverTiles(r).has(id) && (what === 'belt' || !ownedSet(w).has(chunkAt(x, y)))) return what === 'belt' ? 'That is the river.' : 'That stretch of river is not on your land: buy the land on both banks to bridge it.';
   if (!ownedSet(w).has(chunkAt(x, y))) return 'That land is not yours yet: buy it first (tap the land beyond the fence).';
   if (!clearedSet(w).has(chunkAt(x, y))) return 'That land is still forest: clear it first.';
   const p = placedIn(s, r).find((q) => x >= q.x && x < q.x + q.w && y >= q.y && y < q.y + q.d);
