@@ -934,12 +934,12 @@ export function buildCivic(type: string, w: number, d: number, level = 1, key = 
     group.add(box(.55,.75,.04,PAL.door,w/2,.08,.25+hallD+.01));
     for(const x of [.7,w-.7]){const win=box(.3,.32,.03,PAL.window,x,.5,.25+hallD+.01);win.userData.window=true;group.add(win);}
     group.add(box(w-.3,.03,d-hallD-.55,0xc9b48a,w/2,.09,(.25+hallD+d-.1)/2,{rough:1})); // the beaten earth of the yard
-    for(const [x,z] of [[.75,d-.75],[1.35,d-.55],[1.95,d-.8]] as const){group.add(cyl(.04,.6,PAL.woodDark,x,.1,z,6),cyl(.13,.28,0xd8b85a,x,.45,z,8),cyl(.09,.02,0xc0392b,x,.6,z+.11,10));} // straw targets
+    for(const [x,z] of (level>=3?[[1.35,d-.75],[1.9,d-.55]]:[[.75,d-.75],[1.35,d-.55],[1.95,d-.8]]) as [number,number][]){group.add(cyl(.04,.6,PAL.woodDark,x,.1,z,6),cyl(.13,.28,0xd8b85a,x,.45,z,8),cyl(.09,.02,0xc0392b,x,.6,z+.11,10));} // straw targets
     group.add(box(.6,.06,.12,PAL.woodDark,w-.65,.55,d-.45),box(.06,.55,.08,PAL.woodDark,w-.92,.1,d-.45),box(.06,.55,.08,PAL.woodDark,w-.38,.1,d-.45));
     for(let i=0;i<4;i++)group.add(box(.025,.6,.025,PAL.metal,w-.85+i*.15,.15,d-.4)); // spears on the rack
     group.add(box(.05,2.4,.05,PAL.metalDark,.3,.1,d-.3),box(.6,.36,.03,0x2f5f9a,.62,2.1,d-.3));
     if(level>=2)shed(group,.9,.75,.75,PAL.wood,PAL.roofBrown,w-1.05,d-1.1,{door:'barn',windows:0,roofH:.25}); // stables
-    if(level>=3){group.add(box(.8,1.7,.8,PAL.stoneDark,.55,.08,.6));for(const [dx,dz] of [[-.3,-.3],[.3,-.3],[-.3,.3],[.3,.3]])group.add(box(.18,.2,.18,PAL.stoneDark,.55+dx,1.78,.6+dz));} // a corner gatehouse
+    if(level>=3){group.add(box(.75,1.5,.75,PAL.stoneDark,.55,.08,d-.55));for(const [dx,dz] of [[-.28,-.28],[.28,-.28],[-.28,.28],[.28,.28]])group.add(box(.17,.2,.17,PAL.stoneDark,.55+dx,1.58,d-.55+dz));const slit=box(.08,.3,.03,PAL.window,.55,.8,d-.17);slit.userData.window=true;group.add(slit);} // a stone gate tower at the yard's corner
 
   } else if(type==='waterTower'){
     // each level stands taller with a bigger tank; the legs always meet the tank's rim, tied by braces, with a ladder up the front

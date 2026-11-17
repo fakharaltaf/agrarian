@@ -31,9 +31,12 @@ export function staffedTowers(s: GameState) {
 }
 /** The sides of the farm a watchtower watches over: the main road to the west or east of the farmhouse, or the river below it. */
 export function towerSides(s: GameState, b: { id: number }): RouteSide[] {
-  const w = worldOf(s, 'heartland'), p = w.pos[`svc:${b.id}`], home = w.pos.farmhouse ?? [0, ROAD_Y];
-  if (!p) return [];
-  const x = p[0] + 1.5, y = p[1] + 1.5, out: RouteSide[] = [];
+  const p = worldOf(s, 'heartland').pos[`svc:${b.id}`];
+  return p ? sidesAt(s, p[0] + 1.5, p[1] + 1.5) : [];
+}
+/** The routes a tower standing at (x, y) would watch. */
+export function sidesAt(s: GameState, x: number, y: number): RouteSide[] {
+  const home = worldOf(s, 'heartland').pos.farmhouse ?? [0, ROAD_Y], out: RouteSide[] = [];
   if (Math.abs(y - (ROAD_Y + ROAD_H / 2)) <= TOWER_REACH) out.push(x < home[0] ? 'west' : 'east');
   if (y > ROAD_Y + ROAD_H && Math.abs(x - (riverX('heartland', Math.floor(y)) + 1)) <= TOWER_REACH) out.push('south');
   return out;
