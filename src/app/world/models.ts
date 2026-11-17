@@ -884,14 +884,9 @@ export function buildCommunityHome(tier: string, w: number, d: number, key = '',
 /** Small civic landmarks use the farm palette and shared geometry caches. */
 export function buildCivic(type: string, w: number, d: number, level = 1, key = ''): Model {
   if (type.startsWith('park') && w < 6) return buildPark((type.split('-')[1] ?? 'garden') as 'garden' | 'play' | 'sport', level, w, d);
-  if (w >= 6 && type !== 'mall' && !type.startsWith('shop')) { // four merged into one: the same building grown to fill the square, in grounds of its own
-    const inner = buildCivic(type, 3, 3, level, key), g = new THREE.Group(), k = (w - 1.2) / 3;
-    inner.group.scale.setScalar(k); inner.group.position.set(0.6, 0, 0.6); g.add(inner.group);
-    g.add(box(w - 0.1, 0.05, d - 0.1, PAL.stone, w / 2, 0, d / 2, { rough: 1 }));
-    for (const [x, z] of [[0.4, 0.4], [w - 0.4, 0.4], [0.4, d - 0.4], [w - 0.4, d - 0.4]]) planter(g, x, z, 0.22);
-    lampPost(g, w / 2 - 1, d - 0.3, 1.0); lampPost(g, w / 2 + 1, d - 0.3, 1.0);
-    return { group: g, windows: inner.windows, smoke: inner.smoke.map((p) => new THREE.Vector3(0.6 + p.x * k, p.y * k, 0.6 + p.z * k)) };
-  }
+  if (w >= 6 && type !== 'mall' && !type.startsWith('shop') && !type.startsWith('park') && type !== 'parking') return buildComplex(type, level, w, d, key);
+  if (type.startsWith('park') && w >= 6) return buildCityPark((type.split('-')[1] ?? 'garden') as 'garden' | 'play' | 'sport', level, w, d);
+  if (type === 'parking' && w >= 6) return buildParking(Math.min(3, level + 1), w, d, key);
   if (type.startsWith('shop')) return w >= 6 ? buildMarketHall(type.slice(4).toLowerCase() as ShopKind, w, d) : buildShop(type.slice(4).toLowerCase() as ShopKind, w, d);
   if (type === 'mall') return buildMall(w, d, level > 1);
   if (type === 'parking' && w < 6) return buildParking(level, w, d, key);
@@ -1377,5 +1372,68 @@ export function buildParking(level = 1, w = 3, d = 3, key = ''): Model {
   const ramp = box(0.5, 0.05, bd * 0.7, 0x6f6c66, cx + bw / 2 + 0.2, 0.2, cz); ramp.rotation.x = 0.35; g.add(ramp);
   g.add(box(0.5, 0.5, 0.06, band, cx - bw / 2 + 0.35, top + 0.6, cz - bd / 2 + 0.06), box(0.3, 0.3, 0.07, 0xf4f2ec, cx - bw / 2 + 0.35, top + 0.7, cz - bd / 2 + 0.07)); // the P sign
   lampPost(g, w - 0.25, d - 0.25, 0.9);
+  return finish(g);
+}
+
+// ---------------------------------------------------------------- merged town buildings: a real complex on the 7×7 square, not one building blown up
+/** Put a 3×3 civic model down at its own scale inside a bigger site. */
+function place3(g: THREE.Group, type: string, level: number, x: number, z: number, key: string, rot = 0) {
+  const m = buildCivic(type, 3, 3, level, key); m.group.position.set(x, 0, z); if (rot) { m.group.rotation.y = rot; } g.add(m.group); return m;
+}
+export function buildComplex(type: string, level = 1, w = 7, d = 7, key = ''): Model {
+  const g = new THREE.Group(), smoke: THREE.Vector3[] = [], cx = w / 2;
+  g.add(box(w - 0.1, 0.05, d - 0.1, PAL.stone, w / 2, 0, d / 2, { rough: 1 }));
+  const keep = (m: Model, x: number, z: number) => smoke.push(...m.smoke.map((p) => new THREE.Vector3(p.x + x, p.y, p.z + z)));
+  const path = (x0: number, z0: number, x1: number, z1: number) => g.add(box(Math.abs(x1 - x0) || 0.5, 0.02, Math.abs(z1 - z0) || 0.5, 0xd9cdb4, (x0 + x1) / 2, 0.05, (z0 + z1) / 2, { rough: 1 }));
+  if (type === 'school') { // a school campus: the main school, a second teaching block, a sports field and a playground
+    keep(place3(g, 'school', 3, 0.2, 0.2, key), 0.2, 0.2);
+    shed(g, 2.6, 1.4, 1.5, PAL.brick, 0x4f7a52, 3.9, 0.4, { door: 'house', windows: 4, roofH: 0.5 }); windowRows(g, 4.0, 6.4, 1.8, 2, 4, 0.6, 0.4);
+    g.add(box(3.2, 0.03, 2.6, 0x6fa84a, 4.9, 0.05, 5.0)); for (const dz of [-1.3, 1.3]) g.add(box(3.2, 0.01, 0.03, 0xf4f2ec, 4.9, 0.08, 5.0 + dz)); g.add(box(0.03, 0.01, 2.6, 0xf4f2ec, 4.9, 0.08, 5.0)); // the field
+    for (const x of [3.35, 6.45]) g.add(box(0.03, 0.3, 0.6, PAL.white, x, 0.06, 5.0));
+    g.add(box(2.4, 0.03, 2.2, 0xe2c98f, 1.6, 0.05, 5.2)); g.add(box(0.04, 0.6, 0.04, 0xc0392b, 1.1, 0.06, 4.6), box(0.04, 0.6, 0.04, 0xc0392b, 1.7, 0.06, 4.6), box(0.64, 0.04, 0.04, 0xc0392b, 1.4, 0.66, 4.6));
+    path(3.3, 3.4, 3.7, 6.9); lampPost(g, 3.5, 3.6, 1.0);
+  } else if (type === 'clinic' || type === 'hospital') { // a health centre / general hospital: a tall ward block with a red cross, a low wing, an ambulance bay
+    const floors = type === 'hospital' ? 5 : 3, fh = 0.6, bw = 4.2, bd = 2.2, x0 = 0.4, z0 = 0.4;
+    g.add(box(bw, floors * fh, bd, 0xf4f2ec, x0 + bw / 2, 0.05, z0 + bd / 2), box(bw + 0.1, 0.1, bd + 0.1, 0x5b8fc0, x0 + bw / 2, floors * fh + 0.05, z0 + bd / 2));
+    windowRows(g, x0, x0 + bw, z0 + bd, floors, 7, fh, 0.35);
+    g.add(box(0.5, 0.14, 0.04, 0xc0392b, x0 + bw / 2, floors * fh - 0.3, z0 + bd + 0.03), box(0.14, 0.5, 0.04, 0xc0392b, x0 + bw / 2, floors * fh - 0.48, z0 + bd + 0.03));
+    shed(g, 2.0, 1.6, 1.1, 0xf4f2ec, 0x5b8fc0, 4.8, 0.6, { door: 'house', windows: 2, roofH: 0.3 });
+    g.add(box(2.2, 0.08, 1.0, 0x5b8fc0, 2.5, 1.0, 3.2), box(0.06, 0.95, 0.06, PAL.white, 1.5, 0.06, 3.6), box(0.06, 0.95, 0.06, PAL.white, 3.5, 0.06, 3.6)); // canopy over the entrance
+    for (const x of [1.6, 3.2]) { g.add(box(0.5, 0.45, 1.0, 0xf4f2ec, x, 0.06, 4.6), box(0.5, 0.05, 1.0, 0xc0392b, x, 0.4, 4.6), box(0.44, 0.18, 0.02, PAL.window, x, 0.3, 5.11)); } // ambulances
+    if (type === 'hospital') { g.add(cyl(0.6, 0.04, 0x6f6c66, x0 + bw / 2, floors * fh + 0.15, z0 + bd / 2, 20)); g.add(box(0.5, 0.01, 0.1, 0xf4f2ec, x0 + bw / 2, floors * fh + 0.2, z0 + bd / 2), box(0.1, 0.01, 0.5, 0xf4f2ec, x0 + bw / 2 - 0.2, floors * fh + 0.2, z0 + bd / 2), box(0.1, 0.01, 0.5, 0xf4f2ec, x0 + bw / 2 + 0.2, floors * fh + 0.2, z0 + bd / 2)); } // helipad
+    for (let i = 0; i < 4; i++) planter(g, 0.5 + i * 0.6, 6.4, 0.2); lampPost(g, 5.8, 6.5, 1.0);
+  } else if (type === 'police') { // police headquarters: a four-storey block, a garage of patrol cars, a radio mast
+    const fh = 0.6, bw = 3.8, bd = 2.0, x0 = 0.4, z0 = 0.4;
+    g.add(box(bw, 4 * fh, bd, 0xd9d4c7, x0 + bw / 2, 0.05, z0 + bd / 2), box(bw + 0.08, 0.14, bd + 0.08, 0x2f5f8f, x0 + bw / 2, 4 * fh + 0.05, z0 + bd / 2), box(bw + 0.04, 0.12, bd + 0.04, 0x2f5f8f, x0 + bw / 2, fh, z0 + bd / 2));
+    windowRows(g, x0, x0 + bw, z0 + bd, 4, 6, fh, 0.35); g.add(box(1.6, 0.3, 0.05, 0x2f5f8f, x0 + bw / 2, 4 * fh - 0.45, z0 + bd + 0.03), box(1.2, 0.12, 0.06, 0xf4f2ec, x0 + bw / 2, 4 * fh - 0.36, z0 + bd + 0.035));
+    g.add(box(0.12, 0.12, 0.12, 0x5b8fc0, x0 + bw / 2, 0.75, z0 + bd + 0.15, { emissive: 0x2f5f8f })); // the blue lamp
+    g.add(box(2.4, 0.9, 1.8, 0x8f979b, 5.6, 0.05, 1.3), box(2.5, 0.06, 1.9, PAL.metalDark, 5.6, 0.95, 1.3)); for (let i = 0; i < 3; i++) g.add(box(0.6, 0.6, 0.04, PAL.metalDark, 4.8 + i * 0.8, 0.06, 2.21));
+    for (let i = 0; i < 4; i++) carProp(g, 1.0 + i * 1.1, 4.6, 0xf4f2ec, 0), g.add(box(0.36, 0.04, 0.3, 0x2f5f8f, 1.0 + i * 1.1, 0.36, 4.57));
+    g.add(box(0.05, 3.6, 0.05, PAL.metalDark, 6.4, 0.06, 3.4), box(0.4, 0.04, 0.04, PAL.metalDark, 6.4, 3.2, 3.4), sphere(0.06, 0xc0392b, 6.4, 3.7, 3.4, { emissive: 0x7a1a12 }));
+    g.add(box(0.05, 2.0, 0.05, PAL.white, 0.4, 0.06, 6.4), box(0.5, 0.3, 0.02, 0x2f5f8f, 0.67, 1.7, 6.4)); lampPost(g, 6.4, 6.4, 1.0);
+  } else { // utilities and wells: two or three of the plant at their own size, joined by pipes and a fenced yard
+    const spots: [number, number][] = type === 'sanitation' ? [[0.2, 0.2], [3.8, 0.2], [0.2, 3.8], [3.8, 3.8]] : [[0.2, 0.2], [3.8, 0.2], [2.0, 3.8]];
+    spots.forEach(([x, z], i) => keep(place3(g, type, level, x, z, key + i), x, z));
+    g.add(box(w - 1.4, 0.08, 0.08, PAL.metalDark, cx, 0.35, 3.5), box(0.08, 0.08, d - 1.4, PAL.metalDark, cx, 0.35, d / 2)); // pipes or cables between them
+    fenceRect(g, w - 0.3, d - 0.3, 0.15, 0.15, 0.3);
+    g.add(box(1.3, 0.8, 0.9, 0xd9d4c7, cx, 0.06, d - 0.8), box(1.4, 0.06, 1.0, PAL.metalDark, cx, 0.86, d - 0.8), box(0.3, 0.5, 0.04, PAL.door, cx, 0.06, d - 0.34)); glassWin(g, 0.6, 0.25, cx, 0.45, d - 0.34); // the control house
+  }
+  return finish(g, smoke);
+}
+/** A city park on the 7×7 square: the layout it was, grown into a proper park with a pond, an avenue of trees and the feature of its kind. */
+export function buildCityPark(kind: 'garden' | 'play' | 'sport', level = 1, w = 7, d = 7): Model {
+  const g = new THREE.Group(), cx = w / 2, cz = d / 2, lawn = 0x86a85a;
+  g.add(box(w - 0.1, 0.05, d - 0.1, lawn, cx, 0, cz, { rough: 1 }));
+  const tr = (x: number, z: number, k = 0.6, pine = 0) => { const t = tree(k, mat(0x5f8f4a), pine); t.position.set(x, 0.05, z); g.add(t); };
+  g.add(box(0.5, 0.02, d - 0.2, 0xd9cdb4, cx, 0.05, cz, { rough: 1 }), box(w - 0.2, 0.02, 0.5, 0xd9cdb4, cx, 0.05, cz, { rough: 1 })); // cross paths
+  for (let i = 0; i < 6; i++) { tr(0.5 + i * 1.2, 0.45, 0.6, i % 2); tr(0.5 + i * 1.2, d - 0.45, 0.6, (i + 1) % 2); } // an avenue round the edge
+  // a pond with reeds in one quarter
+  g.add(cyl(1.0, 0.04, 0x6f8f9a, 1.75, 0.05, 1.75, 24), cyl(0.92, 0.05, 0x7fb6d6, 1.75, 0.06, 1.75, 24)); for (const [dx, dz] of [[0.7, 0.3], [0.5, -0.6], [-0.6, 0.6]]) g.add(box(0.03, 0.3, 0.03, 0x5f8f4a, 1.75 + dx, 0.06, 1.75 + dz));
+  // the feature of its kind, as the small park had, now in its own quarter
+  const m = buildPark(kind, level, 3, 3); m.group.position.set(3.9, 0, 3.9); g.add(m.group);
+  // flower beds and benches in the other quarters
+  for (const [x, z] of [[4.3, 1.3], [1.3, 4.3]] as const) { g.add(box(1.4, 0.06, 1.0, 0x6b4a2f, x + 0.5, 0.05, z + 0.4)); for (let k = 0; k < 8; k++) g.add(sphere(0.07, [0xc94c4c, 0xe7a23b, 0xd673a4, 0x8a5fb0][k % 4], x - 0.05 + (k % 4) * 0.35, 0.16, z + 0.2 + Math.floor(k / 4) * 0.4)); }
+  g.add(cyl(0.5, 0.12, PAL.stone, cx, 0.05, cz, 16), cyl(0.42, 0.04, 0x7fb6d6, cx, 0.17, cz, 16), cyl(0.06, 0.5, PAL.stone, cx, 0.17, cz, 8)); // a fountain where the paths cross
+  for (const [x, z] of [[cx - 1.4, cz - 0.6], [cx + 1.4, cz + 0.6]]) lampPost(g, x, z, 0.9);
   return finish(g);
 }
