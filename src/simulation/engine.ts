@@ -15,7 +15,7 @@ import {
 import { buildingDivision, clamp, debt, factoryCrop, equity, freeSpace, has, known, log, marketWage, nextId, post, random, round2, todayBook, lean } from './core';
 import { coverOf, coverPrice, COVERS } from './agriculture';
 import { addGoods, canGrow, clearField, fertilizeField, fieldsTick, frostNight, harvestField, isManual, isReady, newField, plantField, spoilageDaily } from './agriculture';
-import { BRIDGE_COST, isBridge, clearOpenPatches, growFarmhouse, groundProblem, wideRoadRoute, BELT_PRICE, beltRoute, beltStretch, buildAs, buildAsOpen, lineBuildPrice, lineBuildTier, roadBuildPrice, liftTracks, riverTiles, chunkAt, COMMERCIAL, type Use, type Zone, reconcileWorld, unlink, accessNote, cutsOff, buyable, chunksIn, connect, placedIn, touch, useOf, buildingUse, INDUSTRY_TO_GROW, WATER_LEVEL, NET_PRICE, NET_TIERS, NET_TOP, linesOf, lineTiles, lineTop, upgradeAllPlan, pipeRoute, pipeStretch, hasWater, isRoad, MAP, ROAD_GRADES, ROAD_H, roadPick, roadTilePrice, tileId, canPlaceNew, LAND_HA_PER_PATCH,  own, ownedSet, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, clearCost, clearedSet, FOOTPRINT, footprintOf, forget, rotOf, turned, MOVE_DOWNTIME, placeNew, placeProblem, plotSide, PROBLEM_TEXT, seedWorld, TIMBER_PER_PATCH, worldOf } from './world';
+import { BRIDGE_COST, BRIDGE_GRADES, bridgeAt, bridgePlan, clearOpenPatches, growFarmhouse, groundProblem, wideRoadRoute, BELT_PRICE, beltRoute, beltStretch, buildAs, buildAsOpen, lineBuildPrice, lineBuildTier, roadBuildPrice, liftTracks, riverTiles, chunkAt, COMMERCIAL, type Use, type Zone, reconcileWorld, unlink, accessNote, cutsOff, buyable, chunksIn, connect, placedIn, touch, useOf, buildingUse, INDUSTRY_TO_GROW, WATER_LEVEL, NET_PRICE, NET_TIERS, NET_TOP, linesOf, lineTiles, lineTop, upgradeAllPlan, pipeRoute, pipeStretch, hasWater, isRoad, MAP, ROAD_GRADES, ROAD_H, roadPick, roadTilePrice, tileId, canPlaceNew, LAND_HA_PER_PATCH,  own, ownedSet, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, clearCost, clearedSet, FOOTPRINT, footprintOf, forget, rotOf, turned, MOVE_DOWNTIME, placeNew, placeProblem, plotSide, PROBLEM_TEXT, seedWorld, TIMBER_PER_PATCH, worldOf } from './world';
 import { buyAnimals, livestockDaily, sellAnimals } from './livestock';
 import { claimDaily, startDay } from './daily';
 import { createMarkets, drawWeather, executeBuy, executeSell, quoteBuy, macroDaily, marketsDaily, marketsTick, priceFromInv } from './markets';
@@ -619,14 +619,25 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       const lanes = Math.max(1, Math.min(5, Math.round(a.lanes ?? 1))), tiles = wideRoadRoute(s, a.region, a.from, a.to, lanes);
       if (!tiles) return fail(groundProblem(s, a.region, a.to[0], a.to[1], 'road') ?? (lanes > 1 ? `A ${lanes}-lane road cannot fit there: it needs open cleared land of yours ${lanes} tiles wide all the way.` : 'No way through: buildings, fields, water or trees block every path. Try a point in between. A bridge must cross the river straight, from bank to bank.'));
       if (!tiles.length) return fail('There is already a road all the way.');
-      const span = tiles.filter(([x, y]) => isBridge(a.region, tileId(x, y))).length, grade = buildAs(s, 'road');
-      const cost = Math.round((roadBuildPrice(s, grade) * (tiles.length - span) + roadBuildPrice(s, 3) * BRIDGE_COST * span) * 100) / 100;
-      if (cost > s.cash) return fail(`That road${span ? ` and its ${span}-tile bridge` : ''} costs $${cost.toLocaleString()}.`);
-      post(s, 'building', -cost, `${ROAD_GRADES[grade]} (${tiles.length} tiles${span ? `, a bridge of ${span}` : ''})`, a.region);
+      const grade = buildAs(s, 'road'), cost = Math.round(roadBuildPrice(s, grade) * tiles.length * 100) / 100;
+      if (cost > s.cash) return fail(`That road costs $${cost.toLocaleString()}.`);
+      post(s, 'building', -cost, `${ROAD_GRADES[grade]} (${tiles.length} tiles)`, a.region);
       const w = worldOf(s, a.region);
-      for (const [x, y] of tiles) w.roads[tileId(x, y)] = isBridge(a.region, tileId(x, y)) ? 3 : grade; // a bridge is built paved
+      for (const [x, y] of tiles) w.roads[tileId(x, y)] = grade;
       touch(w);
       return ok();
+    }
+    case 'buildBridge': {
+      if (!s.regions[a.region]?.unlocked) return fail('You have no operations there.');
+      const plan = bridgePlan(s, a.region, a.at, Math.max(1, Math.min(5, Math.round(a.lanes ?? 1))));
+      if ('error' in plan) return fail(plan.error);
+      const grade = buildAs(s, 'road'), cost = Math.round(roadBuildPrice(s, grade) * BRIDGE_COST * plan.tiles.length);
+      if (cost > s.cash) return fail(`A ${BRIDGE_GRADES[grade].toLowerCase()} here costs $${cost.toLocaleString()}.`);
+      post(s, 'building', -cost, `${BRIDGE_GRADES[grade]} (${plan.tiles.length} tiles)`, a.region);
+      const w = worldOf(s, a.region);
+      for (const id of plan.tiles) w.roads[id] = grade;
+      touch(w);
+      return ok(`${BRIDGE_GRADES[grade]} built: draw a road to each end.`);
     }
     case 'buildPipe': {
       if (!s.regions[a.region]?.unlocked) return fail('You have no operations there.');
@@ -655,7 +666,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       return ok(`${todo.length} tiles are now ${tier === 3 ? 'buried pipe: the land is free to build on' : 'pipe'}, and fields fed only through it are kept at ${Math.round(WATER_LEVEL[tier] * 100)}% moisture.`);
     }
     case 'upgradeAllLines': {
-      const w = worldOf(s, a.region), nets = a.nets.filter((n) => n === 'road' || n in NET_TOP), { cost, tiles } = upgradeAllPlan(s, w, nets);
+      const w = worldOf(s, a.region), nets = a.nets.filter((n) => n === 'road' || n in NET_TOP), { cost, tiles } = upgradeAllPlan(s, w, nets, a.region);
       if (!tiles) return fail(nets.includes('road') ? 'Every road is already paved.' : 'Every line is already at its best.');
       if (cost > s.cash) return fail(`Upgrading every line costs $${cost.toLocaleString()}.`);
       post(s, nets.includes('irrigation') ? 'irrigation' : 'building', -cost, `Upgraded ${tiles} line tiles`, a.region);
@@ -694,15 +705,16 @@ export function dispatch(s: GameState, a: Action): ActionResult {
         w.main++;
         return ok(`The main road is now a ${ROAD_GRADES[w.main].toLowerCase()}.`);
       }
-      const stretch = roadPick(w, a.at, a.to);
+      const span = bridgeAt(s, a.region, a.at), stretch = span.length ? span : roadPick(w, a.at, a.to);
       if (!stretch.length) return fail(a.to ? 'Drag along one road, from one point of it to another.' : 'There is no road there.');
-      const grade = Math.min(3, Math.min(...stretch.map((id) => w.roads[id])) + 1), todo = stretch.filter((id) => w.roads[id] < grade);
-      if (!todo.length) return fail('This road is already paved.');
-      const cost = roadTilePrice(s, grade) * todo.length;
+      const grade = Math.min(3, Math.min(...stretch.map((id) => w.roads[id])) + 1), todo = stretch.filter((id) => w.roads[id] < grade), names = span.length ? BRIDGE_GRADES : ROAD_GRADES;
+      if (!todo.length) return fail(span.length ? 'This bridge is already concrete.' : 'This road is already paved.');
+      const cost = Math.round(roadTilePrice(s, grade) * (span.length ? BRIDGE_COST : 1) * todo.length);
       if (cost > s.cash) return fail(`Upgrading costs $${cost.toLocaleString()}.`);
-      post(s, 'building', -cost, `${ROAD_GRADES[grade]} (${todo.length} tiles)`, a.region);
+      post(s, 'building', -cost, `${names[grade]} (${todo.length} tiles)`, a.region);
       for (const id of todo) w.roads[id] = grade;
-      return ok(`Upgraded ${todo.length} tiles to ${ROAD_GRADES[grade].toLowerCase()}.`);
+      touch(w);
+      return ok(span.length ? `Now a ${names[grade].toLowerCase()}: it carries ${grade === 3 ? 'the heaviest traffic' : 'more traffic'}.` : `Upgraded ${todo.length} tiles to ${names[grade].toLowerCase()}.`);
     }
     case 'zoneLand': {
       if (!s.regions[a.region]?.unlocked) return fail('You have no operations there.');

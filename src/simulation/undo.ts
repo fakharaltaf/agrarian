@@ -7,7 +7,7 @@ import { communityOf } from './community-state';
 import { touch } from './world';
 
 /** Map edits the player can take back: what they built, drew, moved, zoned or knocked down. */
-export const UNDOABLE = new Set<Action['type']>(['build', 'buildService', 'buildHomes', 'demolish', 'moveObject', 'zoneLand', 'buildRoad', 'removeRoad', 'upgradeRoad', 'buildPipe', 'removePipe', 'upgradePipe', 'upgradeAllLines', 'mergeService', 'demolishService', 'mergeBuilding', 'buildBelt', 'removeBelt']);
+export const UNDOABLE = new Set<Action['type']>(['build', 'buildService', 'buildHomes', 'demolish', 'moveObject', 'zoneLand', 'buildRoad', 'buildBridge', 'removeRoad', 'upgradeRoad', 'buildPipe', 'removePipe', 'upgradePipe', 'upgradeAllLines', 'mergeService', 'demolishService', 'mergeBuilding', 'buildBelt', 'removeBelt']);
 /** shortcut: edits can be undone for one game day with a full refund, so a mistake costs nothing; older ones drop off so undo can't be used as a free rental. */
 export const UNDO_TICKS = 24;
 

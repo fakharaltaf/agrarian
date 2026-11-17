@@ -498,7 +498,7 @@ export const accessNote = (s: GameState, r: RegionId, key: string) => hasAccess(
 /** A road several lanes wide: the route between the two taps, widened to the right and below by this many tiles. New tiles only; null if any of it is blocked. */
 export function wideRoadRoute(s: GameState, r: RegionId, from: [number, number], to: [number, number], lanes: number) {
   if (lanes <= 1) return roadRoute(s, r, from, to);
-  const w = worldOf(s, r), open = openGround(s, r), bridge = bridgeable(s, r), can = (x: number, y: number) => open(x, y) || isRoadTile(w, x, y) || bridge(x, y);
+  const w = worldOf(s, r), open = openGround(s, r), can = (x: number, y: number) => open(x, y) || isRoadTile(w, x, y);
   const path = crossingRoute(s, r, from, to);
   if (!path) return null;
   const band = new Map<number, [number, number]>();
@@ -512,22 +512,39 @@ export const bridgeable = (s: GameState, r: RegionId) => { const w = worldOf(s, 
 /** A bridge tile costs this many times a paved road tile. */
 export const BRIDGE_COST = 6;
 export const isBridge = (r: RegionId, id: number) => riverTiles(r).has(id);
+/** The whole bridge a tile belongs to: its road tiles over the river, joined. */
+export function bridgeAt(s: GameState, r: RegionId, at: [number, number]) {
+  const w = worldOf(s, r), on = (x: number, y: number) => inMap(x, y) && isBridge(r, tileId(x, y)) && w.roads[tileId(x, y)] !== undefined;
+  if (!on(at[0], at[1])) return [];
+  const out = [tileId(at[0], at[1])], seen = new Set(out);
+  for (let h = 0; h < out.length; h++) { const [a, b] = tileAt(out[h]); for (const [dx, dy] of STEPS) { const id = tileId(a + dx, b + dy); if (on(a + dx, b + dy) && !seen.has(id)) { seen.add(id); out.push(id); } } }
+  return out;
+}
 export function roadRoute(s: GameState, r: RegionId, from: [number, number], to: [number, number]) {
   const w = worldOf(s, r), path = crossingRoute(s, r, from, to);
   return path ? path.filter(([x, y]) => !isRoadTile(w, x, y)) : null;
 }
-/** A road's path between two taps, ends included: over land if it can, and over the river only straight across it, never along it. */
+/** A road's path between two taps, ends included: over land and over bridges already built (the river is crossed with the bridge tool). */
 function crossingRoute(s: GameState, r: RegionId, from: [number, number], to: [number, number]) {
-  const w = worldOf(s, r), open = openGround(s, r), bridge = bridgeable(s, r), river = riverTiles(r);
-  const land = (x: number, y: number) => open(x, y) || isRoadTile(w, x, y), wet = (x: number, y: number) => river.has(tileId(x, y));
-  const go = (can: (x: number, y: number) => boolean) => { if (!can(from[0], from[1]) || !can(to[0], to[1])) return null; const p = route(can, [from], (x, y) => x === to[0] && y === to[1]); return p ? [...p, to] : null; };
-  const dry = go((x, y) => land(x, y) && !(wet(x, y) && !isRoadTile(w, x, y)));
-  if (dry) return dry;
-  const p = go((x, y) => land(x, y) || bridge(x, y));
-  // a bridge runs east–west over the river: two river tiles in a row on the path must share a row
-  return p && p.every(([x, y], i) => i === 0 || !(wet(x, y) && wet(p[i - 1][0], p[i - 1][1])) || y === p[i - 1][1]) ? p : null;
+  const w = worldOf(s, r), open = openGround(s, r), river = riverTiles(r);
+  const can = (x: number, y: number) => isRoadTile(w, x, y) || (open(x, y) && !river.has(tileId(x, y)));
+  if (!can(from[0], from[1]) || !can(to[0], to[1])) return null;
+  const p = route(can, [from], (x, y) => x === to[0] && y === to[1]);
+  return p ? [...p, to] : null;
 }
-/** Names of the things that would lose their road if these road tiles went. */
+/** Bridges by level: each is a road of that grade over the river. */
+export const BRIDGE_GRADES = ['', 'Timber bridge', 'Stone bridge', 'Concrete bridge'] as const;
+/** A bridge placed at a river tile: straight across, bank to bank, as many lanes wide as asked (downstream from the tap). New tiles, or why not. */
+export function bridgePlan(s: GameState, r: RegionId, at: [number, number], lanes: number): { tiles: number[] } | { error: string } {
+  const w = worldOf(s, r), river = riverTiles(r), ok = bridgeable(s, r), tiles: number[] = [];
+  if (!river.has(tileId(at[0], at[1]))) return { error: 'Tap the river where the bridge should cross.' };
+  for (let y = at[1]; y < at[1] + lanes; y++) {
+    const x0 = riverX(r, y) - 3, row = Array.from({ length: 8 }, (_, i) => x0 + i).filter((x) => river.has(tileId(x, y)));
+    if (!row.length) return { error: 'The river ends there.' };
+    for (const x of row) { if (!ok(x, y)) return { error: ownedSet(w).has(chunkAt(x, y)) ? 'Trees stand in the way.' : 'That stretch of river is not all yours: buy the land on both banks to bridge it.' }; if (w.roads[tileId(x, y)] === undefined) tiles.push(tileId(x, y)); }
+  }
+  return tiles.length ? { tiles } : { error: 'There is a bridge here already.' };
+}/** Names of the things that would lose their road if these road tiles went. */
 export function cutsOff(s: GameState, r: RegionId, ids: number[]): string[] {
   const w = worldOf(s, r), keep = ids.map((id) => [id, w.roads[id]] as const), before = new Set(Object.keys(w.pos).filter((k) => hasAccess(s, r, k)));
   for (const id of ids) delete w.roads[id];
@@ -624,9 +641,9 @@ export const lineBuildPrice = (s: GameState, net: NetKind, tier = lineBuildTier(
 export type LineKind = NetKind | 'road';
 export const lineTiles = (w: RegionWorld, kind: LineKind) => (kind === 'road' ? w.roads : linesOf(w, kind));
 export const lineTop = (kind: LineKind) => (kind === 'road' ? 3 : NET_TOP[kind]);
-export function upgradeAllPlan(s: GameState, w: RegionWorld, nets: LineKind[]) {
+export function upgradeAllPlan(s: GameState, w: RegionWorld, nets: LineKind[], r: RegionId = 'heartland') {
   let cost = 0, tiles = 0;
-  for (const net of nets) for (const t of Object.values(lineTiles(w, net))) if (t < lineTop(net)) { cost += net === 'road' ? roadTilePrice(s, t + 1) : NET_PRICE[net][t + 1] * s.macro.cpi; tiles++; }
+  for (const net of nets) for (const [id, t] of Object.entries(lineTiles(w, net))) if (t < lineTop(net)) { cost += net === 'road' ? roadTilePrice(s, t + 1) * (isBridge(r, +id) ? BRIDGE_COST : 1) : NET_PRICE[net][t + 1] * s.macro.cpi; tiles++; }
   return { cost: Math.round(cost), tiles };
 }
 export const linesOf = (w: RegionWorld, kind: NetKind): Record<number, number> => (kind === 'irrigation' ? w.canals : ((w.nets ??= {})[kind] ??= {}));
@@ -660,7 +677,7 @@ export function growFarmhouse(s: GameState, tier: number) {
 export function groundProblem(s: GameState, r: RegionId, x: number, y: number, what: 'road' | 'belt'): string | null {
   const w = worldOf(s, r), id = tileId(x, y);
   if (!inMap(x, y)) return 'That is off the edge of the map.';
-  if (riverTiles(r).has(id) && (what === 'belt' || !ownedSet(w).has(chunkAt(x, y)))) return what === 'belt' ? 'That is the river.' : 'That stretch of river is not on your land: buy the land on both banks to bridge it.';
+  if (riverTiles(r).has(id) && (what === 'belt' || w.roads[id] === undefined)) return what === 'belt' ? 'That is the river.' : 'That is the river: cross it with 🌉 Bridge.';
   if (!ownedSet(w).has(chunkAt(x, y))) return 'That land is not yours yet: buy it first (tap the land beyond the fence).';
   if (!clearedSet(w).has(chunkAt(x, y))) return 'That land is still forest: clear it first.';
   const p = placedIn(s, r).find((q) => x >= q.x && x < q.x + q.w && y >= q.y && y < q.y + q.d);

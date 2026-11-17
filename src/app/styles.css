@@ -838,7 +838,8 @@ body:has(.modal-bg) .shell .coach { display: none !important; }
 .placement-bar.line-dock .dock-done { flex: none; min-height: 36px; padding: 0 14px; }
 .dock-hint { display: flex; align-items: center; gap: 6px; margin: 0; padding: 4px 4px 4px 10px; min-height: 44px; border-radius: 10px; font-size: 14px; line-height: 1.35; color: var(--text); background: color-mix(in srgb, var(--gold) 12%, var(--surface)); border-left: 3px solid var(--gold); }
 .dock-hint.bad { background: color-mix(in srgb, var(--down) 14%, var(--surface)); border-left-color: var(--down); }
-.dock-tools { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.dock-tools { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 6px; }
+@media (max-width: 480px) { .dock-tools button { flex-direction: column; gap: 1px; font-size: 13px; padding: 4px 2px; } }
 .dock-tools button { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 46px; font: 800 15px var(--font); color: var(--text); background: color-mix(in srgb, var(--text) 6%, var(--surface)); border: 1px solid var(--line); border-radius: 12px; cursor: pointer; }
 .dock-tools button span { font-size: 16px; }
 .dock-tools button.on { background: var(--accent); color: var(--accent-text); border-color: var(--accent); box-shadow: inset 0 -3px 0 rgba(0,0,0,.18); }

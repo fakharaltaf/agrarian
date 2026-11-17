@@ -334,8 +334,13 @@ it('a road can bridge the river on land you own, at a bridge price', async () =>
   const s = createGame(1028); s.legacyProgression = true; s.era = 4; post(s, 'prize', 5e6, 'fixture');
   const w = W.worldOf(s, 'heartland'), y = 30, rx = W.riverX('heartland', y);
   const chunks = [...new Set(Array.from({ length: 14 }, (_, i) => W.chunkAt(rx - 6 + i, y)))]; w.owned = [...new Set([...w.owned, ...chunks])]; w.cleared = [...new Set([...w.cleared, ...chunks])]; W.touch(w);
-  const cash = s.cash, r = dispatch(s, { type: 'buildRoad', region: 'heartland', from: [rx - 4, y], to: [rx + 5, y] }); if (!r.ok) console.log(r.error); expect(r.ok).toBe(true);
-  expect(w.roads[W.tileId(rx, y)]).toBe(3); expect(cash - s.cash).toBeGreaterThan(W.roadBuildPrice(s, 3) * 6);
+  expect(dispatch(s, { type: 'buildRoad', region: 'heartland', from: [rx - 4, y], to: [rx + 5, y] }).ok).toBe(false); // roads alone do not cross
+  const cash = s.cash, r = dispatch(s, { type: 'buildBridge', region: 'heartland', at: [rx, y], lanes: 2 }); if (!r.ok) console.log(r.error); expect(r.ok).toBe(true);
+  expect(w.roads[W.tileId(rx, y)]).toBe(1); expect(w.roads[W.tileId(rx + 1, y + 1)]).toBe(1); expect(cash - s.cash).toBeGreaterThan(W.roadBuildPrice(s, 1) * 6);
+  expect(dispatch(s, { type: 'buildRoad', region: 'heartland', from: [rx - 4, y], to: [rx + 5, y] }).ok).toBe(true); // now a road runs over it
+  expect(dispatch(s, { type: 'upgradeRoad', region: 'heartland', at: [rx, y] }).ok).toBe(true);
+  expect(W.bridgeAt(s, 'heartland', [rx, y]).every((id) => w.roads[id] === 2)).toBe(true);
+  expect(w.roads[W.tileId(rx - 4, y)]).toBe(1); // the road beyond is upgraded on its own
 });
 
 it('a road never runs along the river, only straight across it', async () => {

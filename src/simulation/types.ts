@@ -498,6 +498,7 @@ export type Action =
   | { type: 'drillOil'; region: RegionId; at: [number, number] }
   | { type: 'buildRoad'; region: RegionId; from: [number, number]; to: [number, number]; /** tiles wide, 1–5 */ lanes?: number }
   | { type: 'removeRoad'; region: RegionId; at: [number, number]; /** dragged to here: only the road between */ to?: [number, number] }
+  | { type: 'buildBridge'; region: RegionId; at: [number, number]; lanes?: number }
   | { type: 'upgradeRoad'; region: RegionId; at: [number, number]; to?: [number, number] }
   | { type: 'buildPipe'; region: RegionId; from: [number, number]; to: [number, number]; net?: import('./world').NetKind }
   | { type: 'upgradePipe'; region: RegionId; at: [number, number]; net?: import('./world').NetKind }

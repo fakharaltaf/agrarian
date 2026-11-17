@@ -23,6 +23,7 @@ import { money, num, pct0 } from '../format';
 import { Modal } from '../ui';
 import { layoutRegion, type Layout, type Lot, type Plot } from './layout';
 import { doorTiles, frontageAt, meets, pressureOf, reachTime, roadTile, travelFrom } from '../../simulation/access';
+import { isBridge } from '../../simulation/world';
 import { wooded, beltRoute, wideRoadRoute, homesCentre, CHUNK, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, LAND_HA_PER_PATCH, MAP, hasAccess, riverTiles, riverX, tileId, roadStretch, roadPick, pipeRoute, pipeStretch, plotSide, fieldWater, wetTiers, linesOf, NET_TOP, UTILITY_NETS, netReach, doorstep, footprintOf, type NetKind, type UtilityNet, tileAt, forSaleAround,  ownedSet, ROAD_H, ROAD_Y, chunkAt, chunkOrigin, clearCost, clearedSet, isRoad, patchesAround, placeProblem, worldOf } from '../../simulation/world';
 import { animal, buildCivic, buildCommunityHome, buildLot, buildWorks, box, cached, cyl, farmhand, hauler, mat, mesh, PAL, person, tree, vehicle, type Model } from './models';
 import { haulOf, MARKET_X, marketRoute } from '../../simulation/hauling';
@@ -1256,7 +1257,8 @@ function syncRoads(R: Rig, s: GameState) {
   const wanted = new Map<string, [number, number, boolean, boolean]>(), belt = (cx: number, cz: number, ew: boolean, middle = true) => { wanted.set(`${cx},${cz},${ew}`, [cx, cz, ew, middle]); };
   const beds = new Map<number, number>(), walks = new Set<number>(); // belt tiles, drawn together at the end so crossing belts make one bed with a kerb only round its outside
   const drawBelt = (cx: number, cz: number, ew: boolean) => {
-    void ew; beds.set(tileId(Math.floor(cx), Math.floor(cz)), 0.14);
+    void ew; if (isBridge(R.region, tileId(Math.floor(cx), Math.floor(cz)))) return; // a bridge deck carries no green belt
+    beds.set(tileId(Math.floor(cx), Math.floor(cz)), 0.14);
     const t = tree(0.55, R.crownMat, (Math.round(cx) + Math.round(cz)) % 3 === 0 ? 1 : 0); t.position.set(cx, 0, cz); t.rotation.y = (cx * 7 + cz * 3) % 6; beltTrees.push(t);
   };
   const across = (x: number, y: number, ax: number, ay: number) => { let n = 0; while (n < 6 && paved(x + ax * n, y + ay * n)) n++; return n; }; // tiles side by side, from this one on
@@ -1319,17 +1321,23 @@ function syncRoads(R: Rig, s: GameState) {
   }
   if (beltTrees.length) R.roadsG.add(...beltTrees);
   // bridges: a paved deck on stone piers over the water (the river and its wet margins), with railings along its open sides and ramps down to the banks
-  { const deck = mat(0x5c5a56), stoneM = mat(PAL.stoneDark), railM = mat(0xd9d4c7), parts: THREE.Object3D[] = [];
-    const overWater = (x: number, y: number) => Math.abs(x + 0.5 - (riverX(R.region, y) + 1)) < 1.9 && y >= MAP.y0 && y < MAP.y0 + MAP.h;
+  // by level: a timber bridge on wooden trestles, a stone bridge with parapets on arched piers, a concrete bridge with steel rails and lamps
+  { const DECK = [0, 0x7a5636, 0xb8b3a8, 0x55565a], PIER = [0, 0x4e3824, PAL.stoneDark, 0xc9c6bf], RAIL = [0, 0x5e4228, 0xc4bfb3, 0xe8e6e0], parts: THREE.Object3D[] = [];
     const roadAt = (x: number, y: number) => isRoad(y) || w.roads[tileId(x, y)] !== undefined;
-    const onDeck = (x: number, y: number) => roadAt(x, y) && overWater(x, y);
-    for (const k of ids) { const id = Number(k), [x, y] = tileAt(id); if (!overWater(x, y)) continue;
+    const onDeck = (x: number, y: number) => w.roads[tileId(x, y)] !== undefined && isBridge(R.region, tileId(x, y));
+    for (const k of ids) { const id = Number(k), [x, y] = tileAt(id); if (!isBridge(R.region, id)) continue;
+      const g = Math.max(1, Math.min(3, w.roads[id])), deck = mat(DECK[g]), rail = mat(RAIL[g]), pier = mat(PIER[g]);
       parts.push(mesh(cached('bridgedeck', () => new THREE.BoxGeometry(1.02, 0.1, 1.02)), deck, x + 0.5, 0.2, y + 0.5));
-      if ((x + y) % 2 === 0) parts.push(mesh(cached('bridgepier', () => new THREE.BoxGeometry(0.22, 0.25, 0.22)), stoneM, x + 0.5, 0.0, y + 0.5));
-      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) if (!roadAt(x + dx, y + dy)) { const along = dx === 0; parts.push(mesh(cached(`rail${along}`, () => new THREE.BoxGeometry(along ? 1 : 0.05, 0.14, along ? 0.05 : 1)), railM, x + 0.5 + dx * 0.48, 0.32, y + 0.5 + dy * 0.48)); }
+      if (g === 1) { for (const o of [-0.35, 0.35]) parts.push(mesh(cached('trestle', () => new THREE.BoxGeometry(0.08, 0.3, 0.08)), pier, x + 0.5 + o, 0.02, y + 0.5)); }
+      else if ((x + y) % 2 === 0) parts.push(mesh(cached(`bridgepier${g}`, () => new THREE.BoxGeometry(g === 2 ? 0.34 : 0.2, 0.3, g === 2 ? 0.7 : 0.5)), pier, x + 0.5, 0.0, y + 0.5));
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) if (!roadAt(x + dx, y + dy)) {
+        const along = dx === 0, tall = g === 2 ? 0.2 : 0.14, thick = g === 2 ? 0.1 : 0.05;
+        parts.push(mesh(cached(`rail${along}${g}`, () => new THREE.BoxGeometry(along ? 1 : thick, tall, along ? thick : 1)), rail, x + 0.5 + dx * 0.47, 0.25 + tall / 2, y + 0.5 + dy * 0.47));
+        if (g === 3 && (x + y) % 3 === 0) { parts.push(mesh(cached('bridgelamp', () => new THREE.BoxGeometry(0.04, 0.5, 0.04)), rail, x + 0.5 + dx * 0.47, 0.5, y + 0.5 + dy * 0.47)); parts.push(mesh(cached('bridgelampH', () => new THREE.BoxGeometry(0.1, 0.05, 0.1)), mat(0xfff2c0), x + 0.5 + dx * 0.4, 0.75, y + 0.5 + dy * 0.4)); }
+      }
     }
-    for (const k of ids) { const id = Number(k), [x, y] = tileAt(id); if (overWater(x, y)) continue; // ramps: the land tile at each end rises to meet the deck
-      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) if (onDeck(x + dx, y + dy)) { const ramp = mesh(cached(dx ? 'rampx' : 'rampz', () => new THREE.BoxGeometry(dx ? 1.02 : 1.0, 0.05, dx ? 1.0 : 1.02)), deck, x + 0.5, 0.13, y + 0.5); ramp.rotation.set(-dy * 0.24, 0, dx * 0.24); parts.push(ramp); }
+    for (const k of ids) { const id = Number(k), [x, y] = tileAt(id); if (isBridge(R.region, id)) continue; // ramps: the land tile at each end rises to meet the deck
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) if (onDeck(x + dx, y + dy)) { const g = Math.max(1, Math.min(3, w.roads[tileId(x + dx, y + dy)])), ramp = mesh(cached(dx ? 'rampx' : 'rampz', () => new THREE.BoxGeometry(dx ? 1.02 : 1.0, 0.05, dx ? 1.0 : 1.02)), mat(DECK[g]), x + 0.5, 0.13, y + 0.5); ramp.rotation.set(-dy * 0.24, 0, dx * 0.24); parts.push(ramp); }
     }
     if (parts.length) R.roadsG.add(...parts);
   }
