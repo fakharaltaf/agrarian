@@ -961,8 +961,11 @@ function syncDeco(R: Rig, L: Layout, s: GameState) {
         const crossing = i < CHUNK && (along ? open(tx, ty - 1) && open(tx, ty) : open(tx - 1, ty) && open(tx, ty));
         if (crossing && run < 0) run = i;
         if (!crossing && run >= 0) {
-          const width = i - run, at = (k: number): [number, number] => (along ? [x - CHUNK / 2 + k, z] : [x, z - CHUNK / 2 + k]);
-          if (width <= 3) gates.push({ a: at(run), b: at(i), inX, inZ });
+          const at = (k: number): [number, number] => (along ? [x - CHUNK / 2 + k, z] : [x, z - CHUNK / 2 + k]);
+          const cross = (k: number) => { const [tx2, ty2] = at(k); return along ? open(tx2, ty2 - 1) && open(tx2, ty2) : open(tx2 - 1, ty2) && open(tx2, ty2); };
+          const track = (k: number) => { const [tx2, ty2] = at(k); return (w.roads[tileId(tx2, ty2)] ?? 3) < 3; }; // a paved street has no farm gate
+          let end = i; while (end - run < 4 && cross(end)) end++; // the same track may carry on into the next patch
+          if (!cross(run - 1) && end - run <= 2 && Array.from({ length: end - run }, (_, k) => track(run + k)).every(Boolean)) gates.push({ a: at(run), b: at(end), inX, inZ });
           run = -1;
         }
         if (i === CHUNK) break;
@@ -1183,7 +1186,7 @@ function syncRoads(R: Rig, s: GameState) {
     const c = C(ROAD_COL[Math.min(w.roads[tileId(x, y)], w.roads[tileId(x + 1, y)], w.roads[tileId(x, y + 1)], w.roads[tileId(x + 1, y + 1)])]);
     surface.seg(x + 0.5, y + 1, x + 1.5, y + 1, [[-0.5, c, 1], [0.5, c, 1]]);
   }
-  // a paved road two or four tiles wide is a two-way road: white dashes down its middle (not across junctions or wider squares); three wide has a green belt instead
+  // a paved road two tiles wide has white dashes down its middle; three has a green belt between its lanes; four a belt down each side; five two lanes either side of a belt
   const paved = (x: number, y: number) => (w.roads[tileId(x, y)] ?? 0) >= 3, WHITE = C(0xe9e4d6), dash: Band[] = [[-0.035, WHITE, 1], [0.035, WHITE, 1]];
   // three side by side: a dual road, its middle lane a green belt of grass behind a kerb with a tree on every tile
   const KERB = C(0xc9c3b4), LAWN = C(0x7f9a4a), beltTrees: THREE.Object3D[] = [];
@@ -1197,11 +1200,26 @@ function syncRoads(R: Rig, s: GameState) {
     const [x, y] = tileAt(Number(k));
     if (!paved(x, y)) continue;
     // running north–south: x is the west edge of a row of n paved tiles, and the whole row carries on north or south
-    const nx = !paved(x - 1, y) ? across(x, y, 1, 0) : 0, carriesNS = (dy: number) => Array.from({ length: nx }, (_, i) => paved(x + i, y + dy)).every(Boolean);
-    if (nx >= 2 && nx <= 4 && (carriesNS(-1) || carriesNS(1))) { if (nx === 3) belt(x + 1.5, y + 0.5, false); else marks.seg(x + nx / 2, y + 0.2, x + nx / 2, y + 0.8, dash); }
+    const any = (tx: number, ty: number) => isRoad(ty) || w.roads[tileId(tx, ty)] !== undefined;
+    const nx = !paved(x - 1, y) ? across(x, y, 1, 0) : 0, carriesNS = (dy: number) => Array.from({ length: nx }, (_, i) => paved(x + i, y + dy)).every(Boolean) && !paved(x - 1, y + dy) && !paved(x + nx, y + dy);
+    if (nx >= 2 && nx <= 5 && (carriesNS(-1) || carriesNS(1))) {
+      const through = carriesNS(-1) && carriesNS(1) && !any(x - 1, y) && !any(x + nx, y), uturn = ((y % 8) + 8) % 8 === 0; // no belt across a side road's mouth; a gap every eight tiles to turn back
+      const line = (i: number) => marks.seg(x + i, y + 0.2, x + i, y + 0.8, dash);
+      if (nx === 2) line(1);
+      else if (nx === 3) { if (through && !uturn) belt(x + 1.5, y + 0.5, false); }
+      else if (nx === 4) { if (through) { belt(x + 0.5, y + 0.5, false); belt(x + 3.5, y + 0.5, false); } line(2); }
+      else { if (through && !uturn) belt(x + 2.5, y + 0.5, false); line(1); line(4); }
+    }
     // running east–west: y is the north edge of a column of n paved tiles
-    const ny = !paved(x, y - 1) ? across(x, y, 0, 1) : 0, carriesEW = (dx: number) => Array.from({ length: ny }, (_, i) => paved(x + dx, y + i)).every(Boolean);
-    if (ny >= 2 && ny <= 4 && (carriesEW(-1) || carriesEW(1))) { if (ny === 3) belt(x + 0.5, y + 1.5, true); else marks.seg(x + 0.2, y + ny / 2, x + 0.8, y + ny / 2, dash); }
+    const ny = !paved(x, y - 1) ? across(x, y, 0, 1) : 0, carriesEW = (dx: number) => Array.from({ length: ny }, (_, i) => paved(x + dx, y + i)).every(Boolean) && !paved(x + dx, y - 1) && !paved(x + dx, y + ny);
+    if (ny >= 2 && ny <= 5 && (carriesEW(-1) || carriesEW(1))) {
+      const through = carriesEW(-1) && carriesEW(1) && !any(x, y - 1) && !any(x, y + ny), uturn = ((x % 8) + 8) % 8 === 0;
+      const line = (i: number) => marks.seg(x + 0.2, y + i, x + 0.8, y + i, dash);
+      if (ny === 2) line(1);
+      else if (ny === 3) { if (through && !uturn) belt(x + 0.5, y + 1.5, true); }
+      else if (ny === 4) { if (through) { belt(x + 0.5, y + 0.5, true); belt(x + 0.5, y + 3.5, true); } line(2); }
+      else { if (through && !uturn) belt(x + 0.5, y + 2.5, true); line(1); line(4); }
+    }
   }
   if (beltTrees.length) R.roadsG.add(...beltTrees);
   // where a track meets the main road its mouth widens into a soft rounded fan, so the corners are not cut square
