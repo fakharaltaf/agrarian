@@ -491,6 +491,8 @@ export type Action =
   | { type: 'setGst'; rate: number }
   | { type: 'mergeService'; serviceId: number }
   | { type: 'demolishService'; serviceId: number }
+  /** Buy and clear the land a placement needs; it is placed by itself when the crew finishes. */
+  | { type: 'planPlacement'; region: RegionId; action: Action; at: [number, number]; w: number; d: number; rot?: number; label: string }
   | { type: 'removePipe'; region: RegionId; at: [number, number]; net?: import('./world').NetKind }
   | { type: 'upgradeService'; serviceId: number }
   | { type: 'openFutures'; good: GoodId; contracts: number; days: number }

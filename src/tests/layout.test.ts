@@ -208,3 +208,20 @@ it('bigger fields pack more hectares per tile (capped at 16×16 from 64 ha), and
   const { plotSide } = await import('../simulation/world');
   expect([1, 5, 25, 100, 500].map(plotSide)).toEqual([2, 4, 10, 16, 30]);
 });
+
+it('a placement on forest you do not own can be bought and cleared for; it goes up by itself when the crew finishes', async () => {
+  const W = await import('../simulation/world');
+  const { planQuote } = await import('../simulation/engine');
+  const s = createGame(1014); s.legacyProgression = true; s.era = 4; post(s, 'prize', 1e6, 'fixture');
+  const w = W.worldOf(s, 'heartland'), owned = W.ownedSet(w);
+  // the first barn-sized spot that is neither owned nor cleared but joins the farm
+  let at: [number, number] | null = null;
+  for (let y = W.MAP.y0; y < W.MAP.y0 + W.MAP.h - 3 && !at; y++) for (let x = W.MAP.x0; x < W.MAP.x0 + W.MAP.w - 3 && !at; x++) { const q = planQuote(s, 'heartland', [x, y], 3, 2, { type: 'build', region: 'heartland', building: 'barn' }); if (q.ok && q.buy.length && q.clear.length) at = [x, y]; }
+  expect(at).not.toBeNull();
+  const q = planQuote(s, 'heartland', at!, 3, 2, { type: 'build', region: 'heartland', building: 'barn' }), cash = s.cash, n = s.buildings.length;
+  expect(dispatch(s, { type: 'build', region: 'heartland', building: 'barn', at: at! }).ok).toBe(false);
+  expect(dispatch(s, { type: 'planPlacement', region: 'heartland', action: { type: 'build', region: 'heartland', building: 'barn' }, at: at!, w: 3, d: 2, label: 'Barn' }).ok).toBe(true);
+  expect(cash - s.cash).toBeCloseTo(q.cost, 1); expect(q.buy.every((c) => owned.has(c) || W.ownedSet(w).has(c))).toBe(true); expect(w.plans!.length).toBe(1); expect(s.buildings.length).toBe(n);
+  for (let i = 0; i < q.hours + 30 && w.plans!.length; i++) step(s);
+  expect(w.plans!.length).toBe(0); expect(s.buildings.length).toBe(n + 1); expect(w.pos[`b:${s.buildings.at(-1)!.id}`]).toEqual(at);
+});

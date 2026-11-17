@@ -323,6 +323,14 @@ export function rotatePlacement() {
   return true;
 }
 export const cancelPlacement = () => set({ placing: null });
+/** Buy and clear the land under the ghost; the crew places it when they finish. */
+export function planPlacementHere() {
+  const p = store.placing;
+  if (!p || p.kind !== 'new') return false;
+  const ok = act({ type: 'planPlacement', region: p.region, action: p.action, at: p.at, w: p.w, d: p.d, rot: p.rot, label: p.label });
+  if (ok) set({ placing: null });
+  return ok;
+}
 export function confirmPlacement() {
   const p = store.placing;
   if (!p) return false;

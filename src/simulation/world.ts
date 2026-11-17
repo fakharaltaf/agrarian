@@ -14,9 +14,11 @@ export const MOVE_DOWNTIME = 6; // hours a moved building stands idle
 
 export type Footprint = { w: number; d: number };
 export interface ClearJob { chunk: number; hours: number }
+/** Something bought-and-cleared-for: placed by itself once all its patches are cleared. */
+export interface PlacePlan { action: import('./types').Action; chunks: number[]; at: [number, number]; w: number; d: number; label: string }
 /** owned: patches the farm has bought (you can only clear, farm and build on your own land). */
 /** roads: grade (1 dirt, 2 gravel, 3 paved) by tile id; main: grade of the main road through the map. */
-export interface RegionWorld { /** the town's utility lines by tier, like canals: power, water and sewer */ nets?: Partial<Record<UtilityNet, Record<number, number>>>; cleared: number[]; owned: number[]; pos: Record<string, [number, number]>; queue: ClearJob[]; roads: Record<number, number>; main: number; /** water lines by tier (WATER_TIERS): 1 ditch, 2 pipe, 3 buried; the first two take the tile */ canals: Record<number, number>; zones: Record<number, Zone>; links: Record<string, number[]>; /** quarter turns (0–3) of each placed thing; its front faces +y at 0, then +x, −y, −x */ rot?: Record<string, number> }
+export interface RegionWorld { plans?: PlacePlan[]; /** the town's utility lines by tier, like canals: power, water and sewer */ nets?: Partial<Record<UtilityNet, Record<number, number>>>; cleared: number[]; owned: number[]; pos: Record<string, [number, number]>; queue: ClearJob[]; roads: Record<number, number>; main: number; /** water lines by tier (WATER_TIERS): 1 ditch, 2 pipe, 3 buried; the first two take the tile */ canals: Record<number, number>; zones: Record<number, Zone>; links: Record<string, number[]>; /** quarter turns (0–3) of each placed thing; its front faces +y at 0, then +x, −y, −x */ rot?: Record<string, number> }
 /** res: homes only (no farming); ind: industrial plants; com: shops and offices. Unzoned land is farmland. */
 export type Zone = 'res' | 'ind' | 'com';
 /** What a placement is, for zoning: homes need a residential zone; fields stay out of zones; farm buildings stay out of residential; industry needs an industrial zone. */

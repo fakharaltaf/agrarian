@@ -1915,6 +1915,7 @@ function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el
       want.push({key:'act',x:Math.max(115,Math.min(W-115,px)),y:Math.max(80,Math.min(H-30,py)),html:primary+care+plan+mv+button(`inspect:${id}`,'ⓘ'),cls:'wl-radial'});
     }
   }
+  for(const [i,plan] of (worldOf(s,R.region).plans??[]).entries()){const [x,y]=project(plan.at[0]+plan.w/2,0.6,plan.at[1]+plan.d/2);if(x>-40&&y>-40&&x<W+40&&y<H+40)want.push({key:`plan${i}`,x,y,html:`⏳ ${plan.label}: clearing the land`,cls:'wl-note'});}
   if(selectedLot && !placing){
     const lot=L.lots.find(x=>x.key===selectedLot);
     if(lot){const [px,py]=project(lot.x+lot.w/2,2.5,lot.y+lot.d/2);
