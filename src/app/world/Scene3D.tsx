@@ -206,7 +206,7 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
       animateFelling(R, s, now / 1000);
       animateHaul(R, s, now / 1000);
       animateCars(R, s);
-      syncRiver(R);
+      syncRiver(R, s);
       animateRiver(R, now / 1000);
       animateNeighbours(R, L, s, now / 1000);
       atmosphere(R, s, now / 1000);
@@ -1257,7 +1257,7 @@ function syncRoads(R: Rig, s: GameState) {
   const wanted = new Map<string, [number, number, boolean, boolean]>(), belt = (cx: number, cz: number, ew: boolean, middle = true) => { wanted.set(`${cx},${cz},${ew}`, [cx, cz, ew, middle]); };
   const beds = new Map<number, number>(), walks = new Set<number>(); // belt tiles, drawn together at the end so crossing belts make one bed with a kerb only round its outside
   const drawBelt = (cx: number, cz: number, ew: boolean) => {
-    void ew; if (isBridge(R.region, tileId(Math.floor(cx), Math.floor(cz)))) return; // a bridge deck carries no green belt
+    void ew; if ([-1, 0, 1].some((d) => isBridge(R.region, tileId(Math.floor(cx) + d, Math.floor(cz))))) return; // a bridge deck and its ramps carry no green belt
     beds.set(tileId(Math.floor(cx), Math.floor(cz)), 0.14);
     const t = tree(0.55, R.crownMat, (Math.round(cx) + Math.round(cz)) % 3 === 0 ? 1 : 0); t.position.set(cx, 0, cz); t.rotation.y = (cx * 7 + cz * 3) % 6; beltTrees.push(t);
   };
@@ -1716,9 +1716,14 @@ function fallsTexture() {
   const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.magFilter = t.minFilter = THREE.NearestFilter; t.colorSpace = THREE.SRGBColorSpace; return t;
 }
 /** The river: a smooth channel with muddy, pebbly banks, flowing water, a timber bridge, and a waterfall where it leaves a gorge in the mountains along the top of the map. */
-function syncRiver(R: Rig) {
-  if (R.riverSig === R.region) return;
-  R.riverSig = R.region;
+function syncRiver(R: Rig, s: GameState) {
+  // redrawn when roads or bridges by the river change, so no pebble, reed or boulder sits on them
+  const w = worldOf(s, R.region), paved = new Set<number>();
+  for (const id of riverTiles(R.region)) { const [x, y] = tileAt(id); for (let dx = -3; dx <= 3; dx++) { const k = tileId(x + dx, y); if (w.roads[k] !== undefined) paved.add(k); } }
+  const sig = `${R.region}:${[...paved].sort((a, b) => a - b).join(',')}`;
+  if (R.riverSig === sig) return;
+  R.riverSig = sig;
+  const onRoad = (x: number, z: number) => paved.has(tileId(Math.floor(x), Math.floor(z)));
   clear(R.riverG);
   const rows = new Map<number, number[]>();
   for (const id of riverTiles(R.region)) { const [x, y] = tileAt(id); (rows.get(y) ?? rows.set(y, []).get(y)!).push(x); }
@@ -1747,6 +1752,7 @@ function syncRiver(R: Rig) {
     for (const side of [-1, 1]) {
       const r = vh(i, side), w = W(z) + 0.2 + r * 0.5;
       q.setFromAxisAngle(upV, r * 6);
+      if (onRoad(x + side * w, z + r - 0.5) || onRoad(x + side * w, z)) continue;
       if (r < 0.55) stones.push(new THREE.Matrix4().compose(new THREE.Vector3(x + side * w, 0.02, z + r - 0.5), q, new THREE.Vector3(0.18 + r * 0.25, 0.1 + r * 0.08, 0.15 + r * 0.2)));
       else reeds.push(new THREE.Matrix4().compose(new THREE.Vector3(x + side * (w - 0.1), 0, z), q, new THREE.Vector3(1, 0.7 + r * 0.6, 1)));
     }
@@ -1800,12 +1806,12 @@ function syncRiver(R: Rig) {
   const pool = mesh(cached('pool', () => new THREE.CircleGeometry(2.2, 10)), new THREE.MeshStandardMaterial({ color: 0x4a9bbd, roughness: 0.7 }), sx, 0.018, top + 0.5, false); pool.rotation.x = -Math.PI / 2; R.riverG.add(pool);
   for (let i = 0; i < 9; i++) { const m = mesh(cached('splash', () => new THREE.IcosahedronGeometry(1, 0)), FOAM, sx - 1.4 + (i % 5) * 0.7, 0.05, top + 0.15 + (i > 4 ? 0.55 : 0) + vh(i, 7) * 0.3, false); m.scale.set(0.4 + vh(i, 9) * 0.25, 0.22, 0.4 + vh(i, 9) * 0.25); m.name = 'mist'; R.riverG.add(m); } // chunky white splash at the foot
   // rocks in the stream with white water breaking round them
-  const ring = cached('foamring', () => new THREE.RingGeometry(0.32, 0.55, 7).rotateX(-Math.PI / 2));
+  const ring = cached('foamring2', () => new THREE.RingGeometry(0.3, 0.42, 18).rotateX(-Math.PI / 2)), froth = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.45, depthWrite: false });
   for (let i = 8; i < line.length - 2; i += 13) {
     const [x, z] = line[i], o = (vh(i, 3) - 0.5) * 1.4;
-    if (isRoad(Math.floor(z)) || isRoad(Math.floor(z) + 2) || isRoad(Math.floor(z) - 2)) continue;
+    if (isRoad(Math.floor(z)) || isRoad(Math.floor(z) + 2) || isRoad(Math.floor(z) - 2) || [-1, 0, 1].some((d) => onRoad(x + o, z + d))) continue;
     const rk = mesh(cached('boulder', () => new THREE.DodecahedronGeometry(1, 0)), mat(0x8a847a, { rough: 1 }), x + o, 0, z); rk.scale.set(0.3, 0.2, 0.28); rk.rotation.y = i; R.riverG.add(rk);
-    R.riverG.add(mesh(ring, FOAM, x + o, 0.035, z, false));
+    R.riverG.add(mesh(ring, froth, x + o, 0.035, z, false));
   }
   for (let i = 0; i < 6; i++) { const rk = mesh(cached('boulder', () => new THREE.DodecahedronGeometry(1, 0)), mat(i % 2 ? 0x77716a : 0x8a847a, { rough: 1 }), sx + (i < 3 ? -1 : 1) * (1.9 + (i % 3) * 0.55), 0.15, top + 0.2 + (i % 3) * 0.6); rk.scale.set(0.5 + (i % 3) * 0.15, 0.4 + (i % 2) * 0.2, 0.45); rk.rotation.y = i; R.riverG.add(rk); }
   // foam flecks that drift downstream
