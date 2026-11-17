@@ -252,11 +252,13 @@ it('two level-3 factories side by side merge into a works, two works into a plan
   for (const at of [[0, 0], [3, 0], [0, 3], [3, 3]] as const) { expect(dispatch(s, { type: 'build', region: 'heartland', building: 'flourMill', at: [o[0] + at[0], o[1] + at[1]] }).ok).toBe(true); ids.push(s.buildings.at(-1)!.id); }
   expect(dispatch(s, { type: 'mergeBuilding', buildingId: ids[0] }).ok).toBe(false); // level 1 will not merge
   for (const b of s.buildings) if (ids.includes(b.id)) b.level = 3;
+  s.fields[0].supplies = ids[1]; s.fields[0].planLocked = true; // a field growing for the one that will merge away
   const g = factoryMerge(s, ids[0])!, cash = s.cash; expect(g.ready).toBe(true);
   const { r, edit } = dispatchEdit(s, { type: 'mergeBuilding', buildingId: ids[0] }); expect(r.ok).toBe(true);
   const works = s.buildings.find((b) => b.id === ids[0])!;
-  expect(works.size).toBe(2); expect(cash - s.cash).toBe(g.price); expect(W.footprintOf(s, `b:${works.id}`)).toEqual({ w: 5, d: 2 }); expect(throughput(works)).toBeCloseTo(4 * 2.2, 5); expect(sizeStaff(works)).toBe(1.8);
+  expect(works.size).toBe(2); expect(cash - s.cash).toBe(g.price); expect(W.footprintOf(s, `b:${works.id}`)).toEqual({ w: 5, d: 2 }); expect(throughput(works)).toBeCloseTo(4 * 2.6, 5); expect(sizeStaff(works)).toBe(1.5);
   expect(s.buildings.some((b) => b.id === ids[1])).toBe(false);
+  expect(s.fields[0].supplies).toBe(ids[0]); // its field now grows for the merged works
   undoEdit(s, edit!); expect(s.buildings.filter((b) => ids.includes(b.id)).length).toBe(4); expect(s.cash).toBeCloseTo(cash, 2); expect(W.footprintOf(s, `b:${ids[0]}`)).toEqual({ w: 2, d: 2 });
   expect(dispatch(s, { type: 'mergeBuilding', buildingId: ids[0] }).ok).toBe(true);
   expect(dispatch(s, { type: 'mergeBuilding', buildingId: s.buildings.find((b) => b.type === 'flourMill' && !b.size)!.id }).ok).toBe(true); // the other pair
@@ -312,5 +314,17 @@ it('two level-3 cowsheds side by side merge into a cattle barn that houses more 
   for (const b of s.buildings) if (ids.includes(b.id)) b.level = 3;
   const before = housing(s, 'heartland', 'cows');
   const r = dispatch(s, { type: 'mergeBuilding', buildingId: ids[0] }); if (!r.ok) console.log('MERGE', r.error); expect(r.ok).toBe(true);
-  expect(housing(s, 'heartland', 'cows')).toBeCloseTo(before * 1.1, 5); expect(s.buildings.filter((b) => b.type === 'cowshed').length).toBe(1);
+  expect(housing(s, 'heartland', 'cows')).toBeCloseTo(before * 1.3, 5); expect(s.buildings.filter((b) => b.type === 'cowshed').length).toBe(1);
+});
+
+it('stores merge too: two level-3 cold stores make a cold warehouse that holds more', async () => {
+  const W = await import('../simulation/world');
+  const { capacity } = await import('../simulation/core');
+  const s = createGame(1027); s.legacyProgression = true; s.era = 6; post(s, 'prize', 5e6, 'fixture');
+  const w = W.worldOf(s, 'heartland'), spot = W.findSpot(s, 'heartland', { w: 9, d: 4 })!, [fw] = W.FOOTPRINT.coldStore, ids: number[] = [];
+  for (const dx of [0, fw + 1]) { const r0 = dispatch(s, { type: 'build', region: 'heartland', building: 'coldStore', at: [spot[0] + dx, spot[1]] }); expect(r0.ok).toBe(true); ids.push(s.buildings.at(-1)!.id); }
+  for (const b of s.buildings) if (ids.includes(b.id)) b.level = 3;
+  W.touch(w); const before = capacity(s, 'heartland').cold;
+  const r = dispatch(s, { type: 'mergeBuilding', buildingId: ids[0] }); if (!r.ok) console.log('M', r.error); expect(r.ok).toBe(true);
+  W.touch(w); expect(capacity(s, 'heartland').cold).toBeCloseTo(before * 1.3, 3);
 });

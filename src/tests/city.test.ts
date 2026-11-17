@@ -158,7 +158,7 @@ it('Four shops of a kind in a square merge into a market, four markets into the 
     const { r, edit } = dispatchEdit(s, { type: 'mergeService', serviceId: ids[3] }); expect(r.ok).toBe(true);
     const m = t.services.find((b) => b.id === ids[3])!;
     expect(cash - s.cash).toBe(g.price); expect(m.size).toBe(2); expect(w.pos[`svc:${m.id}`]).toEqual(qo); expect(W.footprintOf(s, `svc:${m.id}`)).toEqual({ w: 7, d: 7 });
-    expect(t.services.filter((b) => b.type === kind).length).toBe(1); expect(serviceRadius(m)).toBe(18);
+    expect(t.services.filter((b) => b.type === kind).length).toBe(1); expect(serviceRadius(m)).toBe(22);
     if (q === 0) { // undo puts the four shops back where they stood, and the money
       expect(serviceName(m)).toBe("Bakers' hall");
       undoEdit(s, edit!); expect(t.services.filter((b) => b.type === kind).length).toBe(4); expect(s.cash).toBeCloseTo(cash, 2); expect(W.footprintOf(s, `svc:${ids[0]}`)).toEqual({ w: 3, d: 3 });
@@ -234,7 +234,7 @@ it('Apartments grow into a mid-rise and a tower when their needs are met; office
   expect(parseSave(JSON.stringify({ game: s })).game).toEqual(s);
 });
 
-it('Four of the same town building in a square merge into one bigger one: a plant serves a quarter more families, a campus reaches further', async () => {
+it('Four of the same town building in a square merge into one bigger one: a plant serves 60% more families, a campus reaches further', async () => {
   const W = await import('../simulation/world');
   const { mergeGroup, serviceName, serviceRadius, utilityFamilies } = await import('../simulation/town-state');
   const s = ready(), t = townOf(s), w = W.worldOf(s, 'heartland'), o: [number, number] = [W.MAP.x0 + 40, W.MAP.y0 + 8];
@@ -246,10 +246,10 @@ it('Four of the same town building in a square merge into one bigger one: a plan
   t.services.find((b) => b.id === san[1])!.level = 1;
   expect(dispatch(s, { type: 'mergeService', serviceId: san[0] }).ok).toBe(true);
   const plant = t.services.find((b) => b.id === san[0])!;
-  expect(serviceName(plant)).toBe('Sanitation plant'); expect(utilityFamilies(plant)).toBeCloseTo(before * 1.25, 5); expect(W.footprintOf(s, `svc:${plant.id}`)).toEqual({ w: 7, d: 7 }); expect(t.services.filter((b) => b.type === 'sanitation').length).toBe(1);
+  expect(serviceName(plant)).toBe('Sanitation plant'); expect(utilityFamilies(plant)).toBeCloseTo(before * 1.6, 5); expect(W.footprintOf(s, `svc:${plant.id}`)).toEqual({ w: 7, d: 7 }); expect(t.services.filter((b) => b.type === 'sanitation').length).toBe(1);
   const sch = four('school', 8), r1 = serviceRadius(t.services.find((b) => b.id === sch[0])!);
   expect(dispatch(s, { type: 'mergeService', serviceId: sch[2] }).ok).toBe(true);
-  expect(serviceName(t.services.find((b) => b.id === sch[2])!)).toBe('School campus'); expect(serviceRadius(t.services.find((b) => b.id === sch[2])!)).toBeCloseTo(r1 * 1.8, 5);
+  expect(serviceName(t.services.find((b) => b.id === sch[2])!)).toBe('School campus'); expect(serviceRadius(t.services.find((b) => b.id === sch[2])!)).toBeCloseTo(r1 * 2.2, 5);
   expect(dispatch(s, { type: 'mergeService', serviceId: sch[2] }).ok).toBe(false); // already merged
 });
 

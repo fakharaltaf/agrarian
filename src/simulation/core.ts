@@ -16,14 +16,17 @@ export const known = (s: GameState, id: string) => s.discovered.includes(id);
 /** Upgrade levels multiply what a building holds or makes. */
 export const levelMult = (level: number) => [1, 1.8, 2.5][Math.max(0, Math.min(2, (level || 1) - 1))];
 /** A food factory's throughput by level: each upgrade doubles it, so a line keeps up with a growing farm. Oil, energy and storage keep levelMult. */
-/** A merged factory does the work of the ones it replaced and a little more: a Works 2.2 factories' worth, a Plant 4.8. */
-export const sizeOutput = (b: { size?: number }) => (b.size === 4 ? 4.8 : b.size === 2 ? 2.2 : 1);
-/** ...on fewer hands: a Works pays 1.8 factories' staff, a Plant 3.2. */
-export const sizeStaff = (b: { size?: number }) => (b.size === 4 ? 3.2 : b.size === 2 ? 1.8 : 1);
+/** Bigger is better: a merged building does far more than the ones it replaced, a Works 2.6 buildings' worth, a Plant 6. */
+export const sizeOutput = (b: { size?: number }) => (b.size === 4 ? 6 : b.size === 2 ? 2.6 : 1);
+/** ...on fewer hands: a Works pays 1.5 buildings' staff, a Plant 2.5. */
+export const sizeStaff = (b: { size?: number }) => (b.size === 4 ? 2.5 : b.size === 2 ? 1.5 : 1);
 export const throughput = (b: { type: string; level: number; size?: number }) => (FOOD_FACTORY.has(b.type) ? [1, 2, 4][Math.max(0, Math.min(2, (b.level || 1) - 1))] : levelMult(b.level)) * sizeOutput(b);
 /** Animal houses merge too: two side by side become one big barn, two of those a farm of their own. */
 export const LIVESTOCK_HOUSE: ReadonlySet<string> = new Set(['cowshed', 'pigsty', 'coop', 'sheepfold']);
-const MERGED: Record<string, [string, string]> = { cowshed: ['Cattle barn', 'Cattle yards'], pigsty: ['Pig barn', 'Pig farm'], coop: ['Poultry house', 'Poultry farm'], sheepfold: ['Sheep barn', 'Sheep station'] };
+/** Stores and power plants merge too. */
+export const STORE_OR_POWER: ReadonlySet<string> = new Set(['barn', 'silo', 'coldStore', 'warehouse', 'solar', 'windTurbine', 'biogas']);
+export const MERGEABLE = (t: string) => FOOD_FACTORY.has(t) || LIVESTOCK_HOUSE.has(t) || STORE_OR_POWER.has(t);
+const MERGED: Record<string, [string, string]> = { barn: ['Great barn', 'Storage yard'], silo: ['Silo bank', 'Grain terminal'], coldStore: ['Cold warehouse', 'Cold-storage depot'], warehouse: ['Big warehouse', 'Logistics depot'], solar: ['Solar array', 'Solar farm'], windTurbine: ['Wind cluster', 'Wind farm'], cowshed: ['Cattle barn', 'Cattle yards'], pigsty: ['Pig barn', 'Pig farm'], coop: ['Poultry house', 'Poultry farm'], sheepfold: ['Sheep barn', 'Sheep station'] };
 /** What a merged building is called: a Works and a Plant for factories, its own names for animal houses. */
 export const mergedName = (type: string, name: string, size: number) => (MERGED[type] ? MERGED[type][size >= 4 ? 1 : 0] : `${name} ${size >= 4 ? 'plant' : 'works'}`);
 export const FOOD_FACTORY: ReadonlySet<string> = new Set(['flourMill', 'bakery', 'feedMill', 'ranch', 'dairy', 'creamery', 'oilPress', 'sugarMill', 'winery']);
@@ -143,8 +146,8 @@ export function capacity(s: GameState, r: RegionId) {
   let cold = 0;
   for (const b of buildingsIn(s, r)) {
     if (!hasAccess(s, r, `b:${b.id}`)) continue; // a store nobody can drive to holds nothing
-    dry += (BUILDINGS[b.type].dry ?? 0) * levelMult(b.level);
-    cold += (BUILDINGS[b.type].cold ?? 0) * levelMult(b.level);
+    dry += (BUILDINGS[b.type].dry ?? 0) * levelMult(b.level) * sizeOutput(b);
+    cold += (BUILDINGS[b.type].cold ?? 0) * levelMult(b.level) * sizeOutput(b);
   }
   return { dry, cold };
 }

@@ -295,7 +295,7 @@ function action(s: GameState,a:Action):ActionResult|null {
     post(s,'building',-g.price,`${g.into} (four merged)`,'heartland','corporate');
     const cost=round2(g.members.reduce((n,x)=>n+x.cost,0)+g.price),kinds=[...new Set(g.members.flatMap(x=>x.kinds??[x.type as ShopType]))];
     for(const x of g.members)if(x!==b)t.services.splice(t.services.indexOf(x),1);
-    if(!isShop(b.type)){b.size=2;b.count=g.members.reduce((n,x)=>n+x.count,0);} // four as one: it reaches further, or serves a quarter more families
+    if(!isShop(b.type)){b.size=2;b.count=g.members.reduce((n,x)=>n+x.count,0);} // four as one: it reaches further, or serves 60% more families
     else if(svcSize(b)===2){b.type='mall';b.kinds=kinds;b.count=1;b.size=4;b.level=1;}else{b.size=2;b.count=3;} // a market is run by three shops' worth of staff
     b.cost=cost;b.staffed=0;w0.pos[`svc:${b.id}`]=g.origin;touch(w0);connect(s,'heartland',`svc:${b.id}`);for(const k of lifted)if(w0.pos[k])connect(s,'heartland',k);
     log(s,'opportunity',isShop(b.type)||b.type==='mall'?`${g.into} opened: it reaches ${Math.round(serviceRadius(b))} tiles and draws more custom than the shops it replaced.`:`${g.into} opened: four as one, it ${UTILITY_OF[b.type]?`serves ${Math.round(utilityFamilies(b))} families along its lines`:`reaches ${Math.round(serviceRadius(b))} tiles`}.`,'town');

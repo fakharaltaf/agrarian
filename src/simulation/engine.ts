@@ -1,5 +1,5 @@
 import { JAM_TEXT, streetJammed } from './access';
-import { FOOD_FACTORY , LIVESTOCK_HOUSE, mergedName } from './core';
+import { FOOD_FACTORY , LIVESTOCK_HOUSE, mergedName , MERGEABLE, STORE_OR_POWER } from './core';
 import { energyMix, oilOpen, upgradeNeedsPower } from './stages/shared';
 import { bestRetailCentre } from './facility-levels';
 import { wellField, DRILL_PRICE, oilChance, oilOf, SURVEY_PRICE, SURVEY_R, surveyedAt, landCostOf } from './oil';
@@ -217,15 +217,25 @@ export function planQuote(s: GameState, r: RegionId, at: [number, number], fw: n
 /** The factory beside this one that it could merge with: the same kind and size, both at level 3, a lane apart and squarely in line. */
 export function factoryMerge(s: GameState, id: number) {
   const b = s.buildings.find((x) => x.id === id);
-  if (!b || !(FOOD_FACTORY.has(b.type) || LIVESTOCK_HOUSE.has(b.type)) || (b.size ?? 1) >= 4) return null;
+  if (!b || !MERGEABLE(b.type) || (b.size ?? 1) >= 4) return null;
   const w = worldOf(s, b.region), p = w.pos[`b:${b.id}`], fp = footprintOf(s, `b:${b.id}`);
   if (!p || !fp) return null;
   const into = mergedName(b.type, BUILDINGS[b.type].name, (b.size ?? 1) * 2);
-  const mate = s.buildings.find((x) => { if (x === b || x.type !== b.type || x.region !== b.region || (x.size ?? 1) !== (b.size ?? 1)) return false; const q = w.pos[`b:${x.id}`], fq = footprintOf(s, `b:${x.id}`); return !!q && !!fq && fq.w === fp.w && fq.d === fp.d && ((q[1] === p[1] && Math.abs(q[0] - p[0]) === fp.w + 1) || (q[0] === p[0] && Math.abs(q[1] - p[1]) === fp.d + 1)); });
-  if (!mate) return { b, mate: null, into, ready: false, price: 0, why: b.level < 3 ? `upgrade it to level 3 first (now level ${b.level}), then stand another beside it` : `Stand another ${BUILDINGS[b.type].name.toLowerCase()}${b.size === 2 ? ' works' : ''} beside it, a lane apart.` };
-  const q = w.pos[`b:${mate.id}`]!, origin: [number, number] = [Math.min(p[0], q[0]), Math.min(p[1], q[1])], span: [number, number] = q[1] === p[1] ? [fp.w * 2 + 1, fp.d] : [fp.w, fp.d * 2 + 1];
+  // the nearest partner of the same kind and size close by: the merged building takes the ground of both, side by side or one behind the other
+  const near = (x: typeof b) => { if (x === b || x.type !== b.type || x.region !== b.region || (x.size ?? 1) !== (b.size ?? 1)) return Infinity; const q = w.pos[`b:${x.id}`], fq = footprintOf(s, `b:${x.id}`); if (!q || !fq || fq.w * fq.d !== fp.w * fp.d) return Infinity; // the same building, either way round
+    const dx = Math.abs(q[0] - p[0]), dy = Math.abs(q[1] - p[1]); return dx <= fp.w * 2 + 4 && dy <= fp.d * 2 + 4 ? dx + dy : Infinity; };
+  const mate = s.buildings.map((x) => ({ x, d: near(x) })).filter((m) => m.d < Infinity).sort((a, c) => a.d - c.d)[0]?.x;
+  const name = BUILDINGS[b.type].name.toLowerCase();
+  if (!mate) return { b, mate: null, into, ready: false, price: 0, spots: [], why: b.level < 3 ? `upgrade it to level 3 first (now level ${b.level}), then build another close beside it` : `build another level-3 ${name} close beside it` };
+  const q = w.pos[`b:${mate.id}`]!, wide: [number, number] = [fp.w * 2 + 1, fp.d], tall: [number, number] = [fp.w, fp.d * 2 + 1], lx = Math.min(p[0], q[0]), ty = Math.min(p[1], q[1]);
+  // where the merged building may stand: along the line between them first, then across it, starting from either one
+  const across = Math.abs(q[0] - p[0]) >= Math.abs(q[1] - p[1]);
+  const spots: { origin: [number, number]; span: [number, number] }[] = (across ? [[lx, p[1], wide], [lx, q[1], wide], [p[0], ty, tall], [q[0], ty, tall]] : [[p[0], ty, tall], [q[0], ty, tall], [lx, p[1], wide], [lx, q[1], wide]]).map(([x, y, sp]) => ({ origin: [x as number, y as number], span: sp as [number, number] }));
+  // failing that, the merged building may grow out from either one's own ground (the other's is freed)
+  for (const [x, y] of [p, q]) spots.push({ origin: [x, y], span: wide }, { origin: [x - fp.w - 1, y], span: wide }, { origin: [x, y], span: tall }, { origin: [x, y - fp.d - 1], span: tall });
+  const { origin, span } = spots[0];
   const ready = b.level >= 3 && mate.level >= 3 && b.active && mate.active;
-  return { b, mate, into, ready, origin, span, price: Math.round((b.cost + mate.cost) * 0.25), why: ready ? '' : b.level < 3 || mate.level < 3 ? `upgrade both to level 3 first (now level ${b.level} and ${mate.level})` : 'both must be running' };
+  return { b, mate, into, ready, origin, span, spots, price: Math.round((b.cost + mate.cost) * 0.25), why: ready ? '' : b.level < 3 || mate.level < 3 ? `upgrade both to level 3 first (now level ${b.level} and ${mate.level})` : 'both must be running' };
 }
 /** One crew clears forest patch by patch; each finished patch adds timber to storage. */
 function worldTick(s: GameState) {
@@ -750,21 +760,22 @@ export function dispatch(s: GameState, a: Action): ActionResult {
     }
     case 'mergeBuilding': {
       const g = factoryMerge(s, a.buildingId);
-      if (!g) return fail('Only food factories and animal houses merge.');
+      if (!g) return fail('Only factories, animal houses, stores and power plants merge.');
       if (!g.mate || !g.ready) return fail(`To merge, ${g.why}.`);
       if (streetJammed(s, g.b.region, `b:${g.b.id}`) || streetJammed(s, g.mate.region, `b:${g.mate.id}`)) return fail(JAM_TEXT);
       if (g.price > s.cash) return fail(`Merging costs $${g.price.toLocaleString()}.`);
       const { b, mate } = g, w = worldOf(s, b.region), before = structuredClone({ pos: w.pos, rot: w.rot, roads: w.roads, links: w.links });
       forget(s, b.region, `b:${b.id}`); forget(s, b.region, `b:${mate.id}`);
-      const lifted = liftTracks(s, b.region, g.origin![0], g.origin![1], g.span![0], g.span![1]);
-      const blocked = placeProblem(s, b.region, g.origin![0], g.origin![1], { w: g.span![0], d: g.span![1] }, undefined, LIVESTOCK_HOUSE.has(b.type) ? 'building' : 'industry');
-      if (blocked) { Object.assign(w, before); touch(w); return fail(blocked === 'road' ? 'A road runs between them: remove it first.' : blocked === 'zone' ? 'A works stands on industrial land: zone the lane between them too.' : 'Something stands between them: clear the lane first.'); }
+      // the first spot that is clear once both are gone (tracks lifted), else the reason the first one is not
+      let lifted: string[] = [], blocked: ReturnType<typeof placeProblem> = 'occupied';
+      for (const sp of g.spots) { const snap = structuredClone({ roads: w.roads, links: w.links }); lifted = liftTracks(s, b.region, sp.origin[0], sp.origin[1], sp.span[0], sp.span[1]); const why = placeProblem(s, b.region, sp.origin[0], sp.origin[1], { w: sp.span[0], d: sp.span[1] }, undefined, buildingUse(s, b.type, 3)); if (!why) { g.origin = sp.origin; g.span = sp.span; blocked = null; break; } if (blocked === 'occupied') blocked = why; Object.assign(w, snap); touch(w); }
+      if (blocked) { Object.assign(w, before); touch(w); return fail(`No room for the ${g.into.toLowerCase()} (${g.span![0]}×${g.span![1]} tiles): ${blocked === 'road' ? 'a road' : blocked === 'zone' ? 'land of the wrong zone' : 'another building or field'} is in the way beside them. Clear the space between them, or beside one of them.`); }
       post(s, 'building', -g.price, `${g.into} (two merged)`, b.region);
       s.buildings.splice(s.buildings.indexOf(mate), 1);
       for (const f of s.fields) if (f.supplies === mate.id) f.supplies = b.id;
       b.size = (b.size ?? 1) * 2; b.span = g.span; b.cost = b.cost + mate.cost + g.price; b.depreciated += mate.depreciated; b.reserved = (b.reserved ?? 0) + (mate.reserved ?? 0);
       w.pos[`b:${b.id}`] = g.origin!; touch(w); connect(s, b.region, `b:${b.id}`); for (const k of lifted) if (w.pos[k]) connect(s, b.region, k);
-      log(s, 'opportunity', LIVESTOCK_HOUSE.has(b.type) ? `${g.into} opened: room for ${b.size === 4 ? 'nearly five' : 'more than two'} houses' worth of animals, looked after by fewer hands.` : `${g.into} opened: it does the work of ${b.size === 4 ? 'nearly five' : 'more than two'} factories on fewer hands.`, 'farm');
+      log(s, 'opportunity', STORE_OR_POWER.has(b.type) ? `${g.into} opened: ${b.size === 4 ? 'six' : 'two and a half'} buildings' worth on fewer hands.` : LIVESTOCK_HOUSE.has(b.type) ? `${g.into} opened: room for ${b.size === 4 ? 'six' : 'two and a half'} houses' worth of animals, looked after by fewer hands.` : `${g.into} opened: it does the work of ${b.size === 4 ? 'six' : 'two and a half'} factories on fewer hands.`, 'farm');
       return ok(`🎉 ${g.into} opened!`);
     }
     case 'planPlacement': {

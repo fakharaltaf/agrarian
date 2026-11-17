@@ -4,8 +4,8 @@ import { BUILDINGS, GOODS, type GoodId, type RegionId } from './config';
 import { levelMult } from './core';
 import type { Building, GameState } from './types';
 
-export function solarCapacity(b: Pick<Building, 'type' | 'level'>): number {
-  return (BUILDINGS[b.type].solarKw ?? 0) * levelMult(b.level);
+export function solarCapacity(b: Pick<Building, 'type' | 'level' | 'size'>): number {
+  return (BUILDINGS[b.type].solarKw ?? 0) * levelMult(b.level) * (b.size === 4 ? 6 : b.size === 2 ? 2.6 : 1);
 }
 
 /** A region has one retail channel. Duplicating centres never stacks their premiums. */

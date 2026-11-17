@@ -6,7 +6,7 @@ import { larderReserve } from './stages/settlement';
 // Factories, energy and building upkeep. One production model for every industry:
 // batches = min(capacity, scarcest input, output room, power) — Leontief, like a real line.
 import { BUILDINGS, COWS_PER_DAIRY_BATCH, FACTORY_GOODS, GOODS, REGIONS, REGION_IDS, SUNRISE, SUNSET, type GoodId, type RegionId } from './config';
-import { buildingDivision, clamp, electricityPrice, execOn, freeSpace, has, hour, levelMult, throughput, post, priceUsd, round2, reserveCap, reservedStock, severity , sizeStaff } from './core';
+import { buildingDivision, clamp, electricityPrice, execOn, freeSpace, has, hour, levelMult, throughput, post, priceUsd, round2, reserveCap, reservedStock, severity , sizeStaff , sizeOutput } from './core';
 import { addGoods } from './agriculture';
 import { avg30 } from './markets';
 import { drawOil, wellField } from './oil';
@@ -54,7 +54,7 @@ export function buildingsTick(s: GameState) {
         if (r === 'heartland' && townOf(s).active) payHouseholds(s, staff * townOf(s).factoryShare);
       }
       if (def.coldKwh) reg.powerUse += def.coldKwh * (has(s, 'coldChain') ? 1.3 : 1);
-      const solar=(def.solarKw?solarCapacity(b)*solarOutput(s,r):0)+(def.windKw?def.windKw*levelMult(b.level)*windOutput(s,r):0);
+      const solar=(def.solarKw?solarCapacity(b)*solarOutput(s,r):0)+(def.windKw?def.windKw*levelMult(b.level)*sizeOutput(b)*windOutput(s,r):0);
       gen+=solar;
       if(solar>0)energySources.push({b,kwh:solar});
       if(!def.recipe&&(def.category==='energy'||def.category==='commerce')) {

@@ -1294,6 +1294,7 @@ export function buildOffice(level: 1 | 2 | 3, w = 3, d = 3, key = ''): Model {
 const WORKS_LOOK: Record<string, { wall: number; roof: number; door: 'barn' | 'house' | 'roller' }> = {
   flourMill: { wall: 0xe9e2d2, roof: PAL.roofRed, door: 'roller' }, bakery: { wall: PAL.brick, roof: PAL.roofBrown, door: 'roller' }, feedMill: { wall: 0x9aa59c, roof: PAL.roofGrey, door: 'roller' },
   ranch: { wall: PAL.barnRed, roof: PAL.roofGrey, door: 'barn' }, dairy: { wall: PAL.white, roof: PAL.roofBlue, door: 'roller' }, creamery: { wall: PAL.cream, roof: PAL.roofBlue, door: 'roller' },
+  barn: { wall: PAL.barnRed, roof: PAL.roofGrey, door: 'barn' }, coldStore: { wall: PAL.white, roof: PAL.roofBlue, door: 'roller' }, warehouse: { wall: 0xd7d2c4, roof: PAL.roofGrey, door: 'roller' },
   cowshed: { wall: PAL.barnRed, roof: PAL.roofGrey, door: 'barn' }, pigsty: { wall: 0xc9b49a, roof: PAL.roofBrown, door: 'barn' }, coop: { wall: PAL.cream, roof: PAL.roofRed, door: 'barn' }, sheepfold: { wall: 0x9a8a72, roof: PAL.roofGreen, door: 'barn' },
   oilPress: { wall: 0xd9b77e, roof: PAL.roofGreen, door: 'roller' }, sugarMill: { wall: PAL.brick, roof: PAL.roofGrey, door: 'roller' }, winery: { wall: 0xcfc4ad, roof: 0xb5643c, door: 'barn' },
 };
@@ -1303,6 +1304,13 @@ const lorry = (g: THREE.Group, x: number, z: number, c: number, rot = 0) => { co
 const LIVESTOCK_LOOK: Record<string, [number[], number, number]> = { cowshed: [[0x2a2a2a, 0xf4f2ec, 0x6e4a2f], 5, 0.46], pigsty: [[0xe8a3a0, 0xd98a86], 6, 0.36], coop: [[0xf4f2ec, 0xc96a3a], 10, 0.18], sheepfold: [[0xf1e6cc, 0xe3d8c0], 7, 0.36] };
 /** A merged factory drawn as one larger works (size 2) or plant (size 4), in the colours and with the trade marks of the building it grew from. */
 export function buildWorks(type: string, size: 2 | 4, w: number, d: number): Model {
+  if (type === 'silo' || type === 'solar' || type === 'windTurbine' || type === 'biogas') { // these grow by standing more of themselves together on one pad
+    const g0 = new THREE.Group(), smoke0: THREE.Vector3[] = [], [fw, fd] = ({ silo: [2, 2], solar: [5, 3], windTurbine: [2, 2], biogas: [3, 3] } as Record<string, [number, number]>)[type];
+    g0.add(box(w - 0.1, 0.05, d - 0.1, PAL.stone, w / 2, 0, d / 2, { rough: 1 }));
+    for (let x = 0; x + fw <= w + 0.01; x += fw + 1) for (let z = 0; z + fd <= d + 0.01; z += fd + 1) { const m = buildLot(type as Lot['type'], fw, fd, '', 3); m.group.position.set(x, 0, z); g0.add(m.group); smoke0.push(...m.smoke.map((p) => new THREE.Vector3(p.x + x, p.y, p.z + z))); }
+    if (type === 'silo') { g0.add(box(0.3, 3.6, 0.3, 0xc0392b, w / 2, 0, d / 2), box(0.4, 0.3, 0.4, PAL.metalDark, w / 2, 3.6, d / 2)); } // one elevator leg serves them all
+    return finish(g0, smoke0);
+  }
   const g = new THREE.Group(), L = WORKS_LOOK[type] ?? WORKS_LOOK.flourMill, smoke: THREE.Vector3[] = [], big = size === 4;
   let pen: Model['pen'];
   g.add(box(w - 0.1, 0.06, d - 0.1, PAL.stone, w / 2, 0, d / 2, { rough: 1 }));
@@ -1316,6 +1324,12 @@ export function buildWorks(type: string, size: 2 | 4, w: number, d: number): Mod
   if (type === 'flourMill') { g.add(box(1.0, wh + 1.5, 0.9, L.wall, 0.25 + hw - 0.5, 0.06, 0.25 + hd / 2), box(1.1, 0.1, 1.0, PAL.metalDark, 0.25 + hw - 0.5, wh + 1.56, 0.25 + hd / 2)); for (let f = 0; f < 2; f++) glassWin(g, 0.5, 0.3, 0.25 + hw - 0.5, wh + 0.5 + f * 0.55, 0.25 + hd / 2 + 0.46); row(big ? 4 : 2, (x, z) => silo(g, x, z, 0.38, big ? 2.9 : 2.5)); g.add(box(0.3, big ? 3.6 : 3.1, 0.3, 0xc0392b, fx + fw / 2, 0.06, fz + 0.1), box(0.4, 0.3, 0.4, PAL.metalDark, fx + fw / 2, big ? 3.66 : 3.16, fz + 0.1)); for (let i = 0; i < 3; i++) sack(g, 0.6 + i * 0.3, d - 0.4); }
   else if (type === 'bakery') { for (let i = 0; i < (big ? 4 : 2); i++) smoke.push(chimney(g, 0.8 + i * ((hw - 1) / (big ? 3 : 1)), 0.25 + hd * 0.3, wh + 0.2, 1.0)); row(big ? 2 : 1, (x, z, i) => lorry(g, x, z + 0.4, [0xd98a3a, 0xf4f2ec][i % 2])); awning(g, Math.min(2, hw - 0.5), 0.5, 0.75, 0.25 + hd + (big ? hd + 0.5 : 0) + 0.02, 0xd98a3a, 0xfff3dc); crate(g, 0.8, d - 0.35, 0xc98a4a); }
   else if (type === 'feedMill') { row(big ? 4 : 2, (x, z) => { g.add(cyl(0.34, 0.9, 0xc9cfc8, x, 1.0, z, 12), cone(0.34, 0.5, 0xc9cfc8, x, 0.5, z, 12)); for (const [dx, dz] of [[-0.25, -0.25], [0.25, -0.25], [-0.25, 0.25], [0.25, 0.25]]) g.add(box(0.05, 1.0, 0.05, PAL.metalDark, x + dx, 0.06, z + dz)); }); const cv = box(0.16, 0.1, Math.hypot(1.6, 1.2), PAL.metalDark, fx - 0.1, 1.5, fz + 0.9); cv.rotation.x = -0.6; g.add(cv); pallet(g, 0.7, d - 0.4, 0xd8c9a0); pallet(g, 1.15, d - 0.4, 0xc9b98a); }
+  else if (type === 'barn' || type === 'coldStore' || type === 'warehouse') { // a stores yard: loading docks along the halls, pallets and a forklift
+    for (let i = 0; i < (big ? 6 : 3); i++) pallet(g, fx + 0.3 + (i % 3) * 0.45, d - 0.5 - Math.floor(i / 3) * 0.5, [0xd8aa54, 0x9a6b44, 0xc9b49a][i % 3]);
+    g.add(box(0.3, 0.25, 0.4, 0xe0b23a, fx + fw - 0.4, 0, d - 0.5), box(0.04, 0.5, 0.04, PAL.metalDark, fx + fw - 0.4, 0.25, d - 0.32));
+    if (type === 'coldStore') for (let i = 0; i < (big ? 4 : 2); i++) g.add(box(0.45, 0.3, 0.3, PAL.metal, 0.6 + i * 0.6, wh + 0.2, 0.25 + hd / 2));
+    if (type !== 'barn') lorry(g, fx + fw / 2, 0.9, type === 'coldStore' ? 0xf4f2ec : 0x3f6f9a, Math.PI / 2);
+  }
   else if (type in LIVESTOCK_LOOK) { // animal houses: one big yard beside the barns, a silo, troughs, and the animals out in it
     const [col, n, sz] = LIVESTOCK_LOOK[type];
     fenceRect(g, fw + 0.1, d - 0.7, fx - 0.05, 0.3, 0.32);

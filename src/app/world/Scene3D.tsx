@@ -2074,7 +2074,7 @@ function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el
       const mg=lot.service?mergeGroup(s,lot.service.id):null;
       const fm=lot.buildings[0]?factoryMerge(s,lot.buildings[0].id):null;
       const merge=mg?.complete?button('merge:0',`⧉ Merge into ${mg.into} · ${money(mg.price)}`):fm?.ready?button('merge:0',`⧉ Merge into a ${fm.into} · ${money(fm.price)}`):'';
-      if(fm?.mate&&!fm.ready){const [hx,hy]=project(lot.x+lot.w/2,0.6,lot.y+lot.d+0.5);want.push({key:'merge-hint',x:hx,y:hy,html:`To merge: ${fm.why}`,cls:'wl-note'});}
+      if(fm&&!fm.ready&&(fm.mate||lot.buildings[0].level>=3)){const [hx,hy]=project(lot.x+lot.w/2,0.6,lot.y+lot.d+0.5);want.push({key:'merge-hint',x:hx,y:hy,html:`To merge: ${fm.why}`,cls:'wl-note'});}
       if(mg&&!mg.complete&&mg.members.length>1){const [hx,hy]=project(mg.origin[0]+mg.step-0.5,0.6,mg.origin[1]+mg.step-0.5);want.push({key:'merge-hint',x:hx,y:hy,html:`${mg.members.length}/4 for a ${mg.into}`,cls:'wl-note'});}
       want.push({key:'place-act',x:Math.max(100,Math.min(W-100,px)),y:Math.max(80,Math.min(H-30,py)),html:merge+(lot.key.startsWith('community:apartment:')&&(lot.level??1)<3?button('homeup:0',(lot.level??1)===1?'⬆ Mid-rise':'⬆ Tower'):'')+button('place:0',label)+(lot.type==='oilWell'?'':button('movelot:0','✥ Move'))+button('inspect:0','ⓘ'),cls:'wl-radial'});
     }

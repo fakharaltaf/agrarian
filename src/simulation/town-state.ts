@@ -42,11 +42,11 @@ export const MARKET_NAME: Record<ShopType, string> = { shopBaker: "Bakers' hall"
 export const svcSize = (b: { size?: number }) => b.size ?? 1;
 /** Tiles a side: a shop is 3; a market takes its four shops and the lanes between them (7); the mall its four markets (15). */
 export const svcSide = (b: { size?: number }) => (svcSize(b) >= 4 ? 15 : svcSize(b) === 2 ? 7 : 3);
-/** What four of a town building become when they stand in a square and merge: one bigger place that reaches further (or serves a quarter more families). */
+/** What four of a town building become when they stand in a square and merge: one bigger place that reaches further (or serves 60% more families). */
 export const MERGED_NAME: Partial<Record<ServiceType, string>> = { school: 'School campus', clinic: 'Health centre', hospital: 'General hospital', well: 'Pump house', waterTower: 'Reservoir', waterworks: 'Water treatment works', sanitation: 'Sanitation plant', lighting: 'Power plant', police: 'Police headquarters', park: 'City park' };
 export const serviceName = (b: { type: ServiceType; size?: number }) => (svcSize(b) >= 2 ? (isShop(b.type) ? MARKET_NAME[b.type] : MERGED_NAME[b.type] ?? SERVICE_DEFS[b.type].name) : SERVICE_DEFS[b.type].name);
-/** A market draws a quarter more custom than shops do; a mall a little more again for each extra trade inside. */
-export const shopPull = (b: { type: ServiceType; size?: number; kinds?: ShopType[] }) => (b.type === 'mall' ? 1.25 * (1 + 0.05 * Math.max(0, (b.kinds?.length ?? 1) - 1)) : svcSize(b) >= 2 ? 1.25 : 1);
+/** A market draws half again as much custom as shops do; a mall more still, and more for each extra trade inside. */
+export const shopPull = (b: { type: ServiceType; size?: number; kinds?: ShopType[] }) => (b.type === 'mall' ? 1.8 * (1 + 0.08 * Math.max(0, (b.kinds?.length ?? 1) - 1)) : svcSize(b) >= 2 ? 1.5 : 1);
 export const sellsKind = (b: { type: ServiceType; kinds?: ShopType[] }, kind: ShopType) => b.type === kind || (b.type === 'mall' && !!b.kinds?.includes(kind));
 /** What merging costs: a quarter of what the four cost to build. */
 export const mergePrice = (group: { cost: number }[]) => Math.round(group.reduce((n, b) => n + b.cost, 0) * 0.25);
@@ -103,7 +103,7 @@ export const townIndustryFactor = (s: GameState, r: RegionId) => {
   const t=townOf(s); return r==='heartland' && t.active ? (1 + t.factoryShare * (.08*t.education*(t.charter==='trade' && s.tick>=t.retrainingUntil ? 1 : .3) - .1*(1-t.health))) : 1;
 };
 export function factoryJobs(s: GameState) {
-  return s.buildings.reduce((n,b)=>n+(b.active && b.region==='heartland' ? Math.ceil(BUILDINGS[b.type].staffPerHour * (1+.3*(b.level-1)) * (b.size===4?3.2:b.size===2?1.8:1)/12)*2 : 0),0);
+  return s.buildings.reduce((n,b)=>n+(b.active && b.region==='heartland' ? Math.ceil(BUILDINGS[b.type].staffPerHour * (1+.3*(b.level-1)) * (b.size===4?2.5:b.size===2?1.5:1)/12)*2 : 0),0);
 }
 /** Services that reach homes as a heat map round the building: full within their reach, then fading out beyond it. */
 export const HEAT_SERVICES: ServiceType[] = ['school', 'clinic', 'well', 'police', 'park'];
@@ -121,9 +121,9 @@ export const UTILITY_FAMILIES: Partial<Record<ServiceType, number>> = { lighting
 /** Level 1–3: how far a heat-map service reaches, how many families a utility serves, and how much a service can take on. */
 const LEVEL_REACH = [1, 1.5, 2], LEVEL_FAMILIES = [1, 2, 3.5], LEVEL_CAPACITY = [1, 1.6, 2.2];
 export const levelOf = (b: { level?: number }) => Math.max(1, Math.min(3, b.level ?? 1));
-export const serviceRadius = (b: { type: ServiceType; level?: number; size?: number }) => (b.type === 'mall' ? 60 : (SERVICE_RADIUS[b.type] ?? 10) * (svcSize(b) >= 2 ? 1.8 : 1)) * LEVEL_REACH[levelOf(b) - 1];
-export const utilityFamilies = (b: { type: ServiceType; level?: number; count: number; size?: number }) => (UTILITY_FAMILIES[b.type] ?? 0) * b.count * LEVEL_FAMILIES[levelOf(b) - 1] * (svcSize(b) >= 2 ? 1.25 : 1);
-export const levelCapacity = (b: { level?: number; size?: number }) => LEVEL_CAPACITY[levelOf(b) - 1] * (svcSize(b) >= 2 ? 1.25 : 1);
+export const serviceRadius = (b: { type: ServiceType; level?: number; size?: number }) => (b.type === 'mall' ? 60 : (SERVICE_RADIUS[b.type] ?? 10) * (svcSize(b) >= 2 ? 2.2 : 1)) * LEVEL_REACH[levelOf(b) - 1];
+export const utilityFamilies = (b: { type: ServiceType; level?: number; count: number; size?: number }) => (UTILITY_FAMILIES[b.type] ?? 0) * b.count * LEVEL_FAMILIES[levelOf(b) - 1] * (svcSize(b) >= 2 ? 1.6 : 1);
+export const levelCapacity = (b: { level?: number; size?: number }) => LEVEL_CAPACITY[levelOf(b) - 1] * (svcSize(b) >= 2 ? 1.6 : 1);
 export const canUpgradeService = (type: ServiceType) => HEAT_SERVICES.includes(type) || !!UTILITY_OF[type] || type === 'office' || type === 'mall' || type === 'parking';
 /** What street a town building needs at its door, by what it is and how big. */
 export function serviceNeed(b: { type: ServiceType; level?: number; size?: number }): LaneNeed {
