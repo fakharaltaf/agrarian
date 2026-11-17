@@ -3,7 +3,7 @@ import { upgradeNeedsPower } from '../../simulation/stages/shared';
 import { bestCrop } from '../crops';
 import { DRILL_PRICE, wellField, oilReading, readingWord, struckFields, SURVEY_PRICE, SURVEY_R, surveyedAt } from '../../simulation/oil';
 import {cityActive} from '../../simulation/city-state';
-import { isShop } from '../../simulation/town-state';
+import { isShop, serviceName, svcSize, SERVICE_RADIUS } from '../../simulation/town-state';
 import { townOf, SERVICE_DEFS, UTILITY_OF, levelOf, serviceUpgradePrice, utilityFamilies, serviceRadius, canUpgradeService } from '../../simulation/town-state';
 // Everything that floats over the world: objective, selection panel, market, land, region switcher.
 import { useEffect, useRef, useState } from 'react';
@@ -311,7 +311,7 @@ function ZoneBar({ z }: { z: Zoning }) {
   return <div className="placement-bar road-bar" role="dialog" aria-label="Zones">
     <div className="placement-info"><b>🏘 Zones</b><span className="muted">{z.zone === 'res' ? 'Tap your land: homes for workers\' families go here (no fields)' : z.zone === 'ind' ? 'Tap your land: for industrial-scale plants' : z.zone === 'com' ? 'Tap your land: shops and offices go here' : 'Tap a zoned patch to make it farmland again'}</span></div>
     <div className="seg" role="group" aria-label="Zone">
-      {(cityActive(useGame()) ? ['res', 'com', 'ind', 'farm'] as const : ['res', 'ind', 'farm'] as const).map((t) => <button key={t} className={`btn ${z.zone === t ? 'primary' : 'ghost'}`} aria-pressed={z.zone === t} onClick={() => setZoneTool(t)}>{t === 'res' ? '🏠 Residential' : t === 'com' ? '🏪 Commercial' : t === 'ind' ? '🏭 Industrial' : '🌾 Farmland'}</button>)}
+      {(townOf(useGame()).active ? ['res', 'com', 'ind', 'farm'] as const : ['res', 'ind', 'farm'] as const).map((t) => <button key={t} className={`btn ${z.zone === t ? 'primary' : 'ghost'}`} aria-pressed={z.zone === t} onClick={() => setZoneTool(t)}>{t === 'res' ? '🏠 Residential' : t === 'com' ? '🏪 Commercial' : t === 'ind' ? '🏭 Industrial' : '🌾 Farmland'}</button>)}
     </div>
     <button className="btn ghost" onClick={() => stopZoning()}>Done</button>
   </div>;
@@ -433,7 +433,7 @@ function placementCost(s: GameState, p: Placement) {
   if (a.type === 'buyParcel') return parcelPrice(s, a.region, a.ha);
   if (a.type === 'build') return buildingPrice(s, a.building, a.region);
   if (a.type === 'buildHomes') return homePrice(s, a.tier) * a.count;
-  if (a.type === 'buildService') return servicePrice(s, a.service) * (a.count ?? 1);
+  if (a.type === 'buildService') return servicePrice(s, a.service) * (a.block ? 4 : a.count ?? 1);
   return 0;
 }
 
@@ -495,15 +495,17 @@ function HerdInfo({ s, lot }: { s: GameState; lot: Lot }) {
 function ServiceCard({ s, svc, onClose }: { s: GameState; svc: CivicService; onClose: () => void }) {
   const d = SERVICE_DEFS[svc.type], net = UTILITY_OF[svc.type], lv = levelOf(svc), price = serviceUpgradePrice(s, svc), [used, cap] = svc.serving ?? [0, Math.round(utilityFamilies(svc))];
   const full = !!net && cap > 0 && used >= cap;
-  return <Card title={<>{d.icon} {d.name} <span className="muted">· level {lv}</span></>} actions={<button className="icon-btn" onClick={onClose} aria-label="Close">✕</button>}>
+  const grows = canUpgradeService(svc.type) || (isShop(svc.type) && svcSize(svc) >= 2), reach = !!SERVICE_RADIUS[svc.type] || svc.type === 'mall';
+  return <Card title={<>{d.icon} {serviceName(svc)}{grows && <span className="muted"> · level {lv}</span>}</>} actions={<button className="icon-btn" onClick={onClose} aria-label="Close">✕</button>}>
     <div className="stack s">
       {net ? <><div className="row between small"><span className="muted">Families on its lines</span><b>{used} / {cap}</b></div><Bar value={cap ? used / cap : 0} label={`${used} / ${cap} families on its lines`} color={full ? 'var(--gold)' : 'var(--up)'} /></>
-        : <p className="small">{svc.type === 'police' ? 'Cuts crime' : 'Full service'} for <b>{Math.round(serviceRadius(svc))} tiles</b>, fading out over the next {Math.round(serviceRadius(svc) * 0.75)}.</p>}
+        : reach && <p className="small">{svc.type === 'police' ? 'Cuts crime' : isShop(svc.type) || svc.type === 'mall' ? 'Sells to homes' : 'Full service'} for <b>{Math.round(serviceRadius(svc))} tiles</b>, fading out over the next {Math.round(serviceRadius(svc) * 0.75)}.</p>}
       {full && <div className="callout warn">Full: upgrade it or build another to serve more homes.</div>}
       <div className="row wrap">
-        {lv < 3 && <button className="btn primary sm" disabled={price > s.cash} onClick={() => act({ type: 'upgradeService', serviceId: svc.id })}>⬆ Level {lv + 1} · {money(price)}</button>}
+        {grows && lv < 3 && <button className="btn primary sm" disabled={price > s.cash} onClick={() => act({ type: 'upgradeService', serviceId: svc.id })}>⬆ Level {lv + 1} · {money(price)}</button>}
         {net && <button className="btn ghost sm" onClick={() => { startPipes('heartland', net); onClose(); }}>🔌 Lay lines</button>}
-        {svc.type === 'police' ? <button className="btn ghost sm" onClick={() => go('city')}>City watch</button> : <button className="btn ghost sm" onClick={() => go('town')}>Town</button>}
+        <Confirm label="Demolish" className="btn danger sm" title={`Demolish this ${serviceName(svc).toLowerCase()}?`} body={`You get back about ${money(Math.round(svc.cost * 0.5))}. Homes it served lose the service; any lines stay in the ground.`} onConfirm={() => { act({ type: 'demolishService', serviceId: svc.id }); onClose(); }} confirmLabel="Demolish" />
+        {svc.type === 'police' || isShop(svc.type) || svc.type === 'mall' ? <button className="btn ghost sm" onClick={() => go('city')}>City</button> : <button className="btn ghost sm" onClick={() => go('town')}>Town</button>}
       </div>
     </div>
   </Card>;
@@ -527,7 +529,7 @@ function nuisanceChange(b: GameState['buildings'][number]) {
 function LotPanel({ s, lot, region, onClose }: { s: GameState; lot: Lot; region: RegionId; onClose: () => void }) {
   if(lot.service?.type==='barracks')return <Card title="Barracks"><button className="btn primary" onClick={()=>go('nation')}>Open Nation</button></Card>;
   if(lot.service?.type==='watchtower')return <Card title="Watchtower & militia"><button className="btn primary" onClick={()=>go('region')}>Open Region map</button></Card>;
-  if(lot.service&&canUpgradeService(lot.service.type))return <ServiceCard s={s} svc={townOf(s).services.find((b)=>b.id===lot.service!.id)??lot.service} onClose={onClose} />;
+  if(lot.service)return <ServiceCard s={s} svc={townOf(s).services.find((b)=>b.id===lot.service!.id)??lot.service} onClose={onClose} />;
   if (lot.key.startsWith('civic:')) return <Card title="Town services"><button className="btn primary" onClick={() => go('town')}>Open Town hall</button></Card>;
   if (lot.key.startsWith('community:')) return <Card title="Your neighbourhood"><div className="community-strip"><span title="People living here · homes filled">🏘️ {population(s)} people · {households(s)}/{homeFamilies(s)} homes</span><span>☺ {pct0(communityOf(s).happiness)}</span></div><button className="btn primary" onClick={() => go('community')}>Homes & families</button></Card>;
   if(lot.key==='market') return s.legacyProgression || stageAtLeast(s, 'market-town') ? <SellCard s={s} r={region}/> : <HomesteadTraderCard s={s}/>;

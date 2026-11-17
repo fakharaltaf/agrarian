@@ -20,7 +20,8 @@ export const canStartTown = (s: GameState) => communityOf(s).active && !townOf(s
 export function serviceAvailable(s: GameState, type: ServiceType): boolean {
   const t=townOf(s);
   if(type==='sanitation'||type==='lighting'||type==='waterTower')return t.active||cityActive(s); // the town's own utilities
-  if(type==='police'||isShop(type))return cityActive(s);
+  if(type==='police'||type==='mall')return cityActive(s);
+  if(isShop(type))return t.active; // shops open in the Town; they merge into markets in the City
   if(type==='watchtower')return regionActive(s);
   if(type==='barracks')return nationActive(s)&&nationOf(s).path==='army';
   if(type==='school'||type==='well') return true;
@@ -169,7 +170,7 @@ export function townDaily(s: GameState) {
     const live=t.services.filter(b=>sellsKind(b,kind)&&working(b)).map(b=>{const p=w.pos[`svc:${b.id}`],half=svcSide(b)/2;return p?{x:p[0]+half,y:p[1]+half,r:serviceRadius(b),pull:shopPull(b)}:null;}).filter(Boolean) as {x:number;y:number;r:number;pull:number}[];
     return homes.map(h=>Math.max(0,...live.map(v=>heatAt(Math.hypot(v.x-h.x,v.y-h.y),v.r)*v.pull)));
   };
-  if(cityActive(s)){const watchQ=heat(['police']),shopQ=SHOP_TYPES.map(shopHeat);cityOf(s).homes=homes.map((h,i)=>({id:h.id,families:h.families,power:powerQ[i],watch:watchQ[i],shops:Object.fromEntries(SHOP_TYPES.map((k,j)=>[k,shopQ[j][i]]).filter(([,v])=>v))}));} // the City reads street power and the watch per home
+  {const watchQ=heat(['police']),shopQ=SHOP_TYPES.map(shopHeat);cityOf(s).homes=homes.map((h,i)=>({id:h.id,families:h.families,power:powerQ[i],watch:watchQ[i],shops:Object.fromEntries(SHOP_TYPES.map((k,j)=>[k,shopQ[j][i]]).filter(([,v])=>v))}));} // the City reads street power and the watch per home
   for(const id of DISTRICT_IDS){const v=t.coverage[id];v.school=cover.school;v.water=cover.water;v.medical=cover.medical;v.road=1;}
   t.sanitation=cover.sanitation;t.power=cover.power;t.medical=cover.medical;
   const people=population(s);
@@ -212,7 +213,7 @@ function action(s: GameState,a:Action):ActionResult|null {
     log(s,'opportunity','Newcomers want to settle here too. Homes inside the reach of a school, a clinic and a water tower keep them healthy and happy.','town');
     return {ok:true};
   }
-  if(!['fundTown','setTownTax','buildService','upgradeService','toggleService','mergeService','changeSchools','answerPetition'].includes(a.type))return null;
+  if(!['fundTown','setTownTax','buildService','upgradeService','toggleService','mergeService','demolishService','changeSchools','answerPetition'].includes(a.type))return null;
   if(!t.active)return fail('Begin the Town chapter first.');
   if(a.type==='fundTown') {
     if(!Number.isFinite(a.amount)||a.amount<=0||a.amount!==round2(a.amount))return fail('Use a positive amount in whole cents.');
@@ -245,6 +246,7 @@ function action(s: GameState,a:Action):ActionResult|null {
   if(a.type==='mergeService') {
     const b=t.services.find(x=>x.id===a.serviceId),g=b&&mergeGroup(s,b.id);
     if(!b||!g)return fail('Only shops and markets merge.');
+    if(!cityActive(s))return fail('Shops merge into markets once your town is a City.');
     if(!g.complete)return fail(`${g.members.length} of 4 in place: ${svcSize(b)===2?'four markets':`four ${SERVICE_DEFS[b.type].name.toLowerCase()}s`} must stand together in a square.`);
     if(g.members.some(x=>!x.active))return fail('Reopen all four first.');
     if(s.cash<g.price)return fail(`Merging costs $${g.price.toLocaleString()}.`);
@@ -260,6 +262,12 @@ function action(s: GameState,a:Action):ActionResult|null {
     b.cost=cost;b.staffed=0;w0.pos[`svc:${b.id}`]=g.origin;touch(w0);connect(s,'heartland',`svc:${b.id}`);
     log(s,'opportunity',`${g.into} opened: it reaches ${Math.round(serviceRadius(b))} tiles and draws more custom than the shops it replaced.`,'city');
     return {ok:true,note:`🎉 ${g.into} opened!`};
+  }
+  if(a.type==='demolishService') { // half of what it cost comes back, like any building; its lines stay in the ground
+    const b=t.services.find(x=>x.id===a.serviceId);if(!b||b.type==='road')return fail('Service not found.');
+    t.services.splice(t.services.indexOf(b),1);forget(s,'heartland',`svc:${b.id}`);touch(worldOf(s,'heartland'));
+    post(s,'assetSale',Math.round(b.cost*.5),`Sold ${serviceName(b)}`,'heartland','corporate');
+    return {ok:true,note:`${serviceName(b)} demolished.`};
   }
   if(a.type==='toggleService') {const b=t.services.find(b=>b.id===a.serviceId);if(!b)return fail('Service not found.');b.active=!b.active;return {ok:true};}
   if(a.type==='changeSchools') {
@@ -295,6 +303,14 @@ function action(s: GameState,a:Action):ActionResult|null {
   }
   if(a.type==='buildService') {
     if(!SERVICE_DEFS[a.service]||!DISTRICT_IDS.includes(a.district)||!serviceAvailable(s,a.service))return fail('This service is not available yet.');
+    if(a.block){ // four shops in a square, a lane apart, ready to merge later
+      if(!isShop(a.service)||!a.at)return fail('Only shops are placed four at a time.');
+      const cost4=round2(servicePrice(s,a.service)*4);if(s.cash<cost4)return fail(`That costs $${cost4.toLocaleString()}.`);
+      const room=canPlaceNew(s,'heartland',{w:7,d:7},a.at,'shop');if(room)return fail(room);
+      post(s,'building',-cost4,`4 ${SERVICE_DEFS[a.service].name}`,'heartland','corporate');
+      for(let k=0;k<4;k++){const svc={id:nextId(s),type:a.service,district:a.district,count:1,cost:round2(cost4/4),active:true,staffed:0,funded:false};t.services.push(svc);placeNew(s,'heartland',`svc:${svc.id}`,[a.at[0]+(k%2)*4,a.at[1]+Math.floor(k/2)*4],a.rot);}
+      return {ok:true};
+    }
     const count=a.count??1;if(!Number.isInteger(count)||count<1||count>50)return fail('Build 1–50 service units.');
     const cost=round2(servicePrice(s,a.service)*count);if(s.cash<cost)return fail(`That costs $${cost.toLocaleString()}.`);
     // Roads are part of the street plan; other services stand on the map. A chosen spot always starts a new building.
@@ -308,6 +324,6 @@ function action(s: GameState,a:Action):ActionResult|null {
   return null;
 }
 export const town:StageModule={id:'town',title:'Town',legacyEras:[],eraUnlocks:{},
-  actionTypes:['startTown','fundTown','setTownTax','buildService','upgradeService','toggleService','mergeService','changeSchools','answerPetition'],
+  actionTypes:['startTown','fundTown','setTownTax','buildService','upgradeService','toggleService','mergeService','demolishService','changeSchools','answerPetition'],
   tips:['town-budget','town-services'],discoveries:['townSchool','townClinic','townCrime'],
   tick:townDaily,handleAction:action,createState:()=>createTownState() as unknown as Record<string,unknown>};

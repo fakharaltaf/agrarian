@@ -449,7 +449,7 @@ export type Action =
   | { type: 'startTown'; charter?: SchoolCharter }
   | { type: 'fundTown'; amount: number; direction: 'toTown' | 'repay' }
   | { type: 'setTownTax'; rate: number }
-  | { type: 'buildService'; service: ServiceType; district: DistrictId; count?: number; at?: [number, number]; rot?: number }
+  | { type: 'buildService'; service: ServiceType; district: DistrictId; count?: number; at?: [number, number]; rot?: number; /** four shops in a square */ block?: boolean }
   | { type: 'toggleService'; serviceId: number }
   | { type: 'changeSchools'; charter: SchoolCharter }
   | { type: 'answerPetition'; accept: boolean }
@@ -488,6 +488,7 @@ export type Action =
   | { type: 'upgradeAllLines'; region: RegionId; nets: import('./world').LineKind[] }
   | { type: 'setGst'; rate: number }
   | { type: 'mergeService'; serviceId: number }
+  | { type: 'demolishService'; serviceId: number }
   | { type: 'removePipe'; region: RegionId; at: [number, number]; net?: import('./world').NetKind }
   | { type: 'upgradeService'; serviceId: number }
   | { type: 'openFutures'; good: GoodId; contracts: number; days: number }

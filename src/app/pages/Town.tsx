@@ -7,6 +7,8 @@ import { serviceAvailable, serviceDailyCost } from '../../simulation/stages/town
 import type { ServiceType } from '../../simulation/types';
 import { portrait } from '../world/portrait';
 import { BuildCard, NextStep, StatTile, toneOf } from './civic';
+import { ShopsSection } from './Shops';
+import { cityActive } from '../../simulation/city-state';
 import { GOODS, type GoodId } from '../../simulation/config';
 import { TOWN_ORDER_PREMIUM } from '../../simulation/stages/town';
 
@@ -65,6 +67,7 @@ export default function TownPage() {
         lines={[does, `${UTILITY_FAMILIES[type] ? `${UTILITY_FAMILIES[type]} families by its lines` : `Reaches ${SERVICE_RADIUS[type] ?? 10} tiles`} · ${d.jobs} staff · ${money(Math.round(serviceDailyCost(s, type)))}/day`, <Bar thin key="b" value={cover[key]} label={`${d.name} coverage`} color={cover[key] >= 0.7 ? 'var(--up)' : 'var(--gold)'} />]}
         action={<button className="btn primary" disabled={price > s.cash} onClick={() => place(type)}>Place · {money(price)}</button>} />;
     })}</div>
+    {!cityActive(s) && <ShopsSection />}
     <p className="small muted civ-foot">Coverage is the share of families served, weighted by how well. Services cost {money(Math.round(upkeep))}/day, paid by the farm. <button className="btn ghost sm" onClick={() => go('community')}>Housing tax & pay cut →</button></p>
   </div>;
 }

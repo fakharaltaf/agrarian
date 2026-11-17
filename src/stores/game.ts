@@ -274,6 +274,7 @@ function placementFor(a: Action): { region: RegionId; w: number; d: number; labe
   if (a.type === 'buyParcel') return { region: a.region, w: plotSide(a.ha), d: plotSide(a.ha), label: `New field (${a.ha} ha)` };
   if (a.type === 'build') { const [w, d] = FOOTPRINT[a.building]; return { region: a.region, w, d, label: BUILDINGS[a.building].name }; }
   if (a.type === 'buildHomes') { const f = homeFootprint({ id: 0, tier: a.tier, count: 1, cost: 0 }); return { region: 'heartland', ...f, label: `${a.tier[0].toUpperCase()}${a.tier.slice(1)} home` }; }
+  if (a.type === 'buildService' && a.block) return { region: 'heartland', w: 7, d: 7, label: `4 × ${SERVICE_DEFS[a.service].name}` };
   if (a.type === 'buildService' && a.service !== 'road') return { region: 'heartland', ...SERVICE_FOOTPRINT, label: SERVICE_DEFS[a.service].name };
   return null;
 }

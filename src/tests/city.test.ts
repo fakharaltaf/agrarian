@@ -170,3 +170,21 @@ it('Four shops of a kind in a square merge into a market, four markets into the 
   expect(t.services.filter((b) => b.type.startsWith('shop')).length).toBe(0);
   expect(parseSave(JSON.stringify({ game: s })).game).toEqual(s);
 });
+
+it('Shops open in the Town: a square of four is placed in one go, they trade without GST before the City, and a shop can be demolished', async () => {
+  const W = await import('../simulation/world');
+  const s = ready(), t = townOf(s), w = W.worldOf(s, 'heartland'), c = communityOf(s), o: [number, number] = [W.MAP.x0 + 40, W.MAP.y0 + 8];
+  const chunks = [...new Set(Array.from({ length: 64 }, (_, i) => W.chunkAt(o[0] + (i % 8), o[1] + Math.floor(i / 8))))];
+  w.owned = [...new Set([...w.owned, ...chunks])]; w.cleared = [...new Set([...w.cleared, ...chunks])]; W.touch(w);
+  expect(dispatch(s, { type: 'zoneLand', region: 'heartland', chunks, zone: 'com' }).ok).toBe(true);
+  const cash = s.cash;
+  expect(dispatch(s, { type: 'buildService', service: 'shopBaker', district: 'farmgate', at: o, block: true }).ok).toBe(true);
+  const four = t.services.filter((b) => b.type === 'shopBaker'); expect(four.length).toBe(4); expect(w.pos[`svc:${four[3].id}`]).toEqual([o[0] + 4, o[1] + 4]);
+  expect(dispatch(s, { type: 'mergeService', serviceId: four[0].id }).ok).toBe(false); // markets come with the City
+  const paid = cash - s.cash; expect(dispatch(s, { type: 'demolishService', serviceId: four[0].id }).ok).toBe(true);
+  expect(t.services.filter((b) => b.type === 'shopBaker').length).toBe(3); expect(w.pos[`svc:${four[0].id}`]).toBeUndefined(); expect(s.cash - (cash - paid)).toBeCloseTo(paid / 8, 0);
+  // a day passes: the Town's shops trade, with no GST
+  cityOf(s).homes = [{ id: 1, families: 100, power: 1, watch: 0, shops: { shopBaker: 1 } }]; c.householdCash = 1e5; s.regions.heartland.inventory.bread = 1e4; c.larderHold = {};
+  s.tick = 24 * 50; cityDaily(s);
+  expect(cityOf(s).trade!.ours).toBeGreaterThan(0); expect(cityOf(s).trade!.gst).toBe(0);
+});

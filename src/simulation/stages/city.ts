@@ -56,7 +56,8 @@ export const MALL_SPEND=3;
 /** A day at the shops: families in each shop's reach buy its goods out of their savings, your stock first (at the local premium) and imports for the rest; GST on all of it comes to the farm. */
 export function cityTrade(s:GameState){
   const v=cityOf(s),c=communityOf(s),inv=s.regions.heartland.inventory,people=population(s),smug=v.case?.kind==='smuggling'?.7:1;
-  let budget=c.householdCash*SPEND_SHARE/(1+v.gst),ours=0,imports=0;const gaps:{good:typeof GOOD_IDS[number];value:number}[]=[];
+  const rate=v.active?v.gst:0; // GST comes with the City
+  let budget=c.householdCash*SPEND_SHARE/(1+rate),ours=0,imports=0;const gaps:{good:typeof GOOD_IDS[number];value:number}[]=[];
   for(const kind of SHOP_TYPES){
     const reach=shopReach(s,kind);if(!reach)continue;
     for(const [good,per] of Object.entries(SHOP_GOODS[kind]) as [typeof GOOD_IDS[number],number][]){
@@ -71,13 +72,14 @@ export function cityTrade(s:GameState){
   // a mall sells more than food: clothes, tools and treats, all brought in, all taxed
   const mall=townOf(s).services.find(b=>b.type==='mall'&&b.active&&b.staffed>0);
   if(mall){const other=round2(Math.min(Math.max(0,budget),people*shopReach(s,mall.kinds?.[0]??'shopGeneral')/1.25*MALL_SPEND*s.macro.cpi*(1+.1*((mall.kinds?.length??1)-1))));imports+=other;budget-=other;}
-  const spend=round2(ours+imports),gst=round2(spend*v.gst);
+  const spend=round2(ours+imports),gst=round2(spend*rate);
   c.householdCash=Math.max(0,round2(c.householdCash-spend-gst));
   if(gst>0)post(s,'gst',gst,'GST from city shops','heartland','corporate');
   v.trade={spend,ours:round2(ours),imports:round2(imports),gst,gaps:gaps.sort((a,b)=>b.value-a.value).slice(0,5)};
 }
 /** One bounded daily civic pass, after Town's: per-street crime from what reaches each home, then cases. */
 export function cityDaily(s:GameState) {
+  if(townOf(s).active&&s.tick%24===0&&cityOf(s).tradeDay!==Math.floor(s.tick/24)){cityOf(s).tradeDay=Math.floor(s.tick/24);cityTrade(s);} // shops trade from the Town chapter on
   if(!cityActive(s)||s.tick%24!==0)return;
   const v=cityOf(s),c=communityOf(s),day=Math.floor(s.tick/24),people=population(s);
   if(v.lastDay===day)return;v.lastDay=day;
@@ -87,7 +89,6 @@ export function cityDaily(s:GameState) {
   c.happiness=clamp(c.happiness+POLICE_CHARTERS[v.charter??'watch'].happiness*v.police,0,1);
   if(v.case?.kind==='gang')c.happiness=clamp(c.happiness-GANG_UNHAPPINESS,0,1);
   v.prevention*=.97;
-  cityTrade(s);
   // each street drifts a tenth of the way to its target a day; the city's crime is the families' average
   const p=cityPressure(s),w=watchStrength(s),before=v.homeCrime??{},next:Record<number,number>={};
   for(const h of homes){const now=before[h.id]??v.crime;next[h.id]=clamp(now+(homeCrimeTarget(s,h,p,w)-now)*.1,0,1);}

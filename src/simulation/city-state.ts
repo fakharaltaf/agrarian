@@ -31,7 +31,7 @@ export interface CityState {
   threatAt: number; safeDays: number;
   /** GST on shop sales: 0, 0.05 or 0.1 */
   gst: number;
-  trade?: CityTrade;
+  trade?: CityTrade; tradeDay?: number;
 }
 export function createCityState(): CityState {
   return {active:false,enteredAt:-1,charter:null,reformUntil:-1,justice:'rehabilitate',
@@ -39,10 +39,10 @@ export function createCityState(): CityState {
     case:null,nextCaseDay:-1,prevention:0,neighbourJobs:0,neighbourPayroll:0,employers:[],employmentDay:-1,solved:0,rehabilitated:0,punished:0,caseHistory:[],threatAt:-1,safeDays:0,gst:.05};
 }
 /** Share of families (weighted by how well) that a kind of shop reaches. */
-export const shopReach=(s:GameState,kind:ShopType)=>{const c=s.stageState.city as unknown as CityState|undefined,h=c?.active?c.homes??[]:[],n=h.reduce((a,x)=>a+x.families,0);return n?h.reduce((a,x)=>a+(x.shops?.[kind]??0)*x.families,0)/n:0;};
+export const shopReach=(s:GameState,kind:ShopType)=>{const c=s.stageState.city as unknown as CityState|undefined,h=c?.homes??[],n=h.reduce((a,x)=>a+x.families,0);return n?h.reduce((a,x)=>a+(x.shops?.[kind]??0)*x.families,0)/n:0;};
 const SHOPS:ShopType[]=['shopBaker','shopDairy','shopButcher','shopGrocer','shopGeneral'];
 /** Shops in reach lift the mood of the homes (up to +4% with all five kinds); GST takes some back (10% is a small net loss). */
-export const shopMood=(s:GameState)=>{const c=s.stageState.city as unknown as CityState|undefined;if(!c?.active)return 0;const r=SHOPS.map(k=>shopReach(s,k));return r.reduce((a,b)=>a+b,0)/5*.04-Math.max(...r)*c.gst*.5;};
+export const shopMood=(s:GameState)=>{const c=s.stageState.city as unknown as CityState|undefined;if(!c)return 0;const r=SHOPS.map(k=>Math.min(1,shopReach(s,k)));return r.reduce((a,b)=>a+b,0)/5*.04-Math.max(...r)*(c.active?c.gst:0)*.5;};
 export const cityOf=(s:GameState):CityState=>(s.stageState.city??=createCityState() as unknown as Record<string,unknown>) as unknown as CityState;
 export const POLICE_CHARTERS:Record<PoliceCharter,{name:string;icon:string;staff:number;suppression:number;happiness:number}>={
   watch:{name:'Community watch',icon:'🤝',staff:.5,suppression:.2,happiness:.002},
