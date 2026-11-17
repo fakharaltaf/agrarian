@@ -10,10 +10,11 @@ export interface OilState {
   /** survey centres by region: each reads the ground within SURVEY_R tiles */ surveys: Partial<Record<RegionId, [number, number][]>>;
   dry: Partial<Record<RegionId, [number, number][]>>;
   /** reserve used up per field (`region:index`), waste from over-drilling included */ drawn: Record<string, number>;
+  /** when oil was last struck on each field (`region:index`): the land rush cools after it */ struck?: Record<string, number>;
 }
 export function oilOf(s: GameState): OilState {
   const o = (s.oil ??= { surveys: {}, dry: {}, drawn: {} }) as OilState & { surveyed?: RegionId[] };
-  o.surveys ??= {}; o.dry ??= {}; o.drawn ??= {};
+  o.surveys ??= {}; o.dry ??= {}; o.drawn ??= {}; o.struck ??= {};
   if (o.surveyed) { // saves from when a survey read a whole region: keep a survey over each well already struck there
     for (const r of o.surveyed) for (const b of s.buildings) { const p = b.type === 'oilWell' && b.region === r ? worldOf(s, r).pos[`b:${b.id}`] : null; if (p && !(o.surveys[r] ?? []).some(([x, y]) => (x - p[0]) ** 2 + (y - p[1]) ** 2 < 100)) (o.surveys[r] ??= []).push([p[0] + 1, p[1] + 1]); }
     delete o.surveyed;
@@ -87,6 +88,14 @@ export function drawOil(s: GameState, b: Building, barrels: number) {
   const k = `${b.region}:${f.i}`, O = oilOf(s);
   O.drawn[k] = (O.drawn[k] ?? 0) + barrels * f.drain;
 }
+/** The land rush after a strike: full for a month, then easing back to normal prices over the next three if nothing new is struck there. */
+export const RUSH_DAYS = 30, COOL_DAYS = 90;
+export function rush(s: GameState, key: string) {
+  const at = oilOf(s).struck![key];
+  if (at === undefined) return 1; // struck before strikes were dated: treat it as fresh until the next one
+  const days = (s.tick - at) / 24;
+  return Math.max(0, Math.min(1, 1 - (days - RUSH_DAYS) / COOL_DAYS));
+}
 /** Once oil is struck it is no secret: land near a field that has (or had) wells costs up to 4× its price right over the oil, easing back to normal three field-widths away. */
 export function oilPremium(s: GameState, r: RegionId, chunk: number) {
   const [ox, oy] = chunkOrigin(chunk), x = ox + CHUNK / 2, y = oy + CHUNK / 2, O = oilOf(s);
@@ -95,7 +104,7 @@ export function oilPremium(s: GameState, r: RegionId, chunk: number) {
     const known = s.buildings.some((b) => b.type === 'oilWell' && b.region === r && wellField(s, b)?.i === i) || (O.drawn[`${r}:${i}`] ?? 0) > 0;
     if (!known) return;
     const near = Math.max(0, 1 - Math.hypot(x - f.x, y - f.y) / (f.r * 6));
-    best = Math.max(best, 1 + 3 * near * near);
+    best = Math.max(best, 1 + 3 * near * near * rush(s, `${r}:${i}`));
   });
   return best;
 }

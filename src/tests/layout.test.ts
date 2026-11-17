@@ -265,3 +265,16 @@ it('two level-3 factories side by side merge into a works, two works into a plan
   expect(plant.size).toBe(4); expect(W.footprintOf(s, `b:${plant.id}`)).toEqual({ w: 5, d: 5 }); expect(s.buildings.filter((b) => b.type === 'flourMill').length).toBe(1);
   for (let i = 0; i < 30; i++) step(s); // it runs
 });
+
+it('oil land prices rush after a strike and cool back to normal when nothing new is struck nearby', async () => {
+  const { oilOf, oilPremium, rush } = await import('../simulation/oil');
+  const W = await import('../simulation/world');
+  const s = createGame(1021), key = 'heartland:0', O = oilOf(s);
+  O.drawn[key] = 1; O.struck![key] = s.tick; // a field struck today
+  const { oilFields } = await import('../simulation/oil'); const f = oilFields('heartland')[0], c = W.chunkAt(Math.floor(f.x), Math.floor(f.y));
+  const hot = oilPremium(s, 'heartland', c); expect(hot).toBeGreaterThan(2);
+  s.tick += 24 * 29; expect(rush(s, key)).toBe(1); // still a rush within the month
+  s.tick += 24 * 46; expect(oilPremium(s, 'heartland', c)).toBeLessThan(hot); expect(oilPremium(s, 'heartland', c)).toBeGreaterThan(1);
+  s.tick += 24 * 60; expect(oilPremium(s, 'heartland', c)).toBe(1); // cooled right down
+  O.struck![key] = s.tick; expect(oilPremium(s, 'heartland', c)).toBeCloseTo(hot, 5); // a new strike starts it again
+});

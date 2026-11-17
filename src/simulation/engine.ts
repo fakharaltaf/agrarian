@@ -1,7 +1,7 @@
 import { FOOD_FACTORY } from './core';
 import { energyMix, oilOpen, upgradeNeedsPower } from './stages/shared';
 import { bestRetailCentre } from './facility-levels';
-import { DRILL_PRICE, oilChance, oilOf, SURVEY_PRICE, SURVEY_R, surveyedAt, landCostOf } from './oil';
+import { wellField, DRILL_PRICE, oilChance, oilOf, SURVEY_PRICE, SURVEY_R, surveyedAt, landCostOf } from './oil';
 import { haulDaily, haulOf, haulTick, usesCarts, VEHICLES } from './hauling';
 import { emptyProductionReport } from './production-report';
 import { payHouseholds } from './town-state';
@@ -583,6 +583,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
         const id = nextId(s);
         s.buildings.push({ id, type: 'oilWell', region: a.region, active: true, level: 1, cost, depreciated: 0, util: 0, reserved: 0, reason: '', productionReport: emptyProductionReport(), stats: { out: 0, inCost: 0, outValue: 0, opCost: 0 } });
         placeNew(s, a.region, `b:${id}`, at);
+        { const f = wellField(s, s.buildings.at(-1)!); if (f) oilOf(s).struck![`${a.region}:${f.i}`] = s.tick; } // land near it is in demand again
         log(s, 'opportunity', 'Oil! The exploration well struck crude. It now pumps oil you can sell at the market.', 'production');
         lean(s, 'cleanIndustrial', 10); // an oil town now
         return ok('🛢 Strike! The well is pumping crude oil.');
