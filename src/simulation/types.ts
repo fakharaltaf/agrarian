@@ -314,6 +314,8 @@ export interface SettlementState {
   homes: CommunityHome[];
   cohorts: HouseholdCohort[];
   householdCash: number;
+  /** what families paid the farm for yesterday's food, out of their savings */
+  foodPaid?: number;
   happiness: number;
   fed: number;
   warm: number;

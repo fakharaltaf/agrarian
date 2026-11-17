@@ -3,8 +3,8 @@ import { act, go, startZoning, useGame } from '../../stores/game';
 import { communityOf, familiesHere, HOME_DEFS, homeFamilies, homePrice, households, population } from '../../simulation/community-state';
 import { canStartTown } from '../../simulation/stages/town';
 import { townOf } from '../../simulation/town-state';
-import { foodDays } from '../../simulation/stages/settlement';
-import { CONFIG, GOODS, WORK_HOURS } from '../../simulation/config';
+import { foodBill, foodDays } from '../../simulation/stages/settlement';
+import { CONFIG, WORK_HOURS } from '../../simulation/config';
 import { marketWage } from '../../simulation/core';
 import { worldOf } from '../../simulation/world';
 import type { GameState, HomeTier } from '../../simulation/types';
@@ -23,8 +23,7 @@ function budget(s: GameState) {
   const base = residents.reduce((n, w) => n + (w.role === 'manager' ? CONFIG.managerWage * s.macro.cpi : marketWage(s, 'heartland')) * w.wageFactor * WORK_HOURS, 0);
   const cut = base * (c.payCut ?? 0), tax = base * (1 - (c.payCut ?? 0)) * (c.housingTax ?? 0);
   const upkeep = c.homes.reduce((n, h) => n + HOME_DEFS[h.tier].families * h.count * 0.5, 0) * s.macro.cpi;
-  const food = (population(s) * 2000 / GOODS.wheat.kcal) * (s.markets.heartland.wheat?.price ?? GOODS.wheat.basePrice);
-  return { cost: upkeep + food, back: cut + tax };
+  return { cost: upkeep + foodBill(s), back: cut + tax + (c.foodPaid ?? 0), food: c.foodPaid ?? 0 };
 }
 
 export default function CommunityPage() {
@@ -74,13 +73,14 @@ export default function CommunityPage() {
           action={<button className="btn primary" disabled={price * many > s.cash || !zoned} title={!zoned ? 'Zone land residential first' : undefined} onClick={() => place(tier)}>{many > 1 ? `Place ${many}` : 'Place'} · {money(price * many)}</button>} />;
       })}</div>
     </Card>
-    <Card title="Paying for it" info="Homes and food cost money. A pay cut, or a housing tax on the workers whose families live here, brings it back. Both cost morale; a home and a full larder make up for it.">
+    <Card title="Paying for it" info="Homes and food cost money. Families pay for their own food out of their savings (their wages); what they cannot pay, the farm carries. A pay cut, or a housing tax on the workers whose families live here, brings in more. Both cost morale; a home and a full larder make up for it.">
       <SettingRow name="Pay cut" effect={`morale −${Math.round((c.payCut ?? 0) * 80)}`}><Seg label="Pay cut" value={c.payCut ?? 0} onChange={(v) => act({ type: 'setSettlementPay', payCut: v })} options={STEPS.map((v) => ({ v, label: pct0(v) }))} /></SettingRow>
       <SettingRow name="Housing tax" effect={`morale −${Math.round((c.housingTax ?? 0) * 70)}`}><Seg label="Housing tax" value={c.housingTax ?? 0} onChange={(v) => act({ type: 'setSettlementPay', housingTax: v })} options={STEPS.map((v) => ({ v, label: pct0(v) }))} /></SettingRow>
       <div className="civ-balance">
         <span>Costs</span><i className="down" style={{ width: `${(b.cost / Math.max(1, b.cost, b.back)) * 100}%` }} /><b>{money(Math.round(b.cost))}/day</b>
         <span>Recovered</span><i className="up" style={{ width: `${(b.back / Math.max(1, b.cost, b.back)) * 100}%` }} /><b>{money(Math.round(b.back))}/day</b>
       </div>
+      {b.food > 0 && <p className="small muted">Families paid {money(Math.round(b.food))} for their own food yesterday.</p>}
       <p className={`small ${Math.abs(net) < Math.max(20, b.cost * 0.1) ? '' : net < 0 ? 'down' : 'up'}`}>{Math.abs(net) < Math.max(20, b.cost * 0.1) ? '⚖️ About break-even.' : net < 0 ? `Costs you about ${money(Math.round(-net))} a day. A home is worth +12 morale to each settled worker.` : `Brings in about ${money(Math.round(net))} a day, at a cost in morale.`}</p>
     </Card>
     <Card title="Larder">

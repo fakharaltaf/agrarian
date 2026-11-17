@@ -42,6 +42,8 @@ export function prepareLarder(s: GameState) {
   }
   c.larderHold = hold;
 }
+/** What a day's food for everyone is worth, at the price of grain. */
+export const foodBill = (s: GameState) => (population(s) * 2000 / GOODS.wheat.kcal) * (s.markets.heartland.wheat?.price ?? GOODS.wheat.basePrice);
 export function larderReserve(s: GameState, good: GoodId) {
   const c = communityOf(s);
   return c.active && c.autoLarder ? Math.max(0, Math.min(c.larderHold[good] ?? 0, s.regions.heartland.inventory[good])) : 0;
@@ -78,6 +80,10 @@ export function settlementTick(s: GameState) {
   const people = population(s);
   if (c.autoLarder && people) buyWithinCash(s, 'wheat', Math.max(0, people * 2000 * 4 - foodDays(s) * people * 2000) / GOODS.wheat.kcal);
   c.fed = eat(s, people * 2000);
+  // Families pay for what they eat out of their savings (wages from the farm, its factories and neighbours), at the price of grain.
+  // What they cannot pay, the farm carries: a settlement of a few hands' families costs you, a working town feeds itself.
+  const bill = foodBill(s) * c.fed; c.foodPaid = round2(Math.min(bill, c.householdCash));
+  if (c.foodPaid > 0) { c.householdCash = round2(c.householdCash - c.foodPaid); post(s, 'sale', c.foodPaid, 'Families paid for their food', 'heartland', 'corporate'); }
   s.stats.peopleFed += people * c.fed / 365;
   const fuelNeed = s.regions.heartland.temp < 10 ? people * 0.02 : 0;
   if (c.autoLarder && fuelNeed > s.regions.heartland.inventory.fuel) buyWithinCash(s, 'fuel', Math.ceil(fuelNeed - s.regions.heartland.inventory.fuel), true);

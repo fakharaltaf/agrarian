@@ -188,3 +188,13 @@ it('Shops open in the Town: a square of four is placed in one go, they trade wit
   s.tick = 24 * 50; cityDaily(s);
   expect(cityOf(s).trade!.ours).toBeGreaterThan(0); expect(cityOf(s).trade!.gst).toBe(0);
 });
+
+it('Families pay for their own food out of their savings; the farm only carries what they cannot pay', async () => {
+  const { foodBill } = await import('../simulation/stages/settlement');
+  const { progressionTick } = await import('../simulation/progression');
+  const s = ready(), c = communityOf(s); s.regions.heartland.inventory.wheat = 1e6; c.autoLarder = false;
+  c.householdCash = 1e6; c.lastDay = -1; s.tick = 24 * 30;
+  const cash = s.lifetime.sale ?? 0; progressionTick(s);
+  expect(c.fed).toBeCloseTo(1, 2); expect(c.foodPaid!).toBeCloseTo(foodBill(s), 0); expect((s.lifetime.sale ?? 0) - cash).toBeCloseTo(c.foodPaid!, 1); expect(c.householdCash).toBeLessThan(1e6);
+  c.householdCash = 10; s.tick += 24; progressionTick(s); expect(c.foodPaid).toBeLessThanOrEqual(10); expect(c.householdCash).toBeGreaterThanOrEqual(0); // broke families still eat
+});
