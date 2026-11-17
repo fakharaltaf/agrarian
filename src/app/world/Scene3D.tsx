@@ -16,7 +16,7 @@ import { priceUsd, stored } from '../../simulation/core';
 import { coverOf } from '../../simulation/agriculture';
 import { spreadNeed } from '../../simulation/agriculture';
 import type { GameState } from '../../simulation/types';
-import { getGame, getSpeed, moveGhost, placementUse, startZoning, stopZoning, zoneHover, zoneTap, type Zoning, prospectHover, prospectTap, roadHover, roadTap, roadDragStart, buildingsHidden, crimeMapOn, setCrimeMap, trafficMapOn, setTrafficMap, roadLanes, placementNeed, useStore, undo, redo, canUndo, canRedo, startProspect, startRoads, startPipes, startBelts, stopProspect, stopRoads, type Placement, type Roading , getPage } from '../../stores/game';
+import { getGame, getSpeed, moveGhost, placementUse, startZoning, stopZoning, zoneHover, zoneTap, type Zoning, prospectHover, prospectTap, roadHover, roadTap, roadDragStart, buildingsHidden, crimeMapOn, setCrimeMap, trafficMapOn, setTrafficMap, roadLanes, placementNeed, useStore, undo, redo, canUndo, canRedo, startProspect, startRoads, startPipes, startBelts, stopProspect, stopRoads, type Placement, type Roading , getPage, travel } from '../../stores/game';
 import { featureEra, stageAtLeast } from '../../simulation/stages';
 import { preloadArt, artRevision, artModel, playClip } from './art';
 import { money, num, pct0 } from '../format';
@@ -24,10 +24,10 @@ import { Modal } from '../ui';
 import { layoutRegion, type Layout, type Lot, type Plot } from './layout';
 import { doorTiles, frontageAt, meets, pressureOf, reachTime, roadTile, travelFrom } from '../../simulation/access';
 import { bridgeAt, bridgePlan, isBridge } from '../../simulation/world';
-import { attitude, isNeighbour, NEIGHBOUR_IDS, NEIGHBOURS, regionActive, regionOf, ROUTE_SIDE, type NeighbourId } from '../../simulation/region-state';
+import { isNeighbour, regionActive, regionOf, ROUTE_SIDE, type NeighbourId } from '../../simulation/region-state';
 import { canStartRegion } from '../../simulation/stages/region';
 import { wooded, beltRoute, wideRoadRoute, homesCentre, CHUNK, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, LAND_HA_PER_PATCH, MAP, hasAccess, riverTiles, riverX, tileId, roadStretch, roadPick, pipeRoute, pipeStretch, plotSide, fieldWater, wetTiers, linesOf, NET_TOP, UTILITY_NETS, netReach, doorstep, footprintOf, type NetKind, type UtilityNet, tileAt, forSaleAround,  ownedSet, ROAD_H, ROAD_Y, chunkAt, chunkOrigin, clearCost, clearedSet, isRoad, patchesAround, placeProblem, worldOf } from '../../simulation/world';
-import { animal, buildBridge, buildCivic, cone, gable, sphere, buildCommunityHome, buildLot, buildWorks, box, cached, cyl, farmhand, hauler, mat, mesh, PAL, person, tree, vehicle, type Model } from './models';
+import { animal, buildBridge, buildCivic, buildCommunityHome, buildLot, buildWorks, box, cached, cyl, farmhand, hauler, mat, mesh, PAL, person, tree, vehicle, type Model } from './models';
 import { haulOf, MARKET_X, marketRoute } from '../../simulation/hauling';
 import { landCostOf, oilOf, oilPremium, oilReading, struckFields, SURVEY_R, surveyedAt } from '../../simulation/oil';
 
@@ -93,7 +93,7 @@ interface Rig {
   felling?: { chunk: number; trees: THREE.Group[]; fallAt: number[]; extras: THREE.Group };
 }
 
-export type WorldAction = 'neighbour' | 'harvest' | 'plant' | 'inspect' | 'plan' | 'place' | 'fertilise' | 'irrigate' | 'pipes' | 'move' | 'movelot' | 'merge' | 'homeup' | 'layout' | 'placeok' | 'placecancel' | 'clear1' | 'clear9' | 'buy1' | 'buy9';
+export type WorldAction = 'harvest' | 'plant' | 'inspect' | 'plan' | 'place' | 'fertilise' | 'irrigate' | 'pipes' | 'move' | 'movelot' | 'merge' | 'homeup' | 'layout' | 'placeok' | 'placecancel' | 'clear1' | 'clear9' | 'buy1' | 'buy9';
 
 export function Scene3D({ region, selected, onPick, plantLabel, onAction, selectedLot, placing, forestAt, placeCost, roading, prospect, zoning }: { region: RegionId; selected: number[]; onPick: (p: WorldPick) => void; plantLabel?: string; selectedLot?: string; onAction?: (kind: WorldAction, fieldId: number) => void; placing?: Placement | null; forestAt?: [number, number] | null; placeCost?: number; roading?: Roading | null; prospect?: { region: RegionId; hover?: [number, number] } | null; zoning?: Zoning | null }) {
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -410,6 +410,7 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
       {hover && <div className="world-tip" style={{ left: hover.x + 14, top: hover.y + 14 }}>{hover.text.filter(Boolean).map((t, i) => <div key={i} className={i ? 'muted' : ''}>{t}</div>)}</div>}
       <div className="world-zoom">
         <div className="tool-grid" role="toolbar" aria-label="View">
+        {(regionActive(getGame()) || canStartRegion(getGame())) && <button className="region-go" title="Fly over to the map of the whole region" onClick={() => travel('region')}>🗺 Region</button>}
         {(canUndo() || canRedo()) && <><button className="icon-btn" aria-label="Undo" title="Undo your last build, road, line, move or removal (Ctrl/⌘ Z)" disabled={!canUndo()} onClick={() => undo()}>↶</button><button className="icon-btn" aria-label="Redo" title="Redo (Ctrl/⌘ Shift Z)" disabled={!canRedo()} onClick={() => redo()}>↷</button></>}
         <button className="icon-btn" aria-label="Zoom in" onClick={() => ctl().zoom(1.25)}>+</button>
         <button className="icon-btn" aria-label="Zoom out" onClick={() => ctl().zoom(0.8)}>−</button>
@@ -1770,32 +1771,12 @@ export function neighbourAt(id: NeighbourId): [number, number] {
   const sy = MAP.y0 + MAP.h;
   return id === 'arid' ? [MAP.x0 - 7, ROAD_Y - 5] : id === 'coastal' ? [MAP.x0 + MAP.w + 7, ROAD_Y - 5] : id === 'river' ? [riverX('heartland', sy + 6) + 9, sy + 6] : [riverX('heartland', sy + 20) - 8, sy + 20];
 }
-const NEIGHBOUR_COL: Record<NeighbourId, number> = { arid: 0xd99a3a, coastal: 0x2f6f9a, river: 0x2f8f86, tropics: 0x4f9a3a };
-/** The neighbours' towns, a gate or an arch where the main road leaves your land (walls & tolls or open borders), drawn once the Region chapter is offered. */
+/** A gate or an arch where the main road leaves your land (walls & tolls or open borders). The neighbours themselves are in the Region view. */
 function syncNeighbourTowns(R: Rig, s: GameState) {
-  const v = regionOf(s), on = R.region === 'heartland' && (regionActive(s) || canStartRegion(s)), sig = on ? `${v.border}:${v.active}` : '';
+  const v = regionOf(s), on = R.region === 'heartland' && regionActive(s), sig = on ? `${v.border}:${v.active}` : '';
   if (sig === R.townsSig) return;
   R.townsSig = sig; clear(R.townsG);
   if (!on) return;
-  for (const id of NEIGHBOUR_IDS) {
-    const [cx, cz] = neighbourAt(id), g = new THREE.Group(), col = NEIGHBOUR_COL[id];
-    g.position.set(cx, 0, cz);
-    for (let i = 0; i < 9; i++) { // nine homes round a square, in each town's own style
-      const a = (i / 9) * Math.PI * 2 + 0.3, r = 4.2 + (i % 3) * 1.1, x = Math.cos(a) * r, z = Math.sin(a) * r;
-      let m: THREE.Object3D;
-      if (id === 'arid') { m = new THREE.Group(); m.add(box(1.8, 1.1 + (i % 2) * 0.5, 1.6, 0xd8b98a, 0, 0, 0), box(1.9, 0.08, 1.7, 0xc9a874, 0, 1.1 + (i % 2) * 0.5, 0)); if (i % 3 === 0) m.add(mesh(cached('adobeDome', () => new THREE.SphereGeometry(0.55, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2)), mat(0xe8d2a8), 0, 1.15 + (i % 2) * 0.5, 0)); }
-      else if (id === 'tropics') { m = new THREE.Group(); m.add(cyl(0.75, 0.8, 0xc9a874, 0, 0, 0, 10), cone(1.05, 0.9, 0x9a7a3a, 0, 0.8, 0, 10)); }
-      else { const h = buildCommunityHome(i % 3 === 0 ? 'terrace' : 'cottage', 3, 3, `${id}${i}`, 1); m = new THREE.Group(); h.group.position.set(-1.5, 0, -1.5); m.add(h.group); }
-      m.position.set(x, 0, z); m.rotation.y = -a + Math.PI / 2; g.add(m);
-    }
-    // the square: a well or fountain, the leader's hall with its banner
-    g.add(box(2.6, 1.8, 2.2, id === 'arid' ? 0xd8b98a : PAL.stone, 0, 0, 0), id === 'arid' ? mesh(cached('adobeDomeBig', () => new THREE.SphereGeometry(1.0, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2)), mat(0xe8d2a8), 0, 1.8, 0) : gable(2.8, 2.4, 0.9, id === 'tropics' ? 0x9a7a3a : PAL.roofGrey, 0, 1.8, 0));
-    g.add(box(0.08, 4.2, 0.08, PAL.metalDark, 1.6, 0, 1.4), box(1.2, 0.7, 0.04, col, 2.2, 3.3, 1.4));
-    if (id === 'coastal') g.add(cyl(0.45, 3.6, PAL.white, 6.5, 0, -1, 12), cyl(0.5, 0.5, 0xc0392b, 6.5, 3.6, -1, 12), sphere(0.25, 0xfff2c0, 6.5, 4.3, -1, { emissive: 0x806020 })); // a lighthouse
-    if (id === 'river' || id === 'tropics') { const dx = id === 'river' ? -6 : 5.5; g.add(box(2.4, 0.12, 0.8, PAL.wood, dx, 0.12, 0)); const hull = box(1.4, 0.3, 0.6, PAL.woodDark, dx + (id === 'river' ? -1.6 : 1.6), 0.02, 0.6); g.add(hull, box(0.05, 1.3, 0.05, PAL.wood, dx + (id === 'river' ? -1.6 : 1.6), 0.3, 0.6)); } // a jetty and a boat
-    g.traverse((o) => { if ((o as THREE.Mesh).isMesh) { o.castShadow = true; o.receiveShadow = true; } });
-    R.townsG.add(g);
-  }
   // where the main road leaves your side of the map: a stone gatehouse in a wall (walls & tolls), or a timber arch with banners (open borders)
   if (v.active) for (const x of [MAP.x0 + 1, MAP.x0 + MAP.w - 2]) {
     const g = new THREE.Group(), cz = ROAD_Y + ROAD_H / 2;
@@ -2312,25 +2293,6 @@ function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el
   if (L.buy) {
     const [x, y] = project(L.buy.x + 1, 0.9, L.buy.y + 1);
     want.push({ key: 'buy', x, y, html: 'For sale', cls: 'wl-name' });
-  }
-  // the neighbours: a banner over each town, held at the edge of the screen pointing the way when the town is out of sight
-  if (R.region === 'heartland' && (regionActive(s) || canStartRegion(s)) && !placing) {
-    const v = regionOf(s);
-    const used: [number, number, 'l' | 'r' | undefined][] = [], phone = W < 600;
-    NEIGHBOUR_IDS.forEach((id, i) => {
-      // over the town when it is in sight; otherwise pinned to the screen edge it lies beyond, clear of the objective card and the corner controls, stacked when they would meet
-      const [nx, nz] = neighbourAt(id), [px, py] = project(nx, 4.5, nz), inside = px > 120 && px < W - 120 && py > 110 && py < H - 120;
-      const dx = px - W / 2, dy = py - H / 2, sideways = Math.abs(dx) / W > Math.abs(dy) / H, anchor: 'l' | 'r' | undefined = inside ? undefined : dx < 0 ? 'l' : 'r'; void sideways;
-      const left = phone ? 92 : 108, x = inside ? px : anchor === 'l' ? left : anchor === 'r' ? W - 14 : Math.max(140, Math.min(W - 140, px));
-      const top = phone ? (anchor === 'l' ? 230 : 640) : anchor === 'l' ? 330 : 100, bottom = H - (anchor === 'r' ? 110 : 60); // clear of the objective card (left) and, on a phone, the map tools (right)
-      let y = inside ? py : Math.max(top, Math.min(bottom, py));
-      for (let k = 0; k < 5 && used.some(([ux, uy, ua]) => (ua === anchor ? true : Math.abs(ux - x) < 200) && Math.abs(uy - y) < 38); k++) y += y > (top + bottom) / 2 ? -40 : 40;
-      used.push([x, y, anchor]);
-      const arrow = inside ? '' : anchor === 'l' ? '◀ ' : anchor === 'r' ? ' ▶' : dy < 0 ? '▲ ' : '▼ ';
-      const n = v.neighbours[id], req = n.request ? ' 📜' : '', mood = v.active && !phone ? ` · ${attitude(n.trust)}` : '';
-      const label = phone && !inside ? `${NEIGHBOURS[id].icon}${req}` : `${NEIGHBOURS[id].icon} ${REGIONS[id].name}${mood}${req}`;
-      want.push({ key: `nb-${id}`, x, y, anchor, html: arrow === ' ▶' ? `${label}${arrow}` : `${arrow}${label}`, cls: `wl-name wl-neighbour${inside ? '' : ' edge'}`, action: `neighbour:${i}` });
-    });
   }
   // reconcile pooled elements by key
   const have = new Map<string, HTMLElement>();

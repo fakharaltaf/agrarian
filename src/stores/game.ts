@@ -42,6 +42,10 @@ interface Store {
   roadLanes: number;
   prospect: Prospect | null;
   zoning: Zoning | null;
+  /** the farm map, or the Region view of the whole region */
+  view: 'farm' | 'region';
+  /** the clouds closing over the screen, or parting, while travelling between the two */
+  veil: 'in' | 'out' | null;
 }
 /** Road mode: draw from the last tapped tile, or upgrade/remove the stretch tapped. */
 export type Roading = { tool: 'draw' | 'upgrade' | 'remove' | 'bridge'; region: RegionId; from?: [number, number]; hover?: [number, number]; /** the same tool lays line networks (irrigation, power, water, sewer): draw, upgrade, remove */ pipe?: NetKind; /** planting tree lines instead */ belt?: boolean };
@@ -55,7 +59,7 @@ export const placementNeed = (p: Pick<Placement, 'action' | 'kind'>) => p.kind =
 export const placementUse = (p: Pick<Placement, 'action' | 'key' | 'kind'>) => p.kind === 'move' ? undefined : p.action.type === 'buildHomes' ? 'home' as const : p.action.type === 'buyPlot' || p.action.type === 'buyParcel' ? 'field' as const : p.action.type === 'build' ? buildingUse(store.game, p.action.building) : p.action.type === 'buildService' && COMMERCIAL.test(p.action.service) ? 'shop' as const : undefined;
 export type Placement = { kind: 'new' | 'move'; action: Action; region: RegionId; w: number; d: number; label: string; key?: string; at: [number, number]; /** quarter turns; w and d are already turned */ rot?: number; /** placing one of several: how many are left, of how many */ left?: number; total?: number };
 
-let store: Store = { game: createGame(), v: 0, speed: 1, toasts: [], away: null, catchUp: null, page: 'farm', ready: false, placing: null, roading: null, hideBuildings: false, crimeMap: false, trafficMap: false, roadLanes: 1, prospect: null, zoning: null };
+let store: Store = { game: createGame(), v: 0, speed: 1, toasts: [], away: null, catchUp: null, page: 'farm', ready: false, placing: null, roading: null, hideBuildings: false, crimeMap: false, trafficMap: false, roadLanes: 1, prospect: null, zoning: null, view: 'farm', veil: null };
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((l) => l());
 const set = (patch: Partial<Store>) => {
@@ -391,6 +395,16 @@ let neighbourFocus: string | null = null;
 export const focusNeighbour = (id: string) => { neighbourFocus = id; };
 export const takeNeighbourFocus = () => { const f = neighbourFocus; neighbourFocus = null; return f; };
 export const usePageState = () => useStore((x) => x.page);
+export const getView = () => store.view;
+/** Travel between the farm and the Region view: the clouds close over the screen, the view changes behind them, and they part. */
+let travelling = false;
+export function travel(view: 'farm' | 'region') {
+  if (travelling || store.view === view) return;
+  travelling = true;
+  const quick = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  set({ veil: 'in', placing: null, roading: null, prospect: null, zoning: null });
+  setTimeout(() => { set({ view, page: 'farm', veil: 'out' }); setTimeout(() => { set({ veil: null }); travelling = false; }, quick ? 200 : 1000); }, quick ? 150 : 800);
+}
 
 // ---------------------------------------------------------------- loop
 

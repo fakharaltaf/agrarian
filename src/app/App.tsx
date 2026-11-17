@@ -40,11 +40,13 @@ const PAGE_COMPONENTS: Record<string, React.ComponentType> = {
   town: lazy(() => import('./pages/Town')),
   community: lazy(() => import('./pages/Community')),
 };
+const RegionView = lazy(() => import('./world/RegionView'));
 
 export function App() {
   const s = useGame();
   const page = useStore((x) => x.page);
   const ready = useStore((x) => x.ready);
+  const view = useStore((x) => x.view);
   const [theme, setTheme] = usePref<'auto' | 'light' | 'dark'>('theme', 'auto');
   const [drawer, setDrawer] = useState(false);
   const [settings, setSettings] = useState(false);
@@ -80,8 +82,9 @@ export function App() {
 
       <div className="main">
         <TopBar onLedger={() => setLedger(true)} onLog={() => setDrawer(true)} onSettings={() => setSettings(true)} onHelp={() => setHelp(true)} warnings={warnings} bare={bare} />
-        <div className="stage">
+        <div className={`stage${view === 'region' ? ' in-region' : ''}`}>
           <Hud />
+          {view === 'region' && <Suspense fallback={null}><RegionView /></Suspense>}
           <DatePill />
           {Page && (
             <section className="page-drawer" role="dialog" aria-label={PAGES.find((p) => p.id === current)?.label}>
@@ -107,6 +110,7 @@ export function App() {
       {settings && <Settings onClose={() => setSettings(false)} theme={theme} setTheme={setTheme} onPhoto={() => { setSettings(false); go('farm'); setTimeout(() => void takeFarmPhoto().then((p) => (p ? setPhoto(p) : toast('Could not take the photo. Try again from the map.'))), 150); }} />}
       {photo && <FarmPhotoModal photo={photo} onClose={() => { URL.revokeObjectURL(photo.url); setPhoto(null); }} />}
       {help && <Help onClose={() => setHelp(false)} />}
+      <CloudVeil />
       <Decisions />
       <Bankrupt />
       <Away />
@@ -617,4 +621,14 @@ class PageGuard extends Component<{ children: ReactNode }, { error: Error | null
       </div>
     );
   }
+}
+
+// The clouds that close over the screen and part again when travelling between the farm and the Region view: left-hand clouds drift in from the left, right-hand ones from the right.
+const CLOUDS: [number, number, number][] = [[-12, -8, 62], [30, -14, 58], [70, -6, 64], [-18, 22, 60], [22, 18, 66], [64, 26, 58], [-8, 52, 64], [36, 48, 60], [74, 58, 62], [8, 78, 58], [52, 84, 66], [-20, 86, 54]];
+function CloudVeil() {
+  const veil = useStore((x) => x.veil);
+  if (!veil) return null;
+  return <div className={`cloud-veil ${veil}`} aria-hidden>
+    {CLOUDS.map(([x, y, w], i) => <span key={i} className="cloud" style={{ left: `${x}%`, top: `${y}%`, width: `max(${w}vw, ${w * 7}px)`, '--from': x + w / 2 < 50 ? '-120vw' : '120vw', '--delay': `${(i % 4) * 40}ms` } as React.CSSProperties} />)}
+  </div>;
 }
