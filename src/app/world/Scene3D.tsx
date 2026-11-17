@@ -539,6 +539,39 @@ function clear(g: THREE.Group) {
   for (const ch of [...g.children]) g.remove(ch);
 }
 
+/** Buildings people live or work in light up at night; tanks, silos, towers, wells, panels and turbines stay dark. */
+/** imported models that are buildings with rooms, not props */
+const HOUSES = /^(cottage\d?|townhouse|barn|shed|coop|mill|farmhouse)$/;
+const UNLIT = /silo|tank|well|solar|wind|biogas|park|road|water|sewer|power|pump|tower/i;
+const litByNight = (lot: Lot) => !(lot.service ? UTILITY_OF[lot.service.type] || UNLIT.test(lot.service.type) : UNLIT.test(lot.type));
+/** Night windows for a model drawn without any (the imported cottages, townhouses, barns, sheds): warm panes on its walls, a row a storey, shown only after dark. */
+function nightWindows(model: Model) {
+  model.group.updateMatrixWorld(true);
+  const box3 = new THREE.Box3(), part = new THREE.Box3();
+  let art: THREE.Object3D | undefined; model.group.traverse((o) => { if (!art && HOUSES.test(String(o.userData.art ?? ''))) art = o; });
+  if (!art) return; // only the imported buildings lack windows of their own
+  const parts: THREE.Box3[] = [];
+  art.traverse((o) => { const m = o as THREE.Mesh; if (!m.isMesh || !m.visible) return; part.setFromObject(m, true); parts.push(part.clone()); box3.union(part); });
+  if (box3.isEmpty()) return;
+  // the walls: parts that stand on the ground and stop short of the ridge (the roof and its overhang start higher up)
+  const all = box3.getSize(new THREE.Vector3()), walls = new THREE.Box3();
+  for (const b of parts) if (b.min.y < box3.min.y + all.y * 0.15 && b.max.y < box3.min.y + all.y * 0.85) walls.union(b);
+  if (walls.isEmpty() || walls.max.y - walls.min.y < 0.3) walls.copy(box3).expandByVector(new THREE.Vector3(-all.x * 0.12, 0, -all.z * 0.12));
+  box3.copy(walls);
+  const size = box3.getSize(new THREE.Vector3()), c = box3.getCenter(new THREE.Vector3());
+  if (size.y < 0.3 || size.x < 0.4 || size.z < 0.4) return;
+  const top = box3.min.y + size.y * 0.85, rows = Math.max(1, Math.min(4, Math.floor((top - box3.min.y) / 0.55))), pane = mat(PAL.window);
+  const face = (along: number, fixed: number, onX: boolean) => {
+    const cols = Math.max(1, Math.min(6, Math.floor(along / 0.5)));
+    for (let r = 0; r < rows; r++) for (let k = 0; k < cols; k++) {
+      const u = (k + 0.5) / cols - 0.5, y = box3.min.y + (r + 0.6) * (top - box3.min.y) / (rows + 0.2);
+      const m = new THREE.Mesh(cached(onX ? 'nightpaneX' : 'nightpaneZ', () => onX ? new THREE.BoxGeometry(0.02, 0.17, 0.14) : new THREE.BoxGeometry(0.14, 0.17, 0.02)), pane);
+      m.position.set(onX ? fixed : c.x + u * along * 0.8, y, onX ? c.z + u * along * 0.8 : fixed);
+      m.userData.window = true; m.userData.nightOnly = true; m.visible = false; model.group.add(m); model.windows.push(m);
+    }
+  };
+  for (const k of [-1, 1]) { face(size.x, c.z + k * (size.z / 2 + 0.012), false); face(size.z, c.x + k * (size.x / 2 + 0.012), true); } // on the face of every wall: the building may be turned any way
+}
 /** What a lot is called on the map and when moving it. */
 export const lotName = (lot: Lot) => lot.key.startsWith('civic:') ? (lot.key==='civic:hall'?'Town hall':lot.service?serviceName(lot.service):SERVICE_DEFS[lot.key.split(':')[1] as ServiceType].name) : lot.key.startsWith('community:') ? ({cottage:'Cottage',terrace:'Terrace',apartment:'Apartments'}[lot.key.split(':')[1]] ?? 'Neighbourhood') : lot.key === 'crew' ? 'Bunkhouse' : lot.key === 'office' ? 'Farm office' : lot.key === 'market' ? 'Village trader' : lot.type === 'house' ? 'Farmhouse' : lot.type === 'shed' ? 'Office' : ((lot.buildings[0]?.size ?? 1) > 1 ? mergedName(lot.type, BUILDINGS[lot.type].name, lot.buildings[0].size!) : BUILDINGS[lot.type].name);
 /** A point in a lot's own (unturned) frame, carried round with the lot's turn; returns lot-relative map coordinates. */
@@ -566,6 +599,7 @@ function syncLots(R: Rig, L: Layout) {
     else if (lay === 2) { inner.rotation.y = -Math.PI / 2; inner.position.set(bw / 2, 0, -bd / 2); const P = model.pen; if (P) model.pen = { x0: bw - P.z1, x1: bw - P.z0, z0: P.x0, z1: P.x1 }; model.smoke = model.smoke.map((p) => new THREE.Vector3(bw - p.z, p.y, p.x)); } // halls along one end, the yard running out in front
     else if (lay === 3) { inner.rotation.y = Math.PI / 2; inner.position.set(-bw / 2, 0, bd / 2); const P = model.pen; if (P) model.pen = { x0: P.z0, x1: P.z1, z0: bd - P.x1, z1: bd - P.x0 }; model.smoke = model.smoke.map((p) => new THREE.Vector3(p.z, p.y, bd - p.x)); } // halls along the other end, the yard behind
     if (lot.key === 'house' && lot.w > 3) { inner.scale.setScalar(lot.w / 3); inner.position.set(-lot.w / 2, 0, -lot.w / 2); model.smoke = model.smoke.map((p) => p.clone().multiplyScalar(lot.w / 3)); } // the grown farmhouse: the chapter's house drawn larger on its bigger ground
+    if (!model.windows.length && litByNight(lot)) nightWindows(model);
     model.group.position.set(lot.x + lot.w / 2, 0, lot.y + lot.d / 2); model.group.rotation.y = (lot.rot * Math.PI) / 2;
     model.smoke = model.smoke.map((p) => { const [x, z] = turnPoint(lot, p.x, p.z); return new THREE.Vector3(x, p.y, z); });
     if (model.pen) { const [ax, az] = turnPoint(lot, model.pen.x0, model.pen.z0), [bx, bz] = turnPoint(lot, model.pen.x1, model.pen.z1); model.pen = { x0: Math.min(ax, bx), z0: Math.min(az, bz), x1: Math.max(ax, bx), z1: Math.max(az, bz) }; }
@@ -2008,7 +2042,7 @@ function atmosphere(R: Rig, s: GameState, t: number) {
   R.crownMat.color.set(r === 'tropics' ? 0x3f8a3a : CROWN[season]);
   // windows glow at night
   const lit = day < 0.35;
-  for (const m of R.models) for (const w of m.model.windows) w.material = lit && (!m.lot.service || m.lot.service.active && m.lot.service.funded) ? mat(PAL.windowLit, { emissive: 0xffb84d }) : mat(PAL.window);
+  for (const m of R.models) for (const w of m.model.windows) { const on = lit && (!m.lot.service || m.lot.service.active && m.lot.service.funded); w.material = on ? mat(PAL.windowLit, { emissive: 0xffb84d }) : mat(PAL.window); if (w.userData.nightOnly) w.visible = on; }
   // sails turn while the mill works
   for (const m of R.models) if (m.model.sails) m.model.sails.rotation.z = m.lot.buildings.some((b) => b.active && b.util > 0.05) ? t * 1.2 : m.model.sails.rotation.z;
   // chimney smoke from working buildings (the farmhouse always)
