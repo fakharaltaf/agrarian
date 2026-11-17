@@ -13,7 +13,7 @@ import {
 import { buildingDivision, clamp, debt, factoryCrop, equity, freeSpace, has, known, log, marketWage, nextId, post, random, round2, todayBook, lean } from './core';
 import { coverOf, coverPrice, COVERS } from './agriculture';
 import { addGoods, canGrow, clearField, fertilizeField, fieldsTick, frostNight, harvestField, isManual, isReady, newField, plantField, spoilageDaily } from './agriculture';
-import { buildAs, buildAsOpen, lineBuildPrice, lineBuildTier, roadBuildPrice, liftTracks, riverTiles, chunkAt, COMMERCIAL, type Use, type Zone, reconcileWorld, unlink, accessNote, cutsOff, buyable, chunksIn, connect, placedIn, touch, useOf, buildingUse, INDUSTRY_TO_GROW, WATER_LEVEL, NET_PRICE, NET_TIERS, NET_TOP, linesOf, lineTiles, lineTop, upgradeAllPlan, pipeRoute, pipeStretch, hasWater, isRoad, MAP, ROAD_GRADES, ROAD_H, roadRoute, roadPick, roadTilePrice, tileId, canPlaceNew, LAND_HA_PER_PATCH,  own, ownedSet, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, clearCost, clearedSet, FOOTPRINT, footprintOf, forget, rotOf, turned, MOVE_DOWNTIME, placeNew, placeProblem, plotSide, PROBLEM_TEXT, seedWorld, TIMBER_PER_PATCH, worldOf } from './world';
+import { BELT_PRICE, beltRoute, beltStretch, buildAs, buildAsOpen, lineBuildPrice, lineBuildTier, roadBuildPrice, liftTracks, riverTiles, chunkAt, COMMERCIAL, type Use, type Zone, reconcileWorld, unlink, accessNote, cutsOff, buyable, chunksIn, connect, placedIn, touch, useOf, buildingUse, INDUSTRY_TO_GROW, WATER_LEVEL, NET_PRICE, NET_TIERS, NET_TOP, linesOf, lineTiles, lineTop, upgradeAllPlan, pipeRoute, pipeStretch, hasWater, isRoad, MAP, ROAD_GRADES, ROAD_H, roadRoute, roadPick, roadTilePrice, tileId, canPlaceNew, LAND_HA_PER_PATCH,  own, ownedSet, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, clearCost, clearedSet, FOOTPRINT, footprintOf, forget, rotOf, turned, MOVE_DOWNTIME, placeNew, placeProblem, plotSide, PROBLEM_TEXT, seedWorld, TIMBER_PER_PATCH, worldOf } from './world';
 import { buyAnimals, livestockDaily, sellAnimals } from './livestock';
 import { claimDaily, startDay } from './daily';
 import { createMarkets, drawWeather, executeBuy, executeSell, quoteBuy, macroDaily, marketsDaily, marketsTick, priceFromInv } from './markets';
@@ -721,6 +721,25 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       post(s, 'maintenance', -cost, `Forest clearing (${chunks.length} patch${chunks.length === 1 ? '' : 'es'})`, a.region);
       for (const c of chunks) w.queue.push({ chunk: c, hours: CLEAR_HOURS });
       return ok(`The crew will clear ${chunks.length} patch${chunks.length === 1 ? '' : 'es'} over about ${chunks.length * CLEAR_HOURS} hours and sell the timber.`);
+    }
+    case 'buildBelt': {
+      const tiles = beltRoute(s, a.region, a.from, a.to);
+      if (!tiles) return fail('Trees need your own cleared land, clear of roads, water and buildings.');
+      if (!tiles.length) return fail('There are trees all the way already.');
+      const cost = Math.round(BELT_PRICE * s.macro.cpi * tiles.length);
+      if (cost > s.cash) return fail(`That tree line costs $${cost.toLocaleString()}.`);
+      post(s, 'building', -cost, `Tree line (${tiles.length} tiles)`, a.region);
+      const w = worldOf(s, a.region); w.belts ??= {};
+      for (const [x, y] of tiles) w.belts[tileId(x, y)] = 1;
+      touch(w);
+      return ok();
+    }
+    case 'removeBelt': {
+      const w = worldOf(s, a.region), run = beltStretch(w, a.at[0], a.at[1]);
+      if (!run.length) return fail('There is no tree line there.');
+      for (const id of run) delete w.belts![id];
+      touch(w);
+      return ok(`Felled ${run.length} tile${run.length === 1 ? '' : 's'} of trees.`);
     }
     case 'setBuildAs': {
       if (!buildAsOpen(s)) return fail('Choosing what to build as comes with the City.');

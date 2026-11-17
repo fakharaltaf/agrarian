@@ -14,7 +14,7 @@ import { planQuote } from '../../simulation/engine';
 import { DISCOVERIES, ERA_UNLOCK_TEXT, dailyGoals, dailyPrize, forecast, herdOf, homePlotPrice, housing, isManual, isReady, objective, chapterGate, gateProgress, type GateRow, PAGES, seedShortfall, upgradeCost } from '../../simulation/engine';
 import type { CivicService, GameState } from '../../simulation/types';
 import { act, cancelPlacement, confirmPlacement, planPlacementHere, rotatePlacement, go, placementUse, setRoadTool, toggleHideBuildings, setNet, undo, redo, canUndo, canRedo, setSurveying, setZoneTool, startPipes, type Prospect, startPlacement, stopProspect, stopRoads, stopZoning, type Zoning, useGame, usePageState, useStore, type Placement, type Roading } from '../../stores/game';
-import { WATER_LEVEL, WATER_PRICE, WATER_TIERS, wetTiers, NET_PRICE, NET_TIERS, NET_TOP, NET_QUALITY, linesOf, upgradeAllPlan, buildAs, buildAsOpen, lineBuildPrice, roadBuildPrice, type LineKind, type UtilityNet, pipeRoute, pipeStretch, cutsOff, footprintOf, forSaleAround, isRoad, MAP, ROAD_GRADES, ROAD_H, roadRoute, roadPick, roadTilePrice, worldOf, patchesAround, placeProblem, plotSide, PROBLEM_TEXT } from '../../simulation/world';
+import { WATER_LEVEL, WATER_PRICE, WATER_TIERS, wetTiers, NET_PRICE, NET_TIERS, NET_TOP, NET_QUALITY, linesOf, upgradeAllPlan, BELT_PRICE, beltRoute, beltStretch, buildAs, buildAsOpen, lineBuildPrice, roadBuildPrice, type LineKind, type UtilityNet, pipeRoute, pipeStretch, cutsOff, footprintOf, forSaleAround, isRoad, MAP, ROAD_GRADES, ROAD_H, roadRoute, roadPick, roadTilePrice, worldOf, patchesAround, placeProblem, plotSide, PROBLEM_TEXT } from '../../simulation/world';
 import { buildingPrice, moveFee, parcelPrice } from '../../simulation/engine';
 import { APARTMENT_FAMILIES, homeLevel, homeUpgradePrice } from '../../simulation/community-state';
 import { homeUpgradeNeeds } from '../../simulation/stages/settlement';
@@ -271,7 +271,7 @@ export function Hud() {
           } else {setPanel(true);setJournal(false); if(kind==='plan') requestAnimationFrame(()=>document.querySelector('[data-coach=plan-picker]')?.scrollIntoView({block:'center'}));}
         }} />
       {placing && <PlacementBar s={s} p={placing} />}
-      {roading && (roading.pipe === 'irrigation' ? <PipeBar s={s} r={roading} /> : roading.pipe ? <UtilityBar s={s} r={roading} /> : <RoadBar s={s} r={roading} />)}
+      {roading && (roading.belt ? <BeltBar s={s} r={roading} /> : roading.pipe === 'irrigation' ? <PipeBar s={s} r={roading} /> : roading.pipe ? <UtilityBar s={s} r={roading} /> : <RoadBar s={s} r={roading} />)}
       {prospect && <OilBar s={s} p={prospect} />}
       {zoning && <ZoneBar z={zoning} />}
       <div className={`hud-left${journal ? ' journal-open' : ''}`} hidden={page !== 'farm'}>
@@ -376,6 +376,14 @@ function PipeBar({ s, r }: { s: GameState; r: Roading }) {
   return <LineDock label="Water lines" head={<b className="dock-title">💧 Irrigation</b>} hint={hint} tool={r.tool} draw="Dig" all={{ region: r.region, nets: ['irrigation'] }} as={{ what: 'line', names: WATER_TIERS.slice(1) }} />;
 }
 
+function BeltBar({ s, r }: { s: GameState; r: Roading }) {
+  const h = r.hover, price = Math.round(BELT_PRICE * s.macro.cpi), w = worldOf(s, r.region);
+  let hint: string;
+  if (r.tool === 'remove') { const st = h ? beltStretch(w, h[0], h[1]) : []; hint = st.length ? `Fell ${st.length} tile${st.length === 1 ? '' : 's'} of trees` : 'Tap a tree line to fell that run'; }
+  else { const route = r.from && h ? beltRoute(s, r.region, r.from, h) : null; hint = !r.from ? `Tap where the trees start · ${money(price)} a tile` : !h ? 'Tap where the row goes next' : route ? `${route.length} trees · ${money(price * route.length)} · tap to plant` : 'Can\'t plant there: keep to your own cleared land, clear of roads, water and buildings'; }
+  return <LineDock label="Tree lines" head={<b className="dock-title">🌳 Tree lines</b>} hint={hint} tool={r.tool} draw="Plant" noUpgrade />;
+}
+
 function RoadBar({ s, r }: { s: GameState; r: Roading }) {
   const w = worldOf(s, r.region), price = roadBuildPrice(s), h = r.hover;
   // what the next tap would do, with its price, before you commit
@@ -397,10 +405,10 @@ function RoadBar({ s, r }: { s: GameState; r: Roading }) {
 
 /** The dock for roads and lines: what you're working on (with Hide and Done), what the next tap does, then the tools at thumb height. */
 const UndoIcon = ({ redo }: { redo?: boolean }) => <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden style={redo ? { transform: 'scaleX(-1)' } : undefined}><path d="M9 14 4 9l5-5" /><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" /></svg>;
-function LineDock({ label, head, hint, tool, draw, all, as }: { label: string; head: React.ReactNode; hint: string; tool: Roading['tool']; draw: string; all?: { region: RegionId; nets: LineKind[] }; /** what a new one is built as: the choices, and which of road or line it sets */ as?: { what: 'road' | 'line'; names: readonly string[] } }) {
+function LineDock({ label, head, hint, tool, draw, all, as, noUpgrade }: { noUpgrade?: boolean; label: string; head: React.ReactNode; hint: string; tool: Roading['tool']; draw: string; all?: { region: RegionId; nets: LineKind[] }; /** what a new one is built as: the choices, and which of road or line it sets */ as?: { what: 'road' | 'line'; names: readonly string[] } }) {
   const s = useGame(), plan = all && tool === 'upgrade' ? upgradeAllPlan(s, worldOf(s, all.region), all.nets) : null;
   const hidden = useStore((x) => x.hideBuildings), bad = /^(Can't|Dry)/.test(hint);
-  const tools = [['draw', '✏', draw], ['upgrade', '⬆', 'Upgrade'], ['remove', '✕', 'Remove']] as const;
+  const tools = ([['draw', '✏', draw], ['upgrade', '⬆', 'Upgrade'], ['remove', '✕', 'Remove']] as const).filter(([t]) => !(noUpgrade && t === 'upgrade'));
   return <div className="placement-bar line-dock" role="dialog" aria-label={label}>
     <div className="dock-head">
       {head}

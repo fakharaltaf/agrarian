@@ -15,7 +15,7 @@ import { priceUsd, stored } from '../../simulation/core';
 import { coverOf } from '../../simulation/agriculture';
 import { spreadNeed } from '../../simulation/agriculture';
 import type { GameState } from '../../simulation/types';
-import { getGame, getSpeed, moveGhost, placementUse, startZoning, stopZoning, zoneHover, zoneTap, type Zoning, prospectHover, prospectTap, roadHover, roadTap, roadDragStart, buildingsHidden, crimeMapOn, setCrimeMap, trafficMapOn, setTrafficMap, useStore, undo, redo, canUndo, canRedo, startProspect, startRoads, startPipes, stopProspect, stopRoads, type Placement, type Roading , getPage } from '../../stores/game';
+import { getGame, getSpeed, moveGhost, placementUse, startZoning, stopZoning, zoneHover, zoneTap, type Zoning, prospectHover, prospectTap, roadHover, roadTap, roadDragStart, buildingsHidden, crimeMapOn, setCrimeMap, trafficMapOn, setTrafficMap, useStore, undo, redo, canUndo, canRedo, startProspect, startRoads, startPipes, startBelts, stopProspect, stopRoads, type Placement, type Roading , getPage } from '../../stores/game';
 import { featureEra, stageAtLeast } from '../../simulation/stages';
 import { preloadArt, artRevision, artModel, playClip } from './art';
 import { money, num, pct0 } from '../format';
@@ -405,7 +405,8 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
         <button className="icon-btn" aria-label="Rotate right (E)" title="Rotate (E)" onClick={() => ctl().rotate(-1)}>⟳</button>
         {featureEra(getGame(), 4) && <button data-coach="zones-btn" className={`icon-btn${zoning ? ' on' : ''}`} aria-label="Zones" title="Zones: residential and industrial land" onClick={() => zoning ? stopZoning() : startZoning(region)}>🏘</button>}
         {oilOpen(getGame()) && <button className={`icon-btn${prospect ? ' on' : ''}`} aria-label="Oil" title="Oil: survey and drill" onClick={() => prospect ? stopProspect() : startProspect(region)}>🛢</button>}
-        <button data-coach="roads-btn" className={`icon-btn${roading && !roading.pipe ? ' on' : ''}`} aria-label="Roads" title="Roads: draw, upgrade or remove" onClick={() => roading && !roading.pipe ? stopRoads() : startRoads(region)}>🛤</button>
+        <button className={`icon-btn${roading?.belt ? ' on' : ''}`} aria-label="Tree lines" title="Tree lines: plant rows of trees, like drawing a road" onClick={() => roading?.belt ? stopRoads() : startBelts(region)}>🌳</button>
+        <button data-coach="roads-btn" className={`icon-btn${roading && !roading.pipe && !roading.belt ? ' on' : ''}`} aria-label="Roads" title="Roads: draw, upgrade or remove" onClick={() => roading && !roading.pipe && !roading.belt ? stopRoads() : startRoads(region)}>🛤</button>
         {townOf(getGame()).active && <button className={`icon-btn${roading?.pipe && roading.pipe !== 'irrigation' ? ' on' : ''}`} aria-label="Utilities" title="Town utilities: power, water and sewage lines" onClick={() => roading?.pipe && roading.pipe !== 'irrigation' ? stopRoads() : startPipes(region, 'power')}>🔌</button>}
         {townOf(getGame()).active && <button className={`icon-btn${trafficMap ? ' on' : ''}`} aria-label="Traffic map" aria-pressed={trafficMap} title="Traffic map: green streets flow freely, amber and red are slowed by traffic (a parking complex helps)" onClick={() => setTrafficMap(!trafficMap)}>🚦</button>}
         {cityActive(getGame()) && <button className={`icon-btn${crimeMap ? ' on' : ''}`} aria-label="Crime map" aria-pressed={crimeMap} title="Crime map: green streets are safe, red ones need a watchhouse or lights" onClick={() => setCrimeMap(!crimeMap)}>🛡</button>}
@@ -1148,7 +1149,7 @@ class Decal {
 function syncRoads(R: Rig, s: GameState) {
   const w = worldOf(s, R.region), ids = Object.keys(w.roads);
   const cids = Object.keys(w.canals), nsig = UTILITY_NETS.map((k) => { const o = w.nets?.[k] ?? {}; return Object.keys(o).reduce((a, id) => a + ((Number(id) * 13) % 100019) * o[Number(id)], 0); }).join(',');
-  const sig = `${R.region}:${w.main}:${ids.length}:${ids.reduce((a, k) => a + ((Number(k) * 31) % 1000003) * w.roads[Number(k)], 0)}:${cids.length}:${cids.reduce((a, k) => a + ((Number(k) * 17) % 100003) * w.canals[Number(k)], 0)}:${s.fields.length}:${nsig}:${townOf(s).services.length}:${communityOf(s).homes.length}`;
+  const sig = `${R.region}:${w.main}:${ids.length}:${ids.reduce((a, k) => a + ((Number(k) * 31) % 1000003) * w.roads[Number(k)], 0)}:${cids.length}:${cids.reduce((a, k) => a + ((Number(k) * 17) % 100003) * w.canals[Number(k)], 0)}:${s.fields.length}:${nsig}:${townOf(s).services.length}:${communityOf(s).homes.length}:b${Object.keys(w.belts ?? {}).length}`;
   if (sig === R.roadSig) return;
   R.roadSig = sig;
   clear(R.roadsG);
@@ -1274,6 +1275,14 @@ function syncRoads(R: Rig, s: GameState) {
     let run = 1; for (let k = 1; has(k); k++) run++; for (let k = -1; has(k); k--) run++;
     const at = Math.floor(ew ? cx : cz);
     if (run >= 3 && !(middle && run >= 12 && ((at % 8) + 8) % 8 === 0)) drawBelt(cx, cz, ew); // a long middle belt leaves a gap every eight tiles to turn back
+  }
+  // tree lines the player planted: a strip of lawn behind a kerb, a tree on every tile, turning to follow the line
+  for (const k of Object.keys(w.belts ?? {})) {
+    const id = Number(k), [x, y] = tileAt(id), b = (dx: number, dy: number) => !!w.belts?.[tileId(x + dx, y + dy)];
+    const ew = b(1, 0) || b(-1, 0) || !(b(0, 1) || b(0, -1));
+    grass.seg(ew ? x : x + 0.5, ew ? y + 0.5 : y, ew ? x + 1 : x + 0.5, ew ? y + 0.5 : y + 1, [[-0.42, KERB, 1], [-0.36, LAWN, 1], [0.36, LAWN, 1], [0.42, KERB, 1]]);
+    if ((ew && (b(0, 1) || b(0, -1))) || (!ew && (b(1, 0) || b(-1, 0)))) grass.seg(x + 0.5, y, x + 0.5, y + 1, [[-0.42, KERB, 1], [-0.36, LAWN, 1], [0.36, LAWN, 1], [0.42, KERB, 1]]); // a corner or junction
+    const t = tree(0.6, R.crownMat, (x * 7 + y * 3) % 4 === 0 ? 1 : 0); t.position.set(x + 0.5, 0, y + 0.5); t.rotation.y = (x * 7 + y * 3) % 6; beltTrees.push(t);
   }
   if (beltTrees.length) R.roadsG.add(...beltTrees);
   // where a track meets the main road its mouth widens into a soft rounded fan, so the corners are not cut square

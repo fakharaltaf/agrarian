@@ -5,7 +5,7 @@ import { CONFIG } from '../simulation/config';
 import { advance, createGame } from '../simulation/engine';
 import { dispatchEdit, undoEdit, undoable, type Edit } from '../simulation/undo';
 import { BUILDINGS, type RegionId } from '../simulation/config';
-import { FOOTPRINT, SERVICE_FOOTPRINT, findSpot, homesCentre, homeFootprint, plotSide, worldOf, chunkAt, roadRoute, pipeRoute, rotOf, buildingUse, COMMERCIAL, type NetKind } from '../simulation/world';
+import { beltRoute, FOOTPRINT, SERVICE_FOOTPRINT, findSpot, homesCentre, homeFootprint, plotSide, worldOf, chunkAt, roadRoute, pipeRoute, rotOf, buildingUse, COMMERCIAL, type NetKind } from '../simulation/world';
 import { SERVICE_DEFS } from '../simulation/town-state';
 import { parseSave, SAVE_VERSION, type SaveFile } from '../simulation/persistence';
 export { parseSave, SAVE_VERSION } from '../simulation/persistence';
@@ -39,7 +39,7 @@ interface Store {
   zoning: Zoning | null;
 }
 /** Road mode: draw from the last tapped tile, or upgrade/remove the stretch tapped. */
-export type Roading = { tool: 'draw' | 'upgrade' | 'remove'; region: RegionId; from?: [number, number]; hover?: [number, number]; /** the same tool lays line networks (irrigation, power, water, sewer): draw, upgrade, remove */ pipe?: NetKind };
+export type Roading = { tool: 'draw' | 'upgrade' | 'remove'; region: RegionId; from?: [number, number]; hover?: [number, number]; /** the same tool lays line networks (irrigation, power, water, sewer): draw, upgrade, remove */ pipe?: NetKind; /** planting tree lines instead */ belt?: boolean };
 /** Zone mode: tap patches of your land to make them residential, industrial or farmland again. */
 export type Zoning = { region: RegionId; zone: 'res' | 'ind' | 'com' | 'farm'; hover?: [number, number] };
 /** What a placement is, for zoning checks in the preview. */
@@ -286,6 +286,7 @@ export function startPlacement(p: Omit<Placement, 'at'>) {
   set({ placing: { ...p, rot: p.rot ?? (p.kind === 'move' && p.key && !p.key.startsWith('field:') ? rotOf(g, p.key) : 0), at: [at[0], at[1]] }, roading: null, page: 'farm' });
 }
 export const startRoads = (region: RegionId) => set({ roading: { tool: 'draw', region }, placing: null, prospect: null, page: 'farm' });
+export const startBelts = (region: RegionId) => set({ roading: { tool: 'draw', region, belt: true }, placing: null, prospect: null, zoning: null, page: 'farm' });
 export const startPipes = (region: RegionId, net: NetKind = 'irrigation') => set({ roading: { tool: 'draw', region, pipe: net }, placing: null, prospect: null, page: 'farm' });
 export const setNet = (net: NetKind) => store.roading && set({ roading: { ...store.roading, pipe: net, from: undefined } });
 /** Oil mode: see the survey, pick a 2×2 spot, drill. */
@@ -305,6 +306,12 @@ export const roadHover = (at: [number, number] | null) => { const R = store.road
 export function roadTap(at: [number, number] | null) {
   const R = store.roading;
   if (!R || !at) return;
+  if (R.belt) { // tree lines: tap to start, tap again to plant up to there; the remove tool fells a whole run
+    if (R.tool === 'remove') { act({ type: 'removeBelt', region: R.region, at }); return; }
+    if (!R.from) { if (!beltRoute(store.game, R.region, at, at)) { toast('Plant trees on your own cleared land, clear of roads, water and buildings.'); return; } set({ roading: { ...R, from: at } }); return; }
+    if (act({ type: 'buildBelt', region: R.region, from: R.from, to: at })) set({ roading: { ...store.roading!, from: at } });
+    return;
+  }
   if (R.tool === 'draw') {
     if (!R.from) { if (!(R.pipe ? pipeRoute(store.game, R.region, at, at, R.pipe) : roadRoute(store.game, R.region, at, at))) { toast(R.pipe === 'irrigation' ? 'Start a ditch on your own cleared land, beside the river or on another water line.' : R.pipe ? 'Start a line on your own cleared land, beside its building or on another line.' : 'Start a road on your own cleared land or on an existing road.'); return; } return set({ roading: { ...R, from: at } }); }
     if (act(R.pipe ? { type: 'buildPipe', region: R.region, from: R.from, to: at, net: R.pipe } : { type: 'buildRoad', region: R.region, from: R.from, to: at })) set({ roading: { ...store.roading!, from: at } }); // keep drawing from here

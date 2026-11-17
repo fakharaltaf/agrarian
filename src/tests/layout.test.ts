@@ -278,3 +278,15 @@ it('oil land prices rush after a strike and cool back to normal when nothing new
   s.tick += 24 * 60; expect(oilPremium(s, 'heartland', c)).toBe(1); // cooled right down
   O.struck![key] = s.tick; expect(oilPremium(s, 'heartland', c)).toBeCloseTo(hot, 5); // a new strike starts it again
 });
+
+it('tree lines are planted like roads on open cleared land, keep buildings and roads off their tiles, and can be felled', async () => {
+  const W = await import('../simulation/world');
+  const s = createGame(1022); s.legacyProgression = true; s.era = 4; post(s, 'prize', 1e6, 'fixture');
+  const w = W.worldOf(s, 'heartland'), spot = W.findSpot(s, 'heartland', { w: 8, d: 3 })!, y = spot[1] + 1;
+  const cash = s.cash;
+  expect(dispatch(s, { type: 'buildBelt', region: 'heartland', from: [spot[0], y], to: [spot[0] + 7, y] }).ok).toBe(true);
+  expect(Object.keys(w.belts!).length).toBe(8); expect(cash - s.cash).toBe(Math.round(30 * s.macro.cpi * 8));
+  expect(W.placeProblem(s, 'heartland', spot[0] + 2, y - 1, { w: 2, d: 2 })).toBe('occupied'); // no building on the trees
+  expect(W.roadRoute(s, 'heartland', [spot[0] + 3, y], [spot[0] + 3, y])).toBeNull(); // no road through them
+  expect(dispatch(s, { type: 'removeBelt', region: 'heartland', at: [spot[0] + 4, y] }).ok).toBe(true); expect(Object.keys(w.belts!).length).toBe(0);
+});

@@ -18,7 +18,7 @@ export interface ClearJob { chunk: number; hours: number }
 export interface PlacePlan { action: import('./types').Action; chunks: number[]; at: [number, number]; w: number; d: number; label: string }
 /** owned: patches the farm has bought (you can only clear, farm and build on your own land). */
 /** roads: grade (1 dirt, 2 gravel, 3 paved) by tile id; main: grade of the main road through the map. */
-export interface RegionWorld { plans?: PlacePlan[]; /** the town's utility lines by tier, like canals: power, water and sewer */ nets?: Partial<Record<UtilityNet, Record<number, number>>>; cleared: number[]; owned: number[]; pos: Record<string, [number, number]>; queue: ClearJob[]; roads: Record<number, number>; main: number; /** water lines by tier (WATER_TIERS): 1 ditch, 2 pipe, 3 buried; the first two take the tile */ canals: Record<number, number>; zones: Record<number, Zone>; links: Record<string, number[]>; /** quarter turns (0–3) of each placed thing; its front faces +y at 0, then +x, −y, −x */ rot?: Record<string, number> }
+export interface RegionWorld { /** tree lines the player planted, tile by tile */ belts?: Record<number, number>; plans?: PlacePlan[]; /** the town's utility lines by tier, like canals: power, water and sewer */ nets?: Partial<Record<UtilityNet, Record<number, number>>>; cleared: number[]; owned: number[]; pos: Record<string, [number, number]>; queue: ClearJob[]; roads: Record<number, number>; main: number; /** water lines by tier (WATER_TIERS): 1 ditch, 2 pipe, 3 buried; the first two take the tile */ canals: Record<number, number>; zones: Record<number, Zone>; links: Record<string, number[]>; /** quarter turns (0–3) of each placed thing; its front faces +y at 0, then +x, −y, −x */ rot?: Record<string, number> }
 /** res: homes only (no farming); ind: industrial plants; com: shops and offices. Unzoned land is farmland. */
 export type Zone = 'res' | 'ind' | 'com';
 /** What a placement is, for zoning: homes need a residential zone; fields stay out of zones; farm buildings stay out of residential; industry needs an industrial zone. */
@@ -150,7 +150,7 @@ function occupancy(s: GameState, r: RegionId, ignore?: string, allowForest = fal
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const wx = x + MAP.x0, wy = y + MAP.y0;
     const c = chunkAt(wx, wy);
-    if (isRoad(wy) || w.roads[y * W + x] || waterBlocks(w, y * W + x) || river.has(y * W + x) || !owned.has(c) || (!allowForest && !cleared.has(c)) || !zoneOk(use, w.zones[c])) grid[y * W + x] = 1;
+    if (isRoad(wy) || w.roads[y * W + x] || waterBlocks(w, y * W + x) || !!w.belts?.[y * W + x] || river.has(y * W + x) || !owned.has(c) || (!allowForest && !cleared.has(c)) || !zoneOk(use, w.zones[c])) grid[y * W + x] = 1;
   }
   for (const p of placedIn(s, r)) {
     if (p.key === ignore) continue;
@@ -178,6 +178,7 @@ export function placeProblem(s: GameState, r: RegionId, x: number, y: number, fp
   const river = riverTiles(r), w = worldOf(s, r);
   for (let yy = y; yy < y + fp.d; yy++) for (let xx = x; xx < x + fp.w; xx++) if (river.has(tileId(xx, yy)) || waterBlocks(w, tileId(xx, yy))) return 'water';
   for (let yy = y; yy < y + fp.d; yy++) { if (isRoad(yy)) return 'road'; for (let xx = x; xx < x + fp.w; xx++) if (roads[tileId(xx, yy)]) return 'road'; }
+  for (let yy = y; yy < y + fp.d; yy++) for (let xx = x; xx < x + fp.w; xx++) if (w.belts?.[tileId(xx, yy)]) return 'occupied'; // a tree line stands there
   const cleared = clearedSet(worldOf(s, r)), owned = ownedSet(worldOf(s, r));
   for (let yy = y; yy < y + fp.d; yy++) for (let xx = x; xx < x + fp.w; xx++) if (!owned.has(chunkAt(xx, yy))) return 'unowned';
   for (let yy = y; yy < y + fp.d; yy++) for (let xx = x; xx < x + fp.w; xx++) if (!cleared.has(chunkAt(xx, yy))) return 'forest';
@@ -379,6 +380,7 @@ const STEPS: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 function openGround(s: GameState, r: RegionId) {
   const w = worldOf(s, r), cleared = clearedSet(w), owned = ownedSet(w), blocked = new Uint8Array(MAP.w * MAP.h);
   for (const p of placedIn(s, r)) for (let y = p.y; y < p.y + p.d; y++) for (let x = p.x; x < p.x + p.w; x++) if (inMap(x, y)) blocked[tileId(x, y)] = 1;
+  for (const k of Object.keys(w.belts ?? {})) blocked[Number(k)] = 1; // roads and lines go round tree lines
   const river = riverTiles(r);
   return (x: number, y: number) => { if (!inMap(x, y) || blocked[tileId(x, y)] || river.has(tileId(x, y))) return false; const c = chunkAt(x, y); return owned.has(c) && cleared.has(c); };
 }
@@ -599,6 +601,22 @@ function pipeGround(s: GameState, r: RegionId, kind: NetKind) {
   // a utility line may share a tile with the other utilities' lines: they run side by side, or cross
   const shared = (id: number) => !!own[id] || (kind !== 'irrigation' && UTILITY_NETS.some((k) => !!w.nets?.[k]?.[id]));
   return (x: number, y: number) => open(x, y) || (inMap(x, y) && owned.has(chunkAt(x, y)) && (isRoad(y) || !!w.roads[tileId(x, y)] || shared(tileId(x, y))));
+}
+/** A tree line drawn by hand: over open, cleared ground of yours (not roads, water or buildings). New tiles only; null if there is no way. */
+export const BELT_PRICE = 30;
+export function beltRoute(s: GameState, r: RegionId, from: [number, number], to: [number, number]) {
+  const w = worldOf(s, r), open = openGround(s, r), can = (x: number, y: number) => (open(x, y) && !w.roads[tileId(x, y)] && !isRoad(y) && !waterBlocks(w, tileId(x, y))) || !!w.belts?.[tileId(x, y)];
+  if (!can(from[0], from[1]) || !can(to[0], to[1])) return null;
+  const path = route(can, [from], (x, y) => x === to[0] && y === to[1]);
+  return path ? [...path, to].filter(([x, y]) => !w.belts?.[tileId(x, y)]) : null;
+}
+/** The run of a tree line at a tile, up to the next junction. */
+export function beltStretch(w: RegionWorld, x: number, y: number) {
+  const own = w.belts ?? {}, has = (a: number, b: number) => inMap(a, b) && !!own[tileId(a, b)];
+  if (!has(x, y)) return [];
+  const out = [tileId(x, y)], seen = new Set(out);
+  for (let h = 0; h < out.length; h++) { const [a, b] = tileAt(out[h]); for (const [dx, dy] of STEPS) { const id = tileId(a + dx, b + dy); if (has(a + dx, b + dy) && !seen.has(id)) { seen.add(id); out.push(id); } } }
+  return out;
 }
 /** A pipe drawn by hand, from one tile to another, over ground a pipe may cross. New tiles only; null if there is no way. */
 export function pipeRoute(s: GameState, r: RegionId, from: [number, number], to: [number, number], kind: NetKind = 'irrigation') {

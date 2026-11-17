@@ -540,6 +540,8 @@ export type Action =
   | { type: 'upgradeHome'; homeId: number }
   | { type: 'mergeBuilding'; buildingId: number }
   | { type: 'setPark'; serviceId: number; kind: ParkKind }
+  | { type: 'buildBelt'; region: RegionId; from: [number, number]; to: [number, number] }
+  | { type: 'removeBelt'; region: RegionId; at: [number, number] }
   | { type: 'setBuildAs'; what: 'road' | 'line' | 'service'; level: number }
   | { type: 'clearField'; fieldId: number };
 
