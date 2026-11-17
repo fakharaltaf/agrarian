@@ -114,7 +114,7 @@ it('Neutrality: feeding neighbours protects the roads; embargo makes a dependent
  expect(dispatch(s,{type:'setEmbargo',target:'arid'}).ok).toBe(true);expect(closedTo(s,'arid')).toBe(true);
  for(let d=0;d<21;d++)nextDay(s);
  expect(N.embargo).toBeNull();expect(r.demand).toBeNull();expect(r.bandits).toBeLessThan(.6);
- const tc=townOf(s).cash;expect(dispatch(s,{type:'hireSpies'}).ok).toBe(true);expect(townOf(s).cash).toBeLessThan(tc);
+ const tc=s.cash;expect(dispatch(s,{type:'hireSpies'}).ok).toBe(true);expect(s.cash).toBeLessThan(tc);
  const c=s.cash,g1=pathGuard(s);expect(dispatch(s,{type:'hireMercenaries'}).ok).toBe(true);expect(s.cash).toBeLessThan(c);expect(pathGuard(s)).toBeCloseTo(g1+.3);
  N.dispute={a:'river',b:'tropics',deadline:s.tick+100};const t0=r.neighbours.tropics.trust;
  expect(dispatch(s,{type:'mediate'}).ok).toBe(true);expect(r.neighbours.tropics.trust).toBe(Math.min(100,t0+10));expect(N.mediated).toBe(1);

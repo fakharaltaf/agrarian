@@ -226,14 +226,14 @@ function action(s: GameState, a: Action): ActionResult | null {
   }
   if (a.type === 'setEmbargo' || a.type === 'hireSpies' || a.type === 'hireMercenaries' || a.type === 'mediate') {
     if (v.path !== 'neutrality') return fail('Only the Neutrality path uses these tools.');
-    const N = v.neutral, t = townOf(s), r = regionOf(s);
+    const N = v.neutral, r = regionOf(s);
     if (a.type === 'setEmbargo') {
       if (a.target === null) { N.embargo = null; return { ok: true }; }
       if (!isNeighbour(a.target)) return fail('Choose a neighbour.');
       if (N.embargo) return fail('One embargo at a time.');
       N.embargo = { target: a.target, since: s.tick }; return { ok: true };
     }
-    if (a.type === 'hireSpies') { const cost = spyCost(s); if (t.cash < cost) return fail('Fund the treasury first.'); post(s, 'civic', -cost, 'Intelligence network', 'heartland', 'corporate', 'town'); N.intelUntil = Math.max(N.intelUntil, s.tick) + 60 * 24; return { ok: true }; }
+    if (a.type === 'hireSpies') { const cost = spyCost(s); if (s.cash < cost) return fail(`The intelligence network costs $${cost.toLocaleString()}.`); post(s, 'civic', -cost, 'Intelligence network', 'heartland', 'corporate'); N.intelUntil = Math.max(N.intelUntil, s.tick) + 60 * 24; return { ok: true }; }
     if (a.type === 'hireMercenaries') { const cost = mercenaryCost(s); if (s.cash < cost) return fail('Not enough cash.'); post(s, 'wages', -cost, 'Mercenary company, 30 days'); N.mercenariesUntil = Math.max(N.mercenariesUntil, s.tick) + 30 * 24; return { ok: true }; }
     if (!N.dispute) return fail('No dispute to mediate.');
     const cost = mediationCost(s); if (s.cash < cost) return fail('Not enough cash.');
@@ -245,9 +245,9 @@ function action(s: GameState, a: Action): ActionResult | null {
     const next = DRILLS[v.drill];
     if (!next) return fail('Your army has every drill.');
     if (v.drillUntil >= 0) return fail('A drill is already under way.');
-    const cost = drillCost(s), t = townOf(s);
-    if (t.cash < cost) return fail('Fund the treasury before the drill.');
-    post(s, 'research', -cost, `Army: ${next.name}`, 'heartland', 'corporate', 'town');
+    const cost = drillCost(s);
+    if (s.cash < cost) return fail(`The drill costs $${cost.toLocaleString()}.`);
+    post(s, 'research', -cost, `Army: ${next.name}`, 'heartland', 'corporate');
     v.drillUntil = s.tick + next.days * 24; return { ok: true };
   }
   if (a.type === 'launchCampaign') {

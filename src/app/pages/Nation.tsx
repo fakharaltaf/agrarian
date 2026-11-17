@@ -4,7 +4,7 @@ import { DRILLS, drillPower, nationOf, RATIONS_PER_SOLDIER, type NationPath, typ
 import { ALLY_TRUST, allyCharterCost, armyStrength, campaignOdds, defenceOf, drillCost, expectedLosses, indemnity, mediationCost, mercenaryCost, pathGuard, plunder, soldiers, spyCost, vassalDaily } from '../../simulation/stages/nation';
 import { raidRisk } from '../../simulation/stages/region';
 import { attitude, NEIGHBOUR_IDS, NEIGHBOURS, regionOf, type NeighbourId } from '../../simulation/region-state';
-import { plannedServiceCost, serviceDailyCost } from '../../simulation/stages/town';
+import { serviceDailyCost } from '../../simulation/stages/town';
 import { SERVICE_DEFS, servicePrice, townOf } from '../../simulation/town-state';
 import { REGIONS } from '../../simulation/config';
 import { Bar, Confirm, Info, Modal, PageHead, Seg } from '../ui';
@@ -22,7 +22,7 @@ export default function NationPage() {
   if (!v.active) return <Modal title="A nation takes shape" onClose={() => go('farm')}><div className="charter-heading"><b>Choose your path</b><span>Your farm, town and region keep running</span></div>
     <div className="charter-grid">{(Object.keys(PATHS) as NationPath[]).map(id => { const p = PATHS[id];
       const best = Math.max(...NEIGHBOUR_IDS.map(n => r.neighbours[n].trust)), routes = NEIGHBOUR_IDS.filter(n => r.neighbours[n].route).length;
-      const fit = id === 'army' ? <span className={t.cash >= servicePrice(s, 'barracks') ? 'good' : 'bad'}>Barracks {money(servicePrice(s, 'barracks'))} · treasury {money(t.cash)}</span>
+      const fit = id === 'army' ? <span className={s.cash >= servicePrice(s, 'barracks') ? 'good' : 'bad'}>Barracks {money(servicePrice(s, 'barracks'))}</span>
         : id === 'alliance' ? <span className={best >= ALLY_TRUST ? 'good' : 'bad'}>Best trust {Math.floor(best)}/{ALLY_TRUST}</span>
         : <span className={routes >= 2 ? 'good' : 'bad'}>Neighbours fed {routes}/4</span>;
       return <article className="charter-tile" key={id}><div className="charter-crest">{p.icon}</div><h3>{p.name}</h3><strong>{p.line}</strong><span>{p.detail}</span>{fit}
@@ -31,11 +31,9 @@ export default function NationPage() {
   if (v.path === 'alliance') return <LeagueRoom />;
   if (v.path === 'neutrality') return <EmbassyRoom />;
   const men = soldiers(s), strength = armyStrength(s), barracks = t.services.find(b => b.type === 'barracks');
-  const upkeep = plannedServiceCost(s), topUp = Math.ceil(Math.max(0, upkeep * 14 - t.cash) / 100) * 100;
   const odds = campaignOdds(s, target, stance), next = DRILLS[v.drill], war = v.campaign;
   return <div className="stack town-page nation-page" data-coach="nation-main"><PageHead title="War room" />
-    <div className="town-purse"><b>🪙 {money(t.cash)}</b><span>⚔ {num(strength)} strength</span><Info text={`Strength = soldiers × drill (${drillPower(v.drill)}×) × morale × rations. Soldiers are local adults paid from the town treasury; each eats ${RATIONS_PER_SOLDIER} units of grain or bread a day from spare stock.`} /></div>
-    {t.cash < upkeep * 7 && <button className="btn primary community-next" onClick={() => topUp > s.cash ? go(s.corp.incorporated ? 'corporation' : 'finance') : act({ type: 'fundTown', amount: topUp, direction: 'toTown' })}><span>🪙 {t.cash < upkeep ? 'Treasury empty: soldiers go unpaid' : 'Fund two weeks of public services'}</span><b>{money(topUp)}</b></button>}
+    <div className="town-purse"><b>🪙 {money(s.cash)}</b><span>⚔ {num(strength)} strength</span><Info text={`Strength = soldiers × drill (${drillPower(v.drill)}×) × morale × rations. Soldiers are local adults paid by the farm; each eats ${RATIONS_PER_SOLDIER} units of grain or bread a day from spare stock.`} /></div>
     <div className="community-strip"><span><b>🪖 {num(men)}</b><small>soldiers</small></span><span><b>🍞 {pct0(v.supply)}</b><small>rations</small></span><span><b>☺ {pct0(v.morale)}</b><small>morale</small></span></div>
     {war ? <article className="city-case region-alert"><h3>⚔ {war.stance === 'siege' ? 'Siege of' : 'Raid on'} {REGIONS[war.target].name}</h3><strong>{num(war.soldiers)} soldiers · {Math.max(0, Math.ceil((war.ends - s.tick) / 24))} days to go</strong>
       <Bar value={(s.tick - war.started) / Math.max(1, war.ends - war.started)} label="Campaign progress" /><span>Odds today {pct0(campaignOdds(s, war.target, war.stance))}. Keep rations flowing: hungry soldiers lose.</span></article>
@@ -51,11 +49,9 @@ export default function NationPage() {
         {men < 1 && <small className="muted">Build and staff barracks first.</small>}
       </article>}
     <article className="town-service"><div className="town-portrait"><b>⚔</b></div><div className="town-service-body"><h3>{SERVICE_DEFS.barracks.name} {barracks && <small>×{barracks.count}</small>}</h3><strong>{SERVICE_DEFS.barracks.jobs} soldiers each · {money(serviceDailyCost(s, 'barracks'))}/day</strong>
-      {(() => { const gap = Math.ceil((servicePrice(s, 'barracks') + (plannedServiceCost(s) + serviceDailyCost(s, 'barracks')) * 7 - t.cash) / 100) * 100;
-        return gap > 0 && gap <= s.cash ? <button className="btn primary" onClick={() => { if (act({ type: 'fundTown', amount: gap, direction: 'toTown' })) act({ type: 'buildService', service: 'barracks', district: 'farmgate' }); }}>Advance {money(gap)} & build</button>
-          : <button className="btn primary" disabled={servicePrice(s, 'barracks') > t.cash} onClick={() => act({ type: 'buildService', service: 'barracks', district: 'farmgate' })}>Build · {money(servicePrice(s, 'barracks'))}</button>; })()}</div>
+      <button className="btn primary" disabled={servicePrice(s, 'barracks') > s.cash} onClick={() => act({ type: 'buildService', service: 'barracks', district: 'farmgate' })}>Build · {money(servicePrice(s, 'barracks'))}</button></div>
       {barracks && <div className="town-service-status"><span>{!barracks.active ? 'Stood down' : barracks.funded ? `${barracks.staffed}/${SERVICE_DEFS.barracks.jobs * barracks.count} soldiers` : 'Needs funding or recruits'}</span><button className="btn ghost" onClick={() => act({ type: 'toggleService', serviceId: barracks.id })}>{barracks.active ? 'Stand down' : 'Muster'}</button></div>}</article>
-    <div className="row wrap">{next ? <Confirm label={v.drillUntil >= 0 ? `${next.icon} ${next.name} · ${Math.ceil((v.drillUntil - s.tick) / 24)} days` : `${next.icon} ${next.name} · ${money(drillCost(s))}`} title={`Begin ${next.name}?`} body={<>{money(drillCost(s))} from the treasury · {next.days} days. Army strength {drillPower(v.drill)}× → {next.power}×.</>} disabled={v.drillUntil >= 0 || t.cash < drillCost(s)} className="btn" onConfirm={() => act({ type: 'trainArmy' })} /> : <span className="pill">🎖 Fully drilled · {drillPower(v.drill)}×</span>}</div>
+    <div className="row wrap">{next ? <Confirm label={v.drillUntil >= 0 ? `${next.icon} ${next.name} · ${Math.ceil((v.drillUntil - s.tick) / 24)} days` : `${next.icon} ${next.name} · ${money(drillCost(s))}`} title={`Begin ${next.name}?`} body={<>{money(drillCost(s))} from the treasury · {next.days} days. Army strength {drillPower(v.drill)}× → {next.power}×.</>} disabled={v.drillUntil >= 0 || s.cash < drillCost(s)} className="btn" onConfirm={() => act({ type: 'trainArmy' })} /> : <span className="pill">🎖 Fully drilled · {drillPower(v.drill)}×</span>}</div>
     {v.vassal && <div className="town-service-status"><span>👑 {REGIONS[v.vassal.from].name} pays {money(v.vassal.daily)}/day · {Math.ceil((v.vassal.until - s.tick) / 24)} days left</span></div>}
     <div className="community-strip"><span><b>🏆 {v.wins}</b><small>won</small></span><span><b>✝ {num(v.casualties)}</b><small>fallen</small></span><span><b>😩 {pct0(v.weariness)}</b><small>weariness</small></span></div>
     {v.history.length > 0 && <details className="town-budget"><summary>📜 Campaigns · {v.history.length}</summary><div className="stack">{[...v.history].reverse().map((h, i) => <div className="town-cash-flow" key={i}><span>{h.won ? '🏆' : '✖'} {h.stance} · {REGIONS[h.target].name}<b>{h.lost} fallen</b></span><span>{h.spoils >= 0 ? 'Spoils' : 'Indemnity'}<b>{money(Math.abs(h.spoils))}</b></span></div>)}</div></details>}
@@ -64,10 +60,9 @@ export default function NationPage() {
 }
 
 function Purse() {
-  const s = useGame(), t = townOf(s), upkeep = plannedServiceCost(s), topUp = Math.ceil(Math.max(0, upkeep * 14 - t.cash) / 100) * 100;
+  const s = useGame();
   return <>
-    <div className="town-purse"><b>🪙 {money(t.cash)}</b><span>🛡 {pct0(pathGuard(s))} path guard</span><Info text={`Extra road protection from your path. Today's daily raid risk per caravan: ${pct0(raidRisk(s))}.`} /></div>
-    {t.cash < upkeep * 7 && <button className="btn primary community-next" onClick={() => topUp > s.cash ? go(s.corp.incorporated ? 'corporation' : 'finance') : act({ type: 'fundTown', amount: topUp, direction: 'toTown' })}><span>🪙 Fund two weeks of public services</span><b>{money(topUp)}</b></button>}
+    <div className="town-purse"><b>🪙 {money(s.cash)}</b><span>🛡 {pct0(pathGuard(s))} path guard</span><Info text={`Extra road protection from your path. Today's daily raid risk per caravan: ${pct0(raidRisk(s))}.`} /></div>
   </>;
 }
 const days = (s: ReturnType<typeof useGame>, until: number) => Math.max(0, Math.ceil((until - s.tick) / 24));
@@ -91,7 +86,7 @@ function LeagueRoom() {
 }
 
 function EmbassyRoom() {
-  const s = useGame(), N = nationOf(s).neutral, r = regionOf(s), t = townOf(s), intel = s.tick < N.intelUntil;
+  const s = useGame(), N = nationOf(s).neutral, r = regionOf(s), intel = s.tick < N.intelUntil;
   const [target, setTarget] = useState<NeighbourId>('arid');
   const fed = NEIGHBOUR_IDS.filter(id => r.neighbours[id].route && N.embargo?.target !== id).length;
   return <div className="stack town-page nation-page" data-coach="nation-main"><PageHead title="Embassy" /><Purse />
@@ -104,7 +99,7 @@ function EmbassyRoom() {
           <Confirm label={`Embargo ${REGIONS[target].name}`} title={`Embargo ${REGIONS[target].name}?`} body={<>Your caravans stop. Their trust falls daily. After {r.neighbours[target].delivered > 0 ? 20 : 40} days they concede: their raiders stand down and any tribute demand is dropped.</>} className="btn" onConfirm={() => act({ type: 'setEmbargo', target })} /></>}
     </article>
     <div className="row wrap">
-      <Confirm label={intel ? `🕵 Spies · ${days(s, N.intelUntil)} days` : `🕵 Spies · ${money(spyCost(s))}`} title="Fund an intelligence network?" body={<>{money(spyCost(s))} from the treasury for 60 days. Reveals raid risk and warns of demands early.</>} disabled={t.cash < spyCost(s)} className="btn" onConfirm={() => act({ type: 'hireSpies' })} />
+      <Confirm label={intel ? `🕵 Spies · ${days(s, N.intelUntil)} days` : `🕵 Spies · ${money(spyCost(s))}`} title="Fund an intelligence network?" body={<>{money(spyCost(s))} from company cash for 60 days. Reveals raid risk and warns of demands early.</>} disabled={s.cash < spyCost(s)} className="btn" onConfirm={() => act({ type: 'hireSpies' })} />
       <Confirm label={s.tick < N.mercenariesUntil ? `🗡 Mercenaries · ${days(s, N.mercenariesUntil)} days` : `🗡 Mercenaries · ${money(mercenaryCost(s))}`} title="Hire mercenaries?" body={<>{money(mercenaryCost(s))} for 30 days of armed escorts: +30% road protection. Expensive by design: neutrality's safety is supposed to come from goodwill.</>} disabled={s.cash < mercenaryCost(s)} className="btn" onConfirm={() => act({ type: 'hireMercenaries' })} />
     </div>
     <small className="muted">Each neighbour you supply by caravan adds 6% road protection.</small>

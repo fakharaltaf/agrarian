@@ -426,7 +426,7 @@ export const LEDGER_KINDS = {
 } as const;
 export type LedgerKind = keyof typeof LEDGER_KINDS;
 
-export const REVENUE_KINDS: LedgerKind[] = ['sale', 'contract', 'grid', 'rent', 'fees'];
+export const REVENUE_KINDS: LedgerKind[] = ['sale', 'contract', 'grid', 'rent', 'fees', 'tolls'];
 export const OPEX_KINDS: LedgerKind[] = ['seeds', 'wages', 'salaries', 'staff', 'fuel', 'maintenance', 'electricity', 'water', 'fertilizer', 'purchases', 'haulage', 'shipping', 'insurance', 'lease', 'royalties', 'training', 'fines', 'research', 'legal', 'advisor', 'diplomacy'];
 export const INVESTING_KINDS: LedgerKind[] = ['townTransfer', 'land', 'machine', 'building', 'acquisition', 'irrigation', 'assetSale'];
 export const FINANCING_KINDS: LedgerKind[] = ['loanIn', 'loanRepay', 'sharesIssued', 'dividends', 'buyback'];
