@@ -1,5 +1,6 @@
 // What stands where in a region's isometric world. Positions come from the saved map (simulation/world.ts);
 // this module only turns them into drawable lots and plots. Deterministic: same state, same picture.
+import { STAGE_IDS } from '../../simulation/stages/types';
 import { BUILDINGS, type BuildingType, type RegionId } from '../../simulation/config';
 import type { Building, CivicService, Field, GameState } from '../../simulation/types';
 import { svcSide } from '../../simulation/town-state';
@@ -18,6 +19,8 @@ export interface Lot { /** a home's level (apartments grow upward) */ level?: nu
 export interface Plot { field: Field; x: number; y: number; s: number }
 export interface Layout { lots: Lot[]; plots: Plot[]; roadY: number; buy: { x: number; y: number; s: number } | null; maxX: number; maxY: number; minX: number; minY: number }
 
+/** The farmhouse grows with each chapter: 1 the homestead's cottage … 7 the City's mansion. */
+export const farmhouseTier = (s: GameState) => Math.max(1, Math.min(7, (STAGE_IDS as readonly string[]).indexOf(s.stageId) + 1));
 export function layoutRegion(s: GameState, r: RegionId): Layout {
   const w = worldOf(s, r), at = (k: string) => w.pos[k];
   const lots: Lot[] = [];
@@ -27,7 +30,7 @@ export function layoutRegion(s: GameState, r: RegionId): Layout {
     const [fw, fd] = FOOTPRINT[type], rot = w.rot?.[place] ?? 0, base = { w: fw, d: fd, ...extra };
     lots.push({ key, place, type, buildings: bs, x: p[0], y: p[1], ...extra, w: rot % 2 ? base.d : base.w, d: rot % 2 ? base.w : base.d, rot });
   };
-  add(r === 'heartland' ? 'house' : 'shed', r === 'heartland' ? 'farmhouse' : 'shed', r === 'heartland' ? 'house' : 'shed', []);
+  add(r === 'heartland' ? 'house' : 'shed', r === 'heartland' ? 'farmhouse' : 'shed', r === 'heartland' ? 'house' : 'shed', [], r === 'heartland' ? { level: farmhouseTier(s) } : {});
   add('market', 'market', 'shed', []);
   add('crew', 'crew', 'house', []);
   add('office', 'office', 'house', []);

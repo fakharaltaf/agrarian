@@ -237,10 +237,43 @@ export function buildLot(type: Lot['type'], w: number, d: number, variant = '', 
         break;
       }
       pad(PAL.creamDark);
-      shed(g, 2.2, 1.6, 1.5, PAL.cream, PAL.roofRed, 0.4, 0.5, { door: 'house', windows: 3 });
-      g.add(box(0.9, 0.05, 0.5, PAL.wood, 1.5, 0.05, 2.3)); // porch
-      smoke.push(chimney(g, 0.75, 0.9, 1.5, 0.9));
-      g.add(sphere(0.32, 0x5f8f4a, 2.85, 0.32, 2.6)); // garden shrub
+      if (level <= 2) { // the homestead's farmhouse; in the market town it gains a roofed porch, flower boxes and a picket fence
+        shed(g, 2.2, 1.6, 1.5, PAL.cream, PAL.roofRed, 0.4, 0.5, { door: 'house', windows: 3 });
+        g.add(box(0.9, 0.05, 0.5, PAL.wood, 1.5, 0.05, 2.3)); // porch
+        smoke.push(chimney(g, 0.75, 0.9, 1.5, 0.9));
+        g.add(sphere(0.32, 0x5f8f4a, 2.85, 0.32, 2.6)); // garden shrub
+        if (level === 2) {
+          g.add(box(1.0, 0.05, 0.6, PAL.roofRed, 1.5, 0.95, 2.35), box(0.05, 0.9, 0.05, PAL.white, 1.05, 0.05, 2.6), box(0.05, 0.9, 0.05, PAL.white, 1.95, 0.05, 2.6));
+          for (const x of [0.75, 2.25]) { g.add(box(0.3, 0.07, 0.08, PAL.woodDark, x, 0.62, 2.14)); for (const dx of [-0.09, 0, 0.09]) g.add(sphere(0.045, [0xc94c4c, 0xe7a23b, 0xd673a4][Math.round((dx + 0.09) / 0.09)], x + dx, 0.72, 2.14)); }
+          for (let i = 0; i < 9; i++) if (i !== 4) g.add(box(0.05, 0.3, 0.03, PAL.white, 0.3 + i * 0.3, 0.05, 2.88)); g.add(box(2.5, 0.03, 0.03, PAL.white, 1.5, 0.25, 2.88));
+        }
+        break;
+      }
+      { // from the farm business on: a second storey, then a wing, a turret, a columned front, and at last a three-storey mansion
+        const tall = level >= 7, wallH = tall ? 2.9 : 2.2, bw = level >= 6 ? 2.5 : 2.2, bd = 1.6, x0 = level >= 4 ? 0.15 : 0.4, z0 = 0.4, cx = x0 + bw / 2, front = z0 + bd;
+        const wall = level >= 6 ? 0xf4efe2 : PAL.cream, roofC = level >= 6 ? 0x7a4a3e : PAL.roofRed;
+        g.add(box(bw + 0.06, 0.12, bd + 0.06, PAL.stoneDark, cx, 0, z0 + bd / 2), box(bw, wallH - 0.1, bd, wall, cx, 0.1, z0 + bd / 2), gable(bw, bd, 0.7, roofC, cx, wallH, z0 + bd / 2), box(bw + 0.3, 0.05, 0.08, 0x3a2a22, cx, wallH + 0.69, z0 + bd / 2));
+        g.add(box(bw + 0.05, 0.05, bd + 0.05, PAL.white, cx, wallH - 0.06, z0 + bd / 2));
+        const floors = tall ? 3 : 2;
+        for (let f = 0; f < floors; f++) for (let i = 0; i < 4; i++) { const x = x0 + (i + 0.5) * (bw / 4), y = 0.42 + f * 0.82; if (f === 0 && (i === 1 || i === 2)) continue; g.add(box(0.32, 0.38, 0.02, PAL.white, x, y - 0.04, front + 0.005)); glassWin(g, 0.24, 0.3, x, y, front + 0.012); g.add(box(0.07, 0.36, 0.02, 0x4f7a52, x - 0.2, y - 0.03, front + 0.01), box(0.07, 0.36, 0.02, 0x4f7a52, x + 0.2, y - 0.03, front + 0.01)); }
+        for (let f = 0; f < floors; f++) glassWin(g, 0.3, 0.3, x0 + bw + 0.012, 0.42 + f * 0.82, z0 + bd / 2, true);
+        g.add(box(0.5, 0.68, 0.04, PAL.door, cx, 0.1, front + 0.01), box(0.6, 0.06, 0.06, PAL.white, cx, 0.8, front + 0.02));
+        smoke.push(chimney(g, x0 + 0.35, z0 + 0.5, wallH + 0.2, 0.9)); if (level >= 5) smoke.push(chimney(g, x0 + bw - 0.35, z0 + 0.5, wallH + 0.2, 0.9));
+        // veranda (farm business), then a columned portico with a balcony (town and city)
+        if (level < 6) g.add(box(bw - 0.2, 0.06, 0.5, PAL.wood, cx, 0.08, front + 0.27), box(bw - 0.1, 0.05, 0.6, roofC, cx, 0.98, front + 0.3), ...[0, 1, 2, 3].map((i) => box(0.05, 0.86, 0.05, PAL.white, x0 + 0.15 + i * ((bw - 0.3) / 3), 0.12, front + 0.52)));
+        else { for (const dx of [-0.5, -0.17, 0.17, 0.5]) g.add(cyl(0.05, 1.5, PAL.white, cx + dx, 0.12, front + 0.45, 10)); g.add(box(1.3, 0.1, 0.55, PAL.white, cx, 1.62, front + 0.25), box(1.3, 0.2, 0.03, PAL.white, cx, 1.72, front + 0.5), box(1.4, 0.08, 0.6, PAL.stone, cx, 0.04, front + 0.28)); const ped = gable(0.12, 1.3, 0.3, wall, cx, 1.92, front + 0.3); ped.rotation.y = Math.PI / 2; if (tall) g.add(ped); }
+        if (level >= 4) { // a side wing
+          const wx = x0 + bw + 0.02, ww = w - wx - 0.15; g.add(box(ww, 1.3, 1.2, wall, wx + ww / 2, 0.05, z0 + 0.7), gable(ww, 1.2, 0.5, roofC, wx + ww / 2, 1.35, z0 + 0.7)); glassWin(g, Math.min(0.5, ww - 0.2), 0.36, wx + ww / 2, 0.5, z0 + 1.31);
+        }
+        if (level >= 5) { // a round turret at the back corner
+          g.add(cyl(0.36, wallH + 0.5, wall, x0 + 0.1, 0.05, z0 + 0.1, 12), cone(0.44, 0.7, roofC, x0 + 0.1, wallH + 0.55, z0 + 0.1, 12)); glassWin(g, 0.03, 0.3, x0 - 0.27, wallH - 0.2, z0 + 0.1, true);
+        }
+        // the garden grows with the house: hedges, then a lamp, then a fountain
+        for (const x of [0.4, w - 0.4]) g.add(box(0.6, 0.24, 0.2, 0x5f8f4a, x, 0.05, d - 0.25));
+        if (level >= 5) lampPost(g, cx + 0.9, d - 0.3, 0.8);
+        if (level >= 6) g.add(cyl(0.26, 0.12, PAL.stone, cx, 0.05, d - 0.3, 12), cyl(0.2, 0.03, 0x7fb6d6, cx, 0.17, d - 0.3, 12), cyl(0.04, 0.3, PAL.stone, cx, 0.17, d - 0.3, 8));
+        if (tall) g.add(box(0.03, 0.9, 0.03, PAL.metalDark, cx, wallH + 0.7, z0 + bd / 2), box(0.36, 0.22, 0.02, PAL.barnRed, cx + 0.2, wallH + 1.4, z0 + bd / 2));
+      }
       break;
     case 'shed':
       if (variant === 'market' && artModel('stall', 1, 1)) { // village trader: a market stall with crates, sacks and a barrel
