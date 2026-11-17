@@ -1507,7 +1507,7 @@ function syncRoadPreview(R: Rig, s: GameState, Rd: Roading | null) {
 }
 
 /** One car: driving from one road tile to the next, keeping to the right. */
-type Car = { a: number; b: number; prev: number; u: number; col: number; /** the way it is heading */ dx: number; dy: number };
+type Car = { a: number; b: number; prev: number; u: number; col: number; /** the way it is heading */ dx: number; dy: number; /** facing at the start of this tile, to turn smoothly */ yaw0?: number; yaw?: number };
 const CAR_COLS = [0xa8322c, 0xf4f2ec, 0x4f7aa0, 0xc99a2e, 0x2a3540, 0x4f8a4a, 0x8f979b, 0xd98a3a].map((c) => new THREE.Color(c));
 const MAX_CARS = 160;
 /** Cars on the town's streets, as many as the traffic says, going where the cars go: a busier street draws more of them, and a jammed one slows them down. */
@@ -1533,7 +1533,7 @@ function animateCars(R: Rig, s: GameState) {
     const opts: [number, number, number, number][] = [], ahead = step(a, dx, dy);
     if (road(ahead)) opts.push([ahead, dx, dy, 6 + (flow[ahead] ?? 0)]);
     for (const [tx, ty] of [[-dy, dx], [dy, -dx]] as const) { const t = step(a, tx, ty); if (road(t) && run(a, tx, ty) > width(a, dx, dy)) opts.push([t, tx, ty, 1 + (flow[t] ?? 0) * 0.5]); } // a side road, not just the next lane
-    if (!onRight(a, dx, dy)) { const t = step(a, -dy, dx); if (road(t)) return [t, dx, dy]; } // drift back to the right-hand lanes, still heading the same way
+    if (!onRight(a, dx, dy)) { const t = step(ahead, -dy, dx); if (road(ahead) && road(t)) return [t, dx, dy]; } // change lane back to the right: forward and over in one move, still heading the same way
     if (!opts.length) { const back = step(a, -dx, -dy); return road(back) ? [back, -dx, -dy] : [a, -dx, -dy]; }
     let r = Math.random() * opts.reduce((n, o) => n + o[3], 0); for (const o of opts) { r -= o[3]; if (r <= 0) return [o[0], o[1], o[2]]; } return [opts[0][0], opts[0][1], opts[0][2]];
   };
@@ -1545,16 +1545,28 @@ function animateCars(R: Rig, s: GameState) {
     const dirs = ([[1, 0], [-1, 0], [0, 1], [0, -1]] as const).filter(([dx, dy]) => road(step(a, dx, dy)) && onRight(a, dx, dy));
     if (!dirs.length) continue;
     const [dx, dy] = dirs[Math.floor(Math.random() * dirs.length)];
+    if (C.list.some((o) => o.a === a || o.b === a)) continue; // never on top of another car
     C.list.push({ a, b: step(a, dx, dy), prev: -1, u: Math.random(), col: Math.floor(Math.random() * CAR_COLS.length), dx, dy });
   }
   const go = getSpeed() > 0 ? 1 : 0, m = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), pos = new THREE.Vector3(), one = new THREE.Vector3(1, 1, 1);
   C.list = C.list.filter((c) => road(c.a) && road(c.b));
+  // keep a gap: a car never closes to within GAP of the car in front going the same way, so queues form instead of cars stacking on each other
+  const GAP = 0.8, ahead = new Map<string, Car[]>(), key = (id: number, dx: number, dy: number) => `${id}:${dx}:${dy}`;
+  for (const c of C.list) { const k = key(c.a, c.dx, c.dy); (ahead.get(k) ?? ahead.set(k, []).get(k)!).push(c); }
+  const room = (c: Car) => { let lim = Infinity;
+    for (const o of ahead.get(key(c.a, c.dx, c.dy)) ?? []) if (o !== c && o.u > c.u) lim = Math.min(lim, o.u - GAP);
+    for (const o of ahead.get(key(c.b, c.dx, c.dy)) ?? []) if (o !== c) lim = Math.min(lim, 1 + o.u - GAP);
+    return lim; };
+  const lerpYaw = (a: number, b: number, k: number) => { const d = Math.atan2(Math.sin(b - a), Math.cos(b - a)); return a + d * k; };
   C.list.forEach((c, i) => {
-    c.u += R.dt * go * 1.6 / (t.traffic?.[c.b] ?? 1);
-    while (c.u >= 1) { c.u -= 1; c.prev = c.a; c.a = c.b; const [nb, ndx, ndy] = next(c.a, c.dx, c.dy); c.b = nb; c.dx = ndx; c.dy = ndy; }
+    c.u = Math.max(c.u, Math.min(c.u + R.dt * go * 1.6 / (t.traffic?.[c.b] ?? 1), room(c)));
+    while (c.u >= 1) { c.u -= 1; c.prev = c.a; c.a = c.b; c.yaw0 = c.yaw; const [nb, ndx, ndy] = next(c.a, c.dx, c.dy); c.b = nb; c.dx = ndx; c.dy = ndy; }
     const [ax, ay] = tileAt(c.a), [bx, by] = tileAt(c.b), dx = c.dx, dz = c.dy, single = width(c.a, dx, dz) <= 1, side = single ? 0.2 : 0; // a lane of its own on a wide street; the right half of a narrow one
     pos.set(ax + 0.5 + (bx - ax) * c.u - dz * side, 0.02, ay + 0.5 + (by - ay) * c.u + dx * side);
-    q.setFromAxisAngle(up, Math.atan2(-dz, dx));
+    // turn the body over the first part of the tile rather than snapping round; a lane change leans it a little into the move
+    const head = Math.atan2(-dz, dx), target = bx - ax !== dx || by - ay !== dz ? lerpYaw(head, Math.atan2(-(by - ay), bx - ax), 0.6 * Math.sin(Math.PI * c.u)) : head;
+    c.yaw = c.yaw0 === undefined ? target : lerpYaw(c.yaw0, target, Math.min(1, c.u * 2.5));
+    q.setFromAxisAngle(up, c.yaw);
     m.compose(pos, q, one); C.body.setMatrixAt(i, m); C.cabin.setMatrixAt(i, m); C.body.setColorAt(i, CAR_COLS[c.col]);
   });
   C.body.count = C.cabin.count = C.list.length;
