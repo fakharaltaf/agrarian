@@ -546,7 +546,7 @@ function syncLots(R: Rig, L: Layout) {
     const edge = new THREE.LineSegments(cached(`fpe${lot.w}x${lot.d}`, () => new THREE.EdgesGeometry(new THREE.BoxGeometry(lot.w - 0.1, 0.5, lot.d - 0.1))), OUTLINE_EDGE); edge.position.set(lot.x + lot.w / 2, 0.25, lot.y + lot.d / 2);
     R.outlines.add(fill, edge);
     const bw = lot.rot % 2 ? lot.d : lot.w, bd = lot.rot % 2 ? lot.w : lot.d; // built unturned, then turned about its centre
-    const model = lot.key.startsWith('civic:') ? buildCivic(lot.key.split(':')[1], bw, bd, lot.service?.level ?? 1) : lot.key.startsWith('community:') ? buildCommunityHome(lot.key.split(':')[1], bw, bd, lot.key, lot.level ?? 1) : (lot.buildings[0]?.size ?? 1) > 1 ? buildWorks(lot.type, lot.buildings[0].size === 4 ? 4 : 2, bw, bd) : buildLot(lot.type, bw, bd, lot.key === 'crew' || lot.key === 'office' || lot.key === 'market' ? lot.key : '', Math.max(1, ...lot.buildings.map((b) => b.level)));
+    const model = lot.key.startsWith('civic:') ? buildCivic(lot.key.split(':')[1], bw, bd, lot.service?.level ?? 1, lot.key) : lot.key.startsWith('community:') ? buildCommunityHome(lot.key.split(':')[1], bw, bd, lot.key, lot.level ?? 1) : (lot.buildings[0]?.size ?? 1) > 1 ? buildWorks(lot.type, lot.buildings[0].size === 4 ? 4 : 2, bw, bd) : buildLot(lot.type, bw, bd, lot.key === 'crew' || lot.key === 'office' || lot.key === 'market' ? lot.key : '', Math.max(1, ...lot.buildings.map((b) => b.level)));
     const inner = new THREE.Group(); inner.add(...model.group.children); inner.position.set(-bw / 2, 0, -bd / 2); model.group.add(inner);
     model.group.position.set(lot.x + lot.w / 2, 0, lot.y + lot.d / 2); model.group.rotation.y = (lot.rot * Math.PI) / 2;
     model.smoke = model.smoke.map((p) => { const [x, z] = turnPoint(lot, p.x, p.z); return new THREE.Vector3(x, p.y, z); });
@@ -1094,6 +1094,10 @@ class Decal {
       }
     }
   }
+  /** A filled fan from one point across a run of others (both windings, so it shows whichever way it was walked). */
+  fan(x: number, z: number, pts: (readonly [number, number])[], c: THREE.Color, a = 1, rim = a) {
+    for (let i = 0; i < pts.length - 1; i++) { this.vx(x, z, c, a); this.vx(pts[i][0], pts[i][1], c, rim); this.vx(pts[i + 1][0], pts[i + 1][1], c, rim); this.vx(x, z, c, a); this.vx(pts[i + 1][0], pts[i + 1][1], c, rim); this.vx(pts[i][0], pts[i][1], c, rim); }
+  }
   /** A round patch: rings out from the centre (fills corners and junctions); the outer rings wander like a ribbon's edges. */
   disc(x: number, z: number, rings: Band[], edge = 0, sides = 20) {
     const outer = rings[rings.length - 1][0] || 1;
@@ -1196,11 +1200,32 @@ function syncRoads(R: Rig, s: GameState) {
     const c = C(ROAD_COL[Math.min(w.roads[tileId(x, y)], w.roads[tileId(x + 1, y)], w.roads[tileId(x, y + 1)], w.roads[tileId(x + 1, y + 1)])]);
     surface.seg(x + 0.5, y + 1, x + 1.5, y + 1, [[-0.5, c, 1], [0.5, c, 1]]);
   }
+  // smooth turns: where two gravel or paved roads meet at a right angle, the inside of the corner is rounded off instead of cut square
+  {
+    const seen = new Set<string>(), R0 = 0.55, EDGE = 0.5 - HALF;
+    for (const k of ids) {
+      const [rx, ry] = tileAt(Number(k));
+      for (const [sx, sy] of [[1, 1], [1, -1], [-1, 1], [-1, -1]] as const) {
+        // the grass tile diagonal to this road tile, with road on both its sides that touch us
+        const gx = rx - sx, gy = ry - sy, key = `${gx},${gy},${sx},${sy}`;
+        if (seen.has(key) || at(gx, gy) !== 0 || !hard(rx, ry) || !hard(gx + sx, gy) || !hard(gx, gy + sy)) continue;
+        seen.add(key);
+        const gr = Math.min(w.roads[tileId(gx + sx, gy)], w.roads[tileId(gx, gy + sy)]), col = C(ROAD_COL[gr]), sh = C(SHOULDER_COL[gr]);
+        const px = gx + 0.5 + sx * (0.5 + EDGE), pz = gy + 0.5 + sy * (0.5 + EDGE), ox = px - sx * R0, oz = pz - sy * R0; // the square corner, and the centre the curve swings round
+        const arc = (r: number) => Array.from({ length: 9 }, (_, i) => { const t = (i / 8) * Math.PI / 2; return [ox + sx * r * Math.cos(t), oz + sy * r * Math.sin(t)] as const; });
+        const edge = arc(R0), soft = arc(R0 - 0.1);
+        surface.fan(px, pz, edge, col, 1, 1);
+        for (let i = 0; i < edge.length - 1; i++) surface.fan(edge[i][0], edge[i][1], [edge[i + 1], soft[i + 1], soft[i]], sh, 0.9, 0.5); // a soft shoulder along the curve, like the road's own edge
+      }
+    }
+  }
   // a paved road two tiles wide has white dashes down its middle; three has a green belt between its lanes; four a belt down each side; five two lanes either side of a belt
   const paved = (x: number, y: number) => (w.roads[tileId(x, y)] ?? 0) >= 3, WHITE = C(0xe9e4d6), dash: Band[] = [[-0.035, WHITE, 1], [0.035, WHITE, 1]];
   // three side by side: a dual road, its middle lane a green belt of grass behind a kerb with a tree on every tile
   const KERB = C(0xc9c3b4), LAWN = C(0x7f9a4a), beltTrees: THREE.Object3D[] = [];
-  const belt = (cx: number, cz: number, ew: boolean) => {
+  // belts are gathered first and only drawn in runs of three tiles or more, so a busy street grid is not dotted with single squares of lawn
+  const wanted = new Map<string, [number, number, boolean]>(), belt = (cx: number, cz: number, ew: boolean) => { wanted.set(`${cx},${cz},${ew}`, [cx, cz, ew]); };
+  const drawBelt = (cx: number, cz: number, ew: boolean) => {
     const [ax, az, bx, bz] = ew ? [cx - 0.5, cz, cx + 0.5, cz] : [cx, cz - 0.5, cx, cz + 0.5];
     grass.seg(ax, az, bx, bz, [[-0.36, KERB, 1], [-0.3, LAWN, 1], [0.3, LAWN, 1], [0.36, KERB, 1]]);
     const t = tree(0.55, R.crownMat, (Math.round(cx) + Math.round(cz)) % 3 === 0 ? 1 : 0); t.position.set(cx, 0, cz); t.rotation.y = (cx * 7 + cz * 3) % 6; beltTrees.push(t);
@@ -1230,6 +1255,11 @@ function syncRoads(R: Rig, s: GameState) {
       else if (ny === 4) { if (through) { belt(x + 0.5, y + 0.5, true); belt(x + 0.5, y + 3.5, true); } line(2); }
       else { if (through && !uturn) belt(x + 0.5, y + 2.5, true); line(1); line(4); }
     }
+  }
+  for (const [cx, cz, ew] of wanted.values()) {
+    const has = (k: number) => wanted.has(ew ? `${cx + k},${cz},true` : `${cx},${cz + k},false`);
+    let run = 1; for (let k = 1; has(k); k++) run++; for (let k = -1; has(k); k--) run++;
+    if (run >= 3) drawBelt(cx, cz, ew);
   }
   if (beltTrees.length) R.roadsG.add(...beltTrees);
   // where a track meets the main road its mouth widens into a soft rounded fan, so the corners are not cut square

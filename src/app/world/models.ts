@@ -171,6 +171,8 @@ function trough(g: THREE.Group, x: number, z: number, len = 0.8, water = true) {
 }
 
 const hashStr = (s: string) => { let h = 2166136261; for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619); return (h >>> 0) / 4294967296; };
+/** A steady choice of one in n from a key, taken from the hash's low digits so keys that differ by one character still spread out. */
+const pick = (key: string, n: number) => Math.floor(hashStr(key) * 1e6) % n;
 const WALLS = [PAL.cream, PAL.white, 0xe6d3a8, 0xcdbfa8, 0xd8b39a, 0xc9d3c0];
 const ROOFS = [PAL.roofRed, PAL.roofBrown, PAL.roofGrey, 0x5d6f4c, 0x7a4a3e];
 
@@ -847,10 +849,10 @@ export function buildCommunityHome(tier: string, w: number, d: number, key = '',
 }
 
 /** Small civic landmarks use the farm palette and shared geometry caches. */
-export function buildCivic(type: string, w: number, d: number, level = 1): Model {
+export function buildCivic(type: string, w: number, d: number, level = 1, key = ''): Model {
   if (type.startsWith('shop')) return w >= 6 ? buildMarketHall(type.slice(4).toLowerCase() as ShopKind, w, d) : buildShop(type.slice(4).toLowerCase() as ShopKind, w, d);
   if (type === 'mall') return buildMall(w, d, level > 1);
-  if (type === 'office') return buildOffice(Math.max(1, Math.min(3, level)) as 1 | 2 | 3, w, d);
+  if (type === 'office') return buildOffice(Math.max(1, Math.min(3, level)) as 1 | 2 | 3, w, d, key);
   const group = new THREE.Group(), windows: THREE.Mesh[] = [], smoke: THREE.Vector3[] = [];
   group.add(box(w-.1,.08,d-.1,PAL.stone,w/2,0,d/2));
   if(type==='lighting'){ // power station: brick turbine hall, tall stack, fenced transformer yard, a pylon carrying the line out
@@ -1168,8 +1170,8 @@ export function buildMall(w = 12, d = 12, tower = false): Model {
 // ---------------------------------------------------------------- towers: apartments and offices grow upward
 /** Apartment levels 2 and 3 on the same 3×3 lot: an eight-storey mid-rise under a mansard roof, then a sixteen-storey tower with a setback crown. (Level 1 is buildCommunityHome's block.) */
 export function buildApartmentTower(level: 2 | 3, w = 3, d = 3, key = ''): Model {
-  const g = new THREE.Group(), wall = WALLS[Math.floor(hashStr(key + 'w') * WALLS.length)], roof = ROOFS[Math.floor(hashStr(key + 'r') * 2)], accent = [0x4f8a8b, 0xb5643c, 0xc99a2e, 0x6b7fa8][Math.floor(hashStr(key + 'a') * 4)];
-  const tall = level === 3, bw = tall ? w - 0.9 : w - 0.6, bd = tall ? d - 1.4 : d - 1.25, floors = tall ? 16 : 8, fh = 0.6, top = floors * fh, cx = w / 2, cz = 0.4 + bd / 2, front = cz + bd / 2, side = cx + bw / 2;
+  const g = new THREE.Group(), wall = WALLS[pick(key + 'w', WALLS.length)], roof = ROOFS[pick(key + 'r', ROOFS.length)], accent = [0x4f8a8b, 0xb5643c, 0xc99a2e, 0x6b7fa8][pick(key + 'a', 4)];
+  const tall = level === 3, bw = tall ? w - 0.9 : w - 0.6, bd = tall ? d - 1.4 : d - 1.25, style = pick(key + 'v', 3), floors = tall ? [14, 16, 18][pick(key + 'h', 3)] : [7, 8, 9][pick(key + 'h', 3)], fh = 0.6, top = floors * fh, cx = w / 2, cz = 0.4 + bd / 2, front = cz + bd / 2, side = cx + bw / 2;
   g.add(box(w - 0.1, 0.05, d - 0.1, PAL.stone, w / 2, 0, d / 2, { rough: 1 }));
   g.add(box(bw + 0.06, fh, bd + 0.06, 0xd9d0bd, cx, 0, cz), box(bw, top - fh, bd, wall, cx, fh, cz), box(bw + 0.1, 0.06, bd + 0.1, PAL.white, cx, fh - 0.02, cz));
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) g.add(box(0.08, top - fh, 0.08, PAL.white, cx + sx * (bw / 2 - 0.02), fh, cz + sz * (bd / 2 - 0.02))); // corner piers
@@ -1188,7 +1190,17 @@ export function buildApartmentTower(level: 2 | 3, w = 3, d = 3, key = ''): Model
   g.add(box(0.5, top, 0.12, 0xe9e2d2, cx, 0, front + 0.05)); for (let f = 1; f < floors; f++) glassWin(g, 0.22, 0.4, cx, f * fh + 0.1, front + 0.12);
   g.add(box(0.44, 0.5, 0.04, PAL.door, cx, 0, front + 0.12), box(0.9, 0.05, 0.5, accent, cx, 0.58, front + 0.3), box(0.04, 0.56, 0.04, PAL.white, cx - 0.4, 0, front + 0.5), box(0.04, 0.56, 0.04, PAL.white, cx + 0.4, 0, front + 0.5));
   g.add(box(bw + 0.14, 0.1, bd + 0.14, PAL.white, cx, top - 0.02, cz));
-  if (!tall) { // a mansard roof with dormers, and the lift house
+  if (style === 1) { // a flat roof: a roof garden behind the parapet, a glazed penthouse and the water tanks
+    g.add(box(bw - 0.1, 0.04, bd - 0.1, 0x8f8a80, cx, top + 0.08, cz), box(bw * 0.45, 0.06, bd * 0.5, 0x6f9a4a, cx - bw * 0.2, top + 0.1, cz));
+    for (const [dx, dz] of [[-0.35, -0.2], [-0.15, 0.25], [-0.45, 0.2]]) g.add(sphere(0.12, 0x5f8f4a, cx + dx * (bw / 1.4), top + 0.24, cz + dz));
+    g.add(box(bw * 0.4, 0.5, bd * 0.6, 0xe9e2d2, cx + bw * 0.22, top + 0.1, cz), box(bw * 0.44, 0.05, bd * 0.66, accent, cx + bw * 0.22, top + 0.6, cz)); glassWin(g, bw * 0.3, 0.3, cx + bw * 0.22, top + 0.2, cz + bd * 0.3 + 0.012);
+    g.add(cyl(0.16, 0.3, PAL.metal, cx + bw * 0.3, top + 0.66, cz - 0.2, 12)); if (tall) g.add(box(0.03, 1.0, 0.03, PAL.metalDark, cx - bw * 0.35, top + 0.1, cz - bd * 0.3), sphere(0.05, 0xc0392b, cx - bw * 0.35, top + 1.13, cz - bd * 0.3, { emissive: 0x7a1a12 }));
+  } else if (style === 2 && tall) { // stepped back twice under a slender spire
+    let y = top + 0.08, sw = bw - 0.5, sd = bd - 0.4;
+    for (let k = 0; k < 2; k++) { g.add(box(sw, fh * 2, sd, wall, cx, y, cz), box(sw + 0.1, 0.08, sd + 0.1, PAL.white, cx, y + fh * 2, cz)); for (let f = 0; f < 2; f++) { glassWin(g, sw - 0.3, 0.3, cx, y + 0.16 + f * fh, cz + sd / 2 + 0.012); glassWin(g, sd - 0.3, 0.3, cx + sw / 2 + 0.012, y + 0.16 + f * fh, cz, true); } y += fh * 2 + 0.08; sw -= 0.5; sd -= 0.4; }
+    g.add(cone(0.28, 1.4, roof, cx, y, cz, 8), sphere(0.05, 0xc0392b, cx, y + 1.42, cz, { emissive: 0x7a1a12 }));
+    g.add(box(bw + 0.3, 0.3, 0.5, 0xd9d0bd, cx, 0, front + 0.3));
+  } else if (!tall) { // a mansard roof with dormers, and the lift house
     g.add(box(bw - 0.1, 0.5, bd - 0.1, roof, cx, top + 0.08, cz), box(bw - 0.4, 0.06, bd - 0.4, 0x3a2a22, cx, top + 0.58, cz));
     for (const x of [cx - bw / 4, cx + bw / 4]) { g.add(box(0.3, 0.3, 0.12, wall, x, top + 0.14, front - 0.02)); glassWin(g, 0.18, 0.18, x, top + 0.2, front + 0.045); }
     g.add(box(0.6, 0.35, 0.6, 0xe9e2d2, cx - 0.3, top + 0.64, cz - 0.2), cyl(0.2, 0.34, PAL.metal, cx + 0.55, top + 0.74, cz - 0.2, 12)); for (const [dx, dz] of [[-0.13, -0.13], [0.13, -0.13], [-0.13, 0.13], [0.13, 0.13]]) g.add(box(0.03, 0.12, 0.03, PAL.metalDark, cx + 0.55 + dx, top + 0.64, cz - 0.2 + dz));
@@ -1205,9 +1217,10 @@ export function buildApartmentTower(level: 2 | 3, w = 3, d = 3, key = ''): Model
 }
 
 /** Offices on a 3×3 lot: a three-storey block, a seven-storey mid-rise, then an eighteen-storey glass tower with setbacks. */
-export function buildOffice(level: 1 | 2 | 3, w = 3, d = 3): Model {
-  const g = new THREE.Group(), floors = [3, 7, 18][level - 1], fh = 0.56, bw = level === 3 ? w - 0.8 : w - 0.5, bd = level === 3 ? d - 1.2 : d - 1.1, top = floors * fh, cx = w / 2, cz = 0.35 + bd / 2, front = cz + bd / 2;
-  const stone = level === 1 ? 0xe9e2d2 : 0xdfe4e6, band = level === 3 ? 0x2f5f8f : 0xb5643c;
+export function buildOffice(level: 1 | 2 | 3, w = 3, d = 3, key = ''): Model {
+  const style = pick(key + 'o', 3), tint = [0x2f5f8f, 0x2f6f5a, 0x8a6a3a][pick(key + 't', 3)];
+  const g = new THREE.Group(), floors = [3, 7, [18, 20, 16][style]][level - 1], fh = 0.56, bw = level === 3 ? w - 0.8 : w - 0.5, bd = level === 3 ? d - 1.2 : d - 1.1, top = floors * fh, cx = w / 2, cz = 0.35 + bd / 2, front = cz + bd / 2;
+  const stone = level === 1 ? 0xe9e2d2 : 0xdfe4e6, band = level === 3 ? tint : [0xb5643c, tint, 0x6b4a36][style];
   g.add(box(w - 0.1, 0.05, d - 0.1, 0xcfc6b2, w / 2, 0, d / 2, { rough: 1 }));
   const shaft = (sw: number, sd: number, y0: number, n: number) => {
     g.add(box(sw, n * fh, sd, stone, cx, y0, cz));
@@ -1217,13 +1230,23 @@ export function buildOffice(level: 1 | 2 | 3, w = 3, d = 3): Model {
     g.add(box(sw + 0.12, 0.12, sd + 0.12, band, cx, y0 + n * fh, cz));
   };
   if (level < 3) shaft(bw, bd, 0, floors);
-  else { shaft(bw, bd, 0, 11); shaft(bw - 0.5, bd - 0.4, 11 * fh + 0.12, 5); shaft(bw - 1.0, bd - 0.8, 16 * fh + 0.24, 2); }
+  else if (style === 0) { shaft(bw, bd, 0, 11); shaft(bw - 0.5, bd - 0.4, 11 * fh + 0.12, 5); shaft(bw - 1.0, bd - 0.8, 16 * fh + 0.24, 2); }
+  else if (style === 1) { // one sheer slab under a sloping glass crown
+    shaft(bw - 0.3, bd, 0, 20);
+    const cr = box(bw - 0.3, 0.9, bd, 0, cx, 20 * fh + 0.12, cz); cr.material = mat(PAL.glass, { opacity: 0.85, rough: 0.2 }); cr.geometry = cached(`wedge${bw},${bd}`, () => { const ge = new THREE.BoxGeometry(bw - 0.3, 0.9, bd); const pa = ge.getAttribute('position'); for (let i = 0; i < pa.count; i++) if (pa.getY(i) > 0 && pa.getZ(i) > 0) pa.setY(i, -0.25); ge.computeVertexNormals(); return ge; }); g.add(cr);
+  } else { // a round tower ringed with glass, on a square base
+    shaft(bw, bd, 0, 3);
+    const r = Math.min(bw, bd) / 2 - 0.1, y0 = 3 * fh + 0.12, n = 13;
+    g.add(cyl(r, n * fh, stone, cx, y0, cz, 20));
+    for (let f = 0; f < n; f++) { const ring = cyl(r + 0.012, 0.34, PAL.window, cx, y0 + f * fh + 0.12, cz, 20); ring.userData.window = true; g.add(ring); }
+    g.add(cyl(r + 0.08, 0.12, band, cx, y0 + n * fh, cz, 20), cyl(r - 0.3, 0.5, 0xc9d0d3, cx, y0 + n * fh + 0.12, cz, 16));
+  }
   // ground floor: a glazed lobby under a canopy
   const lobby = box(bw - 0.3, fh - 0.08, 0.05, 0, cx, 0.04, front + 0.02); lobby.material = mat(PAL.glass, { opacity: 0.8, rough: 0.2 }); lobby.userData.window = true; g.add(lobby);
   g.add(box(bw * 0.6, 0.06, 0.5, band, cx, fh - 0.02, front + 0.28), box(0.3, 0.42, 0.04, PAL.door, cx, 0.04, front + 0.05));
   if (level === 1) g.add(box(bw - 0.3, 0.04, bd - 0.3, 0xa39d90, cx, top + 0.12, cz), box(0.5, 0.25, 0.4, PAL.metal, cx + 0.5, top + 0.14, cz - 0.2), box(0.03, 1.0, 0.03, PAL.metalDark, cx - 0.7, top + 0.12, cz), box(0.36, 0.22, 0.02, band, cx - 0.52, top + 0.9, cz));
   else if (level === 2) g.add(box(0.7, 0.4, 0.7, stone, cx - 0.3, top + 0.12, cz), box(0.5, 0.25, 0.4, PAL.metal, cx + 0.6, top + 0.14, cz - 0.2), box(1.2, 0.3, 0.06, 0x2a3540, cx, top + 0.14, front - 0.1));
-  else { const y = 18 * fh + 0.36; g.add(box(0.6, 0.3, 0.6, 0xc9d0d3, cx, y, cz), box(0.05, 1.6, 0.05, PAL.metalDark, cx, y + 0.3, cz), sphere(0.07, 0xc0392b, cx, y + 1.95, cz, { emissive: 0x7a1a12 })); }
+  else { const y = (style === 0 ? 18 * fh + 0.36 : style === 1 ? 20 * fh + 0.9 : 16 * fh + 0.86); g.add(box(0.6, 0.3, 0.6, 0xc9d0d3, cx, y, cz), box(0.05, 1.6, 0.05, PAL.metalDark, cx, y + 0.3, cz), sphere(0.07, 0xc0392b, cx, y + 1.95, cz, { emissive: 0x7a1a12 })); }
   planter(g, 0.45, d - 0.45, 0.2); planter(g, w - 0.45, d - 0.45, 0.2); lampPost(g, cx - 0.9, d - 0.3, 0.85);
   if (level > 1) carProp(g, cx + 0.3, d - 0.38, 0x2a3540, Math.PI / 2);
   return finish(g);
