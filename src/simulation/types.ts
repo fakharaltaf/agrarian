@@ -35,6 +35,8 @@ export interface Field {
   moisture: number;
   irrigated: boolean;
   greenhouse: boolean; // glass: no frost, steady temperature, heating in cold weather
+  /** what covers the field: 1 polytunnels (no frost), 2 a greenhouse, 3 a hydroponic house (no soil, a third more yield, lit and pumped by electricity) */
+  cover?: number;
   frost: number; // 0..1 share of the current crop lost to frost
   cycleAt: number; // perennials: tick the current fruiting cycle started
   pest: number; // 0..1
@@ -527,6 +529,7 @@ export type Action =
   | { type: 'upgradeMachine'; machineId: number }
   | { type: 'choosePerk'; workerId: number; perk: PerkId }
   | { type: 'greenhouse'; fieldIds: number[] }
+  | { type: 'coverField'; fieldId: number }
   | { type: 'clearField'; fieldId: number };
 
 export type ActionResult = { ok: true; note?: string } | { ok: false; error: string };

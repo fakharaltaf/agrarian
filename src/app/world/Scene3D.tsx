@@ -11,6 +11,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { ANIMALS, BUILDINGS, CROPS, GOODS, REGIONS, SEASONS, SUNRISE, SUNSET, type AnimalId, type CropId, type RegionId } from '../../simulation/config';
 import { fieldMovable, timingFactor, fertility, growth, isMature, isReady } from '../../simulation/engine';
 import { priceUsd, stored } from '../../simulation/core';
+import { coverOf } from '../../simulation/agriculture';
 import { spreadNeed } from '../../simulation/agriculture';
 import type { GameState } from '../../simulation/types';
 import { getGame, getSpeed, moveGhost, placementUse, startZoning, stopZoning, zoneHover, zoneTap, type Zoning, prospectHover, prospectTap, roadHover, roadTap, roadDragStart, buildingsHidden, crimeMapOn, setCrimeMap, useStore, undo, redo, canUndo, canRedo, startProspect, startRoads, startPipes, stopProspect, stopRoads, type Placement, type Roading , getPage } from '../../stores/game';
@@ -570,7 +571,7 @@ function syncLots(R: Rig, L: Layout) {
 }
 
 function syncFields(R: Rig, L: Layout) {
-  const sig = L.plots.map((p) => `${p.field.id}@${p.x},${p.y},${p.s}:${p.field.greenhouse ? 'g' : ''}${p.field.irrigated ? 'i' : ''}${fertility(p.field) < 0.45 ? 'p' : ''}`).join('|') + (L.buy ? `|buy${L.buy.x},${L.buy.y}` : '');
+  const sig = L.plots.map((p) => `${p.field.id}@${p.x},${p.y},${p.s}:${p.field.greenhouse ? 'g' : ''}c${coverOf(p.field)}${p.field.irrigated ? 'i' : ''}${fertility(p.field) < 0.45 ? 'p' : ''}`).join('|') + (L.buy ? `|buy${L.buy.x},${L.buy.y}` : '');
   if (sig === R.sig.fields) return;
   R.sig.fields = sig;
   clear(R.fields);
@@ -593,6 +594,13 @@ function syncFields(R: Rig, L: Layout) {
     plate.userData = { kind: 'field', id: f.id };
     R.fields.add(plate);
     R.pick.push(plate);
+    if (coverOf(f) === 1) { // polytunnels: a white hoop tunnel over every other row
+      for (let k = 0.5; k < p.s; k += 1) { const t = mesh(cached(`tun${p.s}`, () => new THREE.CylinderGeometry(0.4, 0.4, p.s - 0.5, 10, 1, true, 0, Math.PI).rotateZ(Math.PI / 2).rotateY(Math.PI / 2)), TUNNEL, p.x + k, 0.02, p.y + p.s / 2, false); R.fields.add(t); }
+    }
+    if (coverOf(f) === 3) { // hydroponic house: grow lights glowing through the glass, and a plant room on the corner
+      for (let k = 0.5; k < p.s; k += 1) R.fields.add(mesh(cached(`grow${p.s}`, () => new THREE.BoxGeometry(0.08, 0.04, p.s - 0.5)), GROWLIGHT, p.x + k, 0.95, p.y + p.s / 2, false));
+      R.fields.add(mesh(cached('hydroplant', () => new THREE.BoxGeometry(0.5, 0.5, 0.5)), mat(PAL.metal), p.x + p.s - 0.4, 1.45, p.y + 0.4));
+    }
     if (f.greenhouse) {
       const glass = mesh(cached(`gh${p.s}`, () => new THREE.BoxGeometry(p.s - 0.15, 1.2, p.s - 0.15)), mat(0xd8eef2, { opacity: 0.35, rough: 0.1 }), p.x + p.s / 2, 0.6, p.y + p.s / 2, false);
       R.fields.add(glass);
@@ -815,6 +823,7 @@ function syncGhost(R: Rig, s: GameState, P: Placement | null, forest: [number, n
   }
 }
 
+const TUNNEL = new THREE.MeshStandardMaterial({ color: 0xf4f6f6, transparent: true, opacity: 0.72, roughness: 0.4, side: THREE.DoubleSide }), GROWLIGHT = new THREE.MeshStandardMaterial({ color: 0xff9ae0, emissive: 0xc0408f, emissiveIntensity: 0.9 });
 /** A selected shop or market shows the square of four it could merge in: gold where one stands, pale where one is missing. */
 function syncMerge(R: Rig, s: GameState, lot?: Lot) {
   const g = lot?.service ? mergeGroup(s, lot.service.id) : null, show = g && g.members.length > 1 ? g : null;

@@ -225,3 +225,16 @@ it('a placement on forest you do not own can be bought and cleared for; it goes 
   for (let i = 0; i < q.hours + 30 && w.plans!.length; i++) step(s);
   expect(w.plans!.length).toBe(0); expect(s.buildings.length).toBe(n + 1); expect(w.pos[`b:${s.buildings.at(-1)!.id}`]).toEqual(at);
 });
+
+it('a field climbs from polytunnels to a greenhouse to a hydroponic house: frost stops, then soil stops mattering and yield rises', async () => {
+  const A = await import('../simulation/agriculture');
+  const s = createGame(1015); s.legacyProgression = true; s.era = 6; post(s, 'prize', 1e6, 'fixture'); s.discovered = [...new Set([...(s.discovered ?? []), 'frost', 'upgrades'])];
+  const f = s.fields[0]; f.crop = 'potatoes'; f.plantedAt = s.tick - 200;
+  const cash = s.cash, price1 = A.coverPrice(s, f);
+  expect(dispatch(s, { type: 'coverField', fieldId: f.id }).ok).toBe(true); expect(A.coverOf(f)).toBe(1); expect(f.greenhouse).toBe(false); expect(cash - s.cash).toBe(price1);
+  A.frostNight(s, f.region); expect(f.frost).toBe(0); // tunnels keep the frost off
+  expect(dispatch(s, { type: 'coverField', fieldId: f.id }).ok).toBe(true); expect(f.greenhouse).toBe(true);
+  f.soil = { n: 0.2, p: 0.2, k: 0.2, organic: 0.1 }; const poor = A.soilFactor(f, 'potatoes');
+  expect(dispatch(s, { type: 'coverField', fieldId: f.id }).ok).toBe(true); expect(A.coverOf(f)).toBe(3); expect(A.soilFactor(f, 'potatoes')).toBe(1.3); expect(poor).toBeLessThan(1);
+  expect(dispatch(s, { type: 'coverField', fieldId: f.id }).ok).toBe(false);
+});

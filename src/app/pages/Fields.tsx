@@ -1,3 +1,4 @@
+import { coverOf, coverPrice, COVERS } from '../../simulation/agriculture';
 import { spreadNeed, spreadingCost } from '../../simulation/agriculture';
 import { DEALER_SPREAD } from '../../simulation/markets';
 import { RetailQuote } from '../RetailQuote';
@@ -5,7 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { BUILDINGS, CONFIG, CROPS, GOODS, GOOD_IDS, MACHINES, REGIONS, WORK_END, WORK_START, type CropId, type GoodId, type RegionId } from '../../simulation/config';
 import { factoryCrop, freeSpace, has, known, reservedStock, priceUsd, stored } from '../../simulation/core';
 import {
-  canGrow, expectedYield, fertility, grade, greenhousePrice, growth, homePlotPrice, irrigationPrice, isManual, isMature, isReady, parcelPrice, qualityMult, quoteSell, seedShortfall, soilFactor, tempFactor, timingFactor, waterFactor, techFactor,
+  canGrow, expectedYield, fertility, grade, growth, homePlotPrice, irrigationPrice, isManual, isMature, isReady, parcelPrice, qualityMult, quoteSell, seedShortfall, soilFactor, tempFactor, timingFactor, waterFactor, techFactor,
 } from '../../simulation/engine';
 import type { Field, GameState } from '../../simulation/types';
 import { act, useGame } from '../../stores/game';
@@ -294,7 +295,8 @@ function SoilPanel({ s, f }: { s: GameState; f: Field }) {
       <div className="row between">
         <h3>Soil & water</h3>
         <div className="row">
-          {f.greenhouse ? <span className="pill accent">Greenhouse</span> : known(s, 'frost') && f.ha <= 5 && <Confirm label={`Greenhouse · ${money(greenhousePrice(s, f.ha))}`} className="btn ghost sm" title="Build a greenhouse?" body="Glass over the whole field: no frost, steady warmth and watering, slightly better quality. Heating uses electricity whenever it is below 12°C." onConfirm={() => act({ type: 'greenhouse', fieldIds: [f.id] })} confirmLabel="Build" />}
+          {coverOf(f) > 0 && <span className="pill accent">{COVERS[coverOf(f)].name}</span>}
+          {known(s, 'frost') && COVERS[coverOf(f) + 1] && f.ha <= COVERS[coverOf(f) + 1].maxHa && (coverOf(f) < 2 || known(s, 'upgrades')) && <Confirm label={`${COVERS[coverOf(f) + 1].name} · ${money(coverPrice(s, f))}`} className="btn ghost sm" title={`Build ${COVERS[coverOf(f) + 1].name.toLowerCase()}?`} body={COVERS[coverOf(f) + 1].does} onConfirm={() => act({ type: 'coverField', fieldId: f.id })} confirmLabel="Build" />}
           {!f.greenhouse && (f.irrigated ? <span className="pill accent">Irrigated</span> : <button className="btn ghost sm" onClick={() => act({ type: 'irrigate', fieldIds: [f.id] })}>Irrigate · {money(irrigationPrice(s, f.ha))}</button>)}
         </div>
       </div>

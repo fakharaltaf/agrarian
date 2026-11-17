@@ -41,7 +41,17 @@ export function soilAdequacy(f: Field, c: CropId) {
   const a = (x: number) => Math.min(1, x / 0.7);
   return (w.n * a(f.soil.n) + w.p * a(f.soil.p) + w.k * a(f.soil.k)) / tot;
 }
-export const soilFactor = (f: Field, c: CropId) => (0.35 + 0.65 * soilAdequacy(f, c)) * (0.75 + 0.25 * f.soil.organic);
+/** 0 open, 1 polytunnels, 2 greenhouse, 3 hydroponic house. */
+export const coverOf = (f: { cover?: number; greenhouse?: boolean }) => f.cover ?? (f.greenhouse ? 2 : 0);
+export const COVERS = [
+  { name: 'Open field', price: 0, maxHa: Infinity, does: '' },
+  { name: 'Polytunnels', price: 500, maxHa: 25, does: 'Plastic tunnels over the rows: frost cannot touch the crop.' },
+  { name: 'Greenhouse', price: 2000, maxHa: 5, does: 'Glass over the whole field: no frost, steady warmth and watering, slightly better quality. Heating uses electricity below 12°C.' },
+  { name: 'Hydroponic house', price: 6000, maxHa: 5, does: 'Crops grow in fed water instead of soil: a third more yield, no fertiliser and no worn-out soil. Lights and pumps use electricity all the time.' },
+] as const;
+/** What the next step up costs for this field (each step is paid on top of the last). */
+export const coverPrice = (s: GameState, f: Field) => Math.round(((COVERS[coverOf(f) + 1]?.price ?? 0) - (coverOf(f) === 1 ? COVERS[1].price * 0.5 : 0)) * f.ha * s.macro.cpi); // tunnels are half credited towards glass
+export const soilFactor = (f: Field, c: CropId) => (coverOf(f) === 3 ? 1.3 : (0.35 + 0.65 * soilAdequacy(f, c)) * (0.75 + 0.25 * f.soil.organic));
 /** Simple fertility % shown before soil testing: average nutrient adequacy. */
 export const fertility = (f: Field) => (Math.min(1, f.soil.n / 0.7) + Math.min(1, f.soil.p / 0.7) + Math.min(1, f.soil.k / 0.7)) / 3;
 
@@ -142,10 +152,12 @@ export function harvestField(s: GameState, f: Field, bruise = 0): HarvestBreakdo
   const u = def.uptake;
   const hy = has(s, 'hybrids') ? 1.4 : 1;
   const nf = has(s, 'nitrogenFixing') && ['wheat', 'corn', 'rice'].includes(c) ? 0.5 : 1;
+  if (coverOf(f) !== 3) { // a hydroponic crop never touches the soil
   f.soil.n = clamp(f.soil.n - (u.n > 0 ? u.n * hy * nf : u.n), 0, 1.5);
   f.soil.p = clamp(f.soil.p - u.p * hy, 0, 1.5);
   f.soil.k = clamp(f.soil.k - u.k * hy, 0, 1.5);
   f.soil.organic = clamp(f.soil.organic - 0.004, 0.05, 1);
+  }
   f.streak = f.lastCrop === c ? f.streak + 1 : 0;
   f.lastCrop = c;
   f.pest *= 0.5;
@@ -232,6 +244,7 @@ export function fieldsTick(s: GameState) {
     const crop = f.crop;
     const resting = !!crop && !!CROPS[crop].perennial && winter && !f.greenhouse; // orchards sleep through winter
     const growing = !!crop && !resting; // only a growing crop needs water, sensors or heat
+    if (crop && coverOf(f) === 3) reg.powerUse += f.ha * 2; // lights and pumps
     if (f.greenhouse) {
       f.moisture = 0.6;
       if (crop && reg.temp < 12) reg.powerUse += f.ha * 5 * (12 - reg.temp) / 6; // heating
@@ -281,7 +294,7 @@ export function fieldsTick(s: GameState) {
 export function frostNight(s: GameState, r: RegionId) {
   let hit = 0, killed = 0;
   for (const f of s.fields) {
-    if (f.region !== r || !f.crop || f.greenhouse || CROPS[f.crop].frostHardy) continue;
+    if (f.region !== r || !f.crop || coverOf(f) >= 1 || CROPS[f.crop].frostHardy) continue;
     if (growth(s, f) < 0.25) (clearField(f), killed++);
     else f.frost = Math.min(0.8, f.frost + 0.2);
     hit++;

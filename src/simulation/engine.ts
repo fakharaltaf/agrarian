@@ -11,6 +11,7 @@ import {
   BUILDINGS, CONFIG, CROPS, GOODS, GOOD_IDS, MACHINES, PERKS, REGIONS, REGION_IDS, TECH, TICKS_PER_DAY, type CropId, type GoodId, type RegionId,
 } from './config';
 import { buildingDivision, clamp, debt, factoryCrop, equity, freeSpace, has, known, log, marketWage, nextId, post, random, round2, todayBook, lean } from './core';
+import { coverOf, coverPrice, COVERS } from './agriculture';
 import { addGoods, canGrow, clearField, fertilizeField, fieldsTick, frostNight, harvestField, isManual, isReady, newField, plantField, spoilageDaily } from './agriculture';
 import { riverTiles, chunkAt, COMMERCIAL, type Use, type Zone, reconcileWorld, unlink, accessNote, cutsOff, buyable, chunksIn, connect, placedIn, touch, useOf, buildingUse, INDUSTRY_TO_GROW, WATER_LEVEL, NET_PRICE, NET_TIERS, NET_TOP, linesOf, lineTiles, lineTop, upgradeAllPlan, pipeRoute, pipeStretch, hasWater, isRoad, MAP, ROAD_GRADES, ROAD_H, roadRoute, roadPick, roadTilePrice, tileId, canPlaceNew, LAND_HA_PER_PATCH,  own, ownedSet, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, clearCost, clearedSet, FOOTPRINT, footprintOf, forget, rotOf, turned, MOVE_DOWNTIME, placeNew, placeProblem, plotSide, PROBLEM_TEXT, seedWorld, TIMBER_PER_PATCH, worldOf } from './world';
 import { buyAnimals, livestockDaily, sellAnimals } from './livestock';
@@ -1000,8 +1001,21 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       const cost = greenhousePrice(s, ha);
       if (cost > s.cash) return fail(`Greenhouses for ${ha} ha cost $${Math.round(cost).toLocaleString()}.`);
       post(s, 'irrigation', -cost, `Greenhouse over ${ha} ha`, fs[0].region);
-      fs.forEach((f) => ((f.greenhouse = true), (f.cost += cost * (f.ha / ha))));
+      fs.forEach((f) => ((f.greenhouse = true), (f.cover = 2), (f.cost += cost * (f.ha / ha))));
       return ok();
+    }
+    case 'coverField': { // the next step up: tunnels, then glass, then hydroponics
+      const f = field(s, a.fieldId), next = f ? coverOf(f) + 1 : 9, def = COVERS[next];
+      if (!f) return fail('No such field.');
+      if (!known(s, 'frost')) return fail('Not available yet.');
+      if (!def) return fail('This field is already a hydroponic house.');
+      if (f.ha > def.maxHa) return fail(`${def.name} can only cover fields of ${def.maxHa} ha or less.`);
+      if (next === 3 && !known(s, 'upgrades')) return fail('Hydroponics comes once you can upgrade buildings.');
+      const cost = coverPrice(s, f);
+      if (cost > s.cash) return fail(`${def.name} for ${f.ha} ha costs $${cost.toLocaleString()}.`);
+      post(s, 'irrigation', -cost, `${def.name} over ${f.ha} ha`, f.region);
+      f.cover = next; f.greenhouse = next >= 2; f.cost += cost;
+      return ok(`Field ${f.id}: ${def.name.toLowerCase()} built.`);
     }
     case 'clearField': {
       const f = field(s, a.fieldId);
