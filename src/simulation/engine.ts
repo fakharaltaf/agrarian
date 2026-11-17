@@ -1,5 +1,5 @@
 import { JAM_TEXT, streetJammed } from './access';
-import { FOOD_FACTORY } from './core';
+import { FOOD_FACTORY , LIVESTOCK_HOUSE, mergedName } from './core';
 import { energyMix, oilOpen, upgradeNeedsPower } from './stages/shared';
 import { bestRetailCentre } from './facility-levels';
 import { wellField, DRILL_PRICE, oilChance, oilOf, SURVEY_PRICE, SURVEY_R, surveyedAt, landCostOf } from './oil';
@@ -217,10 +217,10 @@ export function planQuote(s: GameState, r: RegionId, at: [number, number], fw: n
 /** The factory beside this one that it could merge with: the same kind and size, both at level 3, a lane apart and squarely in line. */
 export function factoryMerge(s: GameState, id: number) {
   const b = s.buildings.find((x) => x.id === id);
-  if (!b || !FOOD_FACTORY.has(b.type) || (b.size ?? 1) >= 4) return null;
+  if (!b || !(FOOD_FACTORY.has(b.type) || LIVESTOCK_HOUSE.has(b.type)) || (b.size ?? 1) >= 4) return null;
   const w = worldOf(s, b.region), p = w.pos[`b:${b.id}`], fp = footprintOf(s, `b:${b.id}`);
   if (!p || !fp) return null;
-  const into = `${BUILDINGS[b.type].name} ${b.size === 2 ? 'plant' : 'works'}`;
+  const into = mergedName(b.type, BUILDINGS[b.type].name, (b.size ?? 1) * 2);
   const mate = s.buildings.find((x) => { if (x === b || x.type !== b.type || x.region !== b.region || (x.size ?? 1) !== (b.size ?? 1)) return false; const q = w.pos[`b:${x.id}`], fq = footprintOf(s, `b:${x.id}`); return !!q && !!fq && fq.w === fp.w && fq.d === fp.d && ((q[1] === p[1] && Math.abs(q[0] - p[0]) === fp.w + 1) || (q[0] === p[0] && Math.abs(q[1] - p[1]) === fp.d + 1)); });
   if (!mate) return { b, mate: null, into, ready: false, price: 0, why: b.level < 3 ? 'Raise it to level 3 first.' : `Stand another ${BUILDINGS[b.type].name.toLowerCase()}${b.size === 2 ? ' works' : ''} beside it, a lane apart.` };
   const q = w.pos[`b:${mate.id}`]!, origin: [number, number] = [Math.min(p[0], q[0]), Math.min(p[1], q[1])], span: [number, number] = q[1] === p[1] ? [fp.w * 2 + 1, fp.d] : [fp.w, fp.d * 2 + 1];
@@ -750,21 +750,21 @@ export function dispatch(s: GameState, a: Action): ActionResult {
     }
     case 'mergeBuilding': {
       const g = factoryMerge(s, a.buildingId);
-      if (!g) return fail('Only food factories merge.');
+      if (!g) return fail('Only food factories and animal houses merge.');
       if (!g.mate || !g.ready) return fail(g.why);
       if (streetJammed(s, g.b.region, `b:${g.b.id}`) || streetJammed(s, g.mate.region, `b:${g.mate.id}`)) return fail(JAM_TEXT);
       if (g.price > s.cash) return fail(`Merging costs $${g.price.toLocaleString()}.`);
       const { b, mate } = g, w = worldOf(s, b.region), before = structuredClone({ pos: w.pos, rot: w.rot, roads: w.roads, links: w.links });
       forget(s, b.region, `b:${b.id}`); forget(s, b.region, `b:${mate.id}`);
       const lifted = liftTracks(s, b.region, g.origin![0], g.origin![1], g.span![0], g.span![1]);
-      const blocked = placeProblem(s, b.region, g.origin![0], g.origin![1], { w: g.span![0], d: g.span![1] }, undefined, 'industry');
+      const blocked = placeProblem(s, b.region, g.origin![0], g.origin![1], { w: g.span![0], d: g.span![1] }, undefined, LIVESTOCK_HOUSE.has(b.type) ? 'building' : 'industry');
       if (blocked) { Object.assign(w, before); touch(w); return fail(blocked === 'road' ? 'A road runs between them: remove it first.' : blocked === 'zone' ? 'A works stands on industrial land: zone the lane between them too.' : 'Something stands between them: clear the lane first.'); }
       post(s, 'building', -g.price, `${g.into} (two merged)`, b.region);
       s.buildings.splice(s.buildings.indexOf(mate), 1);
       for (const f of s.fields) if (f.supplies === mate.id) f.supplies = b.id;
       b.size = (b.size ?? 1) * 2; b.span = g.span; b.cost = b.cost + mate.cost + g.price; b.depreciated += mate.depreciated; b.reserved = (b.reserved ?? 0) + (mate.reserved ?? 0);
       w.pos[`b:${b.id}`] = g.origin!; touch(w); connect(s, b.region, `b:${b.id}`); for (const k of lifted) if (w.pos[k]) connect(s, b.region, k);
-      log(s, 'opportunity', `${g.into} opened: it does the work of ${b.size === 4 ? 'nearly five' : 'more than two'} factories on fewer hands.`, 'farm');
+      log(s, 'opportunity', LIVESTOCK_HOUSE.has(b.type) ? `${g.into} opened: room for ${b.size === 4 ? 'nearly five' : 'more than two'} houses' worth of animals, looked after by fewer hands.` : `${g.into} opened: it does the work of ${b.size === 4 ? 'nearly five' : 'more than two'} factories on fewer hands.`, 'farm');
       return ok(`🎉 ${g.into} opened!`);
     }
     case 'planPlacement': {

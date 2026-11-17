@@ -4,7 +4,7 @@ import { larderReserve } from './stages/settlement';
 // health, breed when they have space, and suffer when hungry or crowded.
 import { ANIMALS, BUILDINGS, COWS_PER_DAIRY_BATCH, GOODS, MANURE, REGIONS, type AnimalId, type GoodId, type RegionId } from './config';
 import { addGoods } from './agriculture';
-import { buildingsIn, clamp, levelMult, post, reservedStock, severity } from './core';
+import { buildingsIn, clamp, levelMult, post, reservedStock, severity , sizeOutput } from './core';
 import { avg30, executeBuy, executeSell, quoteBuy } from './markets';
 import { essentialBudget } from './operations';
 import { warnOnce } from './agriculture';
@@ -15,7 +15,7 @@ export { MANURE } from './config';
 
 export const herdOf = (s: GameState, r: RegionId, a: AnimalId) => s.herds.find((h) => h.region === r && h.animal === a);
 export const housing = (s: GameState, r: RegionId, a: AnimalId) =>
-  buildingsIn(s, r, ANIMALS[a].building).reduce((n, b) => n + ANIMALS[a].perBuilding * levelMult(b.level), 0);
+  buildingsIn(s, r, ANIMALS[a].building).reduce((n, b) => n + ANIMALS[a].perBuilding * levelMult(b.level) * sizeOutput(b), 0);
 export const animalPrice = (s: GameState, a: AnimalId) => ANIMALS[a].price * s.macro.cpi;
 
 export function livestockDaily(s: GameState) {

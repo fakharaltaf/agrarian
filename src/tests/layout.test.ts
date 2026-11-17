@@ -299,3 +299,18 @@ it('roads can be drawn several lanes wide in one go', async () => {
   for (const dy of [0, 1, 2]) expect(w.roads[W.tileId(o[0] + 5, y + dy)]).toBeTruthy();
   expect(Object.keys(w.roads).length - before).toBeGreaterThanOrEqual(30);
 });
+
+it('two level-3 cowsheds side by side merge into a cattle barn that houses more cows', async () => {
+  const W = await import('../simulation/world');
+  const { housing } = await import('../simulation/livestock');
+  const s = createGame(1026); s.legacyProgression = true; s.era = 6; post(s, 'prize', 5e6, 'fixture'); s.discovered = [...new Set([...(s.discovered ?? []), 'livestock', 'cowshed', 'animals'])];
+  const w = W.worldOf(s, 'heartland'), o: [number, number] = [W.MAP.x0 + 40, W.MAP.y0 + 8];
+  const chunks = [...new Set(Array.from({ length: 144 }, (_, i) => W.chunkAt(o[0] + (i % 12), o[1] + Math.floor(i / 12))))];
+  w.owned = [...new Set([...w.owned, ...chunks])]; w.cleared = [...new Set([...w.cleared, ...chunks])]; W.touch(w);
+  const [fw] = W.FOOTPRINT.cowshed, ids: number[] = [];
+  for (const dx of [0, fw + 1]) { const rb = dispatch(s, { type: 'build', region: 'heartland', building: 'cowshed', at: [o[0] + dx, o[1]] }); if (!rb.ok) console.log('BUILD', rb.error); expect(rb.ok).toBe(true); ids.push(s.buildings.at(-1)!.id); }
+  for (const b of s.buildings) if (ids.includes(b.id)) b.level = 3;
+  const before = housing(s, 'heartland', 'cows');
+  const r = dispatch(s, { type: 'mergeBuilding', buildingId: ids[0] }); if (!r.ok) console.log('MERGE', r.error); expect(r.ok).toBe(true);
+  expect(housing(s, 'heartland', 'cows')).toBeCloseTo(before * 1.1, 5); expect(s.buildings.filter((b) => b.type === 'cowshed').length).toBe(1);
+});

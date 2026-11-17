@@ -21,6 +21,11 @@ export const sizeOutput = (b: { size?: number }) => (b.size === 4 ? 4.8 : b.size
 /** ...on fewer hands: a Works pays 1.8 factories' staff, a Plant 3.2. */
 export const sizeStaff = (b: { size?: number }) => (b.size === 4 ? 3.2 : b.size === 2 ? 1.8 : 1);
 export const throughput = (b: { type: string; level: number; size?: number }) => (FOOD_FACTORY.has(b.type) ? [1, 2, 4][Math.max(0, Math.min(2, (b.level || 1) - 1))] : levelMult(b.level)) * sizeOutput(b);
+/** Animal houses merge too: two side by side become one big barn, two of those a farm of their own. */
+export const LIVESTOCK_HOUSE: ReadonlySet<string> = new Set(['cowshed', 'pigsty', 'coop', 'sheepfold']);
+const MERGED: Record<string, [string, string]> = { cowshed: ['Cattle barn', 'Cattle yards'], pigsty: ['Pig barn', 'Pig farm'], coop: ['Poultry house', 'Poultry farm'], sheepfold: ['Sheep barn', 'Sheep station'] };
+/** What a merged building is called: a Works and a Plant for factories, its own names for animal houses. */
+export const mergedName = (type: string, name: string, size: number) => (MERGED[type] ? MERGED[type][size >= 4 ? 1 : 0] : `${name} ${size >= 4 ? 'plant' : 'works'}`);
 export const FOOD_FACTORY: ReadonlySet<string> = new Set(['flourMill', 'bakery', 'feedMill', 'ranch', 'dairy', 'creamery', 'oilPress', 'sugarMill', 'winery']);
 export const nextId = (s: GameState) => s.nextId++;
 

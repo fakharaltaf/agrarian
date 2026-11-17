@@ -41,7 +41,7 @@ it('Nothing grows on a jammed street: upgrades wait until the traffic flows', as
   const b = s.buildings.at(-1)!, door = (await import('../simulation/access')).doorTiles(s, 'heartland', `b:${b.id}`), road = door.find((id) => W.worldOf(s, 'heartland').roads[id] !== undefined)!;
   (s.stageState.town as Record<string, unknown>) = { ...(s.stageState.town as object), traffic: { [road]: 2 } };
   expect(streetJammed(s, 'heartland', `b:${b.id}`)).toBe(true);
-  expect(dispatch(s, { type: 'upgradeBuilding', buildingId: b.id }).error).toMatch(/jammed/);
+  { const r1 = dispatch(s, { type: 'upgradeBuilding', buildingId: b.id }); expect(r1.ok ? '' : r1.error).toMatch(/jammed/); }
   (s.stageState.town as Record<string, unknown>).traffic = {};
   expect(dispatch(s, { type: 'upgradeBuilding', buildingId: b.id }).ok).toBe(true);
 });
