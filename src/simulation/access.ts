@@ -43,8 +43,8 @@ export function trafficOf(w: RegionWorld, sources: TripSource[], sinks: TripSink
   const slow: Record<number, number> = {}, flow: Record<number, number> = {};
   for (const [id, l] of lanes) {
     if (l >= 0.5) flow[id] = Math.round(l);
-    const x = l / GRADE_CAP[gradeOf(w, id)];
-    if (x > 0.6) slow[id] = Math.round(Math.min(4, 1 + 2 * (x - 0.6)) * 100) / 100; // free-flowing up to 60% of what the road carries, then slower and slower
+    const f = slowdown(l / GRADE_CAP[gradeOf(w, id)]);
+    if (f > 1.02) slow[id] = Math.round(f * 100) / 100;
   }
   return { slow, flow };
 }
@@ -68,6 +68,17 @@ function paths(w: RegionWorld, door: number[], budget: number) {
   return { best, prev };
 }
 
+/** How much longer a tile takes to cross at this load (cars over what one lane carries): barely slower when quiet, sharply slower past capacity (the classic road-traffic curve). */
+export const slowdown = (x: number) => Math.min(5, 1 + 0.6 * x ** 4);
+/** Cars a lane of this tile carries at ease. */
+export const laneCapacity = (w: RegionWorld, id: number) => GRADE_CAP[gradeOf(w, id)];
+/** How hard a road tile is pressed: the cars on it over what it carries (1 = at capacity). */
+export const pressureOf = (s: GameState, w: RegionWorld, id: number) => ((s.stageState.town as { flow?: Record<number, number> } | undefined)?.flow?.[id] ?? 0) / laneCapacity(w, id);
+/** The street at a spot before anything stands there is jammed. */
+export function streetJammedAt(s: GameState, w: RegionWorld, x: number, y: number, fw: number, fd: number) {
+  const slow = (s.stageState.town as { traffic?: Record<number, number> } | undefined)?.traffic ?? {};
+  return spread(w, doorstep(x, y, { w: fw, d: fd }).map(([a, b]) => tileId(a, b)), 2).some((id) => (slow[id] ?? 1) >= JAM);
+}
 /** The tiles across the street at this tile: the narrower of its runs (its width). */
 function crossing(w: RegionWorld, id: number) {
   const [x, y] = tileAt(id), run = (dx: number, dy: number) => { const out = [id]; for (let k = 1; k < 6 && roadTile(w, tileId(x + dx * k, y + dy * k)); k++) out.push(tileId(x + dx * k, y + dy * k)); for (let k = 1; k < 6 && roadTile(w, tileId(x - dx * k, y - dy * k)); k++) out.push(tileId(x - dx * k, y - dy * k)); return out; };

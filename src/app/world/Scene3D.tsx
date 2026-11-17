@@ -22,7 +22,7 @@ import { preloadArt, artRevision, artModel, playClip } from './art';
 import { money, num, pct0 } from '../format';
 import { Modal } from '../ui';
 import { layoutRegion, type Layout, type Lot, type Plot } from './layout';
-import { doorTiles, frontageAt, meets, reachTime, roadTile, travelFrom } from '../../simulation/access';
+import { doorTiles, frontageAt, meets, pressureOf, reachTime, roadTile, travelFrom } from '../../simulation/access';
 import { beltRoute, wideRoadRoute, homesCentre, CHUNK, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, LAND_HA_PER_PATCH, MAP, hasAccess, riverTiles, riverX, tileId, roadStretch, roadPick, pipeRoute, pipeStretch, plotSide, fieldWater, wetTiers, linesOf, NET_TOP, UTILITY_NETS, netReach, doorstep, footprintOf, type NetKind, type UtilityNet, tileAt, forSaleAround,  ownedSet, ROAD_H, ROAD_Y, chunkAt, chunkOrigin, clearCost, clearedSet, isRoad, patchesAround, placeProblem, worldOf } from '../../simulation/world';
 import { animal, buildCivic, buildCommunityHome, buildLot, buildWorks, box, cached, cyl, farmhand, hauler, mat, mesh, PAL, person, tree, vehicle, type Model } from './models';
 import { haulOf, MARKET_X, marketRoute } from '../../simulation/hauling';
@@ -72,6 +72,7 @@ interface Rig {
   cohortsSeen?: number; oilSeen?: string; glide?: { x: number; z: number; zoom: number }; page?: string;
   renderer: THREE.WebGLRenderer; scene: THREE.Scene; camera: THREE.OrthographicCamera; target: THREE.Vector3; yaw: number; yawTo: number; zoom: number;
   sun: THREE.DirectionalLight; hemi: THREE.HemisphereLight; ground: THREE.Mesh;
+  /** green belt tiles in the middle of streets: cars keep off them */ medians?: Set<number>;
   /** town traffic: cars driving the streets */ cars?: { list: Car[]; body: THREE.InstancedMesh; cabin: THREE.InstancedMesh };
   lots: THREE.Group; fields: THREE.Group; units: THREE.Group; deco: THREE.Group; fx: THREE.Group; sel: THREE.Group; ghost: THREE.Group; ghostSig: string;
   models: { lot: Lot; model: Model; hit: THREE.Mesh }[]; pick: THREE.Object3D[];
@@ -829,7 +830,7 @@ function syncGhost(R: Rig, s: GameState, P: Placement | null, forest: [number, n
   // the traffic map: every street tinted by how freely it flows, green to red
   if (traffic) {
     const w0 = worldOf(s, 'heartland'), cells: THREE.Matrix4[] = [], cols: THREE.Color[] = [];
-    for (const k of Object.keys(w0.roads)) { const id = Number(k), v = traffic[id] ?? 1, [x, y] = tileAt(id); cells.push(new THREE.Matrix4().makeTranslation(x + 0.5, 0.09, y + 0.5)); cols.push(new THREE.Color(v >= 1.5 ? 0xe0533d : v > 1.05 ? 0xf2b82c : 0x4cc35a)); }
+    for (const k of Object.keys(w0.roads)) { const id = Number(k), p = pressureOf(s, w0, id), [x, y] = tileAt(id); cells.push(new THREE.Matrix4().makeTranslation(x + 0.5, 0.09, y + 0.5)); cols.push(new THREE.Color(p >= 1 ? 0xe0533d : p >= 0.7 ? 0xf2b82c : 0x4cc35a)); } // by how hard each street is pressed: red past what it carries
     if (cells.length) { const im = new THREE.InstancedMesh(cached('roadheat', () => new THREE.BoxGeometry(0.96, 0.02, 0.96)), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55, depthWrite: false }), cells.length); cells.forEach((m, k) => { im.setMatrixAt(k, m); im.setColorAt(k, cols[k]); }); im.frustumCulled = false; im.renderOrder = 10; R.ghost.add(im); } // drawn after the road surface so the tint shows
     return;
   }
@@ -1292,6 +1293,7 @@ function syncRoads(R: Rig, s: GameState) {
     if ((x + y) % 2 === 0) { const t = tree(0.55, R.crownMat, h % 3 === 0 ? 1 : 0); t.position.set(x + 0.5, 0, y + 0.5); t.rotation.y = h; beltTrees.push(t); }
     else for (const [dx, dz, sc] of [[0.35, 0.4, 1], [0.62, 0.55, 0.8], [0.45, 0.68, 0.7]] as const) { const m = mesh(bushGeo, BUSH[(h + Math.round(dx * 10)) % 3], x + dx, 0.12 * sc, y + dz); m.scale.set(sc, sc * 0.8, sc); beltTrees.push(m); }
   }
+  R.medians = new Set([...beds].filter(([, inset]) => inset > 0.1).map(([id]) => id)); // cars keep off the green belts down the middle of a street
   // lawn beds: each tile's lawn reaches right up to a neighbouring bed tile (so they join into one) and stops short of anything else, with a kerb round the outside
   for (const [id, inset] of beds) {
     const [x, y] = tileAt(id), has = (dx: number, dy: number) => beds.has(tileId(x + dx, y + dy));
@@ -1488,7 +1490,7 @@ function syncRoadPreview(R: Rig, s: GameState, Rd: Roading | null) {
 }
 
 /** One car: driving from one road tile to the next, keeping to the right. */
-type Car = { a: number; b: number; prev: number; u: number; col: number };
+type Car = { a: number; b: number; prev: number; u: number; col: number; /** the way it is heading */ dx: number; dy: number };
 const CAR_COLS = [0xa8322c, 0xf4f2ec, 0x4f7aa0, 0xc99a2e, 0x2a3540, 0x4f8a4a, 0x8f979b, 0xd98a3a].map((c) => new THREE.Color(c));
 const MAX_CARS = 160;
 /** Cars on the town's streets, as many as the traffic says, going where the cars go: a busier street draws more of them, and a jammed one slows them down. */
@@ -1502,28 +1504,39 @@ function animateCars(R: Rig, s: GameState) {
     body.castShadow = true; body.frustumCulled = cabin.frustumCulled = false; body.count = cabin.count = 0;
     R.units.add(body, cabin); R.cars = { list: [], body, cabin };
   }
-  const C = R.cars, road = (id: number) => roadTile(w, id), nbrs = (id: number) => { const [x, y] = tileAt(id); return [tileId(x + 1, y), tileId(x - 1, y), tileId(x, y + 1), tileId(x, y - 1)].filter(road); };
+  const C = R.cars, mid = R.medians, road = (id: number) => roadTile(w, id) && !mid?.has(id);
   const busy = Object.keys(flow).map(Number).filter(road);
-  // as many cars as the traffic: new ones join on the busiest streets, extra ones leave
+  // lanes: how many road tiles run from here in a direction; a street keeps its traffic to the right-hand half, a turn is only into a real side road
+  const run = (id: number, dx: number, dy: number) => { const [x, y] = tileAt(id); let n = 0; while (n < 8 && road(tileId(x + dx * (n + 1), y + dy * (n + 1)))) n++; return n; };
+  const width = (id: number, dx: number, dy: number) => run(id, -dy, dx) + run(id, dy, -dx) + 1; // across the way of travel
+  const onRight = (id: number, dx: number, dy: number) => { const wd = width(id, dx, dy); return wd <= 1 || run(id, -dy, dx) < wd / 2; }; // tiles to the right fewer than half the street
+  const step = (id: number, dx: number, dy: number) => { const [x, y] = tileAt(id); return tileId(x + dx, y + dy); };
+  /** Where a car on tile a heading (dx, dy) goes next: straight on along its lane, a turn into a side road now and then (busier ones likelier), back over to the right if it has drifted, round at a dead end. */
+  const next = (a: number, dx: number, dy: number): [number, number, number] => {
+    const opts: [number, number, number, number][] = [], ahead = step(a, dx, dy);
+    if (road(ahead)) opts.push([ahead, dx, dy, 6 + (flow[ahead] ?? 0)]);
+    for (const [tx, ty] of [[-dy, dx], [dy, -dx]] as const) { const t = step(a, tx, ty); if (road(t) && run(a, tx, ty) > width(a, dx, dy)) opts.push([t, tx, ty, 1 + (flow[t] ?? 0) * 0.5]); } // a side road, not just the next lane
+    if (!onRight(a, dx, dy)) { const t = step(a, -dy, dx); if (road(t)) return [t, dx, dy]; } // drift back to the right-hand lanes, still heading the same way
+    if (!opts.length) { const back = step(a, -dx, -dy); return road(back) ? [back, -dx, -dy] : [a, -dx, -dy]; }
+    let r = Math.random() * opts.reduce((n, o) => n + o[3], 0); for (const o of opts) { r -= o[3]; if (r <= 0) return [o[0], o[1], o[2]]; } return [opts[0][0], opts[0][1], opts[0][2]];
+  };
+  // as many cars as the traffic: new ones join on the busiest streets, heading whichever way puts them on the right-hand side
   while (C.list.length > want) C.list.pop();
   for (let k = 0; C.list.length < want && busy.length && k < 4; k++) {
-    let pickAt = Math.random() * busy.reduce((a, id) => a + flow[id], 0), a = busy[0];
+    let pickAt = Math.random() * busy.reduce((n, id) => n + flow[id], 0), a = busy[0];
     for (const id of busy) { pickAt -= flow[id]; if (pickAt <= 0) { a = id; break; } }
-    const n = nbrs(a); if (!n.length) continue;
-    C.list.push({ a, b: n[Math.floor(Math.random() * n.length)], prev: -1, u: Math.random(), col: Math.floor(Math.random() * CAR_COLS.length) });
+    const dirs = ([[1, 0], [-1, 0], [0, 1], [0, -1]] as const).filter(([dx, dy]) => road(step(a, dx, dy)) && onRight(a, dx, dy));
+    if (!dirs.length) continue;
+    const [dx, dy] = dirs[Math.floor(Math.random() * dirs.length)];
+    C.list.push({ a, b: step(a, dx, dy), prev: -1, u: Math.random(), col: Math.floor(Math.random() * CAR_COLS.length), dx, dy });
   }
   const go = getSpeed() > 0 ? 1 : 0, m = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), pos = new THREE.Vector3(), one = new THREE.Vector3(1, 1, 1);
   C.list = C.list.filter((c) => road(c.a) && road(c.b));
   C.list.forEach((c, i) => {
-    c.u += R.dt * go * 1.6 / ((t.traffic?.[c.b] ?? 1) * (c.u > 0.5 ? 1 : 1));
-    while (c.u >= 1) { // on to the next tile: the busier way is likelier, never straight back unless it is a dead end
-      c.u -= 1; const opts = nbrs(c.b).filter((n) => n !== c.a);
-      let next = c.a;
-      if (opts.length) { let r = Math.random() * opts.reduce((a, n) => a + 1 + (flow[n] ?? 0), 0); next = opts[0]; for (const n of opts) { r -= 1 + (flow[n] ?? 0); if (r <= 0) { next = n; break; } } }
-      c.prev = c.a; c.a = c.b; c.b = next;
-    }
-    const [ax, ay] = tileAt(c.a), [bx, by] = tileAt(c.b), dx = bx - ax, dz = by - ay;
-    pos.set(ax + 0.5 + dx * c.u - dz * 0.2, 0.02, ay + 0.5 + dz * c.u + dx * 0.2); // keep to the right of the way it is going
+    c.u += R.dt * go * 1.6 / (t.traffic?.[c.b] ?? 1);
+    while (c.u >= 1) { c.u -= 1; c.prev = c.a; c.a = c.b; const [nb, ndx, ndy] = next(c.a, c.dx, c.dy); c.b = nb; c.dx = ndx; c.dy = ndy; }
+    const [ax, ay] = tileAt(c.a), [bx, by] = tileAt(c.b), dx = c.dx, dz = c.dy, single = width(c.a, dx, dz) <= 1, side = single ? 0.2 : 0; // a lane of its own on a wide street; the right half of a narrow one
+    pos.set(ax + 0.5 + (bx - ax) * c.u - dz * side, 0.02, ay + 0.5 + (by - ay) * c.u + dx * side);
     q.setFromAxisAngle(up, Math.atan2(-dz, dx));
     m.compose(pos, q, one); C.body.setMatrixAt(i, m); C.cabin.setMatrixAt(i, m); C.body.setColorAt(i, CAR_COLS[c.col]);
   });

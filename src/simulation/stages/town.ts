@@ -1,5 +1,5 @@
 import { regionActive } from '../region-state';
-import { JAM_TEXT, streetJammed, APARTMENT_NEED, doorTiles, frontageAt, frontageOf, meets, needText, reachTime, trafficOf, travelCached } from '../access';
+import { JAM_TEXT, streetJammed, streetJammedAt, APARTMENT_NEED, doorTiles, frontageAt, frontageOf, meets, needText, reachTime, trafficOf, travelCached } from '../access';
 import { buildAs, canPlaceNew, connect, forget, liftTracks, placeNew, placeProblem, SERVICE_FOOTPRINT, touch } from '../world';
 import type { CivicService } from '../types';
 import type { ShopType } from '../types';
@@ -362,7 +362,7 @@ function action(s: GameState,a:Action):ActionResult|null {
     // Roads are part of the street plan; other services stand on the map. A chosen spot always starts a new building.
     const group=a.at||a.service==='road'?undefined:t.services.find(b=>b.type===a.service&&b.district===a.district);
     if(!group&&a.service!=='road'){const room=canPlaceNew(s,'heartland',SERVICE_FOOTPRINT,a.at,isShop(a.service)?'shop':undefined,a.rot);if(room)return fail(room);}
-    {const need=serviceNeed({type:a.service,level:buildAs(s,'service')});if(need.lanes>1&&(!a.at||!meets(frontageAt(worldOf(s,'heartland'),a.at[0],a.at[1],3,3),need)))return fail(`${SERVICE_DEFS[a.service].name} needs ${needText(need)}.`);}
+    {const need=serviceNeed({type:a.service,level:buildAs(s,'service')});if(need.lanes>1&&(!a.at||!meets(frontageAt(worldOf(s,'heartland'),a.at[0],a.at[1],3,3),need)))return fail(`${SERVICE_DEFS[a.service].name} needs ${needText(need)}.`);if(need.lanes>1&&a.at&&streetJammedAt(s,worldOf(s,'heartland'),a.at[0],a.at[1],3,3))return fail(JAM_TEXT);}
     post(s,'building',-cost,`${count} ${SERVICE_DEFS[a.service].name}`,'heartland','corporate');
     if(group){group.count+=count;group.cost=round2(group.cost+cost);}
     else{

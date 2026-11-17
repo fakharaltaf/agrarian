@@ -1,4 +1,4 @@
-import { frontageAt, JAM_TEXT, meets, needText, streetJammed } from '../../simulation/access';
+import { frontageAt, JAM_TEXT, laneCapacity, meets, needText, pressureOf, streetJammed, streetJammedAt } from '../../simulation/access';
 import { homesReached, nuisanceOf, NUISANCE_LOOK, type NuisanceKind } from '../../simulation/nuisance';
 import { upgradeNeedsPower } from '../../simulation/stages/shared';
 import { bestCrop } from '../crops';
@@ -15,7 +15,7 @@ import { planQuote } from '../../simulation/engine';
 import { DISCOVERIES, ERA_UNLOCK_TEXT, dailyGoals, dailyPrize, forecast, herdOf, homePlotPrice, housing, isManual, isReady, objective, chapterGate, gateProgress, type GateRow, PAGES, seedShortfall, upgradeCost } from '../../simulation/engine';
 import type { CivicService, GameState } from '../../simulation/types';
 import { act, cancelPlacement, confirmPlacement, planPlacementHere, placementNeed, rotatePlacement, go, placementUse, setRoadTool, toggleHideBuildings, setNet, setRoadLanes, undo, redo, canUndo, canRedo, setSurveying, setZoneTool, startPipes, type Prospect, startPlacement, stopProspect, stopRoads, stopZoning, type Zoning, useGame, usePageState, useStore, type Placement, type Roading } from '../../stores/game';
-import { WATER_LEVEL, WATER_PRICE, WATER_TIERS, wetTiers, NET_PRICE, NET_TIERS, NET_TOP, NET_QUALITY, linesOf, groundProblem, wideRoadRoute, upgradeAllPlan, BELT_PRICE, beltRoute, beltStretch, buildAs, buildAsOpen, lineBuildPrice, roadBuildPrice, type LineKind, type UtilityNet, pipeRoute, pipeStretch, cutsOff, footprintOf, forSaleAround, isRoad, MAP, ROAD_GRADES, ROAD_H, roadPick, roadTilePrice, worldOf, patchesAround, placeProblem, plotSide, PROBLEM_TEXT } from '../../simulation/world';
+import { WATER_LEVEL, WATER_PRICE, WATER_TIERS, wetTiers, NET_PRICE, NET_TIERS, NET_TOP, NET_QUALITY, linesOf, tileId, groundProblem, wideRoadRoute, upgradeAllPlan, BELT_PRICE, beltRoute, beltStretch, buildAs, buildAsOpen, lineBuildPrice, roadBuildPrice, type LineKind, type UtilityNet, pipeRoute, pipeStretch, cutsOff, footprintOf, forSaleAround, isRoad, MAP, ROAD_GRADES, ROAD_H, roadPick, roadTilePrice, worldOf, patchesAround, placeProblem, plotSide, PROBLEM_TEXT } from '../../simulation/world';
 import { buildingPrice, moveFee, parcelPrice } from '../../simulation/engine';
 import { APARTMENT_FAMILIES, homeLevel, homeUpgradePrice } from '../../simulation/community-state';
 import { homeUpgradeNeeds } from '../../simulation/stages/settlement';
@@ -402,6 +402,7 @@ function RoadBar({ s, r }: { s: GameState; r: Roading }) {
     else if (r.tool === 'upgrade') { const g = Math.min(3, Math.min(...st.map((id) => w.roads[id])) + 1), n = st.filter((id) => w.roads[id] < g).length; hint = n ? `${n} tiles → ${ROAD_GRADES[g].toLowerCase()} · ${money(roadTilePrice(s, g) * n)}` : 'Already paved'; }
     else { const lost = cutsOff(s, r.region, st); hint = `Remove ${st.length} tiles${lost.length ? ` · cuts off ${lost.length} building${lost.length === 1 ? '' : 's'}` : ''}`; }
   }
+  { const id = h ? tileId(h[0], h[1]) : -1, x = id >= 0 && w.roads[id] !== undefined ? pressureOf(s, w, id) : 0; if (x > 0.05) { const cars = townOf(s).flow?.[id] ?? 0; hint += ` · 🚦 ${cars} cars a lane, ${laneCapacity(w, id)} at ease (${Math.round(x * 100)}%)${x >= 1 ? ': upgrade or widen it' : ''}`; } }
   return <LineDock label="Roads" head={<b className="dock-title">🛤 Roads</b>} hint={hint} tool={r.tool} draw="Draw" all={{ region: r.region, nets: ['road'] }} as={{ what: 'road', names: ROAD_GRADES.slice(1) }} extra={r.tool === 'draw' && <select className="dock-as" aria-label="Lanes" title="How many lanes wide new roads are" value={lanes} onChange={(e) => setRoadLanes(+e.target.value)}>{[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n} lane{n > 1 ? 's' : ''}</option>)}</select>} />;
 }
 
@@ -434,7 +435,7 @@ function LineDock({ label, head, hint, tool, draw, all, as, noUpgrade, extra }: 
 function PlacementBar({ s, p }: { s: GameState; p: Placement }) {
   const problem = placeProblem(s, p.region, p.at[0], p.at[1], { w: p.w, d: p.d }, p.key, p.kind === 'move' ? undefined : placementUse(p)), cost = placementCost(s, p);
   const quote = p.kind === 'new' && (problem === 'unowned' || problem === 'forest') ? planQuote(s, p.region, p.at, p.w, p.d, p.action) : null;
-  const need = placementNeed(p), street = !problem && need && need.lanes > 1 && !meets(frontageAt(worldOf(s, p.region), p.at[0], p.at[1], p.w, p.d), need) ? `Needs ${needText(need)}: draw a wider street beside it first (🛤, set the lanes).` : null;
+  const need = placementNeed(p), street = !problem && need && need.lanes > 1 ? (!meets(frontageAt(worldOf(s, p.region), p.at[0], p.at[1], p.w, p.d), need) ? `Needs ${needText(need)}: draw a wider street beside it first (🛤, set the lanes).` : streetJammedAt(s, worldOf(s, p.region), p.at[0], p.at[1], p.w, p.d) ? `🚦 ${JAM_TEXT}` : null) : null;
   return <div className="placement-bar" role="dialog" aria-label={`Placing ${p.label}`}>
     <div className="placement-info"><b>{p.kind === 'move' ? '✥ Moving' : '📍 Placing'} {p.label}{p.total ? ` ${p.total - p.left! + 1} of ${p.total}` : ''}{cost > 0 ? ` · ${money(cost)}` : ''}</b>
       <span className={(problem && !quote?.ok) || street ? 'bad' : 'muted'}>{street ?? null}{street ? null : quote?.ok ? `Not yours or not cleared yet. Buy and clear it, and it is placed when the crew finishes (about ${quote.hours} h).` : quote && !quote.ok && quote.error !== PROBLEM_TEXT.occupied ? quote.error : problem ? PROBLEM_TEXT[problem] : matchMedia('(pointer: fine)').matches ? 'Click a green spot to place it.' : 'Tap where it goes, then confirm.'}</span></div>

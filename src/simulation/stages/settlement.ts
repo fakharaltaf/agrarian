@@ -11,7 +11,7 @@ import { factoryJobs, localEmployment, townOf } from '../town-state';
 import { executeBuy, quoteBuy } from '../markets';
 import { shopMood } from '../city-state';
 import { homeUnits, homeLevel, homeUpgradePrice, APARTMENT_FAMILIES } from '../community-state';
-import { streetJammed, APARTMENT_NEED, doorTiles, frontageAt, frontageOf, meets, needText } from '../access';
+import { JAM_TEXT, streetJammed, streetJammedAt, APARTMENT_NEED, doorTiles, frontageAt, frontageOf, meets, needText } from '../access';
 import { communityOf, createSettlementState, familySize, HOME_DEFS, homePrice, homeCapacity, households, population, availableResidents, recruitableResidents } from '../community-state';
 import { CONFIG, WORK_HOURS } from '../config';
 
@@ -221,7 +221,7 @@ function action(s: GameState, a: Action): ActionResult | null {
   for (let i = 0; i < a.count; i++) {
     const home = { id: nextId(s), tier: a.tier, count: 1, cost };
     const room = canPlaceNew(s, 'heartland', homeFootprint(home), a.at, 'home', a.rot);
-    if (!room && a.tier === 'apartment') { const fp = homeFootprint(home), at = a.at; if (!at || !meets(frontageAt(worldOf(s, 'heartland'), at[0], at[1], (a.rot ?? 0) % 2 ? fp.d : fp.w, (a.rot ?? 0) % 2 ? fp.w : fp.d), APARTMENT_NEED[0])) return built ? { ok: true } : { ok: false, error: `Apartments need ${needText(APARTMENT_NEED[0])}.` }; }
+    if (!room && a.tier === 'apartment') { const fp = homeFootprint(home), at = a.at; if (!at || !meets(frontageAt(worldOf(s, 'heartland'), at[0], at[1], (a.rot ?? 0) % 2 ? fp.d : fp.w, (a.rot ?? 0) % 2 ? fp.w : fp.d), APARTMENT_NEED[0])) return built ? { ok: true } : { ok: false, error: `Apartments need ${needText(APARTMENT_NEED[0])}.` }; } if (!room && a.tier === 'apartment' && a.at) { const fp = homeFootprint(home); if (streetJammedAt(s, worldOf(s, 'heartland'), a.at[0], a.at[1], fp.w, fp.d)) return built ? { ok: true } : { ok: false, error: JAM_TEXT }; }
     if (room) { if (!i) return fail(room); log(s, 'warning', `Only ${i} homes fitted. Clear forest to make room for more.`, 'community'); break; }
     c.homes.push(home);
     placeNew(s, 'heartland', `home:${home.id}`, a.at, a.rot);
