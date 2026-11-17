@@ -1,12 +1,12 @@
 // The Region view: a 2.5D diorama of the whole region, reached through the clouds. Your land in the middle, the main road running
 // west to the Arid Frontier and east to the Coastal Trade Hub, the river running south past the River Plains to the bay, and the
 // Tropical Highlands across the water. Drawn once from fixed geography; only the caravans and labels follow the game.
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { box, cone, cyl, gable, hauler, mat, PAL, sphere } from './models';
 import { graphicsQuality } from './Scene3D';
-import { focusNeighbour, getGame, go, travel, useGame, useStore } from '../../stores/game';
+import { focusNeighbour, getGame, go, throughClouds, travel, useGame, useStore } from '../../stores/game';
 import { attitude, isNeighbour, NEIGHBOUR_IDS, NEIGHBOURS, regionOf, ROUTE_SIDE, type NeighbourId } from '../../simulation/region-state';
 import { GOODS, REGIONS } from '../../simulation/config';
 import { population } from '../../simulation/community-state';
@@ -17,17 +17,27 @@ type P = [number, number];
 type Place = NeighbourId | 'home';
 
 // ---------------------------------------------------------------- geography (x east, z south; one unit ≈ a few hundred metres)
-const RIVER_KEYS: P[] = [[-14, -92], [-11, -64], [-6, -44], [-10, -26], [-8, -8], [-6, 8], [-2, 22], [3, 34], [9, 48], [15, 60], [18, 70]];
+const RIVER_KEYS: P[] = [[-14, -92], [-11, -64], [-6, -44], [-10, -26], [-8, -8], [-6, 8], [-2, 22], [3, 34], [8, 48], [12, 60], [15, 72], [18, 84], [20, 96], [22, 108]];
 const ROAD_KEYS: P[] = [[-71, -3], [-58, -6], [-44, -3], [-30, -1], [-17, 0], [-8, 0], [2, 0], [14, 1], [28, -1], [43, 1], [56, 0], [64, 0]];
-const TOWNS: Record<Place, P> = { home: [7, -2], arid: [-75, -3], coastal: [63, -1], river: [13, 36], tropics: [-30, 72] };
+const TOWNS: Record<Place, P> = { home: [7, -2], arid: [-75, -3], coastal: [63, -1], river: [22, 62], tropics: [-30, 88] };
 /** Ground kept clear of fields and woods for each town (centre and radius): your farmstead and your town, then the four neighbours. */
-const AREAS: [number, number, number][] = [[5, -7, 5.5], [9, 5, 8], [-75, -3, 10.5], [62, -1, 9.5], [13, 36, 8], [-30, 72, 9], [-40, 66, 5.5], [-20, 79, 5.5]];
+const AREAS: [number, number, number][] = [[5, -7, 5.5], [9, 5, 8], [-75, -3, 10.5], [62, -1, 9.5], [22, 62, 8], [-30, 88, 9], [-40, 82, 5.5], [-20, 95, 5.5]];
 const inTown = (x: number, z: number, pad = 0) => AREAS.some(([cx, cz, r]) => Math.hypot(x - cx, z - cz) < r + pad);
 const MESAS: [number, number, number, number][] = [[-58, -24, 4.5, 4.2], [-86, 14, 6, 5.5], [-50, 18, 3.2, 3.4], [-92, -22, 5, 4.8], [-64, 30, 3.6, 3.8]];
 const PIVOTS: P[] = [[-62, 9], [-60, -15], [-84, -8]];
 
 const curve = (keys: P[], n: number, y = 0) => new THREE.CatmullRomCurve3(keys.map(([x, z]) => new THREE.Vector3(x, y, z))).getSpacedPoints(n).map((v) => [v.x, v.z] as P);
 const RIVER = curve(RIVER_KEYS, 160), ROAD = curve(ROAD_KEYS, 160);
+/** From the river's mouth across the bay to the Tropical Highlands' jetty. */
+const BAY_PATH: P[] = [[16, 90], [6, 91], [-4, 88]];
+/** What you can see: round each town (the harbour with a little of the sea), along the main road, down the river and across the bay. The rest lies under cloud, for later. */
+const SIGHT: [number, number, number][] = [[7, -1, 20], [-75, -3, 15], [70, 0, 14], [22, 62, 14], [-28, 88, 14]];
+const DOWNRIVER = RIVER.filter(([, z]) => z > -6 && z < 92);
+function hidden(x: number, z: number) {
+  let d = Math.min(...SIGHT.map(([cx, cz, r]) => Math.hypot(x - cx, z - cz) - r), lineDist(x, z, ROAD) - 5, lineDist(x, z, DOWNRIVER) - riverW(z) - 5, lineDist(x, z, BAY_PATH) - 4);
+  if (x > 72) d = Math.max(d, x - 86); // only a strip of the sea past the harbour
+  return d;
+}
 
 const hash = (x: number, z: number) => { const s = Math.sin(x * 127.1 + z * 311.7) * 43758.5453; return s - Math.floor(s); };
 function vnoise(x: number, z: number) {
@@ -49,9 +59,9 @@ function lineDist(x: number, z: number, line: P[]) {
 /** How far inland a point is (negative out at sea): the coast all round, the east shore with the harbour's cove, and the southern bay. */
 function landness(x: number, z: number) {
   const n = (fbm(x * 0.05 + 7, z * 0.05) - 0.5) * 10;
-  const edge = (1 - Math.hypot(x / 106, z / 88)) * 60 + n;
+  const edge = (1 - Math.hypot(x / 106, (z - 12) / 102)) * 60 + n;
   const east = 75 + Math.sin(z * 0.09) * 4 + n * 0.5 - 7 * Math.exp(-(((z - 3) / 6) ** 2)) - x;
-  const bay = Math.max(58 + Math.sin(x * 0.12) * 3 + n * 0.3 - z, -5 + Math.sin(z * 0.25) * 2 - x);
+  const bay = Math.max(84 + Math.sin(x * 0.12) * 3 + n * 0.3 - z, -5 + Math.sin(z * 0.25) * 2 - x);
   return Math.min(edge, east, bay);
 }
 const riverW = (z: number) => 1 + Math.max(0, z + 90) * 0.011;
@@ -63,7 +73,7 @@ function landform(x: number, z: number) {
   for (const [mx, mz, r, mh] of MESAS) { const d = Math.hypot(x - mx, z - mz) + (fbm(x * 0.3, z * 0.3) - 0.5) * 2.4; h = Math.max(h, mh * sstep(r + 1.4, r - 0.2, d) + h * (1 - sstep(r + 1.4, r - 0.2, d))); }
   const ridge = 1 - Math.abs(fbm(x * 0.06 + 3, z * 0.06) * 2 - 1);
   h += sstep(-36, -60, z) * (4 + ridge * 15 + fbm(x * 0.15, z * 0.15) * 4); // the mountains to the north
-  h += sstep(54, 64, z) * sstep(-4, -16, x) * (2 + fbm(x * 0.09 + 11, z * 0.09) * 8); // the tropical hills
+  h += sstep(66, 76, z) * sstep(-4, -16, x) * (2 + fbm(x * 0.09 + 11, z * 0.09) * 8); // the tropical hills
   h += sstep(44, 58, x) * sstep(-12, -26, z) * fbm(x * 0.1, z * 0.1) * 2.5; // the coastal headland
   return h;
 }
@@ -84,12 +94,12 @@ function groundColor(x: number, z: number, h: number, slope: number, out: THREE.
   if (h < -0.15) return out.copy(COL.sandWet).lerp(COL.deep, sstep(-0.2, -3, h));
   const L = landness(x, z);
   out.copy(COL.grass).lerp(COL.grass2, n);
-  if (z > 18 && z < 58 && x > -20) out.lerp(COL.lush, sstep(18, 30, z) * 0.7); // the river plains
+  if (z > 18 && z < 84 && x > -20) out.lerp(COL.lush, sstep(18, 30, z) * 0.7); // the river plains
   if (x > 46) out.lerp(COL.coastGrass, sstep(46, 56, x));
   const arid = sstep(-32, -46, x);
   if (arid > 0) out.lerp(new THREE.Color().copy(COL.sand).lerp(COL.sand2, n), arid);
   if (h > 1.8 && MESAS.some(([mx, mz, r]) => Math.hypot(x - mx, z - mz) < r + 1.8)) out.copy(Math.floor(h * 2.2) % 2 ? COL.mesa : COL.mesa2); // banded mesa cliffs
-  const trop = sstep(54, 62, z) * sstep(-4, -14, x);
+  const trop = sstep(66, 74, z) * sstep(-4, -14, x);
   if (trop > 0) out.lerp(new THREE.Color().copy(COL.jungle).lerp(COL.jungle2, n), trop);
   const rocky = Math.max(sstep(4, 7, h) * sstep(-30, -40, z), sstep(0.9, 1.6, slope) * (arid > 0.5 ? 0 : 1));
   if (rocky > 0) out.lerp(new THREE.Color().copy(COL.rock).lerp(COL.rock2, n), rocky);
@@ -100,7 +110,10 @@ function groundColor(x: number, z: number, h: number, slope: number, out: THREE.
 }
 
 // ---------------------------------------------------------------- building the diorama
-type Rig = { scene: THREE.Scene; owned: THREE.BufferGeometry[]; water: THREE.Mesh; waterBase: Float32Array; spin: { o: THREE.Object3D; axis: 'x' | 'z' }[]; ships: { o: THREE.Object3D; cx: number; cz: number; r: number; v: number; a: number }[]; clouds: THREE.Group[]; caravans: Map<number, THREE.Object3D>; units: THREE.Group; townHits: THREE.Object3D[] };
+type Rig = { scene: THREE.Scene; owned: THREE.BufferGeometry[]; water: THREE.Mesh; waterBase: Float32Array; spin: { o: THREE.Object3D; axis: 'x' | 'z' }[]; ships: { o: THREE.Object3D; cx: number; cz: number; r: number; v: number; a: number }[]; clouds: THREE.Group[]; caravans: Map<number, THREE.Object3D>; units: THREE.Group; townHits: THREE.Object3D[]; walkers: Walker[]; fog?: { inst: THREE.InstancedMesh; at: THREE.Matrix4[] } };
+type Walker = { o: THREE.Object3D; seg: number[]; t: number; dir: number; v: number };
+/** The streets of the town being built, for its people to walk. */
+let curPaths: number[][] = [];
 
 const groundAt = (x: number, z: number) => Math.max(0, height(x, z));
 function put(o: THREE.Object3D, x: number, z: number, rot = 0, s = 1, sink = 0) { o.position.set(x, groundAt(x, z) - sink, z); o.rotation.y = rot; o.scale.setScalar(s); return o; }
@@ -132,8 +145,8 @@ function windmill(rig: Rig) {
 }
 
 function buildTerrain(rig: Rig) {
-  const W = 236, D = 196, geo = new THREE.PlaneGeometry(W, D, W, D);
-  geo.rotateX(-Math.PI / 2);
+  const W = 236, D = 228, geo = new THREE.PlaneGeometry(W, D, W, D);
+  geo.rotateX(-Math.PI / 2); geo.translate(0, 0, 10);
   const pos = geo.attributes.position as THREE.BufferAttribute, n = pos.count, hs = new Float32Array(n);
   for (let i = 0; i < n; i++) { hs[i] = height(pos.getX(i), pos.getZ(i)); pos.setY(i, hs[i]); }
   const cols = new Float32Array(n * 3), c = new THREE.Color(), row = W + 1;
@@ -158,7 +171,7 @@ function buildTerrain(rig: Rig) {
 }
 
 /** The main road from the Arid Frontier through your land to the coast, a bridge where it crosses the river. */
-const TRACK = curve([[12, 1], [13, 8], [15.5, 16], [16, 24], [15, 31], [14, 34]], 40);
+const TRACK = curve([[12, 1], [13, 10], [15, 20], [17, 30], [19, 40], [21, 50], [22, 55]], 50);
 function ribbon(rig: Rig, line: P[], half: number, color: number) {
   const pts: number[] = [], idx: number[] = [];
   line.forEach(([x, z], i) => {
@@ -183,7 +196,7 @@ function buildFields(rig: Rig, taken: [number, number, number, number][]) {
   const tex = (() => { const cv = document.createElement('canvas'); cv.width = cv.height = 32; const g = cv.getContext('2d')!; g.fillStyle = '#fff'; g.fillRect(0, 0, 32, 32); g.fillStyle = '#d9d2c4'; for (let y = 0; y < 32; y += 4) g.fillRect(0, y, 32, 2); const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; return t; })();
   const tones = [0xd9b84a, 0x9cc45a, 0x6fa040, 0x8a6a45, 0xc2c766, 0xe2c25e, 0x7fb04a];
   const list: [number, number, number, number, number][] = [], rand = rnd(42);
-  const areas: [number, number, number, number][] = [[-5, -26, 40, 22], [-30, -24, -14, 20], [16, 24, 36, 50], [-18, 24, -4, 46], [42, -18, 56, 18]];
+  const areas: [number, number, number, number][] = [[-5, -26, 40, 22], [-30, -24, -14, 20], [16, 14, 38, 52], [26, 50, 44, 82], [-18, 24, -4, 46], [-4, 46, 8, 66], [42, -18, 56, 18]];
   for (const [x0, z0, x1, z1] of areas) for (let x = x0; x < x1; x += 4.4) for (let z = z0; z < z1; z += 3.6) {
     const w = 3.6 + rand() * 0.6, d = 2.8 + rand() * 0.5, cx = x + w / 2, cz = z + d / 2;
     if (Math.abs(cz - roadZ(cx)) < 2.6 || lineDist(cx, cz, RIVER) < riverW(cz) + 3 || inTown(cx, cz, 2.6) || rand() < 0.12) continue;
@@ -212,9 +225,9 @@ function buildTrees(rig: Rig, taken: [number, number, number, number][]) {
   const spots: Record<K, [number, number, number, number, number][]> = { pine: [], broad: [], jungle: [], palm: [], cactus: [] }, rand = rnd(7);
   const blocked = (x: number, z: number) => taken.some(([a, b, c, d]) => x > a && x < c && z > b && z < d) || inTown(x, z, 0.4) || Math.abs(z - roadZ(x)) < 2 || lineDist(x, z, RIVER) < riverW(z) + 1.6;
   for (let i = 0; i < 30000; i++) {
-    const x = -112 + rand() * 224, z = -94 + rand() * 188, h = height(x, z);
+    const x = -112 + rand() * 224, z = -94 + rand() * 212, h = height(x, z);
     if (h < 0.3 || blocked(x, z)) continue;
-    const L = landness(x, z), clump = fbm(x * 0.08 + 5, z * 0.08), arid = x < -40, trop = z > 56 && x < -6;
+    const L = landness(x, z), clump = fbm(x * 0.08 + 5, z * 0.08), arid = x < -40, trop = z > 68 && x < -6;
     let k: K | null = null;
     if (z < -36 && h > 1 && h < 12) k = rand() < 0.55 ? 'pine' : null;
     else if (trop) k = L < 7 ? (rand() < 0.5 ? 'palm' : null) : clump > 0.38 ? 'jungle' : null;
@@ -237,7 +250,9 @@ function buildTrees(rig: Rig, taken: [number, number, number, number][]) {
 
 function town(rig: Rig, place: Place, build: (g: THREE.Group, rand: () => number) => void) {
   const g = new THREE.Group(); g.name = place; g.userData.place = place;
+  curPaths = [];
   build(g, rnd(place.length * 97 + 3));
+  people(rig, place, curPaths);
   g.traverse((o) => { if ((o as THREE.Mesh).isMesh) { o.castShadow = true; o.receiveShadow = true; o.userData.place = place; } });
   rig.scene.add(g); rig.townHits.push(g);
 }
@@ -248,7 +263,7 @@ function ring(g: THREE.Group, rand: () => number, [cx, cz]: P, n: number, r0: nu
   for (let i = 0, tries = 0; i < n && tries < n * 12; tries++) {
     const a = rand() * Math.PI * 2, r = r0 + rand() * (r1 - r0), x = cx + Math.cos(a) * r, z = cz + Math.sin(a) * r;
     if (!fits(g, x, z, keep, 1.55)) continue;
-    g.add(put(make(i), x, z, Math.atan2(cx - x, cz - z) + (rand() - 0.5) * 0.3)); i++;
+    g.add(put(make(i), x, z, Math.atan2(cx - x, cz - z) + (rand() - 0.5) * 0.3)); i++; curPaths.push([cx, cz, cx + (x - cx) * 0.8, cz + (z - cz) * 0.8]);
   }
 }
 /** Homes in blocks along streets (every third row and column left open), fronts to the street: a town. */
@@ -261,7 +276,7 @@ function blocks(g: THREE.Group, rand: () => number, [cx, cz]: P, n: number, r1: 
     let start: number | null = null;
     for (let t = -k * step; t <= k * step + 0.5; t += 0.5) {
       if (t <= k * step && ok(t)) { start ??= t; continue; }
-      if (start !== null && t - start > 0.6) { const len = t - start, [x, z] = at(start + len / 2 - 0.25); street.push(new THREE.BoxGeometry(across ? 0.55 : len, 0.3, across ? len : 0.55).translate(x, height(x, z) - 0.11, z)); }
+      if (start !== null && t - start > 0.6) { const len = t - start, [x, z] = at(start + len / 2 - 0.25); street.push(new THREE.BoxGeometry(across ? 0.55 : len, 0.3, across ? len : 0.55).translate(x, height(x, z) - 0.11, z)); const [ax, az] = at(start), [bx, bz] = at(t - 0.5); curPaths.push([ax, az, bx, bz]); }
       start = null;
     }
   }
@@ -355,6 +370,49 @@ function buildTowns(rig: Rig, s: ReturnType<typeof getGame>) {
   }
 }
 
+/** A sea of cloud over all the land and sea you have not seen, piled higher away from what you can see. */
+function buildFog(rig: Rig, low: boolean) {
+  const geo = new THREE.IcosahedronGeometry(1, low ? 0 : 1); rig.owned.push(geo);
+  const list: [number, number, number, number, number][] = [], rand = rnd(5);
+  for (let x = -230; x <= 230; x += 4.2) for (let z = -190; z <= 230; z += 4.2) {
+    const px = x + (rand() - 0.5) * 3, pz = z + (rand() - 0.5) * 3, d = hidden(px, pz);
+    if (d < -1) continue;
+    const k = sstep(-1, 9, d), sc = (3 + rand() * 2.6) * (0.55 + 0.6 * k);
+    list.push([px, Math.max(4, groundAt(px, pz) + 2.5) + k * 3 + rand() * 1.5, pz, sc, rand() * 6.28]);
+  }
+  const inst = new THREE.InstancedMesh(geo, new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x7f8a96, roughness: 1 }), list.length), m = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), col = new THREE.Color();
+  list.forEach(([x, y, z, sc, a], i) => { m.compose(new THREE.Vector3(x, y, z), q.setFromAxisAngle(up, a), new THREE.Vector3(sc * 1.3, sc * 0.75, sc)); inst.setMatrixAt(i, m); inst.setColorAt(i, col.setHSL(0.58, 0.25, 0.93 + (i % 5) * 0.012)); });
+  inst.receiveShadow = true; rig.scene.add(inst);
+  rig.fog = { inst, at: list.map((_, i) => { const mm = new THREE.Matrix4(); inst.getMatrixAt(i, mm); return mm; }) };
+}
+/** On a visit the clouds round the town part, so its surroundings are seen; they close again when you leave. */
+function fogAround(rig: Rig | null, place: NeighbourId | null) {
+  if (!rig?.fog) return;
+  const { inst, at } = rig.fog, p = new THREE.Vector3(), none = new THREE.Matrix4().makeScale(0, 0, 0);
+  at.forEach((m, i) => { p.setFromMatrixPosition(m); inst.setMatrixAt(i, place && Math.hypot(p.x - TOWNS[place][0], p.z - TOWNS[place][1]) < 26 ? none : m); });
+  inst.instanceMatrix.needsUpdate = true;
+}
+const SHIRT = [0xc9553f, 0x3f6fc9, 0xe0b23a, 0x4c9a5a, 0x8a5ac9, 0xd07a2f, 0xf1e6cc], SKIN = [0xe0b48a, 0xc68c5e, 0x8d5a3b, 0xf0c9a0];
+/** Townsfolk going up and down their streets. */
+function people(rig: Rig, place: Place, paths: number[][]) {
+  const rand = rnd(place.length * 31 + 7), segs = paths.filter(([a, b, c, d]) => Math.hypot(c - a, d - b) > 1.2);
+  for (let i = 0; segs.length && i < 16; i++) {
+    const o = new THREE.Group(), shirt = SHIRT[Math.floor(rand() * SHIRT.length)];
+    o.add(box(0.05, 0.12, 0.05, 0x3b3f4a, -0.03, 0, 0), box(0.05, 0.12, 0.05, 0x3b3f4a, 0.03, 0, 0), box(0.13, 0.15, 0.09, shirt, 0, 0.12, 0), sphere(0.055, SKIN[i % SKIN.length], 0, 0.33, 0));
+    o.traverse((m) => { m.castShadow = true; });
+    rig.units.add(o); rig.walkers.push({ o, seg: segs[Math.floor(rand() * segs.length)], t: rand(), dir: rand() < 0.5 ? 1 : -1, v: 0.35 + rand() * 0.3 });
+  }
+}
+function walk(rig: Rig, t: number, dt: number) {
+  for (const w of rig.walkers) {
+    const [a, b, c, d] = w.seg, len = Math.hypot(c - a, d - b);
+    w.t += (w.dir * w.v * dt) / len;
+    if (w.t > 1 || w.t < 0) { w.dir = -w.dir; w.t = Math.max(0, Math.min(1, w.t)); }
+    const x = a + (c - a) * w.t, z = b + (d - b) * w.t;
+    w.o.position.set(x, groundAt(x, z) + 0.04 + Math.abs(Math.sin(t * 9 + len)) * 0.025, z);
+    w.o.rotation.y = Math.atan2(-(d - b) * w.dir, (c - a) * w.dir) - Math.PI / 2;
+  }
+}
 function buildClouds(rig: Rig) {
   const geo = new THREE.IcosahedronGeometry(1, 1); rig.owned.push(geo);
   const m = new THREE.MeshStandardMaterial({ color: 0xffffff, flatShading: true, roughness: 1, transparent: true, opacity: 0.92 }), rand = rnd(11);
@@ -374,7 +432,7 @@ const routeFor = (() => {
     let pts: P[];
     if (side === 'west') pts = ROAD.filter(([x]) => x <= home).reverse();
     else if (side === 'east') pts = ROAD.filter(([x]) => x >= home);
-    else { const down = RIVER.filter(([, z]) => z > 0 && z < (to === 'river' ? TOWNS.river[1] + 2 : 66)); pts = [[0, 0.5], [-8, 0.5], ...down, ...(to === 'tropics' ? [[12, 68], [2, 71], [-4, 71]] as P[] : [])]; }
+    else { const down = RIVER.filter(([, z]) => z > 0 && z < (to === 'river' ? TOWNS.river[1] + 2 : 86)); pts = [[0, 0.5], [-8, 0.5], ...down, ...(to === 'tropics' ? BAY_PATH : [])]; }
     const water = side === 'south';
     const c = new THREE.CatmullRomCurve3(pts.map(([x, z]) => new THREE.Vector3(x, water ? 0.12 : Math.max(0.55, height(x, z) + 0.12), z)));
     cache.set(to, c); return c;
@@ -401,8 +459,15 @@ const LABEL_Y: Record<Place, number> = { home: 5, arid: 6, coastal: 5, river: 5,
 
 export default function RegionView() {
   const s = useGame(), v = regionOf(s), page = useStore((x) => x.page);
-  const canvas = useRef<HTMLCanvasElement>(null), labels = useRef<Record<string, HTMLButtonElement | null>>({}), cam = useRef({ x: 0, z: 8, d: 200, goal: 200, min: 22, max: 300 });
-  const open = (p: Place) => { if (p === 'home') travel('farm'); else { focusNeighbour(p); go('region'); } };
+  const canvas = useRef<HTMLCanvasElement>(null), labels = useRef<Record<string, HTMLButtonElement | null>>({}), cam = useRef({ x: -4, z: 36, d: 200, goal: 200, min: 22, max: 300, home: 200, pitch: PITCH, visit: null as NeighbourId | null });
+  const [visit, setVisit] = useState<NeighbourId | null>(null), rigRef = useRef<Rig | null>(null);
+  /** Visit a town: through the clouds, down to its streets. Back out the same way. */
+  const goVisit = (id: NeighbourId | null) => throughClouds(() => {
+    const C = cam.current; C.visit = id; setVisit(id); go('farm'); fogAround(rigRef.current, id);
+    if (id) { C.x = TOWNS[id][0]; C.z = TOWNS[id][1]; C.goal = 26; C.d = 36; C.pitch = 0.92; C.min = 12; C.max = 48; }
+    else { C.x = -4; C.z = 36; C.goal = C.home; C.d = C.home * 0.8; C.pitch = PITCH; C.min = 22; C.max = C.home * 1.15; }
+  });
+  const open = (p: Place) => { if (p === 'home') travel('farm'); else if (!cam.current.visit) goVisit(p); };
 
   useEffect(() => {
     const c = canvas.current!;
@@ -412,7 +477,7 @@ export default function RegionView() {
     renderer.setPixelRatio(low ? 1 : Math.min(2, devicePixelRatio));
     renderer.shadowMap.enabled = !low; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05; renderer.outputColorSpace = THREE.SRGBColorSpace;
-    const scene = new THREE.Scene(), sky = new THREE.Color(0x3f8dbf); // the open sea, which the view fades into
+    const scene = new THREE.Scene(), sky = new THREE.Color(0xe4edf3); // cloud, which the view fades into
     scene.background = sky; scene.fog = new THREE.Fog(sky, 200, 600);
     const camera = new THREE.PerspectiveCamera(FOV, 1, 1, 2000);
     scene.add(new THREE.HemisphereLight(0xeaf4ff, 0x8a7a55, 1.0));
@@ -420,28 +485,29 @@ export default function RegionView() {
     Object.assign(sun.shadow.camera, { left: -125, right: 125, top: 105, bottom: -105, near: 10, far: 400 }); sun.shadow.camera.updateProjectionMatrix();
     sun.shadow.mapSize.set(4096, 4096); sun.shadow.bias = -0.0006; sun.shadow.normalBias = 0.4;
     scene.add(sun);
-    const rig: Rig = { scene, owned: [], water: null!, waterBase: new Float32Array(), spin: [], ships: [], clouds: [], caravans: new Map(), units: new THREE.Group(), townHits: [] };
-    scene.add(rig.units);
+    const rig: Rig = { scene, owned: [], water: null!, waterBase: new Float32Array(), spin: [], ships: [], clouds: [], caravans: new Map(), units: new THREE.Group(), townHits: [], walkers: [] };
+    scene.add(rig.units); rigRef.current = rig;
     const taken: [number, number, number, number][] = [];
-    buildTerrain(rig); buildRoad(rig); buildFields(rig, taken); buildTowns(rig, getGame()); buildTrees(rig, taken); buildClouds(rig);
-    for (const [cx, cz, r, v0] of [[94, 8, 9, 0.05], [88, 40, 12, -0.035], [36, 76, 10, 0.04]] as const) { const o = ship(); o.traverse((m) => { m.castShadow = true; }); scene.add(o); rig.ships.push({ o, cx, cz, r, v: v0, a: cx * 0.1 }); } // ships at sea
+    buildTerrain(rig); buildRoad(rig); buildFields(rig, taken); buildTowns(rig, getGame()); buildTrees(rig, taken); buildFog(rig, low); buildClouds(rig);
+    for (const [cx, cz, r, v0] of [[85, 3, 5, 0.05]] as const) { const o = ship(); o.traverse((m) => { m.castShadow = true; }); scene.add(o); rig.ships.push({ o, cx, cz, r, v: v0, a: cx * 0.1 }); } // ships at sea
 
     // camera: fit the region on screen; a phone starts on the middle and pans
     const C = cam.current;
     const fit = (W: number, H: number) => {
-      const t = Math.tan(((FOV / 2) * Math.PI) / 180), dw = 104 / (t * (W / H)), dh = (88 * Math.sin(PITCH)) / t;
-      C.goal = W < 600 ? 80 / (t * (W / H)) : Math.max(dw, dh) * 1.06; // a phone fits the four towns across C.max = Math.max(C.goal, dh) * 1.1;
+      const t = Math.tan(((FOV / 2) * Math.PI) / 180), dw = 100 / (t * (W / H)), dh = (70 * Math.sin(PITCH)) / t;
+      C.home = W < 600 ? 84 / (t * (W / H)) : Math.max(dw, dh) * 1.04; // what you can see, edge to edge; a phone fits the towns across
+      C.max = C.home * 1.15; if (!C.visit) C.goal = C.home;
     };
     let W = 0, H = 0, raf = 0, last = performance.now();
     const frame = (now: number) => {
       raf = requestAnimationFrame(frame);
       const w = c.clientWidth, h = c.clientHeight; if (!w || !h) return;
-      if (w !== W || h !== H) { const first = !W; W = w; H = h; renderer.setSize(W, H, false); camera.aspect = W / H; camera.updateProjectionMatrix(); fit(W, H); if (first) { C.d = C.goal * 0.55; if (W < 600) C.x = -6; } }
+      if (w !== W || h !== H) { const first = !W; W = w; H = h; renderer.setSize(W, H, false); camera.aspect = W / H; camera.updateProjectionMatrix(); fit(W, H); if (first) C.d = C.goal * 0.55; }
       const dt = Math.max(0, Math.min(0.05, (now - last) / 1000)), t = now / 1000; last = now;
       C.d += (C.goal - C.d) * Math.min(1, dt * 4);
-      const half = Math.tan(((FOV / 2) * Math.PI) / 180) * C.d, rx = Math.max(0, 100 - half * (W / H) * 0.6), rz = Math.max(0, 80 - half * 0.6);
-      C.x = Math.max(-rx, Math.min(rx, C.x)); C.z = Math.max(-rz + 4, Math.min(rz + 4, C.z));
-      camera.position.set(C.x, Math.sin(PITCH) * C.d, C.z + Math.cos(PITCH) * C.d); camera.lookAt(C.x, 0, C.z);
+      if (C.visit) { const [vx, vz] = TOWNS[C.visit]; C.x = Math.max(vx - 12, Math.min(vx + 12, C.x)); C.z = Math.max(vz - 10, Math.min(vz + 12, C.z)); } // a visit stays in town
+      else { C.x = Math.max(-85, Math.min(80, C.x)); C.z = Math.max(-15, Math.min(100, C.z)); }
+      camera.position.set(C.x, Math.sin(C.pitch) * C.d, C.z + Math.cos(C.pitch) * C.d); camera.lookAt(C.x, 0, C.z);
       (scene.fog as THREE.Fog).near = C.d * 1.1; (scene.fog as THREE.Fog).far = C.d * 3.2;
       // ripples, mills, ships, clouds and caravans
       const wp = rig.water.geometry.attributes.position as THREE.BufferAttribute, base = rig.waterBase;
@@ -451,6 +517,7 @@ export default function RegionView() {
       for (const sh of rig.ships) { sh.a += sh.v * dt * 6; sh.o.position.set(sh.cx + Math.cos(sh.a) * sh.r, 0.15 + Math.sin(t * 1.4 + sh.cx) * 0.05, sh.cz + Math.sin(sh.a) * sh.r * 0.6); sh.o.rotation.y = Math.atan2(-Math.cos(sh.a) * 0.6 * sh.v, -Math.sin(sh.a) * sh.v); } // heading along the loop
       for (const g of rig.clouds) { g.position.x += dt * 1.6; if (g.position.x > 130) g.position.x = -130; }
       animateCaravans(rig);
+      walk(rig, t, dt);
       renderer.render(scene, camera);
       // labels follow their towns
       const p = new THREE.Vector3();
@@ -458,7 +525,7 @@ export default function RegionView() {
         const el = labels.current[id]; if (!el) continue;
         p.set(TOWNS[id][0], groundAt(TOWNS[id][0], TOWNS[id][1]) + LABEL_Y[id], TOWNS[id][1]).project(camera);
         const half = el.offsetWidth / 2 + 6, x = Math.max(half, Math.min(W - half, (p.x * 0.5 + 0.5) * W)), y = (-p.y * 0.5 + 0.5) * H; // kept on screen at the edges
-        el.style.transform = `translate(${x}px, ${y}px) translate(-50%, -100%)`; el.style.visibility = p.z < 1 && Math.abs((p.x * 0.5 + 0.5) * W - x) < half && y > 40 && y < H + 60 ? 'visible' : 'hidden';
+        el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px) translate(-50%, -100%)`; el.style.visibility = !C.visit && p.z < 1 && Math.abs((p.x * 0.5 + 0.5) * W - x) < half && y > 40 && y < H + 60 ? 'visible' : 'hidden';
       }
     };
     raf = requestAnimationFrame(frame);
@@ -472,7 +539,7 @@ export default function RegionView() {
       const dx = e.clientX - prev[0], dy = e.clientY - prev[1]; pts.set(e.pointerId, [e.clientX, e.clientY]); moved += Math.abs(dx) + Math.abs(dy);
       if (pts.size === 2) { const [a, b] = [...pts.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]); if (pinch) { C.goal = Math.max(C.min, Math.min(C.max, C.goal * (pinch / d))); C.d = C.goal; } pinch = d; return; }
       const wpp = (2 * Math.tan(((FOV / 2) * Math.PI) / 180) * C.d) / (H || 1);
-      C.x -= dx * wpp; C.z -= (dy * wpp) / Math.sin(PITCH);
+      C.x -= dx * wpp; C.z -= (dy * wpp) / Math.sin(C.pitch);
     };
     const up = (e: PointerEvent) => {
       pts.delete(e.pointerId); if (pts.size < 2) pinch = 0;
@@ -493,7 +560,7 @@ export default function RegionView() {
   }, []);
 
   useEffect(() => {
-    const k = (e: KeyboardEvent) => { if (e.key === 'Escape' && page === 'farm' && !document.querySelector('.modal-bg')) travel('farm'); };
+    const k = (e: KeyboardEvent) => { if (e.key === 'Escape' && page === 'farm' && !document.querySelector('.modal-bg')) { if (cam.current.visit) goVisit(null); else travel('farm'); } };
     addEventListener('keydown', k); return () => removeEventListener('keydown', k);
   }, [page]);
 
@@ -512,10 +579,34 @@ export default function RegionView() {
             {r && <em>📜 {num(Math.max(0, r.qty - r.done))} {GOODS[r.good].name.toLowerCase()} wanted</em>}</span>
         </button>; })}
     </div>
+    {visit ? <Visit id={visit} onTrade={() => { focusNeighbour(visit); go('region'); }} /> : null}
     <div className="region-top">
-      <button className="btn region-back" onClick={() => travel('farm')}>← Farm</button>
-      <div className="region-title"><b>The Region</b><span>{v.active ? `${v.border === 'walls' ? '🧱 Walls & tolls' : '🕊 Open borders'} · ${escorts ? `${escorts} caravan${escorts > 1 ? 's' : ''} on the way` : 'no caravans out'}` : 'Four neighbours beyond your land'}</span></div>
+      {visit ? <button className="btn region-back" onClick={() => goVisit(null)}>← Region</button> : <button className="btn region-back" onClick={() => travel('farm')}>← Farm</button>}
+      {visit ? <div className="region-title"><b>Visiting {REGIONS[visit].name}</b><span>{NEIGHBOURS[visit].icon} {NEIGHBOURS[visit].leader}’s town</span></div> : <div className="region-title"><b>The Region</b><span>{v.active ? `${v.border === 'walls' ? '🧱 Walls & tolls' : '🕊 Open borders'} · ${escorts ? `${escorts} caravan${escorts > 1 ? 's' : ''} on the way` : 'no caravans out'}` : 'Four neighbours beyond your land'}</span></div>}
     </div>
     <div className="region-zoom tool-grid"><button className="icon-btn" aria-label="Zoom in" onClick={() => zoom(0.75)}>+</button><button className="icon-btn" aria-label="Zoom out" onClick={() => zoom(1.33)}>−</button></div>
   </div>;
+}
+
+const TOWN_LINE: Record<NeighbourId, string> = {
+  arid: 'A walled adobe town round its oasis, at the western end of the main road.',
+  coastal: 'The harbour where the main road meets the sea. Ships come in from everywhere.',
+  river: 'Mills and cottages downriver, on the plains the river waters.',
+  tropics: 'Stilt huts and terraced hills across the bay, where coffee and cane grow.',
+};
+/** What you see on a visit: who leads the town, how they feel about you, what they want. Nothing to do here yet. */
+function Visit({ id, onTrade }: { id: NeighbourId; onTrade: () => void }) {
+  const s = useGame(), v = regionOf(s), n = v.neighbours[id], who = NEIGHBOURS[id], r = n.request;
+  const out = s.shipments.filter((x) => x.caravan && x.to === id && s.tick < x.arrives).length;
+  return <aside className="visit-card" aria-label={`Visiting ${REGIONS[id].name}`}>
+    <div className="visit-head"><span className="rv-crest">{who.icon}</span><div><b>{REGIONS[id].name}</b><small>{who.leader}</small></div></div>
+    <p>{TOWN_LINE[id]}</p>
+    {v.active && <div className="visit-trust"><span>{attitude(n.trust)}</span><span className="visit-bar"><i style={{ width: `${Math.max(0, Math.min(100, n.trust))}%` }} /></span><b>{Math.round(n.trust)}</b></div>}
+    <ul className="visit-facts">
+      <li>💛 Wants <b>{GOODS[who.wants].name.toLowerCase()}</b></li>
+      {r && <li>📜 Order: <b>{num(Math.max(0, r.qty - r.done))} {GOODS[r.good].name.toLowerCase()}</b></li>}
+      {v.active && <li>🐫 {out ? `${out} caravan${out > 1 ? 's' : ''} on the way` : 'No caravans on the way'}</li>}
+    </ul>
+    <button className="btn primary" onClick={onTrade}>{v.active ? 'Trade & diplomacy' : 'Choose your border policy'}</button>
+  </aside>;
 }

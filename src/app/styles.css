@@ -959,3 +959,14 @@ body:has(.modal-bg) .shell .coach { display: none !important; }
 .region-go:hover { background: rgb(70 52 28 / .96); }
 @media (max-width: 600px) { .rv-label { padding: 4px 9px 4px 4px; gap: 6px; } .rv-crest { width: 26px; height: 26px; font-size: 15px; } .rv-text b { font-size: 13px; } .rv-text small { display: none; } }
 @media (max-width: 600px) { .rv-label.home .rv-text { display: none; } .rv-label.home { padding-right: 4px; } }
+.visit-card { position: absolute; right: 16px; bottom: 16px; width: min(320px, calc(100% - 32px)); display: grid; gap: 10px; padding: 14px; border-radius: 16px; background: rgb(43 32 20 / .92); color: #f6efdf; border: 1.5px solid #e2b04a; box-shadow: 0 8px 24px rgb(0 0 0 / .3); }
+.visit-head { display: flex; align-items: center; gap: 10px; }
+.visit-head b { display: block; font-size: 17px; font-weight: 800; }
+.visit-head small { color: #d9ccb0; font-size: 13px; font-weight: 600; }
+.visit-card p { margin: 0; font-size: 13px; line-height: 1.4; color: #e8dcc2; }
+.visit-trust { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; }
+.visit-bar { height: 8px; border-radius: 99px; background: rgb(255 255 255 / .15); overflow: hidden; }
+.visit-bar i { display: block; height: 100%; background: linear-gradient(90deg, #e2b04a, #9fd36a); }
+.visit-facts { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 13px; }
+.visit-facts b { color: #f2c94c; }
+@media (max-width: 600px) { .visit-card { left: 12px; right: 12px; bottom: 64px; width: auto; gap: 8px; } .visit-card p { display: none; } .region-zoom { bottom: 16px; } }

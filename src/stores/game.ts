@@ -399,11 +399,17 @@ export const getView = () => store.view;
 /** Travel between the farm and the Region view: the clouds close over the screen, the view changes behind them, and they part. */
 let travelling = false;
 export function travel(view: 'farm' | 'region') {
-  if (travelling || store.view === view) return;
+  if (store.view === view) return;
+  set({ placing: null, roading: null, prospect: null, zoning: null });
+  throughClouds(() => set({ view, page: 'farm' }));
+}
+/** Close the clouds over the screen, make the change behind them, part them again. */
+export function throughClouds(change: () => void) {
+  if (travelling) return;
   travelling = true;
   const quick = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
-  set({ veil: 'in', placing: null, roading: null, prospect: null, zoning: null });
-  setTimeout(() => { set({ view, page: 'farm', veil: 'out' }); setTimeout(() => { set({ veil: null }); travelling = false; }, quick ? 200 : 1000); }, quick ? 150 : 800);
+  set({ veil: 'in' });
+  setTimeout(() => { change(); set({ veil: 'out' }); setTimeout(() => { set({ veil: null }); travelling = false; }, quick ? 200 : 1000); }, quick ? 150 : 800);
 }
 
 // ---------------------------------------------------------------- loop
