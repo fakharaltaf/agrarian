@@ -255,7 +255,7 @@ export function Hud() {
           else if(kind==='move'){ const f=s.fields.find(x=>x.id===id); if(f){ const side=plotSide(f.ha); startPlacement({kind:'move',key:`field:${id}`,region:f.region,w:side,d:side,label:`Field ${id}`,action:{type:'seeTip',tip:''}}); setSel([]); } }
           else if(kind==='merge'&&lot?.service){ if(act({type:'mergeService',serviceId:lot.service.id})) setLot(null); }
           else if(kind==='merge'&&lot?.buildings[0]){ if(act({type:'mergeBuilding',buildingId:lot.buildings[0].id})) setLot(null); }
-          else if(kind==='layout'&&lot){ act(lot.buildings[0]?{type:'setLayout',buildingId:lot.buildings[0].id}:{type:'setLayout',serviceId:lot.service?.id}); }
+          else if(kind==='layout'&&lot?.buildings[0]){ act({type:'setLayout',buildingId:lot.buildings[0].id}); }
           else if(kind==='homeup'&&lot){ setPanel(true); setJournal(false); }
           else if(kind==='movelot'&&lot){ const fp=footprintOf(s,lot.place); if(fp){ startPlacement({kind:'move',key:lot.place,region,w:fp.w,d:fp.d,label:lotName(lot),action:{type:'seeTip',tip:''}}); setLot(null); } }
           else if(kind==='plant'||kind==='harvest') act(kind==='harvest'?{type:'harvest',fieldId:id}:{type:'plant',fieldId:id,crop});

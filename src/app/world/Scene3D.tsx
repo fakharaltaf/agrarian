@@ -9,8 +9,8 @@ import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { ANIMALS, BUILDINGS, CROPS, GOODS, REGIONS, SEASONS, SUNRISE, SUNSET, type AnimalId, type CropId, type RegionId } from '../../simulation/config';
-import { factoryMerge } from '../../simulation/engine';
-import { mergedName } from '../../simulation/core';
+import { factoryMerge, hasShapes } from '../../simulation/engine';
+import { mergedName, shownLevel } from '../../simulation/core';
 import { fieldMovable, timingFactor, fertility, growth, isMature, isReady } from '../../simulation/engine';
 import { priceUsd, stored } from '../../simulation/core';
 import { coverOf } from '../../simulation/agriculture';
@@ -592,7 +592,7 @@ function syncLots(R: Rig, L: Layout) {
     const edge = new THREE.LineSegments(cached(`fpe${lot.w}x${lot.d}`, () => new THREE.EdgesGeometry(new THREE.BoxGeometry(lot.w - 0.1, 0.5, lot.d - 0.1))), OUTLINE_EDGE); edge.position.set(lot.x + lot.w / 2, 0.25, lot.y + lot.d / 2);
     R.outlines.add(fill, edge);
     const bw = lot.rot % 2 ? lot.d : lot.w, bd = lot.rot % 2 ? lot.w : lot.d; // built unturned, then turned about its centre
-    const merged = (lot.buildings[0]?.size ?? lot.service?.size ?? 1) > 1, lay = merged ? (lot.buildings[0]?.layout ?? lot.service?.layout ?? 0) % 4 : 0, [mw, md] = lay >= 2 ? [bd, bw] : [bw, bd]; // layouts 2 and 3 lay the yard in front or behind
+    const merged = !lot.buildings[0] && (lot.service?.size ?? 1) > 1, lay = merged ? (lot.service?.layout ?? 0) % 4 : 0, /* a merged building's layout is its shape, set by its footprint */ [mw, md] = lay >= 2 ? [bd, bw] : [bw, bd]; // layouts 2 and 3 lay the yard in front or behind
     const model = lot.key.startsWith('civic:') ? buildCivic(lot.service?.type === 'park' ? `park-${lot.service.park ?? 'garden'}` : lot.key.split(':')[1], mw, md, lot.service?.level ?? 1, lot.key) : lot.key.startsWith('community:') ? buildCommunityHome(lot.key.split(':')[1], bw, bd, lot.key, lot.level ?? 1) : (lot.buildings[0]?.size ?? 1) > 1 ? buildWorks(lot.type, lot.buildings[0].size === 4 ? 4 : 2, mw, md) : buildLot(lot.type, lot.key === 'house' ? 3 : bw, lot.key === 'house' ? 3 : bd, lot.key === 'crew' || lot.key === 'office' || lot.key === 'market' ? lot.key : '', lot.key === 'house' ? lot.level ?? 1 : Math.max(1, ...lot.buildings.map((b) => b.level)));
     const inner = new THREE.Group(); inner.add(...model.group.children); inner.position.set(-bw / 2, 0, -bd / 2); model.group.add(inner);
     if (lay === 1) { inner.scale.x = -1; inner.position.x = bw / 2; if (model.pen) model.pen = { ...model.pen, x0: bw - model.pen.x1, x1: bw - model.pen.x0 }; model.smoke = model.smoke.map((p) => new THREE.Vector3(bw - p.x, p.y, p.z)); } // the yard on the other side
@@ -2159,7 +2159,7 @@ function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el
       const merge=mg?.complete?button('merge:0',`⧉ Merge into ${mg.into} · ${money(mg.price)}`):fm?.ready?button('merge:0',`⧉ Merge into a ${fm.into} · ${money(fm.price)}`):'';
       if(fm&&!fm.ready&&(fm.mate||lot.buildings[0].level>=3)){const [hx,hy]=project(lot.x+lot.w/2,0.6,lot.y+lot.d+0.5);want.push({key:'merge-hint',x:hx,y:hy,html:`To merge: ${fm.why}`,cls:'wl-note'});}
       if(mg&&!mg.complete&&mg.members.length>1){const [hx,hy]=project(mg.origin[0]+mg.step-0.5,0.6,mg.origin[1]+mg.step-0.5);want.push({key:'merge-hint',x:hx,y:hy,html:`${mg.members.length}/4 for a ${mg.into}`,cls:'wl-note'});}
-      want.push({key:'place-act',x:Math.max(100,Math.min(W-100,px)),y:Math.max(80,Math.min(H-30,py)),html:merge+(((lot.buildings[0]?.size ?? lot.service?.size ?? 1) > 1) ? button('layout:0',`⇄ Layout ${((lot.buildings[0]?.layout ?? lot.service?.layout ?? 0) % 4) + 1}/4`) : '')+(lot.key.startsWith('community:apartment:')&&(lot.level??1)<3?button('homeup:0',(lot.level??1)===1?'⬆ Mid-rise':'⬆ Tower'):'')+button('place:0',label)+(lot.type==='oilWell'?'':button('movelot:0','✥ Move'))+button('inspect:0','ⓘ'),cls:'wl-radial'});
+      want.push({key:'place-act',x:Math.max(100,Math.min(W-100,px)),y:Math.max(80,Math.min(H-30,py)),html:merge+((lot.buildings[0]?.size ?? 1) > 1 && hasShapes(lot.buildings[0].longSpan ?? lot.buildings[0].span ?? [1, 1]) ? button('layout:0', lot.buildings[0].layout === 1 && lot.buildings[0].longSpan ? '▭ Make long' : '◻ Make square') : '')+(lot.key.startsWith('community:apartment:')&&(lot.level??1)<3?button('homeup:0',(lot.level??1)===1?'⬆ Mid-rise':'⬆ Tower'):'')+button('place:0',label)+(lot.type==='oilWell'?'':button('movelot:0','✥ Move'))+button('inspect:0','ⓘ'),cls:'wl-radial'});
     }
   }
   const st=stored(s,R.region), store=L.lots.find(l=>l.type!=='house'&&l.type!=='shed'&&BUILDINGS[l.type].category==='storage');
@@ -2192,7 +2192,7 @@ function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el
     const [x, y] = project(lot.x + lot.w / 2, 0, lot.y + lot.d + 0.3);
     if (x < -60 || y < -20 || x > W + 60 || y > H + 20) continue;
     const name = lotName(lot);
-    const lvl = Math.max(1, ...lot.buildings.map((b) => b.level));
+    const lvl = lot.service?.size ? shownLevel(lot.service) : Math.max(1, ...lot.buildings.map(shownLevel));
     const noRoad = !hasAccess(s, R.region, lot.place);
     const warn = noRoad || !!(lot.service?.active && !lot.service.funded) || lot.buildings.some((b) => b.active && /Not enough|full|Disease/.test(b.reason));
     want.push({ key: `l${lot.key}`, x, y, html: `${warn ? '⚠ ' : lot.service && !lot.service.active ? '○ ' : ''}${noRoad ? 'No road · ' : ''}${name}${lot.service && lot.service.count>1 && !lot.service.size?` ×${lot.service.count}`:''}${lot.buildings.length > 1 ? ` ×${lot.buildings.length}` : ''}${lvl > 1 ? ` · L${lvl}` : ''}`, cls: 'wl-name' });

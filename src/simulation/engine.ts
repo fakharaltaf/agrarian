@@ -217,6 +217,10 @@ export function planQuote(s: GameState, r: RegionId, at: [number, number], fw: n
   return { ok: true as const, error: '', cost, hours: clear.length ? (w.queue.length + clear.length) * CLEAR_HOURS : 0, buy, clear, roads, chunks, zone };
 }
 /** The factory beside this one that it could merge with: the same kind and size, both at level 3, a lane apart and squarely in line. */
+/** The square shape for a long merged building: about the same ground, as near square as whole tiles allow. */
+export function squareSpan([w, d]: [number, number]): [number, number] { const a = w * d, side = Math.ceil(Math.sqrt(a)); return [side, Math.ceil(a / side)]; }
+/** Whether a merged building's long shape has a squarer one to switch to. */
+export const hasShapes = (long: [number, number]) => Math.abs(long[0] - long[1]) > 1;
 export function factoryMerge(s: GameState, id: number) {
   const b = s.buildings.find((x) => x.id === id);
   if (!b || !MERGEABLE(b.type) || (b.size ?? 1) >= 4) return null;
@@ -224,7 +228,7 @@ export function factoryMerge(s: GameState, id: number) {
   if (!p || !fp) return null;
   const into = mergedName(b.type, BUILDINGS[b.type].name, (b.size ?? 1) * 2);
   // the nearest partner of the same kind and size close by: the merged building takes the ground of both, side by side or one behind the other
-  const near = (x: typeof b) => { if (x === b || x.type !== b.type || x.region !== b.region || (x.size ?? 1) !== (b.size ?? 1)) return Infinity; const q = w.pos[`b:${x.id}`], fq = footprintOf(s, `b:${x.id}`); if (!q || !fq || fq.w * fq.d !== fp.w * fp.d) return Infinity; // the same building, either way round
+  const near = (x: typeof b) => { if (x === b || x.type !== b.type || x.region !== b.region || (x.size ?? 1) !== (b.size ?? 1)) return Infinity; const q = w.pos[`b:${x.id}`], fq = footprintOf(s, `b:${x.id}`); if (!q || !fq) return Infinity; // the same kind and size, whichever way round or shape
     const dx = Math.abs(q[0] - p[0]), dy = Math.abs(q[1] - p[1]); return dx <= fp.w * 2 + 4 && dy <= fp.d * 2 + 4 ? dx + dy : Infinity; };
   const mate = s.buildings.map((x) => ({ x, d: near(x) })).filter((m) => m.d < Infinity).sort((a, c) => a.d - c.d)[0]?.x;
   const name = BUILDINGS[b.type].name.toLowerCase();
@@ -775,12 +779,31 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       (s.buildAs ??= {})[a.what] = a.level;
       return ok();
     }
-    case 'setLayout': { // flip a merged building's layout: which side its halls and its yard stand
-      const t = s.stageState.town as unknown as { services?: { id: number; size?: number; layout?: number }[] } | undefined;
-      const x = a.buildingId !== undefined ? s.buildings.find((b) => b.id === a.buildingId) : t?.services?.find((b) => b.id === a.serviceId);
-      if (!x || (x.size ?? 1) < 2) return fail('Only merged buildings have a layout to switch.');
-      x.layout = ((x.layout ?? 0) + 1) % 4; // yard beside, beside on the other side, in front, behind
-      return ok();
+    case 'setLayout': { // a merged building's shape: long (the two side by side) or square (the same ground, gathered up)
+      const b = s.buildings.find((x) => x.id === a.buildingId);
+      if (!b || (b.size ?? 1) < 2 || !b.span) return fail('Only merged buildings have a shape to switch.');
+      const key = `b:${b.id}`, w = worldOf(s, b.region), p = w.pos[key];
+      if (!p) return fail('It is not on the map.');
+      const long = b.longSpan ?? b.span;
+      if (!hasShapes(long)) return fail('It is already square: there is no other shape to lay it out in.');
+      const turn = rotOf(s, key) % 2 === 1, now = footprintOf(s, key)!, sq = squareSpan(long);
+      const square = b.layout === 1 && !!b.longSpan, shapes: [number, number][] = square ? [long] : [sq, [sq[1], sq[0]]];
+      const before = structuredClone({ roads: w.roads, links: w.links });
+      // keep its corner if it can; else shift it as little as needed, within its old ground and a little beyond
+      const ring: [number, number][] = [];
+      for (let r = 0; r <= 3; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) if (Math.max(Math.abs(dx), Math.abs(dy)) === r) ring.push([dx, dy]);
+      let spot: [number, number] | null = null, lifted: string[] = [], next = shapes[0], fp = { w: 0, d: 0 };
+      find: for (const sh of shapes) { next = sh; fp = { w: turn ? sh[1] : sh[0], d: turn ? sh[0] : sh[1] };
+        const tries: [number, number][] = [[p[0], p[1]], [p[0] + now.w - fp.w, p[1]], [p[0], p[1] + now.d - fp.d], [p[0] + now.w - fp.w, p[1] + now.d - fp.d], ...ring.map(([dx, dy]) => [p[0] + dx, p[1] + dy] as [number, number])]; // a corner kept, then shifted a little
+        for (const [x, y] of tries) {
+          lifted = liftTracks(s, b.region, x, y, fp.w, fp.d);
+          if (!placeProblem(s, b.region, x, y, fp, key)) { spot = [x, y]; break find; }
+          Object.assign(w, structuredClone(before)); touch(w);
+        } }
+      if (!spot) return fail(`No room for it ${square ? 'long' : 'square'} (${fp.w}×${fp.d} tiles): clear the ground around it first.`);
+      b.longSpan = long; b.span = next; b.layout = square ? 0 : 1;
+      w.pos[key] = spot; touch(w); connect(s, b.region, key); for (const k of lifted) if (w.pos[k] && k !== key) connect(s, b.region, k);
+      return ok(b.layout === 1 ? `Laid out square: ${fp.w}×${fp.d} tiles.` : `Laid out long: ${fp.w}×${fp.d} tiles.`);
     }
     case 'mergeBuilding': {
       const g = factoryMerge(s, a.buildingId);
@@ -797,7 +820,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       post(s, 'building', -g.price, `${g.into} (two merged)`, b.region);
       s.buildings.splice(s.buildings.indexOf(mate), 1);
       for (const f of s.fields) if (f.supplies === mate.id) f.supplies = b.id;
-      b.size = (b.size ?? 1) * 2; b.span = g.span; b.cost = b.cost + mate.cost + g.price; b.depreciated += mate.depreciated; b.reserved = (b.reserved ?? 0) + (mate.reserved ?? 0);
+      b.size = (b.size ?? 1) * 2; b.span = g.span; b.layout = 0; b.longSpan = undefined; b.cost = b.cost + mate.cost + g.price; b.depreciated += mate.depreciated; b.reserved = (b.reserved ?? 0) + (mate.reserved ?? 0);
       w.pos[`b:${b.id}`] = g.origin!; touch(w); connect(s, b.region, `b:${b.id}`); for (const k of lifted) if (w.pos[k]) connect(s, b.region, k);
       log(s, 'opportunity', STORE_OR_POWER.has(b.type) ? `${g.into} opened: ${b.size === 4 ? 'six' : 'two and a half'} buildings' worth on fewer hands.` : LIVESTOCK_HOUSE.has(b.type) ? `${g.into} opened: room for ${b.size === 4 ? 'six' : 'two and a half'} houses' worth of animals, looked after by fewer hands.` : `${g.into} opened: it does the work of ${b.size === 4 ? 'six' : 'two and a half'} factories on fewer hands.`, 'farm');
       return ok(`🎉 ${g.into} opened!`);

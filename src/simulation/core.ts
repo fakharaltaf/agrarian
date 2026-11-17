@@ -28,6 +28,8 @@ export const STORE_OR_POWER: ReadonlySet<string> = new Set(['barn', 'silo', 'col
 export const MERGEABLE = (t: string) => FOOD_FACTORY.has(t) || LIVESTOCK_HOUSE.has(t) || STORE_OR_POWER.has(t);
 const MERGED: Record<string, [string, string]> = { barn: ['Great barn', 'Storage yard'], silo: ['Silo bank', 'Grain terminal'], coldStore: ['Cold warehouse', 'Cold-storage depot'], warehouse: ['Big warehouse', 'Logistics depot'], solar: ['Solar array', 'Solar farm'], windTurbine: ['Wind cluster', 'Wind farm'], cowshed: ['Cattle barn', 'Cattle yards'], pigsty: ['Pig barn', 'Pig farm'], coop: ['Poultry house', 'Poultry farm'], sheepfold: ['Sheep barn', 'Sheep station'] };
 /** What a merged building is called: a Works and a Plant for factories, its own names for animal houses. */
+/** The level a building shows: merging comes after level 3, so a works (two merged) is level 4 and a plant (four) level 5. */
+export const shownLevel = (b: { level?: number; size?: number }) => ((b.size ?? 1) >= 4 ? 5 : (b.size ?? 1) >= 2 ? 4 : b.level ?? 1);
 export const mergedName = (type: string, name: string, size: number) => (MERGED[type] ? MERGED[type][size >= 4 ? 1 : 0] : `${name} ${size >= 4 ? 'plant' : 'works'}`);
 export const FOOD_FACTORY: ReadonlySet<string> = new Set(['flourMill', 'bakery', 'feedMill', 'ranch', 'dairy', 'creamery', 'oilPress', 'sugarMill', 'winery']);
 export const nextId = (s: GameState) => s.nextId++;

@@ -268,6 +268,24 @@ it('two level-3 factories side by side merge into a works, two works into a plan
   for (let i = 0; i < 30; i++) step(s); // it runs
 });
 
+it('a merged building can be laid out long or square, given the room, and undone', async () => {
+  const W = await import('../simulation/world');
+  const { dispatchEdit, undoEdit } = await import('../simulation/undo');
+  const s = createGame(1017); s.legacyProgression = true; s.era = 6; post(s, 'prize', 5e6, 'fixture');
+  const w = W.worldOf(s, 'heartland'), o: [number, number] = [W.MAP.x0 + 40, W.MAP.y0 + 8];
+  const chunks = [...new Set(Array.from({ length: 144 }, (_, i) => W.chunkAt(o[0] + (i % 12), o[1] + Math.floor(i / 12))))];
+  w.owned = [...new Set([...w.owned, ...chunks])]; w.cleared = [...new Set([...w.cleared, ...chunks])]; for (const c of chunks) w.zones[c] = 'ind'; W.touch(w);
+  for (const at of [[0, 0], [3, 0]] as const) expect(dispatch(s, { type: 'build', region: 'heartland', building: 'flourMill', at: [o[0] + at[0], o[1] + at[1]] }).ok).toBe(true);
+  for (const b of s.buildings) if (b.type === 'flourMill') b.level = 3;
+  const id = s.buildings.find((b) => b.type === 'flourMill')!.id, key = `b:${id}`;
+  expect(dispatch(s, { type: 'mergeBuilding', buildingId: id }).ok).toBe(true); expect(W.footprintOf(s, key)).toEqual({ w: 5, d: 2 });
+  const sq = dispatchEdit(s, { type: 'setLayout', buildingId: id }); if (!sq.r.ok) console.log(sq.r.error); expect(sq.r.ok).toBe(true); expect(W.footprintOf(s, key)).toEqual({ w: 4, d: 3 });
+  expect(dispatch(s, { type: 'setLayout', buildingId: id }).ok).toBe(true); expect(W.footprintOf(s, key)).toEqual({ w: 5, d: 2 }); // and back
+  undoEdit(s, dispatchEdit(s, { type: 'setLayout', buildingId: id }).edit!); expect(W.footprintOf(s, key)).toEqual({ w: 5, d: 2 }); // undone
+  expect(dispatch(s, { type: 'build', region: 'heartland', building: 'flourMill', at: [o[0], o[1] + 3] }).ok).toBe(true); // a neighbour hard by
+  expect(dispatch(s, { type: 'setLayout', buildingId: id }).ok).toBe(true); // it shifts to find the room, or says why
+});
+
 it('oil land prices rush after a strike and cool back to normal when nothing new is struck nearby', async () => {
   const { oilOf, oilPremium, rush } = await import('../simulation/oil');
   const W = await import('../simulation/world');

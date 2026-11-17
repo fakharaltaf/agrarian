@@ -91,8 +91,10 @@ export interface ProductionDay {
 export interface ProductionReport { open: ProductionDay | null; days: ProductionDay[]; lastBatches: number; lastTick: number }
 
 export interface Building {
-  /** a merged building's layout, mirrored or not (looks only) */
+  /** a merged building's shape: 0 long (the two side by side), 1 square */
   layout?: number;
+  /** a merged building's long shape, kept so it can switch back from square */
+  longSpan?: [number, number];
   /** merged factories: 2 a Works (two level-3 factories), 4 a Plant (two Works) */
   size?: number;
   /** the ground a merged factory stands on, in tiles as placed */
