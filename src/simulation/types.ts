@@ -357,6 +357,8 @@ export interface TownState { /** share of families on jammed streets, or in buil
 }
 
 export interface GameState {
+  /** tiles a side the farmhouse stands on (3 to 6): it grows with the chapters */
+  farmhouseSide?: number;
   /** what new roads, lines and town buildings are built as (1–3), once the City lets you choose: saves upgrading each one after */
   buildAs?: { road?: number; line?: number; service?: number };
   version: 15;

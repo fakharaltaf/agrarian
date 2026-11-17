@@ -30,7 +30,7 @@ export function layoutRegion(s: GameState, r: RegionId): Layout {
     const [fw, fd] = FOOTPRINT[type], rot = w.rot?.[place] ?? 0, base = { w: fw, d: fd, ...extra };
     lots.push({ key, place, type, buildings: bs, x: p[0], y: p[1], ...extra, w: rot % 2 ? base.d : base.w, d: rot % 2 ? base.w : base.d, rot });
   };
-  add(r === 'heartland' ? 'house' : 'shed', r === 'heartland' ? 'farmhouse' : 'shed', r === 'heartland' ? 'house' : 'shed', [], r === 'heartland' ? { level: farmhouseTier(s) } : {});
+  add(r === 'heartland' ? 'house' : 'shed', r === 'heartland' ? 'farmhouse' : 'shed', r === 'heartland' ? 'house' : 'shed', [], r === 'heartland' ? { level: farmhouseTier(s), w: s.farmhouseSide ?? 3, d: s.farmhouseSide ?? 3 } : {});
   add('market', 'market', 'shed', []);
   add('crew', 'crew', 'house', []);
   add('office', 'office', 'house', []);

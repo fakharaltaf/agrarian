@@ -120,7 +120,7 @@ export function baseFootprint(s: GameState, key: string): Footprint | null {
   if (kind === 'b') { const b = s.buildings.find((x) => x.id === +id); if (!b) return null; const [w, d] = b.span ?? FOOTPRINT[b.type]; return { w, d }; }
   if (kind === 'home') { const h = (s.stageState.settlement?.homes as CommunityHome[] | undefined)?.find((x) => x.id === +id); return h ? homeFootprint(h) : null; }
   if (kind === 'svc') { const z = (s.stageState.town as { services?: { id: number; size?: number }[] } | undefined)?.services?.find((x) => x.id === +id)?.size ?? 1, n = z >= 4 ? 15 : z === 2 ? 7 : 3; return { w: n, d: n }; }
-  if (key === 'farmhouse') return { w: 3, d: 3 };
+  if (key === 'farmhouse') { const n = s.farmhouseSide ?? 3; return { w: n, d: n }; }
   if (key === 'shed') return { w: 2, d: 2 };
   if (key === 'market' || key === 'crew' || key === 'office') return { w: key === 'market' ? 2 : 3, d: key === 'market' ? 2 : 3 };
   if (key === 'hall') return { w: 4, d: 3 };
@@ -614,6 +614,23 @@ function pipeGround(s: GameState, r: RegionId, kind: NetKind) {
   // a utility line may share a tile with the other utilities' lines: they run side by side, or cross
   const shared = (id: number) => !!own[id] || (kind !== 'irrigation' && UTILITY_NETS.some((k) => !!w.nets?.[k]?.[id]));
   return (x: number, y: number) => open(x, y) || (inMap(x, y) && owned.has(chunkAt(x, y)) && (isRoad(y) || !!w.roads[tileId(x, y)] || shared(tileId(x, y))));
+}
+/** The farmhouse grows with each chapter: 3×3 for the homestead up to 6×6 for the City's mansion. */
+export const FARMHOUSE_SIDE = [3, 3, 4, 4, 5, 5, 6];
+/** Grow the farmhouse to its chapter's size where there is room: on its own ground first, else spreading back and to the side. Returns true if it grew. */
+export function growFarmhouse(s: GameState, tier: number) {
+  const w = worldOf(s, 'heartland'), p = w.pos.farmhouse, now = s.farmhouseSide ?? 3, want = FARMHOUSE_SIDE[Math.max(0, Math.min(6, tier - 1))];
+  if (!p || want <= now) return false;
+  // try every spot that still covers the old house, biggest first; dirt tracks in the way are lifted and laid again round it
+  for (let n = want; n > now; n--) for (let dy = -(n - now); dy <= 0; dy++) for (let dx = -(n - now); dx <= 0; dx++) {
+    const x = p[0] + dx, y = p[1] + dy, snap = structuredClone({ roads: w.roads, links: w.links });
+    { const mine = w.links.farmhouse ?? [], used = new Set(Object.entries(w.links).filter(([k]) => k !== 'farmhouse').flatMap(([, v]) => v)); for (const id of mine) if (!used.has(id)) delete w.roads[id]; delete w.links.farmhouse; } // its own drive goes, paved or not
+    const lifted = liftTracks(s, 'heartland', x, y, n, n);
+    if (placeProblem(s, 'heartland', x, y, { w: n, d: n }, 'farmhouse', undefined)) { w.roads = snap.roads; w.links = snap.links; touch(w); continue; }
+    w.pos.farmhouse = [x, y]; s.farmhouseSide = n; touch(w); connect(s, 'heartland', 'farmhouse'); for (const k of lifted) if (w.pos[k]) connect(s, 'heartland', k);
+    return true;
+  }
+  return false;
 }
 /** Why a road, line or tree line cannot go on this tile, in words the player can act on (null when it can). */
 export function groundProblem(s: GameState, r: RegionId, x: number, y: number, what: 'road' | 'belt'): string | null {
