@@ -617,7 +617,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
     case 'buildRoad': {
       if (!s.regions[a.region]?.unlocked) return fail('You have no operations there.');
       const lanes = Math.max(1, Math.min(5, Math.round(a.lanes ?? 1))), tiles = wideRoadRoute(s, a.region, a.from, a.to, lanes);
-      if (!tiles) return fail(groundProblem(s, a.region, a.to[0], a.to[1], 'road') ?? (lanes > 1 ? `A ${lanes}-lane road cannot fit there: it needs open cleared land of yours ${lanes} tiles wide all the way.` : 'No way through: buildings, fields, water or trees block every path. Try a point in between.'));
+      if (!tiles) return fail(groundProblem(s, a.region, a.to[0], a.to[1], 'road') ?? (lanes > 1 ? `A ${lanes}-lane road cannot fit there: it needs open cleared land of yours ${lanes} tiles wide all the way.` : 'No way through: buildings, fields, water or trees block every path. Try a point in between. A bridge must cross the river straight, from bank to bank.'));
       if (!tiles.length) return fail('There is already a road all the way.');
       const span = tiles.filter(([x, y]) => isBridge(a.region, tileId(x, y))).length, grade = buildAs(s, 'road');
       const cost = Math.round((roadBuildPrice(s, grade) * (tiles.length - span) + roadBuildPrice(s, 3) * BRIDGE_COST * span) * 100) / 100;

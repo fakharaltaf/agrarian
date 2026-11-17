@@ -338,6 +338,17 @@ it('a road can bridge the river on land you own, at a bridge price', async () =>
   expect(w.roads[W.tileId(rx, y)]).toBe(3); expect(cash - s.cash).toBeGreaterThan(W.roadBuildPrice(s, 3) * 6);
 });
 
+it('a road never runs along the river, only straight across it', async () => {
+  const W = await import('../simulation/world');
+  const s = createGame(1030); s.legacyProgression = true; s.era = 4; post(s, 'prize', 5e6, 'fixture');
+  const w = W.worldOf(s, 'heartland'), river = W.riverTiles('heartland'), chunks = new Set<number>();
+  for (let y = 20; y < 44; y++) for (let x = W.riverX('heartland', y) - 4; x < W.riverX('heartland', y) + 6; x++) chunks.add(W.chunkAt(x, y));
+  w.owned = [...new Set([...w.owned, ...chunks])]; w.cleared = [...new Set([...w.cleared, ...chunks])]; W.touch(w);
+  const a = W.riverX('heartland', 22), b = W.riverX('heartland', 40);
+  const tiles = W.roadRoute(s, 'heartland', [a - 2, 22], [b - 2, 40]);
+  expect(tiles).not.toBeNull(); expect(tiles!.some(([x, y]) => river.has(W.tileId(x, y)))).toBe(false);
+});
+
 it('placing on your own road offers to take the road up, and places at once', async () => {
   const W = await import('../simulation/world');
   const { planQuote } = await import('../simulation/engine');

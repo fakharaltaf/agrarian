@@ -499,8 +499,7 @@ export const accessNote = (s: GameState, r: RegionId, key: string) => hasAccess(
 export function wideRoadRoute(s: GameState, r: RegionId, from: [number, number], to: [number, number], lanes: number) {
   if (lanes <= 1) return roadRoute(s, r, from, to);
   const w = worldOf(s, r), open = openGround(s, r), bridge = bridgeable(s, r), can = (x: number, y: number) => open(x, y) || isRoadTile(w, x, y) || bridge(x, y);
-  if (!can(from[0], from[1]) || !can(to[0], to[1])) return null;
-  const path = route(can, [from], (x, y) => x === to[0] && y === to[1]);
+  const path = crossingRoute(s, r, from, to);
   if (!path) return null;
   const band = new Map<number, [number, number]>();
   for (const [x, y] of [...path, to]) for (let i = 0; i < lanes; i++) for (let j = 0; j < lanes; j++) band.set(tileId(x + i, y + j), [x + i, y + j]);
@@ -514,11 +513,19 @@ export const bridgeable = (s: GameState, r: RegionId) => { const w = worldOf(s, 
 export const BRIDGE_COST = 6;
 export const isBridge = (r: RegionId, id: number) => riverTiles(r).has(id);
 export function roadRoute(s: GameState, r: RegionId, from: [number, number], to: [number, number]) {
-  const w = worldOf(s, r), open = openGround(s, r), bridge = bridgeable(s, r);
-  const can = (x: number, y: number) => open(x, y) || isRoadTile(w, x, y) || bridge(x, y);
-  if (!can(from[0], from[1]) || !can(to[0], to[1])) return null;
-  const path = route(can, [from], (x, y) => x === to[0] && y === to[1]);
-  return path ? [...path, to].filter(([x, y]) => !isRoadTile(w, x, y)) : null;
+  const w = worldOf(s, r), path = crossingRoute(s, r, from, to);
+  return path ? path.filter(([x, y]) => !isRoadTile(w, x, y)) : null;
+}
+/** A road's path between two taps, ends included: over land if it can, and over the river only straight across it, never along it. */
+function crossingRoute(s: GameState, r: RegionId, from: [number, number], to: [number, number]) {
+  const w = worldOf(s, r), open = openGround(s, r), bridge = bridgeable(s, r), river = riverTiles(r);
+  const land = (x: number, y: number) => open(x, y) || isRoadTile(w, x, y), wet = (x: number, y: number) => river.has(tileId(x, y));
+  const go = (can: (x: number, y: number) => boolean) => { if (!can(from[0], from[1]) || !can(to[0], to[1])) return null; const p = route(can, [from], (x, y) => x === to[0] && y === to[1]); return p ? [...p, to] : null; };
+  const dry = go((x, y) => land(x, y) && !(wet(x, y) && !isRoadTile(w, x, y)));
+  if (dry) return dry;
+  const p = go((x, y) => land(x, y) || bridge(x, y));
+  // a bridge runs east–west over the river: two river tiles in a row on the path must share a row
+  return p && p.every(([x, y], i) => i === 0 || !(wet(x, y) && wet(p[i - 1][0], p[i - 1][1])) || y === p[i - 1][1]) ? p : null;
 }
 /** Names of the things that would lose their road if these road tiles went. */
 export function cutsOff(s: GameState, r: RegionId, ids: number[]): string[] {
