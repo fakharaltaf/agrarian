@@ -1,4 +1,4 @@
-import { frontageAt, meets, needText } from '../../simulation/access';
+import { frontageAt, JAM_TEXT, meets, needText, streetJammed } from '../../simulation/access';
 import { homesReached, nuisanceOf, NUISANCE_LOOK, type NuisanceKind } from '../../simulation/nuisance';
 import { upgradeNeedsPower } from '../../simulation/stages/shared';
 import { bestCrop } from '../crops';
@@ -515,7 +515,7 @@ function HerdInfo({ s, lot }: { s: GameState; lot: Lot }) {
 function ServiceCard({ s, svc, onClose }: { s: GameState; svc: CivicService; onClose: () => void }) {
   const d = SERVICE_DEFS[svc.type], net = UTILITY_OF[svc.type], lv = levelOf(svc), price = serviceUpgradePrice(s, svc), [used, cap] = svc.serving ?? [0, Math.round(utilityFamilies(svc))];
   const full = !!net && cap > 0 && used >= cap;
-  const grows = canUpgradeService(svc.type) || (isShop(svc.type) && svcSize(svc) >= 2), reach = !!SERVICE_RADIUS[svc.type] || svc.type === 'mall';
+  const jammed = streetJammed(s, 'heartland', `svc:${svc.id}`), grows = canUpgradeService(svc.type) || (isShop(svc.type) && svcSize(svc) >= 2), reach = !!SERVICE_RADIUS[svc.type] || svc.type === 'mall';
   return <Card title={<>{d.icon} {serviceName(svc)}{grows && <span className="muted"> · level {lv}</span>}</>} actions={<button className="icon-btn" onClick={onClose} aria-label="Close">✕</button>}>
     <div className="stack s">
       {net ? <><div className="row between small"><span className="muted">Families on its lines</span><b>{used} / {cap}</b></div><Bar value={cap ? used / cap : 0} label={`${used} / ${cap} families on its lines`} color={full ? 'var(--gold)' : 'var(--up)'} /></>
@@ -524,10 +524,11 @@ function ServiceCard({ s, svc, onClose }: { s: GameState; svc: CivicService; onC
       {svc.type === 'park' && <><p className="small">{PARK_KINDS[svc.park ?? 'garden'].does}. A bigger park counts for more.</p>
         <Seg label="Park layout" value={svc.park ?? 'garden'} onChange={(kind) => act({ type: 'setPark', serviceId: svc.id, kind })} options={(Object.keys(PARK_KINDS) as (keyof typeof PARK_KINDS)[]).map((k) => ({ v: k, label: `${PARK_KINDS[k].icon} ${PARK_KINDS[k].name}` }))} />
         {svc.park && <p className="small muted">Changing the layout costs {money(Math.round(servicePrice(s, 'park') * 0.25))}.</p>}</>}
+      {jammed && <div className="callout warn">🚦 {JAM_TEXT}</div>}
       {full && <div className="callout warn">Full: upgrade it or build another to serve more homes.</div>}
       <div className="row wrap">
         {officeJobs(svc) > 0 && <p className="small">Outside firms offer <b>{officeJobs(svc)} desks</b> to your residents and pay their wages.</p>}
-        {grows && lv < (svc.type === 'mall' ? 2 : 3) && <button className="btn primary sm" disabled={price > s.cash} onClick={() => act({ type: 'upgradeService', serviceId: svc.id })}>⬆ {svc.type === 'mall' ? 'Office tower' : `Level ${lv + 1}`} · {money(price)}</button>}
+        {grows && lv < (svc.type === 'mall' ? 2 : 3) && <button className="btn primary sm" disabled={price > s.cash || jammed} onClick={() => act({ type: 'upgradeService', serviceId: svc.id })}>⬆ {svc.type === 'mall' ? 'Office tower' : `Level ${lv + 1}`} · {money(price)}</button>}
         {net && <button className="btn ghost sm" onClick={() => { startPipes('heartland', net); onClose(); }}>🔌 Lay lines</button>}
         <Confirm label="Demolish" className="btn danger sm" title={`Demolish this ${serviceName(svc).toLowerCase()}?`} body={`You get back about ${money(Math.round(svc.cost * 0.5))}. Homes it served lose the service; any lines stay in the ground.`} onConfirm={() => { act({ type: 'demolishService', serviceId: svc.id }); onClose(); }} confirmLabel="Demolish" />
         {svc.type === 'police' || isShop(svc.type) || svc.type === 'mall' ? <button className="btn ghost sm" onClick={() => go('city')}>City</button> : <button className="btn ghost sm" onClick={() => go('town')}>Town</button>}
@@ -628,7 +629,7 @@ function LotPanel({ s, lot, region, onClose }: { s: GameState; lot: Lot; region:
         {known(s, 'upgrades') && bs.map((b, i) => b.level < 3 && (
           <div key={b.id} className="row between small">
             <span className="muted">{bs.length > 1 ? `#${i + 1} ` : ''}Level {b.level} → {b.level + 1}: {(() => { const now = throughput(b), next = throughput({ type: b.type, level: b.level + 1 }); return `+${Math.round((next / now - 1) * 100)}%`; })()} {d.recipe ? 'output' : d.category === 'livestock' ? 'space' : 'capacity'}</span>
-            {upgradeNeedsPower(s, b) ? <span className="faint small" title={upgradeNeedsPower(s, b)!}>⚡ Needs your own power</span> : <Confirm label={`Upgrade · ${money(upgradeCost(s, b))}`} className="btn ghost sm" disabled={upgradeCost(s, b) > s.cash} title={`Upgrade ${d.name.toLowerCase()} to level ${b.level + 1}?`} body={<>Costs <b>{money(upgradeCost(s, b))}</b>. {d.recipe ? 'More output per hour, but staff cost rises 30%.' : d.category === 'livestock' ? 'Room for more animals.' : 'More storage space.'}{nuisanceChange(b)}</>} onConfirm={() => act({ type: 'upgradeBuilding', buildingId: b.id })} confirmLabel="Upgrade" />}
+            {streetJammed(s, b.region, `b:${b.id}`) ? <span className="faint small" title={JAM_TEXT}>🚦 Street jammed</span> : upgradeNeedsPower(s, b) ? <span className="faint small" title={upgradeNeedsPower(s, b)!}>⚡ Needs your own power</span> : <Confirm label={`Upgrade · ${money(upgradeCost(s, b))}`} className="btn ghost sm" disabled={upgradeCost(s, b) > s.cash} title={`Upgrade ${d.name.toLowerCase()} to level ${b.level + 1}?`} body={<>Costs <b>{money(upgradeCost(s, b))}</b>. {d.recipe ? 'More output per hour, but staff cost rises 30%.' : d.category === 'livestock' ? 'Room for more animals.' : 'More storage space.'}{nuisanceChange(b)}</>} onConfirm={() => act({ type: 'upgradeBuilding', buildingId: b.id })} confirmLabel="Upgrade" />}
           </div>
         ))}
         <div className="row wrap">

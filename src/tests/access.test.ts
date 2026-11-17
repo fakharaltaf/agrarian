@@ -30,3 +30,18 @@ it('A building needs a street to match its size: apartments a two-lane road, a t
   for (let x = 0; x <= 10; x++) for (const yy of [28, 29, 30]) w.roads[tileId(x, yy)] = 3;
   expect(meets(frontageAt(w, 2, 31, 3, 3), APARTMENT_NEED[2])).toBe(true); expect(meets(frontageAt(w, 2, 31, 3, 3), OFFICE_NEED[2])).toBe(false); // an office tower wants four lanes
 });
+
+it('Nothing grows on a jammed street: upgrades wait until the traffic flows', async () => {
+  const { dispatch } = await import('../simulation/engine');
+  const { post } = await import('../simulation/core');
+  const { streetJammed } = await import('../simulation/access');
+  const W = await import('../simulation/world');
+  const s = createGame(1025); s.legacyProgression = true; s.era = 6; post(s, 'prize', 1e6, 'fixture'); s.discovered = [...new Set([...(s.discovered ?? []), 'upgrades'])];
+  expect(dispatch(s, { type: 'build', region: 'heartland', building: 'barn' }).ok).toBe(true);
+  const b = s.buildings.at(-1)!, door = (await import('../simulation/access')).doorTiles(s, 'heartland', `b:${b.id}`), road = door.find((id) => W.worldOf(s, 'heartland').roads[id] !== undefined)!;
+  (s.stageState.town as Record<string, unknown>) = { ...(s.stageState.town as object), traffic: { [road]: 2 } };
+  expect(streetJammed(s, 'heartland', `b:${b.id}`)).toBe(true);
+  expect(dispatch(s, { type: 'upgradeBuilding', buildingId: b.id }).error).toMatch(/jammed/);
+  (s.stageState.town as Record<string, unknown>).traffic = {};
+  expect(dispatch(s, { type: 'upgradeBuilding', buildingId: b.id }).ok).toBe(true);
+});

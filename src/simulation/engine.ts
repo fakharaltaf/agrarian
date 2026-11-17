@@ -1,3 +1,4 @@
+import { JAM_TEXT, streetJammed } from './access';
 import { FOOD_FACTORY } from './core';
 import { energyMix, oilOpen, upgradeNeedsPower } from './stages/shared';
 import { bestRetailCentre } from './facility-levels';
@@ -751,6 +752,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       const g = factoryMerge(s, a.buildingId);
       if (!g) return fail('Only food factories merge.');
       if (!g.mate || !g.ready) return fail(g.why);
+      if (streetJammed(s, g.b.region, `b:${g.b.id}`) || streetJammed(s, g.mate.region, `b:${g.mate.id}`)) return fail(JAM_TEXT);
       if (g.price > s.cash) return fail(`Merging costs $${g.price.toLocaleString()}.`);
       const { b, mate } = g, w = worldOf(s, b.region), before = structuredClone({ pos: w.pos, rot: w.rot, roads: w.roads, links: w.links });
       forget(s, b.region, `b:${b.id}`); forget(s, b.region, `b:${mate.id}`);
@@ -1011,6 +1013,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       if (!b) return fail('No such building.');
       if (!known(s, 'upgrades')) return fail('Upgrades are not available yet.');
       if (b.level >= 3) return fail('Already at the highest level.');
+      if (streetJammed(s, b.region, `b:${b.id}`)) return fail(JAM_TEXT);
       if (buildingUse(s, b.type, b.level + 1) === 'industry' && placeProblem(s, b.region, ...(worldOf(s, b.region).pos[`b:${b.id}`] ?? [NaN, NaN]), footprintOf(s, `b:${b.id}`) ?? { w: 1, d: 1 }, `b:${b.id}`, 'industry') === 'zone')
         return fail(`${BUILDINGS[b.type].name}s grow into ${INDUSTRY_TO_GROW.has(b.type) ? 'industrial plants' : 'bigger plants'} only on industrial land: zone the land under it industrial (🏘 Zones), or move it there.`);
       const cost = upgradeCost(s, b);

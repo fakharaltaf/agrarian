@@ -74,6 +74,14 @@ function crossing(w: RegionWorld, id: number) {
   const a = run(1, 0), b = run(0, 1);
   return a.length <= b.length ? a : b;
 }
+/** The street outside a placed thing can't keep up: traffic at or near its door is slowed to well under half speed. Nothing there may grow until it is widened or eased. */
+export const JAM = 1.6;
+export function streetJammed(s: GameState, r: RegionId, key: string) {
+  if (r !== 'heartland') return false;
+  const slow = (s.stageState.town as { traffic?: Record<number, number> } | undefined)?.traffic ?? {};
+  return spread(worldOf(s, r), doorTiles(s, r, key), 2).some((id) => (slow[id] ?? 1) >= JAM);
+}
+export const JAM_TEXT = 'The street outside is jammed: widen it, pave it, add another route or a parking complex nearby before this grows.';
 // ---------------------------------------------------------------- frontage: the street a building stands on
 /** The widest street within a short drive of these door tiles, and its grade: what a building fronts onto. */
 export function frontageOf(w: RegionWorld, door: number[]) {
