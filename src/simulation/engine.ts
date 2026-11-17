@@ -13,7 +13,7 @@ import {
 import { buildingDivision, clamp, debt, factoryCrop, equity, freeSpace, has, known, log, marketWage, nextId, post, random, round2, todayBook, lean } from './core';
 import { coverOf, coverPrice, COVERS } from './agriculture';
 import { addGoods, canGrow, clearField, fertilizeField, fieldsTick, frostNight, harvestField, isManual, isReady, newField, plantField, spoilageDaily } from './agriculture';
-import { riverTiles, chunkAt, COMMERCIAL, type Use, type Zone, reconcileWorld, unlink, accessNote, cutsOff, buyable, chunksIn, connect, placedIn, touch, useOf, buildingUse, INDUSTRY_TO_GROW, WATER_LEVEL, NET_PRICE, NET_TIERS, NET_TOP, linesOf, lineTiles, lineTop, upgradeAllPlan, pipeRoute, pipeStretch, hasWater, isRoad, MAP, ROAD_GRADES, ROAD_H, roadRoute, roadPick, roadTilePrice, tileId, canPlaceNew, LAND_HA_PER_PATCH,  own, ownedSet, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, clearCost, clearedSet, FOOTPRINT, footprintOf, forget, rotOf, turned, MOVE_DOWNTIME, placeNew, placeProblem, plotSide, PROBLEM_TEXT, seedWorld, TIMBER_PER_PATCH, worldOf } from './world';
+import { liftTracks, riverTiles, chunkAt, COMMERCIAL, type Use, type Zone, reconcileWorld, unlink, accessNote, cutsOff, buyable, chunksIn, connect, placedIn, touch, useOf, buildingUse, INDUSTRY_TO_GROW, WATER_LEVEL, NET_PRICE, NET_TIERS, NET_TOP, linesOf, lineTiles, lineTop, upgradeAllPlan, pipeRoute, pipeStretch, hasWater, isRoad, MAP, ROAD_GRADES, ROAD_H, roadRoute, roadPick, roadTilePrice, tileId, canPlaceNew, LAND_HA_PER_PATCH,  own, ownedSet, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, clearCost, clearedSet, FOOTPRINT, footprintOf, forget, rotOf, turned, MOVE_DOWNTIME, placeNew, placeProblem, plotSide, PROBLEM_TEXT, seedWorld, TIMBER_PER_PATCH, worldOf } from './world';
 import { buyAnimals, livestockDaily, sellAnimals } from './livestock';
 import { claimDaily, startDay } from './daily';
 import { createMarkets, drawWeather, executeBuy, executeSell, quoteBuy, macroDaily, marketsDaily, marketsTick, priceFromInv } from './markets';
@@ -212,6 +212,19 @@ export function planQuote(s: GameState, r: RegionId, at: [number, number], fw: n
   for (const c of chunks) if (owned.has(c) && cleared.has(c) && (zone ? w.zones[c] !== zone : use === 'field' ? !!w.zones[c] : w.zones[c] === 'res' || w.zones[c] === 'com')) return bad(PROBLEM_TEXT.zone);
   const cost = Math.round((landCostOf(s, r, buy) + clearCost(s) * clear.length) * 100) / 100;
   return { ok: true as const, error: '', cost, hours: (w.queue.length + clear.length) * CLEAR_HOURS, buy, clear, chunks, zone };
+}
+/** The factory beside this one that it could merge with: the same kind and size, both at level 3, a lane apart and squarely in line. */
+export function factoryMerge(s: GameState, id: number) {
+  const b = s.buildings.find((x) => x.id === id);
+  if (!b || !FOOD_FACTORY.has(b.type) || (b.size ?? 1) >= 4) return null;
+  const w = worldOf(s, b.region), p = w.pos[`b:${b.id}`], fp = footprintOf(s, `b:${b.id}`);
+  if (!p || !fp) return null;
+  const into = `${BUILDINGS[b.type].name} ${b.size === 2 ? 'plant' : 'works'}`;
+  const mate = s.buildings.find((x) => { if (x === b || x.type !== b.type || x.region !== b.region || (x.size ?? 1) !== (b.size ?? 1)) return false; const q = w.pos[`b:${x.id}`], fq = footprintOf(s, `b:${x.id}`); return !!q && !!fq && fq.w === fp.w && fq.d === fp.d && ((q[1] === p[1] && Math.abs(q[0] - p[0]) === fp.w + 1) || (q[0] === p[0] && Math.abs(q[1] - p[1]) === fp.d + 1)); });
+  if (!mate) return { b, mate: null, into, ready: false, price: 0, why: b.level < 3 ? 'Raise it to level 3 first.' : `Stand another ${BUILDINGS[b.type].name.toLowerCase()}${b.size === 2 ? ' works' : ''} beside it, a lane apart.` };
+  const q = w.pos[`b:${mate.id}`]!, origin: [number, number] = [Math.min(p[0], q[0]), Math.min(p[1], q[1])], span: [number, number] = q[1] === p[1] ? [fp.w * 2 + 1, fp.d] : [fp.w, fp.d * 2 + 1];
+  const ready = b.level >= 3 && mate.level >= 3 && b.active && mate.active;
+  return { b, mate, into, ready, origin, span, price: Math.round((b.cost + mate.cost) * 0.25), why: ready ? '' : b.level < 3 || mate.level < 3 ? 'Both must be level 3.' : 'Both must be running.' };
 }
 /** One crew clears forest patch by patch; each finished patch adds timber to storage. */
 function worldTick(s: GameState) {
@@ -707,6 +720,24 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       post(s, 'maintenance', -cost, `Forest clearing (${chunks.length} patch${chunks.length === 1 ? '' : 'es'})`, a.region);
       for (const c of chunks) w.queue.push({ chunk: c, hours: CLEAR_HOURS });
       return ok(`The crew will clear ${chunks.length} patch${chunks.length === 1 ? '' : 'es'} over about ${chunks.length * CLEAR_HOURS} hours and sell the timber.`);
+    }
+    case 'mergeBuilding': {
+      const g = factoryMerge(s, a.buildingId);
+      if (!g) return fail('Only food factories merge.');
+      if (!g.mate || !g.ready) return fail(g.why);
+      if (g.price > s.cash) return fail(`Merging costs $${g.price.toLocaleString()}.`);
+      const { b, mate } = g, w = worldOf(s, b.region), before = structuredClone({ pos: w.pos, rot: w.rot, roads: w.roads, links: w.links });
+      forget(s, b.region, `b:${b.id}`); forget(s, b.region, `b:${mate.id}`);
+      const lifted = liftTracks(s, b.region, g.origin![0], g.origin![1], g.span![0], g.span![1]);
+      const blocked = placeProblem(s, b.region, g.origin![0], g.origin![1], { w: g.span![0], d: g.span![1] }, undefined, 'industry');
+      if (blocked) { Object.assign(w, before); touch(w); return fail(blocked === 'road' ? 'A road runs between them: remove it first.' : blocked === 'zone' ? 'A works stands on industrial land: zone the lane between them too.' : 'Something stands between them: clear the lane first.'); }
+      post(s, 'building', -g.price, `${g.into} (two merged)`, b.region);
+      s.buildings.splice(s.buildings.indexOf(mate), 1);
+      for (const f of s.fields) if (f.supplies === mate.id) f.supplies = b.id;
+      b.size = (b.size ?? 1) * 2; b.span = g.span; b.cost = b.cost + mate.cost + g.price; b.depreciated += mate.depreciated; b.reserved = (b.reserved ?? 0) + (mate.reserved ?? 0);
+      w.pos[`b:${b.id}`] = g.origin!; touch(w); connect(s, b.region, `b:${b.id}`); for (const k of lifted) if (w.pos[k]) connect(s, b.region, k);
+      log(s, 'opportunity', `${g.into} opened: it does the work of ${b.size === 4 ? 'nearly five' : 'more than two'} factories on fewer hands.`, 'farm');
+      return ok(`🎉 ${g.into} opened!`);
     }
     case 'planPlacement': {
       const q = planQuote(s, a.region, a.at, a.w, a.d, a.action);

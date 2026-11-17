@@ -31,7 +31,7 @@ export function layoutRegion(s: GameState, r: RegionId): Layout {
   add('market', 'market', 'shed', []);
   add('crew', 'crew', 'house', []);
   add('office', 'office', 'house', []);
-  for (const b of s.buildings) if (b.region === r && BUILDINGS[b.type]) add(`b:${b.id}`, `b:${b.id}`, b.type, [b]);
+  for (const b of s.buildings) if (b.region === r && BUILDINGS[b.type]) add(`b:${b.id}`, `b:${b.id}`, b.type, [b], b.span ? { w: b.span[0], d: b.span[1] } : {});
   if (r === 'heartland' && communityOf(s).active) {
     for (const home of communityOf(s).homes) {
       const p = at(`home:${home.id}`);

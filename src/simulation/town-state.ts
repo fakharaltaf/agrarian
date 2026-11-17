@@ -98,7 +98,7 @@ export const townIndustryFactor = (s: GameState, r: RegionId) => {
   const t=townOf(s); return r==='heartland' && t.active ? (1 + t.factoryShare * (.08*t.education*(t.charter==='trade' && s.tick>=t.retrainingUntil ? 1 : .3) - .1*(1-t.health))) : 1;
 };
 export function factoryJobs(s: GameState) {
-  return s.buildings.reduce((n,b)=>n+(b.active && b.region==='heartland' ? Math.ceil(BUILDINGS[b.type].staffPerHour * (1+.3*(b.level-1))/12)*2 : 0),0);
+  return s.buildings.reduce((n,b)=>n+(b.active && b.region==='heartland' ? Math.ceil(BUILDINGS[b.type].staffPerHour * (1+.3*(b.level-1)) * (b.size===4?3.2:b.size===2?1.8:1)/12)*2 : 0),0);
 }
 /** Services that reach homes as a heat map round the building: full within their reach, then fading out beyond it. */
 export const HEAT_SERVICES: ServiceType[] = ['school', 'clinic', 'well', 'police'];

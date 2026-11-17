@@ -6,7 +6,7 @@ import { larderReserve } from './stages/settlement';
 // Factories, energy and building upkeep. One production model for every industry:
 // batches = min(capacity, scarcest input, output room, power) — Leontief, like a real line.
 import { BUILDINGS, COWS_PER_DAIRY_BATCH, FACTORY_GOODS, GOODS, REGIONS, REGION_IDS, SUNRISE, SUNSET, type GoodId, type RegionId } from './config';
-import { buildingDivision, clamp, electricityPrice, execOn, freeSpace, has, hour, levelMult, throughput, post, priceUsd, round2, reserveCap, reservedStock, severity } from './core';
+import { buildingDivision, clamp, electricityPrice, execOn, freeSpace, has, hour, levelMult, throughput, post, priceUsd, round2, reserveCap, reservedStock, severity , sizeStaff } from './core';
 import { addGoods } from './agriculture';
 import { avg30 } from './markets';
 import { drawOil, wellField } from './oil';
@@ -48,7 +48,7 @@ export function buildingsTick(s: GameState) {
         continue;
       }
       if (b.reason === 'Moving' || b.reason === 'Paused' || b.reason === 'No road access') b.reason = ''; // back at work (barns and stores have no recipe to reset it)
-      const staff = def.staffPerHour * s.macro.cpi * (execOn(s, buildingDivision(b.type)) ? 0.92 : 1) * (1 + 0.3 * ((b.level || 1) - 1));
+      const staff = def.staffPerHour * s.macro.cpi * (execOn(s, buildingDivision(b.type)) ? 0.92 : 1) * (1 + 0.3 * ((b.level || 1) - 1)) * sizeStaff(b);
       if (staff) {
         post(s, 'staff', -staff, `${def.name} staff`, r, buildingDivision(b.type));
         if (r === 'heartland' && townOf(s).active) payHouseholds(s, staff * townOf(s).factoryShare);

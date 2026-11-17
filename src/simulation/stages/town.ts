@@ -1,5 +1,5 @@
 import { regionActive } from '../region-state';
-import { canPlaceNew, connect, forget, placeNew, placeProblem, SERVICE_FOOTPRINT, touch } from '../world';
+import { canPlaceNew, connect, forget, liftTracks, placeNew, placeProblem, SERVICE_FOOTPRINT, touch } from '../world';
 import type { ShopType } from '../types';
 import { NUISANCE_WEIGHT, settlementExposure } from '../nuisance';
 import { nationActive, nationOf } from '../nation-state';
@@ -258,13 +258,14 @@ function action(s: GameState,a:Action):ActionResult|null {
     // the four give up their ground and tracks; the new building takes the whole square, lanes included, if nothing else is in the way
     const w0=worldOf(s,'heartland'),before=structuredClone({pos:w0.pos,rot:w0.rot,roads:w0.roads,links:w0.links}),side=g.step*2-1;
     for(const x of g.members)forget(s,'heartland',`svc:${x.id}`);
+    const lifted=liftTracks(s,'heartland',g.origin[0],g.origin[1],side,side);
     const blocked=placeProblem(s,'heartland',g.origin[0],g.origin[1],{w:side,d:side},undefined,'shop');
     if(blocked){Object.assign(w0,before);touch(w0);return fail(blocked==='road'?'A road runs between them: remove it first.':'Something stands between them: clear the lanes first.');}
     post(s,'building',-g.price,`${g.into} (four merged)`,'heartland','corporate');
     const cost=round2(g.members.reduce((n,x)=>n+x.cost,0)+g.price),kinds=[...new Set(g.members.flatMap(x=>x.kinds??[x.type as ShopType]))];
     for(const x of g.members)if(x!==b)t.services.splice(t.services.indexOf(x),1);
     if(svcSize(b)===2){b.type='mall';b.kinds=kinds;b.count=1;b.size=4;b.level=1;}else{b.size=2;b.count=3;} // a market is run by three shops' worth of staff
-    b.cost=cost;b.staffed=0;w0.pos[`svc:${b.id}`]=g.origin;touch(w0);connect(s,'heartland',`svc:${b.id}`);
+    b.cost=cost;b.staffed=0;w0.pos[`svc:${b.id}`]=g.origin;touch(w0);connect(s,'heartland',`svc:${b.id}`);for(const k of lifted)if(w0.pos[k])connect(s,'heartland',k);
     log(s,'opportunity',`${g.into} opened: it reaches ${Math.round(serviceRadius(b))} tiles and draws more custom than the shops it replaced.`,'city');
     return {ok:true,note:`🎉 ${g.into} opened!`};
   }

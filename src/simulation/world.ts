@@ -117,7 +117,7 @@ export function footprintOf(s: GameState, key: string): Footprint | null {
 export function baseFootprint(s: GameState, key: string): Footprint | null {
   const [kind, id] = key.split(':');
   if (kind === 'field') { const f = s.fields.find((x) => x.id === +id); return f ? { w: plotSide(f.ha), d: plotSide(f.ha) } : null; }
-  if (kind === 'b') { const b = s.buildings.find((x) => x.id === +id); if (!b) return null; const [w, d] = FOOTPRINT[b.type]; return { w, d }; }
+  if (kind === 'b') { const b = s.buildings.find((x) => x.id === +id); if (!b) return null; const [w, d] = b.span ?? FOOTPRINT[b.type]; return { w, d }; }
   if (kind === 'home') { const h = (s.stageState.settlement?.homes as CommunityHome[] | undefined)?.find((x) => x.id === +id); return h ? homeFootprint(h) : null; }
   if (kind === 'svc') { const z = (s.stageState.town as { services?: { id: number; size?: number }[] } | undefined)?.services?.find((x) => x.id === +id)?.size ?? 1, n = z >= 4 ? 15 : z === 2 ? 7 : 3; return { w: n, d: n }; }
   if (key === 'farmhouse') return { w: 3, d: 3 };
@@ -434,6 +434,15 @@ export function connect(s: GameState, r: RegionId, key: string) {
   return true;
 }
 /** A building left or moved: lift the dirt track that was laid for it, unless the player upgraded it or another building's track uses it. Anything that loses its road gets a fresh track. */
+/** Lift the automatic dirt tracks that cross a rectangle (a merged building is about to stand there); returns whose they were, to reconnect afterwards. Roads the player drew stay. */
+export function liftTracks(s: GameState, r: RegionId, x: number, y: number, fw: number, fd: number) {
+  const w = worldOf(s, r), inside = new Set<number>();
+  for (let yy = y; yy < y + fd; yy++) for (let xx = x; xx < x + fw; xx++) inside.add(tileId(xx, yy));
+  const keys = Object.keys(w.links).filter((k) => w.links[k].some((id) => inside.has(id)));
+  for (const k of keys) { const mine = w.links[k]; delete w.links[k]; const used = new Set(Object.values(w.links).flat()); for (const id of mine) if (!used.has(id) && w.roads[id] === 1) delete w.roads[id]; }
+  touch(w);
+  return keys;
+}
 export function unlink(s: GameState, r: RegionId, key: string) {
   const w = worldOf(s, r), mine = w.links[key];
   delete w.links[key];

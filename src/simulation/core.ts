@@ -16,7 +16,11 @@ export const known = (s: GameState, id: string) => s.discovered.includes(id);
 /** Upgrade levels multiply what a building holds or makes. */
 export const levelMult = (level: number) => [1, 1.8, 2.5][Math.max(0, Math.min(2, (level || 1) - 1))];
 /** A food factory's throughput by level: each upgrade doubles it, so a line keeps up with a growing farm. Oil, energy and storage keep levelMult. */
-export const throughput = (b: { type: string; level: number }) => (FOOD_FACTORY.has(b.type) ? [1, 2, 4][Math.max(0, Math.min(2, (b.level || 1) - 1))] : levelMult(b.level));
+/** A merged factory does the work of the ones it replaced and a little more: a Works 2.2 factories' worth, a Plant 4.8. */
+export const sizeOutput = (b: { size?: number }) => (b.size === 4 ? 4.8 : b.size === 2 ? 2.2 : 1);
+/** ...on fewer hands: a Works pays 1.8 factories' staff, a Plant 3.2. */
+export const sizeStaff = (b: { size?: number }) => (b.size === 4 ? 3.2 : b.size === 2 ? 1.8 : 1);
+export const throughput = (b: { type: string; level: number; size?: number }) => (FOOD_FACTORY.has(b.type) ? [1, 2, 4][Math.max(0, Math.min(2, (b.level || 1) - 1))] : levelMult(b.level)) * sizeOutput(b);
 export const FOOD_FACTORY: ReadonlySet<string> = new Set(['flourMill', 'bakery', 'feedMill', 'ranch', 'dairy', 'creamery', 'oilPress', 'sugarMill', 'winery']);
 export const nextId = (s: GameState) => s.nextId++;
 

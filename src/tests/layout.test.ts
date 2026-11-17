@@ -238,3 +238,30 @@ it('a field climbs from polytunnels to a greenhouse to a hydroponic house: frost
   expect(dispatch(s, { type: 'coverField', fieldId: f.id }).ok).toBe(true); expect(A.coverOf(f)).toBe(3); expect(A.soilFactor(f, 'potatoes')).toBe(1.3); expect(poor).toBeLessThan(1);
   expect(dispatch(s, { type: 'coverField', fieldId: f.id }).ok).toBe(false);
 });
+
+it('two level-3 factories side by side merge into a works, two works into a plant: more output on fewer hands, and undo splits them', async () => {
+  const W = await import('../simulation/world');
+  const { factoryMerge } = await import('../simulation/engine');
+  const { throughput, sizeStaff } = await import('../simulation/core');
+  const { dispatchEdit, undoEdit } = await import('../simulation/undo');
+  const s = createGame(1016); s.legacyProgression = true; s.era = 6; post(s, 'prize', 5e6, 'fixture');
+  const w = W.worldOf(s, 'heartland'), o: [number, number] = [W.MAP.x0 + 40, W.MAP.y0 + 8];
+  const chunks = [...new Set(Array.from({ length: 144 }, (_, i) => W.chunkAt(o[0] + (i % 12), o[1] + Math.floor(i / 12))))];
+  w.owned = [...new Set([...w.owned, ...chunks])]; w.cleared = [...new Set([...w.cleared, ...chunks])]; for (const c of chunks) w.zones[c] = 'ind'; W.touch(w);
+  const ids: number[] = [];
+  for (const at of [[0, 0], [3, 0], [0, 3], [3, 3]] as const) { expect(dispatch(s, { type: 'build', region: 'heartland', building: 'flourMill', at: [o[0] + at[0], o[1] + at[1]] }).ok).toBe(true); ids.push(s.buildings.at(-1)!.id); }
+  expect(dispatch(s, { type: 'mergeBuilding', buildingId: ids[0] }).ok).toBe(false); // level 1 will not merge
+  for (const b of s.buildings) if (ids.includes(b.id)) b.level = 3;
+  const g = factoryMerge(s, ids[0])!, cash = s.cash; expect(g.ready).toBe(true);
+  const { r, edit } = dispatchEdit(s, { type: 'mergeBuilding', buildingId: ids[0] }); expect(r.ok).toBe(true);
+  const works = s.buildings.find((b) => b.id === ids[0])!;
+  expect(works.size).toBe(2); expect(cash - s.cash).toBe(g.price); expect(W.footprintOf(s, `b:${works.id}`)).toEqual({ w: 5, d: 2 }); expect(throughput(works)).toBeCloseTo(4 * 2.2, 5); expect(sizeStaff(works)).toBe(1.8);
+  expect(s.buildings.some((b) => b.id === ids[1])).toBe(false);
+  undoEdit(s, edit!); expect(s.buildings.filter((b) => ids.includes(b.id)).length).toBe(4); expect(s.cash).toBeCloseTo(cash, 2); expect(W.footprintOf(s, `b:${ids[0]}`)).toEqual({ w: 2, d: 2 });
+  expect(dispatch(s, { type: 'mergeBuilding', buildingId: ids[0] }).ok).toBe(true);
+  expect(dispatch(s, { type: 'mergeBuilding', buildingId: s.buildings.find((b) => b.type === 'flourMill' && !b.size)!.id }).ok).toBe(true); // the other pair
+  expect(dispatch(s, { type: 'mergeBuilding', buildingId: ids[0] }).ok).toBe(true); // two works make a plant
+  const plant = s.buildings.find((b) => b.id === ids[0])!;
+  expect(plant.size).toBe(4); expect(W.footprintOf(s, `b:${plant.id}`)).toEqual({ w: 5, d: 5 }); expect(s.buildings.filter((b) => b.type === 'flourMill').length).toBe(1);
+  for (let i = 0; i < 30; i++) step(s); // it runs
+});

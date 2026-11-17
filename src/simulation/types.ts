@@ -91,6 +91,10 @@ export interface ProductionDay {
 export interface ProductionReport { open: ProductionDay | null; days: ProductionDay[]; lastBatches: number; lastTick: number }
 
 export interface Building {
+  /** merged factories: 2 a Works (two level-3 factories), 4 a Plant (two Works) */
+  size?: number;
+  /** the ground a merged factory stands on, in tiles as placed */
+  span?: [number, number];
   movedUntil?: number; // a moved building stands idle until this tick
   id: number;
   type: BuildingType;
@@ -531,6 +535,7 @@ export type Action =
   | { type: 'greenhouse'; fieldIds: number[] }
   | { type: 'coverField'; fieldId: number }
   | { type: 'upgradeHome'; homeId: number }
+  | { type: 'mergeBuilding'; buildingId: number }
   | { type: 'clearField'; fieldId: number };
 
 export type ActionResult = { ok: true; note?: string } | { ok: false; error: string };

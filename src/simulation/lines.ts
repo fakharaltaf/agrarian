@@ -67,7 +67,7 @@ function econOf(s: GameState, t: BuildingType, r: RegionId, units: Unit[]): Line
 }
 
 const units = (s: GameState, list: Building[], full = false): Unit[] =>
-  list.filter((b) => b.active || full).map((b) => ({ level: b.level || 1, bph: full ? BUILDINGS[b.type].recipe!.batchesPerHour * levelMult(b.level) * townIndustryFactor(s, b.region) : b.stats.out }));
+  list.filter((b) => b.active || full).map((b) => ({ level: b.level || 1, bph: full ? BUILDINGS[b.type].recipe!.batchesPerHour * levelMult(b.level) * (b.size === 4 ? 4.8 : b.size === 2 ? 2.2 : 1) * townIndustryFactor(s, b.region) : b.stats.out }));
 
 /** A dairy can only run as many batches as there are cows to milk. */
 function capByCows(s: GameState, t: BuildingType, r: RegionId, us: Unit[]): Unit[] {

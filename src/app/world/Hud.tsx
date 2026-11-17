@@ -252,6 +252,7 @@ export function Hud() {
           else if(kind==='clear1'||kind==='clear9'){ if(forest&&act({type:'clearForest',region,chunks:patchesAround(s,region,forest[0],forest[1],kind==='clear1'?1:3)}))setForest(null); }
           else if(kind==='move'){ const f=s.fields.find(x=>x.id===id); if(f){ const side=plotSide(f.ha); startPlacement({kind:'move',key:`field:${id}`,region:f.region,w:side,d:side,label:`Field ${id}`,action:{type:'seeTip',tip:''}}); setSel([]); } }
           else if(kind==='merge'&&lot?.service){ if(act({type:'mergeService',serviceId:lot.service.id})) setLot(null); }
+          else if(kind==='merge'&&lot?.buildings[0]){ if(act({type:'mergeBuilding',buildingId:lot.buildings[0].id})) setLot(null); }
           else if(kind==='homeup'&&lot){ setPanel(true); setJournal(false); }
           else if(kind==='movelot'&&lot){ const fp=footprintOf(s,lot.place); if(fp){ startPlacement({kind:'move',key:lot.place,region,w:fp.w,d:fp.d,label:lotName(lot),action:{type:'seeTip',tip:''}}); setLot(null); } }
           else if(kind==='plant'||kind==='harvest') act(kind==='harvest'?{type:'harvest',fieldId:id}:{type:'plant',fieldId:id,crop});
@@ -423,7 +424,7 @@ function PlacementBar({ s, p }: { s: GameState; p: Placement }) {
   const quote = p.kind === 'new' && (problem === 'unowned' || problem === 'forest') ? planQuote(s, p.region, p.at, p.w, p.d, p.action) : null;
   return <div className="placement-bar" role="dialog" aria-label={`Placing ${p.label}`}>
     <div className="placement-info"><b>{p.kind === 'move' ? '✥ Moving' : '📍 Placing'} {p.label}{p.total ? ` ${p.total - p.left! + 1} of ${p.total}` : ''}{cost > 0 ? ` · ${money(cost)}` : ''}</b>
-      <span className={problem && !quote?.ok ? 'bad' : 'muted'}>{quote?.ok ? `Not yours or not cleared yet. Buy and clear it, and it is placed when the crew finishes (about ${quote.hours} h).` : problem ? PROBLEM_TEXT[problem] : matchMedia('(pointer: fine)').matches ? 'Click a green spot to place it.' : 'Tap where it goes, then confirm.'}</span></div>
+      <span className={problem && !quote?.ok ? 'bad' : 'muted'}>{quote?.ok ? `Not yours or not cleared yet. Buy and clear it, and it is placed when the crew finishes (about ${quote.hours} h).` : quote && !quote.ok && quote.error !== PROBLEM_TEXT.occupied ? quote.error : problem ? PROBLEM_TEXT[problem] : matchMedia('(pointer: fine)').matches ? 'Click a green spot to place it.' : 'Tap where it goes, then confirm.'}</span></div>
     {!p.key?.startsWith('field:') && p.action.type !== 'buyPlot' && p.action.type !== 'buyParcel' && <button className="btn ghost" aria-label="Rotate" title="Rotate (R)" onClick={() => rotatePlacement()}>⟳ Rotate</button>}
     {quote?.ok ? <button className="btn primary" disabled={quote.cost > s.cash} title={`Buys ${quote.buy.length} patch${quote.buy.length === 1 ? '' : 'es'} and clears ${quote.clear.length}. The crew needs about ${quote.hours} hours; your ${p.label} goes up when they finish.`} onClick={() => planPlacementHere()}>Buy & clear · {money(quote.cost)}</button>
       : <button className="btn primary" disabled={!!problem} onClick={() => confirmPlacement()}>{p.kind === 'move' ? 'Move here' : 'Place'}</button>}
