@@ -84,11 +84,11 @@ export const canUndo = () => (fresh(), undos.length > 0);
 export const canRedo = () => (fresh(), redos.length > 0);
 export function undo() {
   fresh(); const e = undos.pop(); if (!e) return false;
-  undoEdit(store.game, e); redos.push(e); sfx('click'); toast('Undone', 'ok'); bump(); return true;
+  undoEdit(store.game, e); redos.push(e); sfx('click'); toast('Undone', 'ok'); saveSoon(); bump(); return true;
 }
 export function redo() {
   fresh(); const e = redos.pop(); if (!e) return false;
-  const { r, edit } = dispatchEdit(store.game, e.action);
+  const { r, edit } = dispatchEdit(store.game, e.action); saveSoon();
   if (!r.ok) { toast(r.error); redos = []; } else if (edit) undos.push(edit);
   sfx(r.ok ? 'click' : 'error'); bump(); return r.ok;
 }
@@ -377,6 +377,7 @@ export function act(a: Action, success?: string) {
   if (a.type !== 'seeTip' && a.type !== 'startDay') sfx(r.ok ? SOUND[a.type] ?? 'click' : 'error');
   if (!r.ok) toast(r.error);
   else if (r.note || success) toast(r.note ?? success!, 'ok');
+  if (r.ok) saveSoon();
   bump();
   return r.ok;
 }
@@ -421,6 +422,9 @@ function loop() {
 }
 setInterval(loop, 50);
 setInterval(() => store.ready && !store.catchUp && saveTo('auto', true), 15000);
+/** Save a moment after anything the player does, so a reload straight after keeps it: saving as the page closes may not finish in time. */
+let saveTimer: ReturnType<typeof setTimeout> | undefined;
+function saveSoon() { clearTimeout(saveTimer); saveTimer = setTimeout(() => store.ready && !store.catchUp && saveTo('auto', true), 800); }
 addEventListener('visibilitychange', () => document.visibilityState === 'hidden' && store.ready && saveTo('auto', true));
 addEventListener('pagehide', () => store.ready && saveTo('auto', true));
 
