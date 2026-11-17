@@ -15,6 +15,8 @@ function ready(){
  const t=townOf(s);t.active=true;t.charter='public';t.education=.8;t.health=.9;t.roads=1;
  return s;
 }
+/** A four-lane paved avenue along the north edge of a test site: what big buildings need at their door. */
+const avenue=(W:typeof import('../simulation/world'),w:ReturnType<typeof import('../simulation/world').worldOf>,o:[number,number],len:number)=>{for(let x=o[0]-1;x<=o[0]+len;x++)for(let k=1;k<=4;k++)w.roads[W.tileId(x,o[1]-k)]=3;};
 const flow=(x:Record<string,number|undefined>)=>Object.entries(x).reduce((n,[k,v])=>n+(k==='depreciation'?0:v??0),0);
 it('City is an optional, capability-preserving charter',()=>{
  const s=ready(),cash=s.cash,people=population(s);
@@ -142,7 +144,7 @@ it('Four shops of a kind in a square merge into a market, four markets into the 
   const s = ready(); dispatch(s, { type: 'startCity', charter: 'watch' });
   const t = townOf(s), w = W.worldOf(s, 'heartland'), o: [number, number] = [W.MAP.x0 + 40, W.MAP.y0 + 8]; // open country, given to the farm for the test
   const chunks = [...new Set(Array.from({ length: 225 }, (_, i) => W.chunkAt(o[0] + (i % 15), o[1] + Math.floor(i / 15))))];
-  w.owned = [...new Set([...w.owned, ...chunks])]; w.cleared = [...new Set([...w.cleared, ...chunks])]; W.touch(w);
+  w.owned = [...new Set([...w.owned, ...chunks])]; w.cleared = [...new Set([...w.cleared, ...chunks])]; avenue(W, w, o, 16); for (let y = o[1] - 4; y <= o[1] + 16; y++) for (let k = 1; k <= 4; k++) { w.roads[W.tileId(o[0] - k, y)] = 3; w.roads[W.tileId(o[0] + 14 + k, y)] = 3; } W.touch(w); // avenues on three sides
   expect(dispatch(s, { type: 'zoneLand', region: 'heartland', chunks, zone: 'com' }).ok).toBe(true);
   const kinds = ['shopBaker', 'shopDairy', 'shopButcher', 'shopGrocer'] as const, markets: number[] = [];
   kinds.forEach((kind, q) => {
@@ -208,6 +210,8 @@ it('Apartments grow into a mid-rise and a tower when their needs are met; office
   const chunks = [...new Set(Array.from({ length: 144 }, (_, i) => W.chunkAt(o[0] + (i % 12), o[1] + Math.floor(i / 12))))];
   w.owned = [...new Set([...w.owned, ...chunks])]; w.cleared = [...new Set([...w.cleared, ...chunks])]; W.touch(w);
   expect(dispatch(s, { type: 'zoneLand', region: 'heartland', chunks: chunks.slice(0, 4), zone: 'res' }).ok).toBe(true);
+  expect(dispatch(s, { type: 'buildHomes', tier: 'apartment', count: 1, at: o }).ok).toBe(false); // no street wide enough yet
+  avenue(W, w, o, 12); W.touch(w);
   expect(dispatch(s, { type: 'buildHomes', tier: 'apartment', count: 1, at: o }).ok).toBe(true);
   const h = c.homes.at(-1)!, before = homeFamilies(s);
   expect(dispatch(s, { type: 'upgradeHome', homeId: h.id }).ok).toBe(false); // not a City yet, no lines
@@ -223,6 +227,7 @@ it('Apartments grow into a mid-rise and a tower when their needs are met; office
   // an office on commercial land: outside firms pay residents, the farm pays no wages for it
   const co = chunks.slice(8, 12); expect(dispatch(s, { type: 'zoneLand', region: 'heartland', chunks: co, zone: 'com' }).ok).toBe(true);
   const [cx, cy] = W.chunkOrigin(co[0]);
+  for (let x = cx - 1; x <= cx + 4; x++) for (const k of [1, 2]) w.roads[W.tileId(x, cy - k)] = 3; W.touch(w); // a two-lane street for its door
   expect(dispatch(s, { type: 'buildService', service: 'office', district: 'farmgate', at: [cx, cy] }).ok).toBe(true);
   const savings = c.householdCash; t.lastDay = -1; s.tick = 24 * 60; townDaily(s);
   expect(t.officePay!).toBeGreaterThan(0); expect(c.householdCash).toBeGreaterThan(savings);
@@ -234,7 +239,7 @@ it('Four of the same town building in a square merge into one bigger one: a plan
   const { mergeGroup, serviceName, serviceRadius, utilityFamilies } = await import('../simulation/town-state');
   const s = ready(), t = townOf(s), w = W.worldOf(s, 'heartland'), o: [number, number] = [W.MAP.x0 + 40, W.MAP.y0 + 8];
   const chunks = [...new Set(Array.from({ length: 256 }, (_, i) => W.chunkAt(o[0] + (i % 16), o[1] + Math.floor(i / 16))))];
-  w.owned = [...new Set([...w.owned, ...chunks])]; w.cleared = [...new Set([...w.cleared, ...chunks])]; W.touch(w);
+  w.owned = [...new Set([...w.owned, ...chunks])]; w.cleared = [...new Set([...w.cleared, ...chunks])]; avenue(W, w, o, 16); W.touch(w);
   const four = (service: 'sanitation' | 'school', ox: number) => { const ids: number[] = []; for (let k = 0; k < 4; k++) { expect(dispatch(s, { type: 'buildService', service, district: 'farmgate', at: [o[0] + ox + (k % 2) * 4, o[1] + Math.floor(k / 2) * 4] }).ok).toBe(true); ids.push(t.services.at(-1)!.id); } return ids; };
   const san = four('sanitation', 0), before = san.reduce((n, id) => n + utilityFamilies(t.services.find((b) => b.id === id)!), 0);
   t.services.find((b) => b.id === san[1])!.level = 2; expect(mergeGroup(s, san[0])!.complete).toBe(false); // one at another level does not join

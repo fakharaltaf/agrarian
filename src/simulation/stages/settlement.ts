@@ -11,6 +11,7 @@ import { factoryJobs, localEmployment, townOf } from '../town-state';
 import { executeBuy, quoteBuy } from '../markets';
 import { shopMood } from '../city-state';
 import { homeUnits, homeLevel, homeUpgradePrice, APARTMENT_FAMILIES } from '../community-state';
+import { APARTMENT_NEED, doorTiles, frontageAt, frontageOf, meets, needText } from '../access';
 import { communityOf, createSettlementState, familySize, HOME_DEFS, homePrice, homeCapacity, households, population, availableResidents, recruitableResidents } from '../community-state';
 import { CONFIG, WORK_HOURS } from '../config';
 
@@ -57,9 +58,10 @@ export function doorLines(s: GameState, homeId: number) {
 export function homeUpgradeNeeds(s: GameState, h: CommunityHome) {
   const next = homeLevel(h) + 1, l = doorLines(s, h.id), city = !!(s.stageState.city as { active?: boolean } | undefined)?.active;
   if (h.tier !== 'apartment' || next > 3) return [];
+  const street = APARTMENT_NEED[next - 1], road = { need: needText(street)[0].toUpperCase() + needText(street).slice(1), met: meets(frontageOf(worldOf(s, 'heartland'), doorTiles(s, 'heartland', `home:${h.id}`)), street) };
   return next === 2
-    ? [{ need: 'Your town is a City', met: city }, { need: 'A power line at the door', met: l.power >= 1 }, { need: 'A water pipe at the door', met: l.water >= 1 }]
-    : [{ need: '800 residents', met: population(s) >= 800 }, { need: 'Underground power cable at the door', met: l.power >= NET_TOP.power }, { need: 'Buried water main at the door', met: l.water >= NET_TOP.water }, { need: 'Underground sewer at the door', met: l.sewer >= NET_TOP.sewer }];
+    ? [road, { need: 'Your town is a City', met: city }, { need: 'A power line at the door', met: l.power >= 1 }, { need: 'A water pipe at the door', met: l.water >= 1 }]
+    : [road, { need: '800 residents', met: population(s) >= 800 }, { need: 'Underground power cable at the door', met: l.power >= NET_TOP.power }, { need: 'Buried water main at the door', met: l.water >= NET_TOP.water }, { need: 'Underground sewer at the door', met: l.sewer >= NET_TOP.sewer }];
 }
 export function larderReserve(s: GameState, good: GoodId) {
   const c = communityOf(s);
@@ -109,7 +111,8 @@ export function settlementTick(s: GameState) {
   c.warm = fuelNeed ? fuel / fuelNeed : 1;
   const { housed } = wellbeing(s);
   c.nuisance = settlementExposure(s); // smell and noise from the farm's buildings near the homes cost happiness; fresh bread lifts it
-  const target = clamp(0.55 * c.fed + 0.25 * housed + 0.2 * c.warm - nuisanceHappiness(c.nuisance) + shopMood(s), 0, 1);
+  const town = s.stageState.town as { active?: boolean; jammed?: number } | undefined;
+  const target = clamp(0.55 * c.fed + 0.25 * housed + 0.2 * c.warm - nuisanceHappiness(c.nuisance) + shopMood(s) - (town?.active ? 0.12 * (town.jammed ?? 0) : 0) - 0.08 * (c.serviceFee ?? 0), 0, 1);
   c.happiness += (target - c.happiness) * 0.2;
   if (c.homes.length) post(s, 'maintenance', -c.homes.reduce((n, h) => n + homeUnits(h) * 0.5, 0) * s.macro.cpi, 'Community homes', 'heartland', 'corporate');
   // the housing tax: a share of the pay of every worker whose family lives here
@@ -179,6 +182,8 @@ function action(s: GameState, a: Action): ActionResult | null {
     const fail0 = (error: string): ActionResult => ({ ok: false, error }), h = communityOf(s).homes.find((x) => x.id === a.homeId);
     if (!h || h.tier !== 'apartment') return fail0('Only apartments grow taller.');
     if (homeLevel(h) >= 3) return fail0('This is already a tower.');
+    const street = APARTMENT_NEED[homeLevel(h)], f = frontageOf(worldOf(s, 'heartland'), doorTiles(s, 'heartland', `home:${h.id}`));
+    if (!meets(f, street)) return fail0(`A ${homeLevel(h) === 1 ? 'mid-rise' : 'tower'} needs ${needText(street)}: widen or pave the street it stands on.`);
     const missing = homeUpgradeNeeds(s, h).find((n) => !n.met); if (missing) return fail0(`Needs: ${missing.need.toLowerCase()}.`);
     const cost = homeUpgradePrice(s, h); if (cost > s.cash) return fail0(`That costs $${cost.toLocaleString()}.`);
     post(s, 'building', -cost, homeLevel(h) === 1 ? 'Apartments to a mid-rise' : 'Mid-rise to a tower', 'heartland', 'corporate');
@@ -197,8 +202,10 @@ function action(s: GameState, a: Action): ActionResult | null {
   if (a.type === 'setSettlementPay') {
     const ok = (v: number | undefined) => v === undefined || [0, 0.05, 0.1, 0.15, 0.2].includes(v);
     if (!ok(a.payCut) || !ok(a.housingTax)) return fail('Choose 0% to 20% in steps of 5.');
+    if (a.serviceFee !== undefined && ![0, 0.25, 0.5, 0.75, 1].includes(a.serviceFee)) return fail('Choose none, a quarter, half, three quarters or the full cost.');
     if (a.payCut !== undefined) c.payCut = a.payCut;
     if (a.housingTax !== undefined) c.housingTax = a.housingTax;
+    if (a.serviceFee !== undefined) c.serviceFee = a.serviceFee;
     return { ok: true };
   }
   if (a.type === 'setLarder') { c.autoLarder = a.enabled; prepareLarder(s); return { ok: true }; }
@@ -213,6 +220,7 @@ function action(s: GameState, a: Action): ActionResult | null {
   for (let i = 0; i < a.count; i++) {
     const home = { id: nextId(s), tier: a.tier, count: 1, cost };
     const room = canPlaceNew(s, 'heartland', homeFootprint(home), a.at, 'home', a.rot);
+    if (!room && a.tier === 'apartment') { const fp = homeFootprint(home), at = a.at; if (!at || !meets(frontageAt(worldOf(s, 'heartland'), at[0], at[1], (a.rot ?? 0) % 2 ? fp.d : fp.w, (a.rot ?? 0) % 2 ? fp.w : fp.d), APARTMENT_NEED[0])) return built ? { ok: true } : { ok: false, error: `Apartments need ${needText(APARTMENT_NEED[0])}.` }; }
     if (room) { if (!i) return fail(room); log(s, 'warning', `Only ${i} homes fitted. Clear forest to make room for more.`, 'community'); break; }
     c.homes.push(home);
     placeNew(s, 'heartland', `home:${home.id}`, a.at, a.rot);

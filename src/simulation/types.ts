@@ -314,6 +314,7 @@ export interface SettlementState {
   /** what the homes live with, averaged over families (0–1 each): smell, noise, smoke, and the bakery's fresh bread */ nuisance?: { smell: number; noise: number; smoke: number; pleasant: number };
   /** Settlement pay policy (0–0.2 each): a pay cut for workers whose families live here, and a housing tax on them. */
   payCut?: number; housingTax?: number;
+  /** share of the town services' running cost charged to the families (0–1) */ serviceFee?: number;
   /** Worker id → their family's cohort id. Only employees' families live in the settlement. */
   families?: Record<number, number>;
   charter: SettlementCharter | null;
@@ -338,10 +339,10 @@ export type DistrictId = (typeof DISTRICT_IDS)[number];
 export type ServiceType = 'school' | 'well' | 'clinic' | 'road' | 'hospital' | 'waterworks' | 'waterTower' | 'park' | 'sanitation' | 'lighting' | 'police' | ShopType | 'mall' | 'office' | 'parking' | 'watchtower' | 'barracks';
 export type ParkKind = 'garden' | 'play' | 'sport';
 export type ShopType = 'shopBaker' | 'shopDairy' | 'shopButcher' | 'shopGrocer' | 'shopGeneral';
-export interface CivicService { id: number; type: ServiceType; district: DistrictId; /** 1 a shop, 2 a market (four shops merged), 4 the mall (four markets) */ size?: number; /** the trades inside a mall */ kinds?: ShopType[]; /** what a park is laid out as */ park?: ParkKind; count: number; active: boolean; cost: number; staffed: number; funded: boolean; /** 1–3: wider reach, or more homes on its lines */ level?: number; /** families its lines serve now, and how many it can (utilities only) */ serving?: [number, number] }
+export interface CivicService { id: number; type: ServiceType; district: DistrictId; /** 1 a shop, 2 a market (four shops merged), 4 the mall (four markets) */ size?: number; /** the trades inside a mall */ kinds?: ShopType[]; /** what a park is laid out as */ park?: ParkKind; /** fronts onto too small a street for its size: works at half strength */ cramped?: boolean; count: number; active: boolean; cost: number; staffed: number; funded: boolean; /** 1–3: wider reach, or more homes on its lines */ level?: number; /** families its lines serve now, and how many it can (utilities only) */ serving?: [number, number] }
 export interface DistrictCoverage { people: number; school: number; water: number; medical: number; road: number }
 export interface CouncilPetition { id: number; kind: 'park' | 'bread'; opened: number }
-export interface TownState { /** road tiles slowed by traffic: how many times longer they take to cross */ traffic?: Record<number, number>; /** how well each kind of park reaches the families (0–1, levels count for more) */ parks?: Partial<Record<ParkKind, number>>; /** wages outside firms paid residents in the offices yesterday */ officePay?: number;
+export interface TownState { /** share of families on jammed streets, or in buildings too big for their street */ jammed?: number; /** what families paid in service fees yesterday */ feesPaid?: number; /** cars on each road tile yesterday */ flow?: Record<number, number>; /** road tiles slowed by traffic: how many times longer they take to cross */ traffic?: Record<number, number>; /** how well each kind of park reaches the families (0–1, levels count for more) */ parks?: Partial<Record<ParkKind, number>>; /** wages outside firms paid residents in the offices yesterday */ officePay?: number;
   active: boolean; enteredAt: number; charter: SchoolCharter | null; retrainingUntil: number;
   cash: number; companyAdvance: number; ledger: LedgerEntry[]; lifetime: Partial<Record<LedgerKind, number>>; books: DayBook[];
   taxRate: number; taxableIncome: number; lastTax: number; lastCost: number; lastDay: number;
@@ -487,7 +488,7 @@ export type Action =
   | { type: 'repayLoan'; loanId: number; amount: number }
   | { type: 'buyLand'; region: RegionId; chunks: number[] }
   | { type: 'buyHorseCart' }
-  | { type: 'setSettlementPay'; payCut?: number; housingTax?: number }
+  | { type: 'setSettlementPay'; payCut?: number; housingTax?: number; serviceFee?: number }
   | { type: 'zoneLand'; region: RegionId; chunks: number[]; zone: 'res' | 'ind' | 'com' | 'farm' }
   | { type: 'surveyOil'; region: RegionId; at: [number, number] }
   | { type: 'drillOil'; region: RegionId; at: [number, number] }

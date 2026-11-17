@@ -398,11 +398,14 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
       {failed && <div className="world-loading">Your browser could not start 3D graphics (WebGL). Try another browser or enable hardware acceleration.</div>}
       {hover && <div className="world-tip" style={{ left: hover.x + 14, top: hover.y + 14 }}>{hover.text.filter(Boolean).map((t, i) => <div key={i} className={i ? 'muted' : ''}>{t}</div>)}</div>}
       <div className="world-zoom">
+        <div className="tool-grid" role="toolbar" aria-label="View">
         {(canUndo() || canRedo()) && <><button className="icon-btn" aria-label="Undo" title="Undo your last build, road, line, move or removal (Ctrl/⌘ Z)" disabled={!canUndo()} onClick={() => undo()}>↶</button><button className="icon-btn" aria-label="Redo" title="Redo (Ctrl/⌘ Shift Z)" disabled={!canRedo()} onClick={() => redo()}>↷</button></>}
         <button className="icon-btn" aria-label="Zoom in" onClick={() => ctl().zoom(1.25)}>+</button>
         <button className="icon-btn" aria-label="Zoom out" onClick={() => ctl().zoom(0.8)}>−</button>
         <button className="icon-btn" aria-label="Rotate left (Q)" title="Rotate (Q)" onClick={() => ctl().rotate(1)}>⟲</button>
         <button className="icon-btn" aria-label="Rotate right (E)" title="Rotate (E)" onClick={() => ctl().rotate(-1)}>⟳</button>
+        </div>
+        <div className="tool-grid" role="toolbar" aria-label="Build and map tools">
         {featureEra(getGame(), 4) && <button data-coach="zones-btn" className={`icon-btn${zoning ? ' on' : ''}`} aria-label="Zones" title="Zones: residential and industrial land" onClick={() => zoning ? stopZoning() : startZoning(region)}>🏘</button>}
         {oilOpen(getGame()) && <button className={`icon-btn${prospect ? ' on' : ''}`} aria-label="Oil" title="Oil: survey and drill" onClick={() => prospect ? stopProspect() : startProspect(region)}>🛢</button>}
         <button className={`icon-btn${roading?.belt ? ' on' : ''}`} aria-label="Tree lines" title="Tree lines: plant rows of trees, like drawing a road" onClick={() => roading?.belt ? stopRoads() : startBelts(region)}>🌳</button>
@@ -411,6 +414,7 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
         {townOf(getGame()).active && <button className={`icon-btn${trafficMap ? ' on' : ''}`} aria-label="Traffic map" aria-pressed={trafficMap} title="Traffic map: green streets flow freely, amber and red are slowed by traffic (a parking complex helps)" onClick={() => setTrafficMap(!trafficMap)}>🚦</button>}
         {cityActive(getGame()) && <button className={`icon-btn${crimeMap ? ' on' : ''}`} aria-label="Crime map" aria-pressed={crimeMap} title="Crime map: green streets are safe, red ones need a watchhouse or lights" onClick={() => setCrimeMap(!crimeMap)}>🛡</button>}
         {featureEra(getGame(), 2) && <button className={`icon-btn${roading?.pipe === 'irrigation' ? ' on' : ''}`} aria-label="Water lines" title="Water lines: dig ditches, upgrade them to pipes and bury them" onClick={() => roading?.pipe === 'irrigation' ? stopRoads() : startPipes(region)}>💧</button>}
+        </div>
       </div>
 
     </div>

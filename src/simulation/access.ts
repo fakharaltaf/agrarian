@@ -19,27 +19,70 @@ export function roadWidth(w: RegionWorld, id: number) {
   return Math.max(1, Math.min(5, run(1, 0), run(0, 1)));
 }
 
-/** Who makes the traffic: each home by its families, offices by their desks, shops and malls by their custom. */
+/** Who makes the traffic: homes by their families (each trip out and back). */
 export interface TripSource { door: number[]; trips: number }
+/** Where trips go: shops, markets and the mall draw the most, offices their workers, schools and clinics some. */
+export interface TripSink { door: number[]; pull: number }
 /** A parking complex: takes this share of the cars off the streets within its reach. */
 export interface Parking { door: number[]; reach: number; share: number }
 
-/** Load on each road tile from everyone's trips (spread over the streets near their door), less what car parks take off them, against what the road carries. Returns tiles that are slow: a multiplier above 1. */
-export function trafficOf(w: RegionWorld, sources: TripSource[], parks: Parking[]) {
+/** Each home's trips go to the places that draw them, split by how strongly each draws and how near it is by road, along the quickest way there.
+ *  The cars counted on each tile, less what car parks take off the streets around them, against what the road carries, give how slow it is. */
+export function trafficOf(w: RegionWorld, sources: TripSource[], sinks: TripSink[], parks: Parking[]) {
   const load = new Map<number, number>();
+  const maps = sinks.map((k) => ({ pull: k.pull, ...paths(w, k.door, 160) }));
   for (const src of sources) {
-    const near = spread(w, src.door, 5);
-    if (!near.length) continue;
-    for (const id of near) load.set(id, (load.get(id) ?? 0) + src.trips / near.length * 4);
+    const reach = maps.map((m) => { let best = Infinity, at = -1; for (const id of src.door) { const c = m.best.get(id); if (c !== undefined && c < best) { best = c; at = id; } } return { m, at, w: at < 0 ? 0 : m.pull / (4 + best) ** 2 }; }).filter((x) => x.w > 0);
+    const sum = reach.reduce((a, b) => a + b.w, 0);
+    for (const r of reach) { const cars = src.trips * r.w / sum; for (let id = r.at; id >= 0; id = r.m.prev.get(id) ?? -1) load.set(id, (load.get(id) ?? 0) + cars); }
   }
   for (const p of parks) for (const id of spread(w, p.door, p.reach)) { const l = load.get(id); if (l) load.set(id, l * (1 - p.share)); }
-  const slow: Record<number, number> = {};
+  const slow: Record<number, number> = {}, flow: Record<number, number> = {};
   for (const [id, l] of load) {
-    const cap = GRADE_CAP[gradeOf(w, id)] * roadWidth(w, id), x = l / cap;
+    if (l >= 0.5) flow[id] = Math.round(l);
+    const x = l / (GRADE_CAP[gradeOf(w, id)] * roadWidth(w, id));
     if (x > 0.6) slow[id] = Math.round(Math.min(4, 1 + 2 * (x - 0.6)) * 100) / 100; // free-flowing up to 60% of what the road carries, then slower and slower
   }
-  return slow;
+  return { slow, flow };
 }
+/** Quickest routes back to a door: travel time to every road tile, and the next tile on the way. */
+function paths(w: RegionWorld, door: number[], budget: number) {
+  const best = new Map<number, number>(), prev = new Map<number, number>(), heap: [number, number][] = [];
+  const push = (c: number, id: number) => { heap.push([c, id]); let i = heap.length - 1; while (i > 0) { const p = (i - 1) >> 1; if (heap[p][0] <= heap[i][0]) break; [heap[p], heap[i]] = [heap[i], heap[p]]; i = p; } };
+  const pop = () => { const top = heap[0], last = heap.pop()!; if (heap.length) { heap[0] = last; let i = 0; for (;;) { const l = 2 * i + 1, r = l + 1; let m = i; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === i) break; [heap[m], heap[i]] = [heap[i], heap[m]]; i = m; } } return top; };
+  for (const id of door) if (roadTile(w, id)) { best.set(id, 0); push(0, id); }
+  while (heap.length) {
+    const [c, id] = pop();
+    if (c > (best.get(id) ?? Infinity)) continue;
+    const [x, y] = tileAt(id);
+    for (const n of [tileId(x + 1, y), tileId(x - 1, y), tileId(x, y + 1), tileId(x, y - 1)]) {
+      if (!roadTile(w, n)) continue;
+      const nc = c + GRADE_COST[gradeOf(w, n)] / (1 + 0.08 * (roadWidth(w, n) - 1));
+      if (nc > budget || nc >= (best.get(n) ?? Infinity)) continue;
+      best.set(n, nc); prev.set(n, id); push(nc, n);
+    }
+  }
+  return { best, prev };
+}
+
+// ---------------------------------------------------------------- frontage: the street a building stands on
+/** The widest street within a short drive of these door tiles, and its grade: what a building fronts onto. */
+export function frontageOf(w: RegionWorld, door: number[]) {
+  let lanes = 0, grade = 0;
+  for (const id of spread(w, door, 3)) { const g = gradeOf(w, id) || 3, l = roadWidth(w, id); if (l > lanes || (l === lanes && g > grade)) { lanes = l; grade = g; } }
+  return { lanes, grade };
+}
+/** What a building needs to front onto, by how many people it brings: lanes, and whether paved. */
+export interface LaneNeed { lanes: number; paved: boolean }
+export const NO_NEED: LaneNeed = { lanes: 1, paved: false };
+export const APARTMENT_NEED: LaneNeed[] = [{ lanes: 2, paved: false }, { lanes: 2, paved: true }, { lanes: 3, paved: true }];
+export const OFFICE_NEED: LaneNeed[] = [{ lanes: 2, paved: false }, { lanes: 3, paved: true }, { lanes: 4, paved: true }];
+export const MARKET_NEED: LaneNeed = { lanes: 2, paved: false }, MALL_NEED: LaneNeed = { lanes: 4, paved: true }, COMPLEX_NEED: LaneNeed = { lanes: 2, paved: false }, PARKING_NEED: LaneNeed = { lanes: 2, paved: false };
+export const meets = (f: { lanes: number; grade: number }, n: LaneNeed) => f.lanes >= n.lanes && (!n.paved || f.grade >= 3);
+export const needText = (n: LaneNeed) => `${n.lanes > 1 ? `a ${n.lanes}-lane` : 'a'}${n.paved ? ' paved' : ''} road at its door`;
+/** The frontage of a footprint at (x, y) before anything stands there. */
+export const frontageAt = (w: RegionWorld, x: number, y: number, fw: number, fd: number) => frontageOf(w, doorstep(x, y, { w: fw, d: fd }).map(([a, b]) => tileId(a, b)));
+
 /** Road tiles within this many steps of a door. */
 function spread(w: RegionWorld, door: number[], steps: number) {
   const seen = new Set<number>(), out: number[] = [];

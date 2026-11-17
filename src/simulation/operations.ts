@@ -208,13 +208,20 @@ export function service(s: GameState, m: Machine) {
 
 // ---------------------------------------------------------------- daily
 
+/** What the town gives a settled worker's family lifts their morale: schooling, healthcare, water, power, drains, parks and shops in reach, and streets that flow. Up to +0.2. */
+export function facilitiesMorale(s: GameState) {
+  const t = s.stageState.town as unknown as { active?: boolean; education?: number; medical?: number; water?: number; power?: number; sanitation?: number; parks?: Record<string, number>; jammed?: number } | undefined;
+  if (!t?.active) return 0;
+  const parks = Math.min(1, Object.values(t.parks ?? {}).reduce((a, b) => a + b, 0));
+  return 0.2 * ((t.education ?? 0) + (t.medical ?? 0) + (t.water ?? 0) + (t.power ?? 0) + (t.sanitation ?? 0) + parks) / 6 - 0.05 * (t.jammed ?? 0);
+}
 export function workforceDaily(s: GameState) {
   const quit: Worker[] = [];
   for (const w of s.workers) {
     const backlog = s.regions[w.region].backlog / (WORK_END - WORK_START);
     const c = communityOf(s), home = w.resident && c.active;
     // a home and food for the family lift morale; the pay cut and housing tax that fund them weigh on it; hands apart from their families miss them
-    const settled = home ? 0.12 + 0.1 * (c.fed - 0.5) - 0.8 * (c.payCut ?? 0) - 0.7 * (c.housingTax ?? 0) : c.active && w.region === 'heartland' ? -0.05 : 0;
+    const settled = home ? 0.12 + 0.1 * (c.fed - 0.5) - 0.8 * (c.payCut ?? 0) - 0.7 * (c.housingTax ?? 0) + facilitiesMorale(s) - 0.15 * (c.serviceFee ?? 0) : c.active && w.region === 'heartland' ? -0.05 : 0;
     const target = clamp(0.62 + (w.wageFactor - 1) * 1.3 - 0.2 * Math.min(1, backlog) + 0.15 * (s.corp.reputation - 50) / 50 + settled, 0, 1);
     w.morale = clamp(w.morale + (target - w.morale) * 0.2, 0, 1);
     w.lowDays = w.morale < 0.25 ? w.lowDays + 1 : 0;

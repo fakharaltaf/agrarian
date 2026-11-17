@@ -4,6 +4,7 @@ import { BUILDINGS, type RegionId } from './config';
 import { communityOf, workingAdults, population, residentWorkers, neighbourJobs } from './community-state';
 import type { DistrictId, GameState, ParkKind, ServiceType, ShopType, TownState } from './types';
 import type { GoodId } from './config';
+import { COMPLEX_NEED, MALL_NEED, MARKET_NEED, NO_NEED, OFFICE_NEED, PARKING_NEED, type LaneNeed } from './access';
 export const SERVICE_DEFS: Record<ServiceType, { name: string; icon: string; cost: number; capacity: number; jobs: number; kwh: number }> = {
   sanitation: {name:'Sanitation works',icon:'🚿',cost:55000,capacity:500,jobs:4,kwh:12},
   lighting: {name:'Power station',icon:'⚡',cost:40000,capacity:400,jobs:2,kwh:24},
@@ -124,6 +125,14 @@ export const serviceRadius = (b: { type: ServiceType; level?: number; size?: num
 export const utilityFamilies = (b: { type: ServiceType; level?: number; count: number; size?: number }) => (UTILITY_FAMILIES[b.type] ?? 0) * b.count * LEVEL_FAMILIES[levelOf(b) - 1] * (svcSize(b) >= 2 ? 1.25 : 1);
 export const levelCapacity = (b: { level?: number; size?: number }) => LEVEL_CAPACITY[levelOf(b) - 1] * (svcSize(b) >= 2 ? 1.25 : 1);
 export const canUpgradeService = (type: ServiceType) => HEAT_SERVICES.includes(type) || !!UTILITY_OF[type] || type === 'office' || type === 'mall' || type === 'parking';
+/** What street a town building needs at its door, by what it is and how big. */
+export function serviceNeed(b: { type: ServiceType; level?: number; size?: number }): LaneNeed {
+  if (b.type === 'office') return OFFICE_NEED[levelOf(b) - 1];
+  if (b.type === 'mall') return MALL_NEED;
+  if (b.type === 'parking') return PARKING_NEED;
+  if ((b.size ?? 1) >= 2) return isShop(b.type) ? MARKET_NEED : COMPLEX_NEED;
+  return NO_NEED;
+}
 /** Share of the cars a parking complex takes off the streets in its reach, by level. */
 export const PARKING_SHARE = [0.35, 0.5, 0.65];
 /** A service's reach is measured along the roads: a little more than as the crow flies, since streets turn corners. */

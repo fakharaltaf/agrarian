@@ -4,6 +4,7 @@ import { communityOf, familiesHere, HOME_DEFS, homeUnits, homeFamilies, homePric
 import { canStartTown } from '../../simulation/stages/town';
 import { townOf } from '../../simulation/town-state';
 import { foodBill, foodDays } from '../../simulation/stages/settlement';
+import { facilitiesMorale } from '../../simulation/operations';
 import { CONFIG, WORK_HOURS } from '../../simulation/config';
 import { marketWage } from '../../simulation/core';
 import { worldOf } from '../../simulation/world';
@@ -76,6 +77,8 @@ export default function CommunityPage() {
     <Card title="Paying for it" info="Homes and food cost money. Families pay for their own food out of their savings (their wages); what they cannot pay, the farm carries. A pay cut, or a housing tax on the workers whose families live here, brings in more. Both cost morale; a home and a full larder make up for it.">
       <SettingRow name="Pay cut" effect={`morale −${Math.round((c.payCut ?? 0) * 80)}`}><Seg label="Pay cut" value={c.payCut ?? 0} onChange={(v) => act({ type: 'setSettlementPay', payCut: v })} options={STEPS.map((v) => ({ v, label: pct0(v) }))} /></SettingRow>
       <SettingRow name="Housing tax" effect={`morale −${Math.round((c.housingTax ?? 0) * 70)}`}><Seg label="Housing tax" value={c.housingTax ?? 0} onChange={(v) => act({ type: 'setSettlementPay', housingTax: v })} options={STEPS.map((v) => ({ v, label: pct0(v) }))} /></SettingRow>
+      {townOf(s).active && <SettingRow name="Charge for town services" effect={`${(c.serviceFee ?? 0) > 0 ? `families pay ${money(Math.round(townOf(s).feesPaid ?? 0))}/day · ` : ''}morale −${Math.round((c.serviceFee ?? 0) * 15)}, happiness −${Math.round((c.serviceFee ?? 0) * 8)}`}><Seg label="Service fees" value={c.serviceFee ?? 0} onChange={(v) => act({ type: 'setSettlementPay', serviceFee: v })} options={[0, 0.25, 0.5, 0.75, 1].map((v) => ({ v, label: v ? `${Math.round(v * 100)}%` : 'Free' }))} /></SettingRow>}
+      {townOf(s).active && <p className="small">Town facilities lift your settled workers' morale by <b>+{Math.round(facilitiesMorale(s) * 100)}</b>: schools, clinics, water, power, drains and parks in reach, and streets that flow{(townOf(s).jammed ?? 0) > 0.05 ? <>; <span className="down">{pct0(townOf(s).jammed ?? 0)} of families live on jammed streets</span></> : ''}. The better they are, the more tax or fees they will bear.</p>}
       <div className="civ-balance">
         <span>Costs</span><i className="down" style={{ width: `${(b.cost / Math.max(1, b.cost, b.back)) * 100}%` }} /><b>{money(Math.round(b.cost))}/day</b>
         <span>Recovered</span><i className="up" style={{ width: `${(b.back / Math.max(1, b.cost, b.back)) * 100}%` }} /><b>{money(Math.round(b.back))}/day</b>

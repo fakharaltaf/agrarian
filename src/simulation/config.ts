@@ -414,7 +414,7 @@ export const CONFIG = {
 };
 
 export const LEDGER_KINDS = {
-  townTransfer: 'Town advance / repayment', residentTax: 'Household income tax', civic: 'Public services', gst: 'GST from city shops', tolls: 'Border tolls', diplomacy: 'Gifts, treaties & tribute',
+  townTransfer: 'Town advance / repayment', residentTax: 'Household income tax', civic: 'Public services', gst: 'GST from city shops', fees: 'Town service fees', tolls: 'Border tolls', diplomacy: 'Gifts, treaties & tribute',
   rent: 'Housing rent', sale: 'Sales', contract: 'Contract deliveries', grid: 'Power sold to grid', insurancePayout: 'Insurance payouts', prize: 'Prizes & gifts', assetSale: 'Asset sales',
   seeds: 'Seed', wages: 'Wages', salaries: 'Management salaries', staff: 'Factory staff', fuel: 'Fuel', maintenance: 'Maintenance & repairs',
   electricity: 'Electricity', water: 'Water', fertilizer: 'Fertiliser', purchases: 'Market purchases', haulage: 'Haulage', shipping: 'Freight & tariffs',
@@ -426,7 +426,7 @@ export const LEDGER_KINDS = {
 } as const;
 export type LedgerKind = keyof typeof LEDGER_KINDS;
 
-export const REVENUE_KINDS: LedgerKind[] = ['sale', 'contract', 'grid', 'rent'];
+export const REVENUE_KINDS: LedgerKind[] = ['sale', 'contract', 'grid', 'rent', 'fees'];
 export const OPEX_KINDS: LedgerKind[] = ['seeds', 'wages', 'salaries', 'staff', 'fuel', 'maintenance', 'electricity', 'water', 'fertilizer', 'purchases', 'haulage', 'shipping', 'insurance', 'lease', 'royalties', 'training', 'fines', 'research', 'legal', 'advisor', 'diplomacy'];
 export const INVESTING_KINDS: LedgerKind[] = ['townTransfer', 'land', 'machine', 'building', 'acquisition', 'irrigation', 'assetSale'];
 export const FINANCING_KINDS: LedgerKind[] = ['loanIn', 'loanRepay', 'sharesIssued', 'dividends', 'buyback'];
