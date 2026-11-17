@@ -16,9 +16,16 @@ export const households = (s: GameState) => communityOf(s).cohorts.reduce((n, c)
 export const workingAdults = (s: GameState) => communityOf(s).cohorts.reduce((n,c)=>n+c.adults,0);
 export const children = (s: GameState) => communityOf(s).cohorts.reduce((n,c)=>n+c.children,0);
 export const population = (s: GameState) => workingAdults(s) + children(s);
-export const homeCapacity = (s: GameState) => communityOf(s).homes.reduce((n, h) => n + HOME_DEFS[h.tier].families * h.count * 4, 0);
+/** Families an apartment building holds at each level: the block, the mid-rise, the tower. */
+export const APARTMENT_FAMILIES = [8, 20, 48];
+export const homeLevel = (h: { tier: string; level?: number }) => (h.tier === 'apartment' ? Math.max(1, Math.min(3, h.level ?? 1)) : 1);
+/** Families one home record holds. */
+export const homeUnits = (h: { tier: HomeTier; count: number; level?: number }) => (h.tier === 'apartment' ? APARTMENT_FAMILIES[homeLevel(h) - 1] : HOME_DEFS[h.tier].families) * h.count;
+/** What the next apartment level costs: 2.5× a block for the mid-rise, 6× for the tower. */
+export const homeUpgradePrice = (s: GameState, h: { level?: number; tier: string }) => Math.round(HOME_DEFS.apartment.cost * [2.5, 6][homeLevel(h) - 1] * s.macro.cpi);
+export const homeCapacity = (s: GameState) => communityOf(s).homes.reduce((n, h) => n + homeUnits(h) * 4, 0);
 /** Families the homes can take (one family per cottage, three per terrace, eight per apartment block). */
-export const homeFamilies = (s: GameState) => communityOf(s).homes.reduce((n, h) => n + HOME_DEFS[h.tier].families * h.count, 0);
+export const homeFamilies = (s: GameState) => communityOf(s).homes.reduce((n, h) => n + homeUnits(h), 0);
 /** A worker's family: 3–5 people including the worker (two adults and their children). */
 export const familySize = (workerId: number) => 3 + ((Math.imul(workerId, 2654435761) >>> 0) % 3);
 export const familiesHere = (s: GameState) => Object.keys(communityOf(s).families ?? {}).length;

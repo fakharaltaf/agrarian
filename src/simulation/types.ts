@@ -303,7 +303,7 @@ export type TraderCharter = 'fair' | 'shrewd';
 export interface TownValues { prosperityFairness: number; orderFreedom: number; peaceStrength: number; traditionProgress: number; cleanIndustrial?: number }
 export type SettlementCharter = 'company' | 'free';
 export type HomeTier = 'cottage' | 'terrace' | 'apartment';
-export interface CommunityHome { id: number; tier: HomeTier; count: number; cost: number }
+export interface CommunityHome { id: number; tier: HomeTier; count: number; cost: number; /** apartments only: 1 the block, 2 a mid-rise, 3 a tower */ level?: number }
 export interface HouseholdCohort { id: number; name: string; households: number; adults: number; children: number }
 export interface SettlementState {
   active: boolean;
@@ -331,12 +331,12 @@ export interface SettlementState {
 export type SchoolCharter = 'public' | 'trade';
 export const DISTRICT_IDS = ['farmgate', 'orchard', 'heights'] as const;
 export type DistrictId = (typeof DISTRICT_IDS)[number];
-export type ServiceType = 'school' | 'well' | 'clinic' | 'road' | 'hospital' | 'waterworks' | 'waterTower' | 'park' | 'sanitation' | 'lighting' | 'police' | ShopType | 'mall' | 'watchtower' | 'barracks';
+export type ServiceType = 'school' | 'well' | 'clinic' | 'road' | 'hospital' | 'waterworks' | 'waterTower' | 'park' | 'sanitation' | 'lighting' | 'police' | ShopType | 'mall' | 'office' | 'watchtower' | 'barracks';
 export type ShopType = 'shopBaker' | 'shopDairy' | 'shopButcher' | 'shopGrocer' | 'shopGeneral';
 export interface CivicService { id: number; type: ServiceType; district: DistrictId; /** 1 a shop, 2 a market (four shops merged), 4 the mall (four markets) */ size?: number; /** the trades inside a mall */ kinds?: ShopType[]; count: number; active: boolean; cost: number; staffed: number; funded: boolean; /** 1–3: wider reach, or more homes on its lines */ level?: number; /** families its lines serve now, and how many it can (utilities only) */ serving?: [number, number] }
 export interface DistrictCoverage { people: number; school: number; water: number; medical: number; road: number }
 export interface CouncilPetition { id: number; kind: 'park' | 'bread'; opened: number }
-export interface TownState {
+export interface TownState { /** wages outside firms paid residents in the offices yesterday */ officePay?: number;
   active: boolean; enteredAt: number; charter: SchoolCharter | null; retrainingUntil: number;
   cash: number; companyAdvance: number; ledger: LedgerEntry[]; lifetime: Partial<Record<LedgerKind, number>>; books: DayBook[];
   taxRate: number; taxableIncome: number; lastTax: number; lastCost: number; lastDay: number;
@@ -530,6 +530,7 @@ export type Action =
   | { type: 'choosePerk'; workerId: number; perk: PerkId }
   | { type: 'greenhouse'; fieldIds: number[] }
   | { type: 'coverField'; fieldId: number }
+  | { type: 'upgradeHome'; homeId: number }
   | { type: 'clearField'; fieldId: number };
 
 export type ActionResult = { ok: true; note?: string } | { ok: false; error: string };

@@ -1,6 +1,7 @@
 import { nuisanceHappiness, settlementExposure } from '../nuisance';
 import { workingFactories } from './shared';
-import { accessNote, canPlaceNew, hasAccess, homeFootprint, placeNew } from '../world';
+import { accessNote, canPlaceNew, doorstep, footprintOf, hasAccess, homeFootprint, linesOf, NET_TOP, placeNew, tileId, worldOf } from '../world';
+import type { CommunityHome } from '../types';
 import {releaseNeighbourJob} from '../employment';
 import type { StageModule } from './types';
 import type { Action, ActionResult, GameState } from '../types';
@@ -9,6 +10,7 @@ import { clamp, freeSpace, log, marketWage, nextId, post, reservedStock, round2 
 import { factoryJobs, localEmployment, townOf } from '../town-state';
 import { executeBuy, quoteBuy } from '../markets';
 import { shopMood } from '../city-state';
+import { homeUnits, homeLevel, homeUpgradePrice, APARTMENT_FAMILIES } from '../community-state';
 import { communityOf, createSettlementState, familySize, HOME_DEFS, homePrice, homeCapacity, households, population, availableResidents, recruitableResidents } from '../community-state';
 import { CONFIG, WORK_HOURS } from '../config';
 
@@ -44,6 +46,21 @@ export function prepareLarder(s: GameState) {
 }
 /** What a day's food for everyone is worth, at the price of grain. */
 export const foodBill = (s: GameState) => (population(s) * 2000 / GOODS.wheat.kcal) * (s.markets.heartland.wheat?.price ?? GOODS.wheat.basePrice);
+/** The best line of each kind passing a home's door (0 none). */
+export function doorLines(s: GameState, homeId: number) {
+  const w = worldOf(s, 'heartland'), p = w.pos[`home:${homeId}`], fp = footprintOf(s, `home:${homeId}`);
+  const door = p && fp ? doorstep(p[0], p[1], fp).map(([x, y]) => tileId(x, y)) : [];
+  const best = (net: 'power' | 'water' | 'sewer') => Math.max(0, ...door.map((id) => linesOf(w, net)[id] ?? 0));
+  return { power: best('power'), water: best('water'), sewer: best('sewer') };
+}
+/** What stands between an apartment building and its next level: each need, and whether it is met. */
+export function homeUpgradeNeeds(s: GameState, h: CommunityHome) {
+  const next = homeLevel(h) + 1, l = doorLines(s, h.id), city = !!(s.stageState.city as { active?: boolean } | undefined)?.active;
+  if (h.tier !== 'apartment' || next > 3) return [];
+  return next === 2
+    ? [{ need: 'Your town is a City', met: city }, { need: 'A power line at the door', met: l.power >= 1 }, { need: 'A water pipe at the door', met: l.water >= 1 }]
+    : [{ need: '800 residents', met: population(s) >= 800 }, { need: 'Underground power cable at the door', met: l.power >= NET_TOP.power }, { need: 'Buried water main at the door', met: l.water >= NET_TOP.water }, { need: 'Underground sewer at the door', met: l.sewer >= NET_TOP.sewer }];
+}
 export function larderReserve(s: GameState, good: GoodId) {
   const c = communityOf(s);
   return c.active && c.autoLarder ? Math.max(0, Math.min(c.larderHold[good] ?? 0, s.regions.heartland.inventory[good])) : 0;
@@ -94,7 +111,7 @@ export function settlementTick(s: GameState) {
   c.nuisance = settlementExposure(s); // smell and noise from the farm's buildings near the homes cost happiness; fresh bread lifts it
   const target = clamp(0.55 * c.fed + 0.25 * housed + 0.2 * c.warm - nuisanceHappiness(c.nuisance) + shopMood(s), 0, 1);
   c.happiness += (target - c.happiness) * 0.2;
-  if (c.homes.length) post(s, 'maintenance', -c.homes.reduce((n, h) => n + HOME_DEFS[h.tier].families * h.count * 0.5, 0) * s.macro.cpi, 'Community homes', 'heartland', 'corporate');
+  if (c.homes.length) post(s, 'maintenance', -c.homes.reduce((n, h) => n + homeUnits(h) * 0.5, 0) * s.macro.cpi, 'Community homes', 'heartland', 'corporate');
   // the housing tax: a share of the pay of every worker whose family lives here
   const fam = (c.families ??= {}), tax = c.housingTax ?? 0;
   if (tax > 0) {
@@ -106,7 +123,7 @@ export function settlementTick(s: GameState) {
   for (const [id, cohort] of Object.entries(fam)) if (!s.workers.some((w) => w.id === Number(id))) { c.cohorts = c.cohorts.filter((g) => g.id !== cohort); delete fam[Number(id)]; }
   // families of your employees move in while there are free homes (two a day)
   // a home nobody can reach by road takes no family
-  const reachable = c.homes.filter((h) => hasAccess(s, 'heartland', `home:${h.id}`)).reduce((n, h) => n + HOME_DEFS[h.tier].families * h.count, 0);
+  const reachable = c.homes.filter((h) => hasAccess(s, 'heartland', `home:${h.id}`)).reduce((n, h) => n + homeUnits(h), 0);
   // every family takes a home; when homes are lost, newcomers leave first, then factory staff (your workers' families keep theirs)
   const workerFams = new Set(Object.values(fam));
   for (const staff of [false, true]) for (let over = households(s) - reachable, i = c.cohorts.length - 1; over > 0 && i >= 0; i--) if (!workerFams.has(c.cohorts[i].id) && isStaff(c.cohorts[i]) === staff) { over -= c.cohorts[i].households; c.cohorts.splice(i, 1); if (over <= 0) log(s, 'warning', `${staff ? 'Factory staff' : 'Newcomer'} families moved away: there are not enough homes for them.`, 'community'); }
@@ -157,7 +174,17 @@ function action(s: GameState, a: Action): ActionResult | null {
     log(s, 'opportunity', 'Your hands miss their families. Zone some land as residential and build homes, and the families will move in.', 'community');
     return { ok: true };
   }
-  if (a.type !== 'buildHomes' && a.type !== 'setLarder' && a.type !== 'settleWorker' && a.type !== 'setSettlementPay') return null;
+  if (a.type !== 'buildHomes' && a.type !== 'setLarder' && a.type !== 'settleWorker' && a.type !== 'setSettlementPay' && a.type !== 'upgradeHome') return null;
+  if (a.type === 'upgradeHome') { // an apartment block grows upward on its own ground
+    const fail0 = (error: string): ActionResult => ({ ok: false, error }), h = communityOf(s).homes.find((x) => x.id === a.homeId);
+    if (!h || h.tier !== 'apartment') return fail0('Only apartments grow taller.');
+    if (homeLevel(h) >= 3) return fail0('This is already a tower.');
+    const missing = homeUpgradeNeeds(s, h).find((n) => !n.met); if (missing) return fail0(`Needs: ${missing.need.toLowerCase()}.`);
+    const cost = homeUpgradePrice(s, h); if (cost > s.cash) return fail0(`That costs $${cost.toLocaleString()}.`);
+    post(s, 'building', -cost, homeLevel(h) === 1 ? 'Apartments to a mid-rise' : 'Mid-rise to a tower', 'heartland', 'corporate');
+    h.level = homeLevel(h) + 1; h.cost += cost;
+    return { ok: true, note: `${homeLevel(h) === 3 ? '🎉 A tower rises' : 'A mid-rise rises'}: room for ${APARTMENT_FAMILIES[homeLevel(h) - 1]} families.` };
+  }
   if (!c.active) return fail('Begin the Settlement chapter first.');
   if (a.type === 'settleWorker') {
     const w=s.workers.find(w=>w.id===a.workerId&&w.region==='heartland');
@@ -197,6 +224,6 @@ function action(s: GameState, a: Action): ActionResult | null {
 }
 export const settlement: StageModule = {
   id: 'settlement', title: 'Settlement', legacyEras: [], eraUnlocks: {},
-  actionTypes: ['startSettlement', 'buildHomes', 'setLarder', 'settleWorker', 'setSettlementPay'], tips: [], discoveries: [],
+  actionTypes: ['startSettlement', 'buildHomes', 'setLarder', 'settleWorker', 'setSettlementPay', 'upgradeHome'], tips: [], discoveries: [],
   tick: settlementTick, handleAction: action, createState: () => createSettlementState() as unknown as Record<string, unknown>,
 };

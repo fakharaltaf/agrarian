@@ -14,6 +14,7 @@ export const SERVICE_DEFS: Record<ServiceType, { name: string; icon: string; cos
   shopGrocer: {name:'Greengrocer',icon:'🍎',cost:12000,capacity:1e12,jobs:2,kwh:2},
   shopGeneral: {name:'General store',icon:'🧺',cost:15000,capacity:1e12,jobs:2,kwh:2},
   mall: {name:'Mall',icon:'🏬',cost:250000,capacity:1e12,jobs:20,kwh:60},
+  office: {name:'Office',icon:'🏢',cost:90000,capacity:1e12,jobs:0,kwh:30},
   school: { name: 'School', icon: '📚', cost: 30000, capacity: 80, jobs: 4, kwh: 8 },
   well: { name: 'Well', icon: '💧', cost: 8000, capacity: 100, jobs: 1, kwh: 0 },
   clinic: { name: 'Clinic', icon: '♥', cost: 45000, capacity: 150, jobs: 3, kwh: 16 },
@@ -110,7 +111,10 @@ export const levelOf = (b: { level?: number }) => Math.max(1, Math.min(3, b.leve
 export const serviceRadius = (b: { type: ServiceType; level?: number; size?: number }) => (b.type === 'mall' ? 60 : (SERVICE_RADIUS[b.type] ?? 10) * (svcSize(b) >= 2 ? 1.8 : 1)) * LEVEL_REACH[levelOf(b) - 1];
 export const utilityFamilies = (b: { type: ServiceType; level?: number; count: number }) => (UTILITY_FAMILIES[b.type] ?? 0) * b.count * LEVEL_FAMILIES[levelOf(b) - 1];
 export const levelCapacity = (b: { level?: number }) => LEVEL_CAPACITY[levelOf(b) - 1];
-export const canUpgradeService = (type: ServiceType) => HEAT_SERVICES.includes(type) || !!UTILITY_OF[type];
+export const canUpgradeService = (type: ServiceType) => HEAT_SERVICES.includes(type) || !!UTILITY_OF[type] || type === 'office' || type === 'mall';
+/** Desks outside firms fill with your residents, by office level; a mall's tower (its level 2) holds as many as a mid-rise. */
+export const OFFICE_JOBS = [20, 50, 120];
+export const officeJobs = (b: { type: ServiceType; level?: number; count: number }) => (b.type === 'office' ? OFFICE_JOBS[levelOf(b) - 1] * b.count : b.type === 'mall' && levelOf(b) >= 2 ? OFFICE_JOBS[1] : 0);
 export const serviceUpgradePrice = (s: GameState, b: { type: ServiceType; level?: number; count: number }) => Math.round(SERVICE_DEFS[b.type].cost * b.count * [0.8, 1.5][levelOf(b) - 1] * s.macro.cpi * 100) / 100;
 /** A heat-map service fades out over this much more than its full reach. */
 export const HEAT_FADE = 0.75;

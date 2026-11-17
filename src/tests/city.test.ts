@@ -198,3 +198,33 @@ it('Families pay for their own food out of their savings; the farm only carries 
   expect(c.fed).toBeCloseTo(1, 2); expect(c.foodPaid!).toBeCloseTo(foodBill(s), 0); expect((s.lifetime.sale ?? 0) - cash).toBeCloseTo(c.foodPaid!, 1); expect(c.householdCash).toBeLessThan(1e6);
   c.householdCash = 10; s.tick += 24; progressionTick(s); expect(c.foodPaid).toBeLessThanOrEqual(10); expect(c.householdCash).toBeGreaterThanOrEqual(0); // broke families still eat
 });
+
+it('Apartments grow into a mid-rise and a tower when their needs are met; offices bring outside wages into the city', async () => {
+  const W = await import('../simulation/world');
+  const { homeUnits, homeFamilies } = await import('../simulation/community-state');
+  const { homeUpgradeNeeds } = await import('../simulation/stages/settlement');
+  const { townDaily } = await import('../simulation/stages/town');
+  const s = ready(), c = communityOf(s), t = townOf(s), w = W.worldOf(s, 'heartland'), o: [number, number] = [W.MAP.x0 + 40, W.MAP.y0 + 8];
+  const chunks = [...new Set(Array.from({ length: 144 }, (_, i) => W.chunkAt(o[0] + (i % 12), o[1] + Math.floor(i / 12))))];
+  w.owned = [...new Set([...w.owned, ...chunks])]; w.cleared = [...new Set([...w.cleared, ...chunks])]; W.touch(w);
+  expect(dispatch(s, { type: 'zoneLand', region: 'heartland', chunks: chunks.slice(0, 4), zone: 'res' }).ok).toBe(true);
+  expect(dispatch(s, { type: 'buildHomes', tier: 'apartment', count: 1, at: o }).ok).toBe(true);
+  const h = c.homes.at(-1)!, before = homeFamilies(s);
+  expect(dispatch(s, { type: 'upgradeHome', homeId: h.id }).ok).toBe(false); // not a City yet, no lines
+  dispatch(s, { type: 'startCity', charter: 'watch' });
+  const door = W.doorstep(o[0], o[1], W.footprintOf(s, `home:${h.id}`)!).map(([x, y]) => W.tileId(x, y));
+  w.nets = { power: { [door[0]]: 1 }, water: { [door[0]]: 1 } };
+  expect(homeUpgradeNeeds(s, h).every((n) => n.met)).toBe(true);
+  const cash = s.cash; { const r0 = dispatch(s, { type: 'upgradeHome', homeId: h.id }); if (!r0.ok) console.log('UP', r0.error); expect(r0.ok).toBe(true); }
+  expect(h.level).toBe(2); expect(homeUnits(h)).toBe(20); expect(homeFamilies(s) - before).toBe(12); expect(cash - s.cash).toBeCloseTo(35000 * 2.5 * s.macro.cpi, 0);
+  expect(dispatch(s, { type: 'upgradeHome', homeId: h.id }).ok).toBe(false); // a tower needs 800 people and the best lines
+  c.cohorts[0].adults = 500; c.cohorts[0].children = 400; w.nets = { power: { [door[0]]: 2 }, water: { [door[0]]: 2 }, sewer: { [door[0]]: 3 } };
+  expect(dispatch(s, { type: 'upgradeHome', homeId: h.id }).ok).toBe(true); expect(homeUnits(h)).toBe(48);
+  // an office on commercial land: outside firms pay residents, the farm pays no wages for it
+  const co = chunks.slice(8, 12); expect(dispatch(s, { type: 'zoneLand', region: 'heartland', chunks: co, zone: 'com' }).ok).toBe(true);
+  const [cx, cy] = W.chunkOrigin(co[0]);
+  expect(dispatch(s, { type: 'buildService', service: 'office', district: 'farmgate', at: [cx, cy] }).ok).toBe(true);
+  const savings = c.householdCash; t.lastDay = -1; s.tick = 24 * 60; townDaily(s);
+  expect(t.officePay!).toBeGreaterThan(0); expect(c.householdCash).toBeGreaterThan(savings);
+  expect(parseSave(JSON.stringify({ game: s })).game).toEqual(s);
+});

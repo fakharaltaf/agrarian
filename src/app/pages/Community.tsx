@@ -1,6 +1,6 @@
 import { nuisanceHappiness, NUISANCE_LOOK } from '../../simulation/nuisance';
 import { act, go, startZoning, useGame } from '../../stores/game';
-import { communityOf, familiesHere, HOME_DEFS, homeFamilies, homePrice, households, population } from '../../simulation/community-state';
+import { communityOf, familiesHere, HOME_DEFS, homeUnits, homeFamilies, homePrice, households, population } from '../../simulation/community-state';
 import { canStartTown } from '../../simulation/stages/town';
 import { townOf } from '../../simulation/town-state';
 import { foodBill, foodDays } from '../../simulation/stages/settlement';
@@ -22,7 +22,7 @@ function budget(s: GameState) {
   const residents = s.workers.filter((w) => w.resident && fam[w.id] !== undefined);
   const base = residents.reduce((n, w) => n + (w.role === 'manager' ? CONFIG.managerWage * s.macro.cpi : marketWage(s, 'heartland')) * w.wageFactor * WORK_HOURS, 0);
   const cut = base * (c.payCut ?? 0), tax = base * (1 - (c.payCut ?? 0)) * (c.housingTax ?? 0);
-  const upkeep = c.homes.reduce((n, h) => n + HOME_DEFS[h.tier].families * h.count * 0.5, 0) * s.macro.cpi;
+  const upkeep = c.homes.reduce((n, h) => n + homeUnits(h) * 0.5, 0) * s.macro.cpi;
   return { cost: upkeep + foodBill(s), back: cut + tax + (c.foodPaid ?? 0), food: c.foodPaid ?? 0 };
 }
 

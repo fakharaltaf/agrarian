@@ -3,7 +3,7 @@ import { act, go, setCrimeMap, startPipes, useGame } from '../../stores/game';
 import { population } from '../../simulation/community-state';
 import { cityOf, POLICE_CHARTERS, type PoliceCharter } from '../../simulation/city-state';
 import { caseCost, cityTrainingCost, policeReformCost } from '../../simulation/stages/city';
-import { serviceJobs, servicePrice, serviceRadius, townOf } from '../../simulation/town-state';
+import { OFFICE_JOBS, serviceJobs, servicePrice, serviceRadius, townOf } from '../../simulation/town-state';
 import { serviceDailyCost } from '../../simulation/stages/town';
 import { GOODS } from '../../simulation/config';
 import { Bar, Info, Modal, PageHead, Seg } from '../ui';
@@ -44,6 +44,7 @@ export default function CityPage() {
   const lit = t.power ?? 0, stations = t.services.filter((b) => b.type === 'police'), charter = POLICE_CHARTERS[v.charter ?? 'watch'];
   const idle = stations.find((b) => b.active && b.staffed < serviceJobs(s, 'police') * b.count), paused = stations.find((b) => !b.active);
   const price = servicePrice(s, 'police'), place = () => act({ type: 'buildService', service: 'police', district: 'farmgate' });
+  const offices = t.services.filter((b) => b.type === 'office');
   const showMap = () => { setCrimeMap(true); go('farm'); };
   const days = v.case ? Math.max(0, Math.ceil((v.case.deadline - s.tick) / 24)) : 0;
 
@@ -86,6 +87,12 @@ export default function CityPage() {
       </SettingRow>
     </section>
     <ShopsSection />
+    <h2 className="civ-h">Offices</h2>
+    <div className="civ-builds">
+      <BuildCard img={portrait('civic:office')} fallback="🏢" name={<>Office{offices.length > 0 && <small> ×{offices.length}</small>}</>}
+        lines={['Outside firms hire your residents and pay their wages, which come back through the shops and GST.', `${OFFICE_JOBS.join(' / ')} desks at levels 1–3 · the tower needs 800 residents · stands on commercial land`, t.officePay ? `Firms paid residents ${money(t.officePay)} yesterday` : 'No office wages yet']}
+        action={<button className="btn primary" disabled={servicePrice(s, 'office') > s.cash} onClick={() => act({ type: 'buildService', service: 'office', district: 'farmgate' })}>Place · {money(servicePrice(s, 'office'))}</button>} />
+    </div>
     {v.neighbourJobs > 0 && <details className="town-budget" data-coach="city-decisions"><summary>👥 Neighbouring employers · {num(v.neighbourJobs)} jobs · {money(v.neighbourPayroll)} paid today</summary><div className="stack">{v.employers.map((e) => <div className="town-cash-flow" key={e.id}><span>{s.competitors.find((b) => b.id === e.id)?.name ?? 'Local employer'}<b>{e.jobs} jobs</b></span><span>Wages to households<b>{money(e.wages)}</b></span></div>)}<Info text="Your factories and public services hire resident adults first; the rest can work for neighbouring farms. A 1.1× offer can win an employed neighbour over to your crew." /></div></details>}
     <p className="small muted civ-foot">{v.solved} case{v.solved === 1 ? '' : 's'} answered · {v.rehabilitated} rehabilitated · prevention {pct0(v.prevention)}. Watchhouses are paid by the farm. <button className="btn ghost sm" onClick={showMap}>🛡 Crime map</button><button className="btn ghost sm" onClick={() => go('town')}>Town services →</button></p>
     {reform && <Modal title="Reform the watch" onClose={() => setReform(false)}><div className="charter-heading"><b>{money(policeReformCost(s))} · 7 days without the extra watch</b><span>Officers stay paid while they retrain.</span></div>{charters(true)}</Modal>}

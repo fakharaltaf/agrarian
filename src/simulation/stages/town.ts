@@ -12,15 +12,15 @@ import { larderReserve } from './settlement';
 import { GOODS, WORK_HOURS, type GoodId } from '../config';
 import { clamp, electricityPrice, log, marketWage, nextId, post, priceUsd, random, reservedStock, round2 } from '../core';
 import { communityOf, familiesHere, population, workingAdults, children, residentWorkers } from '../community-state';
-import { createTownState, districtPopulation, factoryJobs, localEmployment, payHouseholds, schoolChangeCost, SERVICE_DEFS, SERVICE_GROUPS, servicePrice, serviceJobs, townOf, townWorkforce, UTILITY_OF, utilityFamilies, serviceRadius, heatAt, levelCapacity, canUpgradeService, levelOf, serviceUpgradePrice, SHOP_GOODS, SHOP_TYPES, isShop, mergeGroup, sellsKind, shopPull, svcSize, svcSide, serviceName } from '../town-state';
-import { HOME_DEFS } from '../community-state';
+import { createTownState, districtPopulation, factoryJobs, localEmployment, payHouseholds, schoolChangeCost, SERVICE_DEFS, SERVICE_GROUPS, servicePrice, serviceJobs, townOf, townWorkforce, UTILITY_OF, utilityFamilies, serviceRadius, heatAt, levelCapacity, canUpgradeService, levelOf, serviceUpgradePrice, SHOP_GOODS, SHOP_TYPES, isShop, officeJobs, mergeGroup, sellsKind, shopPull, svcSize, svcSide, serviceName } from '../town-state';
+import { homeUnits } from '../community-state';
 import { doorstep, footprintOf, hasAccess, netReach, NET_QUALITY, tileId, worldOf } from '../world';
 
 export const canStartTown = (s: GameState) => communityOf(s).active && !townOf(s).active && familiesHere(s)>=6 && communityOf(s).happiness>=.6 && communityOf(s).fed>=.9;
 export function serviceAvailable(s: GameState, type: ServiceType): boolean {
   const t=townOf(s);
   if(type==='sanitation'||type==='lighting'||type==='waterTower')return t.active||cityActive(s); // the town's own utilities
-  if(type==='police'||type==='mall')return cityActive(s);
+  if(type==='police'||type==='mall'||type==='office')return cityActive(s);
   if(isShop(type))return t.active; // shops open in the Town; they merge into markets in the City
   if(type==='watchtower')return regionActive(s);
   if(type==='barracks')return nationActive(s)&&nationOf(s).path==='army';
@@ -114,7 +114,7 @@ export function townDaily(s: GameState) {
     s.workers.splice(s.workers.indexOf(worker),1);
     for(const machine of s.machines)if(machine.driver===worker.id)machine.driver=null;
   }
-  let adults=townWorkforce(s); t.publicJobs=0; t.lastCost=0;
+  let adults=townWorkforce(s); t.publicJobs=0; t.lastCost=0; t.officePay=0;
   const pop=districtPopulation(s);
   for(const id of DISTRICT_IDS) t.coverage[id]={people:pop[id],school:0,water:0,medical:0,road:0};
   // Public buildings retain construction order; priority is explicit and stable.
@@ -123,6 +123,9 @@ export function townDaily(s: GameState) {
     if(!b.active) continue;
     const d=SERVICE_DEFS[b.type], needed=serviceJobs(s,b.type)*b.count, jobs=Math.min(adults,needed);
     if(needed>0 && jobs===0) continue;
+    // offices (and a mall's tower): outside firms take on residents and pay them; the farm only keeps the building running
+    const desks=Math.min(Math.max(0,adults-jobs),officeJobs(b));
+    if(desks>0){const pay=round2(desks*WORK_HOURS*marketWage(s,'heartland')*1.2);payHouseholds(s,pay);adults-=desks;t.publicJobs+=desks;t.officePay=round2((t.officePay??0)+pay);}
     const cost=round2(serviceDailyCost(s,b.type,jobs/b.count)*b.count);
     post(s,'civic',-cost,`${d.name} upkeep`,'heartland','corporate'); t.lastCost=round2(t.lastCost+cost);
     const wages=round2(jobs*WORK_HOURS*marketWage(s,'heartland'));
@@ -139,7 +142,7 @@ export function townDaily(s: GameState) {
   // edge; upgrades widen it). Power, water and sewage reach homes only along their lines, nearest homes first, up to the
   // families the building can serve; the weakest line tier on the way sets how well.
   const w=worldOf(s,'heartland');
-  const homes=c.homes.map(h=>{const p=w.pos[`home:${h.id}`],fp=footprintOf(s,`home:${h.id}`);return p&&fp?{id:h.id,x:p[0]+fp.w/2,y:p[1]+fp.d/2,door:doorstep(p[0],p[1],fp).map(([x,y])=>tileId(x,y)),families:HOME_DEFS[h.tier].families*h.count}:null;}).filter(Boolean) as {id:number;x:number;y:number;door:number[];families:number}[];
+  const homes=c.homes.map(h=>{const p=w.pos[`home:${h.id}`],fp=footprintOf(s,`home:${h.id}`);return p&&fp?{id:h.id,x:p[0]+fp.w/2,y:p[1]+fp.d/2,door:doorstep(p[0],p[1],fp).map(([x,y])=>tileId(x,y)),families:homeUnits(h)}:null;}).filter(Boolean) as {id:number;x:number;y:number;door:number[];families:number}[];
   const total=homes.reduce((n,h)=>n+h.families,0);
   const working=(b:typeof t.services[number])=>b.active&&b.funded&&(SERVICE_DEFS[b.type].jobs===0||b.staffed>0)&&hasAccess(s,'heartland',`svc:${b.id}`);
   const heat=(types:readonly ServiceType[])=>{
@@ -237,10 +240,12 @@ function action(s: GameState,a:Action):ActionResult|null {
   if(a.type==='upgradeService') {
     const b=t.services.find(x=>x.id===a.serviceId);if(!b)return fail('Service not found.');
     if(!canUpgradeService(b.type)&&!(isShop(b.type)&&svcSize(b)>=2))return fail(isShop(b.type)?'Shops grow by merging: four of a kind in a square become a market.':'This service has no upgrades.');
-    if(levelOf(b)>=3)return fail('Already at the top level.');
+    if(levelOf(b)>=(b.type==='mall'?2:3))return fail('Already at the top level.');
+    if((b.type==='office'&&levelOf(b)===2||b.type==='mall')&&population(s)<800)return fail('A tower needs a city of 800 residents.');
     const cost=serviceUpgradePrice(s,b);if(s.cash<cost)return fail(`Upgrading costs $${cost.toLocaleString()}.`);
     post(s,'building',-cost,`${serviceName(b)} to level ${levelOf(b)+1}`,'heartland','corporate');
     b.level=levelOf(b)+1;b.cost=round2(b.cost+cost);
+    if(b.type==='office'||b.type==='mall')return {ok:true,note:`${b.type==='mall'?'🎉 The office tower opens':levelOf(b)===3?'🎉 The office tower opens':'The offices grow'}: ${officeJobs(b)} desks for your residents, paid by outside firms.`};
     return {ok:true,note:UTILITY_OF[b.type]?`It can now serve ${Math.round(utilityFamilies(b))} families along its lines.`:`It now reaches ${Math.round(serviceRadius(b))} tiles.`};
   }
   if(a.type==='mergeService') {

@@ -84,7 +84,7 @@ interface Rig {
   felling?: { chunk: number; trees: THREE.Group[]; fallAt: number[]; extras: THREE.Group };
 }
 
-export type WorldAction = 'harvest' | 'plant' | 'inspect' | 'plan' | 'place' | 'fertilise' | 'irrigate' | 'pipes' | 'move' | 'movelot' | 'merge' | 'placeok' | 'placecancel' | 'clear1' | 'clear9' | 'buy1' | 'buy9';
+export type WorldAction = 'harvest' | 'plant' | 'inspect' | 'plan' | 'place' | 'fertilise' | 'irrigate' | 'pipes' | 'move' | 'movelot' | 'merge' | 'homeup' | 'placeok' | 'placecancel' | 'clear1' | 'clear9' | 'buy1' | 'buy9';
 
 export function Scene3D({ region, selected, onPick, plantLabel, onAction, selectedLot, placing, forestAt, placeCost, roading, prospect, zoning }: { region: RegionId; selected: number[]; onPick: (p: WorldPick) => void; plantLabel?: string; selectedLot?: string; onAction?: (kind: WorldAction, fieldId: number) => void; placing?: Placement | null; forestAt?: [number, number] | null; placeCost?: number; roading?: Roading | null; prospect?: { region: RegionId; hover?: [number, number] } | null; zoning?: Zoning | null }) {
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -534,7 +534,7 @@ function turnPoint(l: Lot, x: number, z: number): [number, number] {
 }
 const OUTLINE_FILL = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.35, depthWrite: false }), OUTLINE_EDGE = new THREE.LineBasicMaterial({ color: 0x2a2216 });
 function syncLots(R: Rig, L: Layout) {
-  const sig = L.lots.map((l) => `${l.key}:${l.type}@${l.x},${l.y}r${l.rot}:${l.buildings.length}:${l.buildings.map((b) => b.level).join('')}:${l.service?.level ?? 1}:${l.w}`).join('|');
+  const sig = L.lots.map((l) => `${l.key}:${l.type}@${l.x},${l.y}r${l.rot}:${l.buildings.length}:${l.buildings.map((b) => b.level).join('')}:${l.service?.level ?? 1}:${l.w}:${l.level ?? 1}`).join('|');
   if (sig === R.sig.lots) return;
   R.sig.lots = sig;
   clear(R.lots); clear(R.outlines);
@@ -545,7 +545,7 @@ function syncLots(R: Rig, L: Layout) {
     const edge = new THREE.LineSegments(cached(`fpe${lot.w}x${lot.d}`, () => new THREE.EdgesGeometry(new THREE.BoxGeometry(lot.w - 0.1, 0.5, lot.d - 0.1))), OUTLINE_EDGE); edge.position.set(lot.x + lot.w / 2, 0.25, lot.y + lot.d / 2);
     R.outlines.add(fill, edge);
     const bw = lot.rot % 2 ? lot.d : lot.w, bd = lot.rot % 2 ? lot.w : lot.d; // built unturned, then turned about its centre
-    const model = lot.key.startsWith('civic:') ? buildCivic(lot.key.split(':')[1], bw, bd, lot.service?.level ?? 1) : lot.key.startsWith('community:') ? buildCommunityHome(lot.key.split(':')[1], bw, bd, lot.key) : buildLot(lot.type, bw, bd, lot.key === 'crew' || lot.key === 'office' || lot.key === 'market' ? lot.key : '', Math.max(1, ...lot.buildings.map((b) => b.level)));
+    const model = lot.key.startsWith('civic:') ? buildCivic(lot.key.split(':')[1], bw, bd, lot.service?.level ?? 1) : lot.key.startsWith('community:') ? buildCommunityHome(lot.key.split(':')[1], bw, bd, lot.key, lot.level ?? 1) : buildLot(lot.type, bw, bd, lot.key === 'crew' || lot.key === 'office' || lot.key === 'market' ? lot.key : '', Math.max(1, ...lot.buildings.map((b) => b.level)));
     const inner = new THREE.Group(); inner.add(...model.group.children); inner.position.set(-bw / 2, 0, -bd / 2); model.group.add(inner);
     model.group.position.set(lot.x + lot.w / 2, 0, lot.y + lot.d / 2); model.group.rotation.y = (lot.rot * Math.PI) / 2;
     model.smoke = model.smoke.map((p) => { const [x, z] = turnPoint(lot, p.x, p.z); return new THREE.Vector3(x, p.y, z); });
@@ -1946,12 +1946,12 @@ function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el
   if(selectedLot && !placing){
     const lot=L.lots.find(x=>x.key===selectedLot);
     if(lot){const [px,py]=project(lot.x+lot.w/2,2.5,lot.y+lot.d/2);
-      const label=lot.service&&(UTILITY_OF[lot.service.type]||['school','clinic','well'].includes(lot.service.type))?'⚙ Manage':lot.service?.type==='barracks'?'⚔ Nation':lot.service?.type==='watchtower'?'🗼 Region':lot.service&&(lot.service.type.startsWith('shop')||lot.service.type==='mall')?'🏪 Shops':lot.service&&['sanitation','lighting','police'].includes(lot.service.type)?'🛡 City':lot.key.startsWith('civic:')?'🏛 Town':lot.key.startsWith('community:')?'🏠 Families':lot.key==='crew'?'👒 Crew':lot.key==='office'?'⚙ Policies':lot.key==='market'?'🪙 Trade':lot.type==='house'||lot.type==='shed'?'📖 Books':BUILDINGS[lot.type].category==='storage'?'📦 Store':'⚙ Manage';
+      const label=lot.service&&(UTILITY_OF[lot.service.type]||['school','clinic','well'].includes(lot.service.type))?'⚙ Manage':lot.service?.type==='barracks'?'⚔ Nation':lot.service?.type==='watchtower'?'🗼 Region':lot.service&&(lot.service.type.startsWith('shop')||lot.service.type==='mall')?'🏪 Shops':lot.service?.type==='office'?'⚙ Manage':lot.service&&['sanitation','lighting','police'].includes(lot.service.type)?'🛡 City':lot.key.startsWith('civic:')?'🏛 Town':lot.key.startsWith('community:')?'🏠 Families':lot.key==='crew'?'👒 Crew':lot.key==='office'?'⚙ Policies':lot.key==='market'?'🪙 Trade':lot.type==='house'||lot.type==='shed'?'📖 Books':BUILDINGS[lot.type].category==='storage'?'📦 Store':'⚙ Manage';
       // shops and markets: four in a square merge; show how close this one is
       const mg=lot.service?mergeGroup(s,lot.service.id):null;
       const merge=mg?.complete?button('merge:0',`⧉ Merge into ${mg.into} · ${money(mg.price)}`):'';
       if(mg&&!mg.complete&&mg.members.length>1){const [hx,hy]=project(mg.origin[0]+mg.step-0.5,0.6,mg.origin[1]+mg.step-0.5);want.push({key:'merge-hint',x:hx,y:hy,html:`${mg.members.length}/4 for a ${mg.into}`,cls:'wl-note'});}
-      want.push({key:'place-act',x:Math.max(100,Math.min(W-100,px)),y:Math.max(80,Math.min(H-30,py)),html:merge+button('place:0',label)+(lot.type==='oilWell'?'':button('movelot:0','✥ Move'))+button('inspect:0','ⓘ'),cls:'wl-radial'});
+      want.push({key:'place-act',x:Math.max(100,Math.min(W-100,px)),y:Math.max(80,Math.min(H-30,py)),html:merge+(lot.key.startsWith('community:apartment:')&&(lot.level??1)<3?button('homeup:0',(lot.level??1)===1?'⬆ Mid-rise':'⬆ Tower'):'')+button('place:0',label)+(lot.type==='oilWell'?'':button('movelot:0','✥ Move'))+button('inspect:0','ⓘ'),cls:'wl-radial'});
     }
   }
   const st=stored(s,R.region), store=L.lots.find(l=>l.type!=='house'&&l.type!=='shed'&&BUILDINGS[l.type].category==='storage');

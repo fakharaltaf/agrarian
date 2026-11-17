@@ -4,7 +4,7 @@
 // Each fades with distance from the building to nothing at its radius (tiles), and adds up across buildings (capped at 1).
 import type { BuildingType } from './config';
 import type { GameState } from './types';
-import { HOME_DEFS, communityOf } from './community-state';
+import { homeUnits, communityOf } from './community-state';
 import { footprintOf, worldOf } from './world';
 
 export type NuisanceKind = 'smell' | 'noise' | 'smoke' | 'pleasant';
@@ -71,7 +71,7 @@ export function homesExposed(s: GameState, sources = nuisanceSources(s)) {
     const key = `home:${h.id}`, p = w.pos[key], fp = footprintOf(s, key);
     if (!p || !fp) return null;
     const x = p[0] + fp.w / 2, y = p[1] + fp.d / 2;
-    return { key, x, y, families: HOME_DEFS[h.tier].families * h.count, e: exposureAt(sources, x, y) };
+    return { key, x, y, families: homeUnits(h), e: exposureAt(sources, x, y) };
   }).filter((h): h is NonNullable<typeof h> => !!h);
 }
 /** What the settlement as a whole lives with: each kind averaged over its families (0–1). */

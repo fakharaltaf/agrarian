@@ -14,7 +14,7 @@ export { FOOTPRINT, plotSide } from '../../simulation/world';
 
 /** `place` is the saved-map key this lot moves with (several home blocks share one). */
 /** w and d are as it stands on the map (already turned); rot is its quarter turns, the front facing +y at 0. */
-export interface Lot { key: string; place: string; type: BuildingType | 'house' | 'shed'; buildings: Building[]; service?: CivicService; x: number; y: number; w: number; d: number; rot: number }
+export interface Lot { /** a home's level (apartments grow upward) */ level?: number; key: string; place: string; type: BuildingType | 'house' | 'shed'; buildings: Building[]; service?: CivicService; x: number; y: number; w: number; d: number; rot: number }
 export interface Plot { field: Field; x: number; y: number; s: number }
 export interface Layout { lots: Lot[]; plots: Plot[]; roadY: number; buy: { x: number; y: number; s: number } | null; maxX: number; maxY: number; minX: number; minY: number }
 
@@ -38,7 +38,7 @@ export function layoutRegion(s: GameState, r: RegionId): Layout {
       if (!p) continue;
       // blocks stand in rows of four inside the home's footprint
       const rot = w.rot?.[`home:${home.id}`] ?? 0; // a turned home lays its rows of blocks the other way
-      for (let i = 0; i < HOME_BLOCKS(home); i++) { const a = (i % 4) * 4, b = Math.floor(i / 4) * 4; lots.push({ key: `community:${home.tier}:${home.id}-${i}`, place: `home:${home.id}`, type: 'house', buildings: [], x: p[0] + (rot % 2 ? b : a), y: p[1] + (rot % 2 ? a : b), w: 3, d: 3, rot }); }
+      for (let i = 0; i < HOME_BLOCKS(home); i++) { const a = (i % 4) * 4, b = Math.floor(i / 4) * 4; lots.push({ key: `community:${home.tier}:${home.id}-${i}`, place: `home:${home.id}`, type: 'house', buildings: [], x: p[0] + (rot % 2 ? b : a), y: p[1] + (rot % 2 ? a : b), w: 3, d: 3, rot, level: home.level ?? 1 }); }
     }
   }
   if (r === 'heartland' && townOf(s).active) {

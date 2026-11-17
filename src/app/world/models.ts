@@ -765,7 +765,8 @@ export function tree(scale: number, crown: THREE.Material, kind = 0) {
 export { cached, cyl, mesh };
 
 /** Civic housing keeps the farm's materials while making density visible. */
-export function buildCommunityHome(tier: string, w: number, d: number, key = ''): Model {
+export function buildCommunityHome(tier: string, w: number, d: number, key = '', level = 1): Model {
+  if (tier === 'apartment' && level >= 2) return buildApartmentTower(level >= 3 ? 3 : 2, w, d, key);
   const group = new THREE.Group(), windows: THREE.Mesh[] = [], smoke: THREE.Vector3[] = [];
   const seed = hashStr(key);
   const kind: ArtId | null = tier === 'cottage' ? (['cottage', 'cottage2', 'cottage3'] as const)[Math.floor(seed * 3)] : tier === 'terrace' ? 'townhouse' : null;
@@ -849,6 +850,7 @@ export function buildCommunityHome(tier: string, w: number, d: number, key = '')
 export function buildCivic(type: string, w: number, d: number, level = 1): Model {
   if (type.startsWith('shop')) return w >= 6 ? buildMarketHall(type.slice(4).toLowerCase() as ShopKind, w, d) : buildShop(type.slice(4).toLowerCase() as ShopKind, w, d);
   if (type === 'mall') return buildMall(w, d, level > 1);
+  if (type === 'office') return buildOffice(Math.max(1, Math.min(3, level)) as 1 | 2 | 3, w, d);
   const group = new THREE.Group(), windows: THREE.Mesh[] = [], smoke: THREE.Vector3[] = [];
   group.add(box(w-.1,.08,d-.1,PAL.stone,w/2,0,d/2));
   if(type==='lighting'){ // power station: brick turbine hall, tall stack, fenced transformer yard, a pylon carrying the line out
