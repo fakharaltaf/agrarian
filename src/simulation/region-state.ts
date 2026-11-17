@@ -12,7 +12,13 @@ export const NEIGHBOURS: Record<NeighbourId, NeighbourDef> = {
   coastal: { leader: 'Harbourmaster Ines', icon: '⚓', wants: 'cheese', fears: 'walls', trust0: 50 },
   tropics: { leader: 'Queen Asha', icon: '🌴', wants: 'wheat', fears: 'open', trust0: 40 },
 };
-export interface Neighbour { trust: number; route: { good: GoodId; qty: number } | null; note: string; treaty: boolean; delivered: number; giftDay: number }
+/** A neighbour's order: deliver this much of a good by caravan before the deadline for a bonus on top of the market price, and their trust. */
+export interface NeighbourRequest { good: GoodId; qty: number; done: number; deadline: number; bonus: number }
+export interface Neighbour { trust: number; route: { good: GoodId; qty: number } | null; note: string; treaty: boolean; delivered: number; giftDay: number; request?: NeighbourRequest | null }
+/** Which way each neighbour lies: west and east along the main road, south down the river. A watchtower guards the side it stands on. */
+export type RouteSide = 'west' | 'east' | 'south';
+export const ROUTE_SIDE: Record<NeighbourId, RouteSide> = { arid: 'west', coastal: 'east', river: 'south', tropics: 'south' };
+export const SIDE_NAME: Record<RouteSide, string> = { west: 'the west road', east: 'the east road', south: 'the river' };
 export interface RaidCase { id: number; to: NeighbourId; good: GoodId; lost: number; opened: number; deadline: number }
 export interface Demand { from: NeighbourId; amount: number; opened: number; deadline: number }
 export interface RegionState {
@@ -20,6 +26,7 @@ export interface RegionState {
   neighbours: Record<NeighbourId, Neighbour>;
   bandits: number; raid: RaidCase | null; raids: number; pursued: number; caravans: number;
   demand: Demand | null; demandDay: number; answered: 'paid' | 'refused' | null; defiantUntil: number;
+  /** the day the next neighbour order comes in */ nextRequest?: number; /** orders filled and missed */ filled?: number; missed?: number;
 }
 export function createRegionState(): RegionState {
   const n = (id: NeighbourId): Neighbour => ({ trust: NEIGHBOURS[id].trust0, route: null, note: '', treaty: false, delivered: 0, giftDay: -99 });
@@ -34,9 +41,10 @@ export const attitude = (trust: number) => trust >= 70 ? 'Friendly' : trust >= 4
 /** A treaty waives this neighbour's tariff on your caravans. */
 export const treatyWith = (s: GameState, to: RegionId) => regionActive(s) && isNeighbour(to) && regionOf(s).neighbours[to].treaty;
 /** Trust follows real delivered value: +1 per $5k (inflation-adjusted) sold (double for the good they want), at most +2 per sale slice. */
-export function creditCaravan(s: GameState, to: RegionId, good: GoodId, value: number) {
+export function creditCaravan(s: GameState, to: RegionId, good: GoodId, value: number, qty = 0) {
   if (!regionActive(s) || !isNeighbour(to) || value <= 0) return;
   const n = regionOf(s).neighbours[to];
+  if (n.request && n.request.good === good && qty > 0) n.request.done = Math.min(n.request.qty, n.request.done + qty);
   n.delivered = Math.round((n.delivered + value) * 100) / 100;
   const gain = value / (5000 * s.macro.cpi) * (NEIGHBOURS[to].wants === good ? 2 : 1) * (regionOf(s).border === 'open' ? 1.5 : 1);
   n.trust = Math.min(100, n.trust + Math.min(2, gain));

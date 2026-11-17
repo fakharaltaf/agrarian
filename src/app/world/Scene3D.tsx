@@ -24,8 +24,10 @@ import { Modal } from '../ui';
 import { layoutRegion, type Layout, type Lot, type Plot } from './layout';
 import { doorTiles, frontageAt, meets, pressureOf, reachTime, roadTile, travelFrom } from '../../simulation/access';
 import { bridgeAt, bridgePlan, isBridge } from '../../simulation/world';
+import { attitude, isNeighbour, NEIGHBOUR_IDS, NEIGHBOURS, regionActive, regionOf, ROUTE_SIDE, type NeighbourId } from '../../simulation/region-state';
+import { canStartRegion } from '../../simulation/stages/region';
 import { wooded, beltRoute, wideRoadRoute, homesCentre, CHUNK, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, LAND_HA_PER_PATCH, MAP, hasAccess, riverTiles, riverX, tileId, roadStretch, roadPick, pipeRoute, pipeStretch, plotSide, fieldWater, wetTiers, linesOf, NET_TOP, UTILITY_NETS, netReach, doorstep, footprintOf, type NetKind, type UtilityNet, tileAt, forSaleAround,  ownedSet, ROAD_H, ROAD_Y, chunkAt, chunkOrigin, clearCost, clearedSet, isRoad, patchesAround, placeProblem, worldOf } from '../../simulation/world';
-import { animal, buildBridge, buildCivic, buildCommunityHome, buildLot, buildWorks, box, cached, cyl, farmhand, hauler, mat, mesh, PAL, person, tree, vehicle, type Model } from './models';
+import { animal, buildBridge, buildCivic, cone, gable, sphere, buildCommunityHome, buildLot, buildWorks, box, cached, cyl, farmhand, hauler, mat, mesh, PAL, person, tree, vehicle, type Model } from './models';
 import { haulOf, MARKET_X, marketRoute } from '../../simulation/hauling';
 import { landCostOf, oilOf, oilPremium, oilReading, struckFields, SURVEY_R, surveyedAt } from '../../simulation/oil';
 
@@ -87,10 +89,11 @@ interface Rig {
   haulers: Map<string, THREE.Group>; tickSeen: number; tickAt: number;
   riverG: THREE.Group; riverSig: string; foam?: { im: THREE.InstancedMesh; pts: [number, number][]; phase: number[] }; fall?: THREE.Texture;
   oilG: THREE.Group; oilSig: string; zoneG: THREE.Group; zoneSig: string;
+  /** the neighbours' towns past the map's edges, and the caravans on their way to them */ townsG: THREE.Group; townsSig: string; caravans: Map<number, THREE.Group>;
   felling?: { chunk: number; trees: THREE.Group[]; fallAt: number[]; extras: THREE.Group };
 }
 
-export type WorldAction = 'harvest' | 'plant' | 'inspect' | 'plan' | 'place' | 'fertilise' | 'irrigate' | 'pipes' | 'move' | 'movelot' | 'merge' | 'homeup' | 'layout' | 'placeok' | 'placecancel' | 'clear1' | 'clear9' | 'buy1' | 'buy9';
+export type WorldAction = 'neighbour' | 'harvest' | 'plant' | 'inspect' | 'plan' | 'place' | 'fertilise' | 'irrigate' | 'pipes' | 'move' | 'movelot' | 'merge' | 'homeup' | 'layout' | 'placeok' | 'placecancel' | 'clear1' | 'clear9' | 'buy1' | 'buy9';
 
 export function Scene3D({ region, selected, onPick, plantLabel, onAction, selectedLot, placing, forestAt, placeCost, roading, prospect, zoning }: { region: RegionId; selected: number[]; onPick: (p: WorldPick) => void; plantLabel?: string; selectedLot?: string; onAction?: (kind: WorldAction, fieldId: number) => void; placing?: Placement | null; forestAt?: [number, number] | null; placeCost?: number; roading?: Roading | null; prospect?: { region: RegionId; hover?: [number, number] } | null; zoning?: Zoning | null }) {
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -150,7 +153,7 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
       lots: g(), fields: g(), units: g(), deco: g(), fx: g(), sel: g(), ghost: g(), ghostSig: '', models: [], pick: [], crops: {}, sig: { lots: '', fields: '', crops: '', sel: '', deco: '' },
       storageProps: g(), outlines: g(), mergeG: g(), mergeSig: '', lastStockTick:-1, lastCash:getGame().cash, lastCoin:0,
       neighbours: [], people: new Map(), machines: new Map(), trucks: [], herds: new Map(), rain, smoke: [], pops: [], seenHarvest: new Map(), popsReady: false, crownMat: Object.assign(mat(CROWN.Spring).clone(), { flatShading: false }), lastHaul: -1, layout: null, region, dt: 0,
-      roadsG: g(), roadSig: '', roadPrev: g(), roadPrevSig: '', haulers: new Map(), tickSeen: -1, tickAt: 0, riverG: g(), riverSig: '', oilG: g(), oilSig: '', zoneG: g(), zoneSig: '',
+      roadsG: g(), roadSig: '', roadPrev: g(), roadPrevSig: '', haulers: new Map(), tickSeen: -1, tickAt: 0, riverG: g(), riverSig: '', oilG: g(), oilSig: '', zoneG: g(), zoneSig: '', townsG: g(), townsSig: '', caravans: new Map(),
     };
     rig.current = R;
     // ?at=x,z (and &zoom=) points the camera somewhere on the map: handy for screenshots and sharing a spot
@@ -207,6 +210,8 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
       animateHaul(R, s, now / 1000);
       animateCars(R, s);
       syncRiver(R, s);
+      syncNeighbourTowns(R, s);
+      animateCaravans(R, s, now / 1000);
       animateRiver(R, now / 1000);
       animateNeighbours(R, L, s, now / 1000);
       atmosphere(R, s, now / 1000);
@@ -1760,6 +1765,78 @@ function fallsTexture() {
   for (const [x, y, h] of [[1, 2, 10], [6, 14, 12], [11, 4, 9], [3, 20, 8], [13, 22, 7]]) g2.fillRect(x, y, 2, h);
   const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.magFilter = t.minFilter = THREE.NearestFilter; t.colorSpace = THREE.SRGBColorSpace; return t;
 }
+/** Where each neighbour's town stands, past the edge of the map: west and east along the main road, downriver to the south. */
+export function neighbourAt(id: NeighbourId): [number, number] {
+  const sy = MAP.y0 + MAP.h;
+  return id === 'arid' ? [MAP.x0 - 7, ROAD_Y - 5] : id === 'coastal' ? [MAP.x0 + MAP.w + 7, ROAD_Y - 5] : id === 'river' ? [riverX('heartland', sy + 6) + 9, sy + 6] : [riverX('heartland', sy + 20) - 8, sy + 20];
+}
+const NEIGHBOUR_COL: Record<NeighbourId, number> = { arid: 0xd99a3a, coastal: 0x2f6f9a, river: 0x2f8f86, tropics: 0x4f9a3a };
+/** The neighbours' towns, a gate or an arch where the main road leaves your land (walls & tolls or open borders), drawn once the Region chapter is offered. */
+function syncNeighbourTowns(R: Rig, s: GameState) {
+  const v = regionOf(s), on = R.region === 'heartland' && (regionActive(s) || canStartRegion(s)), sig = on ? `${v.border}:${v.active}` : '';
+  if (sig === R.townsSig) return;
+  R.townsSig = sig; clear(R.townsG);
+  if (!on) return;
+  for (const id of NEIGHBOUR_IDS) {
+    const [cx, cz] = neighbourAt(id), g = new THREE.Group(), col = NEIGHBOUR_COL[id];
+    g.position.set(cx, 0, cz);
+    for (let i = 0; i < 9; i++) { // nine homes round a square, in each town's own style
+      const a = (i / 9) * Math.PI * 2 + 0.3, r = 4.2 + (i % 3) * 1.1, x = Math.cos(a) * r, z = Math.sin(a) * r;
+      let m: THREE.Object3D;
+      if (id === 'arid') { m = new THREE.Group(); m.add(box(1.8, 1.1 + (i % 2) * 0.5, 1.6, 0xd8b98a, 0, 0, 0), box(1.9, 0.08, 1.7, 0xc9a874, 0, 1.1 + (i % 2) * 0.5, 0)); if (i % 3 === 0) m.add(mesh(cached('adobeDome', () => new THREE.SphereGeometry(0.55, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2)), mat(0xe8d2a8), 0, 1.15 + (i % 2) * 0.5, 0)); }
+      else if (id === 'tropics') { m = new THREE.Group(); m.add(cyl(0.75, 0.8, 0xc9a874, 0, 0, 0, 10), cone(1.05, 0.9, 0x9a7a3a, 0, 0.8, 0, 10)); }
+      else { const h = buildCommunityHome(i % 3 === 0 ? 'terrace' : 'cottage', 3, 3, `${id}${i}`, 1); m = new THREE.Group(); h.group.position.set(-1.5, 0, -1.5); m.add(h.group); }
+      m.position.set(x, 0, z); m.rotation.y = -a + Math.PI / 2; g.add(m);
+    }
+    // the square: a well or fountain, the leader's hall with its banner
+    g.add(box(2.6, 1.8, 2.2, id === 'arid' ? 0xd8b98a : PAL.stone, 0, 0, 0), id === 'arid' ? mesh(cached('adobeDomeBig', () => new THREE.SphereGeometry(1.0, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2)), mat(0xe8d2a8), 0, 1.8, 0) : gable(2.8, 2.4, 0.9, id === 'tropics' ? 0x9a7a3a : PAL.roofGrey, 0, 1.8, 0));
+    g.add(box(0.08, 4.2, 0.08, PAL.metalDark, 1.6, 0, 1.4), box(1.2, 0.7, 0.04, col, 2.2, 3.3, 1.4));
+    if (id === 'coastal') g.add(cyl(0.45, 3.6, PAL.white, 6.5, 0, -1, 12), cyl(0.5, 0.5, 0xc0392b, 6.5, 3.6, -1, 12), sphere(0.25, 0xfff2c0, 6.5, 4.3, -1, { emissive: 0x806020 })); // a lighthouse
+    if (id === 'river' || id === 'tropics') { const dx = id === 'river' ? -6 : 5.5; g.add(box(2.4, 0.12, 0.8, PAL.wood, dx, 0.12, 0)); const hull = box(1.4, 0.3, 0.6, PAL.woodDark, dx + (id === 'river' ? -1.6 : 1.6), 0.02, 0.6); g.add(hull, box(0.05, 1.3, 0.05, PAL.wood, dx + (id === 'river' ? -1.6 : 1.6), 0.3, 0.6)); } // a jetty and a boat
+    g.traverse((o) => { if ((o as THREE.Mesh).isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+    R.townsG.add(g);
+  }
+  // where the main road leaves your side of the map: a stone gatehouse in a wall (walls & tolls), or a timber arch with banners (open borders)
+  if (v.active) for (const x of [MAP.x0 + 1, MAP.x0 + MAP.w - 2]) {
+    const g = new THREE.Group(), cz = ROAD_Y + ROAD_H / 2;
+    g.position.set(x, 0, cz);
+    if (v.border === 'walls') {
+      for (const dz of [-1.7, 1.7]) g.add(box(1.2, 2.6, 1.2, PAL.stone, 0, 0, dz), box(1.35, 0.25, 1.35, PAL.stoneDark, 0, 2.6, dz));
+      g.add(box(1.0, 0.6, 2.2, PAL.stone, 0, 2.0, 0), box(0.12, 1.9, 1.9, PAL.woodDark, -0.45, 0.05, 0));
+      for (const dz of [-1, 1]) for (let k = 0; k < 6; k++) g.add(box(0.7, 1.6, 1.0, PAL.stoneDark, 0, 0, dz * (2.8 + k)), box(0.8, 0.2, 0.3, PAL.stone, 0, 1.6, dz * (2.8 + k))); // the wall running off either side
+    } else {
+      for (const dz of [-1.5, 1.5]) g.add(box(0.2, 2.4, 0.2, PAL.wood, 0, 0, dz), box(0.04, 0.9, 0.5, 0xc0392b, 0.12, 1.3, dz - Math.sign(dz) * 0.3));
+      g.add(box(0.25, 0.3, 3.4, PAL.woodDark, 0, 2.3, 0), box(0.06, 0.4, 1.6, PAL.cream, 0.14, 1.9, 0));
+    }
+    g.traverse((o) => { if ((o as THREE.Mesh).isMesh) o.castShadow = true; });
+    R.townsG.add(g);
+  }
+}
+/** Caravans under way: a truck along the main road to the west or east town, a barge down the river to the south ones, moving with the time left on the road. */
+function animateCaravans(R: Rig, s: GameState, t: number) {
+  const live = R.region === 'heartland' && regionActive(s) ? s.shipments.filter((x) => x.caravan && x.batchDay !== undefined && isNeighbour(x.to) && s.tick < x.arrives) : [], seen = new Set<number>();
+  const home = worldOf(s, 'heartland').pos.farmhouse ?? [0, ROAD_Y], part = Math.min(0.999, (t - R.tickAt) * Math.max(0, getSpeed())); // smooth between game hours
+  for (const sh of live) {
+    const to = sh.to as NeighbourId, side = ROUTE_SIDE[to], dep = (sh.batchDay! + 1) * 24, f = Math.max(0, Math.min(1, (s.tick + part - dep) / Math.max(1, sh.arrives - dep)));
+    if (s.tick < dep) continue;
+    seen.add(sh.id);
+    let o = R.caravans.get(sh.id);
+    if (!o) {
+      if (side === 'south') { o = new THREE.Group(); o.add(box(1.1, 0.25, 0.45, PAL.woodDark, 0, -0.02, 0), box(0.5, 0.25, 0.35, PAL.cream, -0.15, 0.22, 0), box(0.04, 1.0, 0.04, PAL.wood, 0.2, 0.2, 0), box(0.03, 0.6, 0.45, PAL.white, 0.24, 0.5, 0)); }
+      else o = hauler('truck');
+      R.units.add(o); R.caravans.set(sh.id, o);
+    }
+    const [tx, tz] = neighbourAt(to);
+    if (side === 'south') { // down the river from the main road to the town's jetty
+      const line = riverLine('heartland'), z = ROAD_Y + 4 + (tz - 4 - ROAD_Y - 4) * f, i = Math.max(0, Math.min(line.length - 1, line.findIndex(([, lz]) => lz >= z))), x = (line[i]?.[0] ?? tx) - 0.4;
+      o.position.set(x, 0.05, z); o.rotation.y = -Math.PI / 2;
+    } else { // along the main road, in the outbound lane
+      const x0 = home[0] + 1, x1 = tx + (side === 'west' ? 5 : -5), x = x0 + (x1 - x0) * f, lane = side === 'west' ? ROAD_Y + 0.55 : ROAD_Y + ROAD_H - 0.55;
+      o.position.set(x, 0.02, lane); o.rotation.y = side === 'west' ? Math.PI : 0;
+    }
+  }
+  for (const [id, o] of R.caravans) if (!seen.has(id)) { R.units.remove(o); R.caravans.delete(id); }
+}
 /** The river as drawn: its tiles' middle row by row, eased into curves, and on past the bottom edge. */
 const riverLines = new Map<RegionId, [number, number][]>();
 function riverLine(r: RegionId) {
@@ -2118,7 +2195,7 @@ function atmosphere(R: Rig, s: GameState, t: number) {
 
 function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el: HTMLDivElement | null, t: number, selected: number[], plantLabel?: string, selectedLot?: string, placing: Placement | null = null, forestAt: [number, number] | null = null, placeCost = 0) {
   if (!el) return;
-  const want: { key: string; x: number; y: number; html: string; cls: string; action?: string }[] = [];
+  const want: { key: string; x: number; y: number; html: string; cls: string; action?: string; /** pinned by its left or right end, at a screen edge */ anchor?: 'l' | 'r' }[] = [];
   const v = new THREE.Vector3();
   const project = (x: number, y: number, z: number) => { v.set(x, y, z).project(R.camera); return [(v.x + 1) / 2 * W, (1 - v.y) / 2 * H] as const; };
   // "+49 wheat" pops up wherever a harvest just happened (by hand or by the crew)
@@ -2236,6 +2313,25 @@ function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el
     const [x, y] = project(L.buy.x + 1, 0.9, L.buy.y + 1);
     want.push({ key: 'buy', x, y, html: 'For sale', cls: 'wl-name' });
   }
+  // the neighbours: a banner over each town, held at the edge of the screen pointing the way when the town is out of sight
+  if (R.region === 'heartland' && (regionActive(s) || canStartRegion(s)) && !placing) {
+    const v = regionOf(s);
+    const used: [number, number, 'l' | 'r' | undefined][] = [], phone = W < 600;
+    NEIGHBOUR_IDS.forEach((id, i) => {
+      // over the town when it is in sight; otherwise pinned to the screen edge it lies beyond, clear of the objective card and the corner controls, stacked when they would meet
+      const [nx, nz] = neighbourAt(id), [px, py] = project(nx, 4.5, nz), inside = px > 120 && px < W - 120 && py > 110 && py < H - 120;
+      const dx = px - W / 2, dy = py - H / 2, sideways = Math.abs(dx) / W > Math.abs(dy) / H, anchor: 'l' | 'r' | undefined = inside ? undefined : dx < 0 ? 'l' : 'r'; void sideways;
+      const left = phone ? 92 : 108, x = inside ? px : anchor === 'l' ? left : anchor === 'r' ? W - 14 : Math.max(140, Math.min(W - 140, px));
+      const top = phone ? (anchor === 'l' ? 230 : 640) : anchor === 'l' ? 330 : 100, bottom = H - (anchor === 'r' ? 110 : 60); // clear of the objective card (left) and, on a phone, the map tools (right)
+      let y = inside ? py : Math.max(top, Math.min(bottom, py));
+      for (let k = 0; k < 5 && used.some(([ux, uy, ua]) => (ua === anchor ? true : Math.abs(ux - x) < 200) && Math.abs(uy - y) < 38); k++) y += y > (top + bottom) / 2 ? -40 : 40;
+      used.push([x, y, anchor]);
+      const arrow = inside ? '' : anchor === 'l' ? '◀ ' : anchor === 'r' ? ' ▶' : dy < 0 ? '▲ ' : '▼ ';
+      const n = v.neighbours[id], req = n.request ? ' 📜' : '', mood = v.active && !phone ? ` · ${attitude(n.trust)}` : '';
+      const label = phone && !inside ? `${NEIGHBOURS[id].icon}${req}` : `${NEIGHBOURS[id].icon} ${REGIONS[id].name}${mood}${req}`;
+      want.push({ key: `nb-${id}`, x, y, anchor, html: arrow === ' ▶' ? `${label}${arrow}` : `${arrow}${label}`, cls: `wl-name wl-neighbour${inside ? '' : ' edge'}`, action: `neighbour:${i}` });
+    });
+  }
   // reconcile pooled elements by key
   const have = new Map<string, HTMLElement>();
   for (const ch of [...el.children] as HTMLElement[]) have.set(ch.dataset.k!, ch);
@@ -2247,7 +2343,7 @@ function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el
     // Compare against the source string we last wrote: the browser re-serialises innerHTML (& → &amp;), which would rebuild nodes every frame.
     if (d.dataset.html !== w.html) { d.innerHTML = w.html; d.dataset.html = w.html; }
     if ((d.dataset.action ?? '') !== (w.action ?? '')) w.action ? (d.dataset.action = w.action, d.setAttribute('role', 'button')) : (delete d.dataset.action, d.removeAttribute('role'));
-    d.style.transform = `translate(${w.x}px, ${w.y}px) translate(-50%, -100%)`;
+    d.style.transform = `translate(${w.x}px, ${w.y}px) translate(${w.anchor === 'l' ? '0' : w.anchor === 'r' ? '-100%' : '-50%'}, -100%)`;
   }
   for (const d of have.values()) d.remove();
 }

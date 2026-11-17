@@ -5,7 +5,7 @@ import {post} from '../simulation/core';
 import {townOf} from '../simulation/town-state';
 import {cityOf} from '../simulation/city-state';
 import {regionOf,regionActive,NEIGHBOURS} from '../simulation/region-state';
-import {canStartRegion,regionDaily,raidRisk,protection,giftValue,treatyCost,TREATY_TRUST} from '../simulation/stages/region';
+import {canStartRegion,regionDaily,raidRisk,protection,giftValue,treatyCost,TREATY_TRUST,staffedTowers} from '../simulation/stages/region';
 import {shipQuote} from '../simulation/logistics';
 import {parseSave} from '../simulation/persistence';
 import {canAdvance} from '../simulation/progression';
@@ -47,7 +47,7 @@ it('A caravan is a real sale: goods leave, freight is paid, revenue and trust ar
  expect(s.regions.river.inventory.flour).toBe(0); // nothing stored in a region you hold no land in
 });
 
-it('Raids remove real goods; pursuit costs the treasury and recovers part; walls and police lower the risk',()=>{
+it('Raids remove real goods; pursuit costs the farm and recovers part; walls and police lower the risk',()=>{
  const s=ready();dispatch(s,{type:'startRegion',border:'open'});
  const v=regionOf(s);
  const risky=raidRisk(s);cityOf(s).police=1;expect(raidRisk(s)).toBeLessThan(risky);expect(protection(s)).toBeCloseTo(.35);
@@ -56,10 +56,10 @@ it('Raids remove real goods; pursuit costs the treasury and recovers part; walls
  for(let d=0;d<60&&!v.raid;d++){s.tick=(Math.floor(s.tick/24)+1)*24;regionDaily(s);}
  expect(v.raid).not.toBeNull();
  s.regions.heartland.inventory.flour=0;s.regions.heartland.inventory.wheat=0; // room in the barn for recovered goods
- const lost=v.raid!.lost,flour=s.regions.heartland.inventory.flour,treasury=townOf(s).cash;
+ const lost=v.raid!.lost,flour=s.regions.heartland.inventory.flour,cash=s.cash;
  expect(s.shipments.find(x=>x.id===9001)!.qty).toBeLessThan(1000);
  expect(dispatch(s,{type:'resolveRaid',answer:'pursue'}).ok).toBe(true);
- expect(townOf(s).cash).toBeLessThan(treasury);
+ expect(s.cash).toBeLessThan(cash);
  const back=s.regions.heartland.inventory.flour-flour;expect(back).toBeGreaterThan(0);expect(back).toBeLessThan(lost);
  expect(v.raid).toBeNull();
  const open=raidRisk(s);v.border='walls';expect(raidRisk(s)).toBeLessThan(open);
@@ -90,11 +90,37 @@ it('A rival demands tribute after raids; paying costs cash, refusing raises raid
  expect(()=>parseSave(JSON.stringify(bad))).toThrow();
 });
 
-it('Watchtowers are staffed civic jobs funded by the treasury and add protection; walls charge tolls into the public purse',()=>{
+it('Watchtowers are staffed civic jobs paid by the farm; walls charge tolls, paid to the farm',()=>{
  const s=ready();dispatch(s,{type:'startRegion',border:'walls'});
  expect(dispatch(s,{type:'buildService',service:'watchtower',district:'farmgate'}).ok).toBe(true);
- const p0=protection(s);for(let i=0;i<48;i++)step(s);
- expect(protection(s)).toBeGreaterThan(p0);
- expect(townOf(s).lifetime.tolls??0).toBeGreaterThan(0);
+ for(let i=0;i<48;i++)step(s);
+ expect(staffedTowers(s)).toBeGreaterThan(0);
+ expect(s.lifetime.tolls??0).toBeGreaterThan(0);
 });
 
+
+it('A watchtower guards the side it stands on; a militia hall escorts every route',async()=>{
+ const W=await import('../simulation/world');
+ const s=ready();dispatch(s,{type:'startRegion',border:'open'});cityOf(s).police=0;
+ const w=W.worldOf(s,'heartland'),home=w.pos.farmhouse!,t=townOf(s);
+ const before={arid:protection(s,'arid'),coastal:protection(s,'coastal')};
+ t.services.push({id:7001,type:'watchtower',district:'farmgate',count:1,active:true,cost:0,staffed:5,funded:true});w.pos['svc:7001']=[home[0]-12,W.ROAD_Y+3];
+ expect(protection(s,'arid')).toBeGreaterThan(before.arid); // west road: Arid
+ expect(protection(s,'coastal')).toBe(before.coastal); // not the east road
+ expect(raidRisk(s,'arid')).toBeLessThan(raidRisk(s,'coastal'));
+ t.services.push({id:7002,type:'militia',district:'farmgate',count:1,active:true,cost:0,staffed:8,funded:true});
+ expect(protection(s,'coastal')).toBeCloseTo(before.coastal+.1,5); // a level-1 hall, fully staffed
+});
+
+it('A neighbour order pays a bonus and trust when filled by caravan, and costs trust when missed',()=>{
+ const s=ready();dispatch(s,{type:'startRegion',border:'open'});const v=regionOf(s);v.bandits=0;cityOf(s).police=1;
+ const n=v.neighbours.river;n.request={good:'flour',qty:100,done:0,deadline:s.tick+15*24,bonus:500};
+ expect(dispatch(s,{type:'setRoute',to:'river',good:'flour',qty:500}).ok).toBe(true);
+ const t0=n.trust,cash=s.cash;let fromBonus=0;
+ for(let i=0;i<24*6&&n.request;i++){step(s);}
+ expect(n.request).toBeNull();expect(v.filled).toBe(1);fromBonus=s.ledger.filter(e=>e.memo.startsWith(`${NEIGHBOURS.river.leader}'s order`)).reduce((a,e)=>a+e.amount,0);
+ expect(fromBonus).toBe(500);expect(n.trust).toBeGreaterThan(t0+9);expect(s.cash).toBeGreaterThan(cash-1e6);
+ const a=v.neighbours.arid;a.request={good:'bread',qty:1e6,done:0,deadline:s.tick+24,bonus:1};const ta=a.trust;
+ for(let i=0;i<48;i++)step(s);
+ expect(a.request).toBeNull();expect(v.missed).toBe(1);expect(a.trust).toBeLessThan(ta);
+});

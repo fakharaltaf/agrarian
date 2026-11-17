@@ -37,9 +37,9 @@ export const box = (w: number, h: number, d: number, color: number, x: number, y
   mesh(cached(`b${w},${h},${d}`, () => new THREE.BoxGeometry(w, h, d)), mat(color, o), x, y + h / 2, z);
 const cyl = (r: number, h: number, color: number, x: number, y: number, z: number, seg = 10, rTop = r) =>
   mesh(cached(`c${r},${rTop},${h},${seg}`, () => new THREE.CylinderGeometry(rTop, r, h, seg)), mat(color, color === PAL.metal ? { rough: 0.5, metal: 0.3 } : {}), x, y + h / 2, z);
-const cone = (r: number, h: number, color: number, x: number, y: number, z: number, seg = 10) =>
+export const cone = (r: number, h: number, color: number, x: number, y: number, z: number, seg = 10) =>
   mesh(cached(`k${r},${h},${seg}`, () => new THREE.ConeGeometry(r, h, seg)), mat(color), x, y + h / 2, z);
-const sphere = (r: number, color: number, x: number, y: number, z: number, o?: Parameters<typeof mat>[1]) =>
+export const sphere = (r: number, color: number, x: number, y: number, z: number, o?: Parameters<typeof mat>[1]) =>
   mesh(cached(`s${r}`, () => new THREE.IcosahedronGeometry(r, 1)), mat(color, o), x, y, z);
 
 /** An imported prop fitted into a w×d footprint centred at (x, z), turned by rot. Null until the art has loaded. */
@@ -50,7 +50,7 @@ function prop(g: THREE.Group, id: ArtId, w: number, d: number, x: number, z: num
 }
 
 /** Gable roof spanning w (x) by d (z), ridge along x, eaves at height y. */
-function gable(w: number, d: number, h: number, color: number, x: number, y: number, z: number) {
+export function gable(w: number, d: number, h: number, color: number, x: number, y: number, z: number) {
   const g = cached(`g${w},${d},${h}`, () => {
     const shape = new THREE.Shape();
     shape.moveTo(-d / 2 - 0.12, 0);
@@ -914,11 +914,33 @@ export function buildCivic(type: string, w: number, d: number, level = 1, key = 
     group.add(box(.07,.07,1.1,PAL.metal,1.6,.2,1.6)); // pipe between the tanks
     if(level>1)group.add(cyl(.42,.45,PAL.stone,.6,.08,2.35,16),cyl(.36,.03,0x5f7d6b,.6,.5,2.35,16)); // a third tank
     if(level===3)group.add(mesh(cached('sanDome',()=>new THREE.SphereGeometry(.38,14,7,0,Math.PI*2,0,Math.PI/2)),mat(0x4f6b45,{rough:.7}),2.35,.85,.65),cyl(.38,.1,PAL.stone,2.35,.75,.65,14)); // a sludge digester on the pump house roof
+  } else if(type==='watchtower'&&level>=3){ // a stone keep: round tower, battlements, a flag and a lit lantern room
+    group.add(cyl(1.05,3.4,PAL.stone,w/2,.08,d/2,14),cyl(1.18,.35,PAL.stoneDark,w/2,3.45,d/2,14));
+    for(let i=0;i<10;i++){const a=i/10*Math.PI*2;group.add(box(.26,.28,.26,PAL.stoneDark,w/2+Math.cos(a)*1.05,3.8,d/2+Math.sin(a)*1.05));}
+    for(const y of [1.1,2.2]){const slit=box(.12,.4,.03,PAL.window,w/2,y,d/2+1.04);slit.userData.window=true;group.add(slit);}
+    group.add(box(.5,.8,.04,PAL.door,w/2,.08,d/2+1.04),box(.05,1.6,.05,PAL.metalDark,w/2,3.8,d/2),box(.7,.42,.03,PAL.barnRed,w/2+.37,5,d/2));
+    const fire=sphere(.18,0xffb055,w/2,3.95,d/2,{emissive:0x804010});windows.push(fire);group.add(fire);
   } else if(type==='watchtower'){
-    for(const [x,z] of [[.6,.6],[w-.6,.6],[.6,d-.6],[w-.6,d-.6]])group.add(box(.14,3,.14,PAL.wood,x,.1,z));
+    const legs=level>=2?1.2:0; // level 2 stands its timber on a stone footing
+    if(legs)group.add(box(w-.9,legs,d-.9,PAL.stone,w/2,.08,d/2),box(w-.8,.1,d-.8,PAL.stoneDark,w/2,legs+.06,d/2));
+    for(const [x,z] of [[.6,.6],[w-.6,.6],[.6,d-.6],[w-.6,d-.6]])group.add(box(.14,3-legs*.6,.14,PAL.wood,x,.1+legs*.6,z));
     group.add(box(w-.6,.12,d-.6,PAL.wood,w/2,3,d/2),box(w-.6,.4,.08,PAL.wood,w/2,3.1,.55),box(w-.6,.4,.08,PAL.wood,w/2,3.1,d-.55));
     group.add(gable(w-.4,d-.4,.7,PAL.barnRed,w/2,3.5,d/2));
+    if(level>=2)group.add(box(.05,1.3,.05,PAL.metalDark,w-.5,3.5,.5),box(.55,.32,.03,PAL.barnRed,w-.22,4.4,.5));
     const fire=sphere(.14,0xffb055,w/2,3.35,d/2,{emissive:0x804010});windows.push(fire);group.add(fire);
+  } else if(type==='militia'){ // the militia hall: a stone drill hall, a training yard of straw targets and a weapons rack, the banner on its pole; it grows a stable, then a gatehouse
+    const hallD=1.35;
+    group.add(box(w-.5,1.05,hallD,PAL.stone,w/2,.08,.25+hallD/2),gable(w-.3,hallD+.2,.6,PAL.barnRed,w/2,1.13,.25+hallD/2));
+    group.add(box(.55,.75,.04,PAL.door,w/2,.08,.25+hallD+.01));
+    for(const x of [.7,w-.7]){const win=box(.3,.32,.03,PAL.window,x,.5,.25+hallD+.01);win.userData.window=true;group.add(win);}
+    group.add(box(w-.3,.03,d-hallD-.55,0xc9b48a,w/2,.09,(.25+hallD+d-.1)/2,{rough:1})); // the beaten earth of the yard
+    for(const [x,z] of [[.75,d-.75],[1.35,d-.55],[1.95,d-.8]] as const){group.add(cyl(.04,.6,PAL.woodDark,x,.1,z,6),cyl(.13,.28,0xd8b85a,x,.45,z,8),cyl(.09,.02,0xc0392b,x,.6,z+.11,10));} // straw targets
+    group.add(box(.6,.06,.12,PAL.woodDark,w-.65,.55,d-.45),box(.06,.55,.08,PAL.woodDark,w-.92,.1,d-.45),box(.06,.55,.08,PAL.woodDark,w-.38,.1,d-.45));
+    for(let i=0;i<4;i++)group.add(box(.025,.6,.025,PAL.metal,w-.85+i*.15,.15,d-.4)); // spears on the rack
+    group.add(box(.05,2.4,.05,PAL.metalDark,.3,.1,d-.3),box(.6,.36,.03,0x2f5f9a,.62,2.1,d-.3));
+    if(level>=2)shed(group,.9,.75,.75,PAL.wood,PAL.roofBrown,w-1.05,d-1.1,{door:'barn',windows:0,roofH:.25}); // stables
+    if(level>=3){group.add(box(.8,1.7,.8,PAL.stoneDark,.55,.08,.6));for(const [dx,dz] of [[-.3,-.3],[.3,-.3],[-.3,.3],[.3,.3]])group.add(box(.18,.2,.18,PAL.stoneDark,.55+dx,1.78,.6+dz));} // a corner gatehouse
+
   } else if(type==='waterTower'){
     // each level stands taller with a bigger tank; the legs always meet the tank's rim, tied by braces, with a ladder up the front
     const legs=[2.3,2.8,3.3][level-1]??2.3,r=[.8,.9,1][level-1]??.8,th=[.9,1.05,1.2][level-1]??.9,k=r*.72,cx=w/2,cz=d/2;

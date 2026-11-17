@@ -1,3 +1,6 @@
+import { MILITIA_ESCORT, TOWER_REACH, towerSides } from '../../simulation/stages/region';
+import { NEIGHBOUR_IDS, ROUTE_SIDE, SIDE_NAME } from '../../simulation/region-state';
+import { focusNeighbour } from '../../stores/game';
 import { frontageAt, JAM_TEXT, laneCapacity, meets, needText, pressureOf, streetJammedAt, trafficRoom } from '../../simulation/access';
 import { homesReached, nuisanceOf, NUISANCE_LOOK, type NuisanceKind } from '../../simulation/nuisance';
 import { upgradeNeedsPower } from '../../simulation/stages/shared';
@@ -248,7 +251,8 @@ export function Hud() {
       <Scene3D region={region} selected={lot ? [] : sel} onPick={onPick} plantLabel={plantLabel(s, crop, one)}
         placing={placing} forestAt={forest} placeCost={placing ? placementCost(s, placing) : 0} roading={roading} prospect={prospect} zoning={zoning}
         selectedLot={lot?.key} onAction={(kind, id) => {
-          if(kind==='placeok'){ if(confirmPlacement()) { setSel([]); setLot(null); } }
+          if(kind==='neighbour'){ focusNeighbour(NEIGHBOUR_IDS[id]); go('region'); }
+          else if(kind==='placeok'){ if(confirmPlacement()) { setSel([]); setLot(null); } }
           else if(kind==='placecancel'){ cancelPlacement(); setForest(null); }
           else if(kind==='buy1'||kind==='buy9'){ if(forest)act({type:'buyLand',region,chunks:forSaleAround(s,region,forest[0],forest[1],kind==='buy1'?1:3)}); } // the bubble stays open so the new land can be cleared next
           else if(kind==='clear1'||kind==='clear9'){ if(forest&&act({type:'clearForest',region,chunks:patchesAround(s,region,forest[0],forest[1],kind==='clear1'?1:3)}))setForest(null); }
@@ -525,6 +529,8 @@ function ServiceCard({ s, svc, onClose }: { s: GameState; svc: CivicService; onC
   return <Card title={<>{d.icon} {serviceName(svc)}{grows && <span className="muted"> · level {lv}</span>}</>} actions={<button className="icon-btn" onClick={onClose} aria-label="Close">✕</button>}>
     <div className="stack s">
       {net ? <><div className="row between small"><span className="muted">Families on its lines</span><b>{used} / {cap}</b></div><Bar value={cap ? used / cap : 0} label={`${used} / ${cap} families on its lines`} color={full ? 'var(--gold)' : 'var(--up)'} /></>
+        : svc.type === 'watchtower' || svc.type === 'militia' ? <><p className="small">{svc.type === 'militia' ? <>Rides out with every caravan: <b>+{Math.round(MILITIA_ESCORT[lv - 1] * 100)}%</b> protection on all your trade routes when fully staffed.</> : (() => { const sides = towerSides(s, svc); return sides.length ? <>Watches over <b>{sides.map((x) => SIDE_NAME[x]).join(' and ')}</b>: caravans to {NEIGHBOUR_IDS.filter((id) => sides.includes(ROUTE_SIDE[id])).map((id) => REGIONS[id].name).join(', ')} are raided less. Each level counts for more.</> : <>Too far from the main road or the river to watch any trade route: move it within {TOWER_REACH} tiles of one.</>; })()}</p>
+          <button className="btn ghost sm" onClick={() => go('region')}>🗺 Region map</button></>
         : svc.type === 'parking' ? <p className="small">Takes <b>{Math.round(PARKING_SHARE[lv - 1] * 100)}%</b> of the cars off the streets within <b>{Math.round(serviceRadius(svc))} tiles</b> of road, so traffic there flows freely.</p>
         : reach && <p className="small">{svc.type === 'police' ? 'Cuts crime' : isShop(svc.type) || svc.type === 'mall' ? 'Sells to homes' : 'Full service'} for <b>{Math.round(serviceRadius(svc) * ROAD_REACH)} tiles of road travel</b>, fading out beyond. Dirt tracks and traffic make it reach less far; paved and wide roads further.</p>}
       {svc.type === 'park' && <><p className="small">{PARK_KINDS[svc.park ?? 'garden'].does}. A bigger park counts for more.</p>
@@ -560,7 +566,6 @@ function nuisanceChange(b: GameState['buildings'][number]) {
 
 function LotPanel({ s, lot, region, onClose }: { s: GameState; lot: Lot; region: RegionId; onClose: () => void }) {
   if(lot.service?.type==='barracks')return <Card title="Barracks"><button className="btn primary" onClick={()=>go('nation')}>Open Nation</button></Card>;
-  if(lot.service?.type==='watchtower')return <Card title="Watchtower & militia"><button className="btn primary" onClick={()=>go('region')}>Open Region map</button></Card>;
   if(lot.service)return <ServiceCard s={s} svc={townOf(s).services.find((b)=>b.id===lot.service!.id)??lot.service} onClose={onClose} />;
   if (lot.key.startsWith('civic:')) return <Card title="Town services"><button className="btn primary" onClick={() => go('town')}>Open Town hall</button></Card>;
   const home = lot.key.startsWith('community:apartment:') ? communityOf(s).homes.find((h) => h.id === +lot.key.split(':')[2].split('-')[0]) : undefined;

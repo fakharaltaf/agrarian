@@ -5,12 +5,14 @@ import { clamp, log, nextId, post, priceUsd, random, reservedStock, round2 } fro
 import { addGoods } from '../agriculture';
 import { shipGoods } from '../logistics';
 import { cityActive, cityOf } from '../city-state';
-import { serviceJobs, townOf } from '../town-state';
+import { levelOf, serviceJobs, townOf } from '../town-state';
+import { ROAD_H, ROAD_Y, riverX, worldOf } from '../world';
+import type { ServiceType } from '../types';
 import { larderReserve } from './settlement';
 import { nationActive, nationOf } from '../nation-state';
 import { closedTo, pathGuard } from './nation';
 import { lifetimeSales } from './shared';
-import { createRegionState, isNeighbour, NEIGHBOUR_IDS, NEIGHBOURS, regionActive, regionOf, type BorderCharter, type NeighbourId } from '../region-state';
+import { createRegionState, isNeighbour, NEIGHBOUR_IDS, NEIGHBOURS, regionActive, regionOf, ROUTE_SIDE, type BorderCharter, type NeighbourId, type NeighbourRequest, type RouteSide } from '../region-state';
 
 export const canStartRegion = (s: GameState) => cityActive(s) && cityOf(s).threatAt >= 0 && !regionActive(s);
 export const borderChangeCost = (s: GameState) => round2(30000 * s.macro.cpi);
@@ -22,31 +24,85 @@ export const TREATY_TRUST = 60;
 const day = (s: GameState) => Math.floor(s.tick / 24);
 const spendable = (s: GameState, g: GoodId) => Math.max(0, s.regions.heartland.inventory[g] - reservedStock(s, 'heartland', g) - larderReserve(s, g));
 
-/** Staffed, funded watchtowers (fractional when short of staff). */
+const staffedShare = (s: GameState, b: { type: ServiceType; staffed: number; count: number }) => b.staffed / Math.max(1, serviceJobs(s, b.type) * b.count);
+/** Staffed, funded watchtowers (fractional when short of staff), each counted by its level. */
 export function staffedTowers(s: GameState) {
-  return townOf(s).services.filter(b => b.type === 'watchtower' && b.active && b.funded)
-    .reduce((n, b) => n + b.count * (b.staffed / Math.max(1, serviceJobs(s, 'watchtower') * b.count)), 0);
+  return townOf(s).services.filter(b => b.type === 'watchtower' && b.active && b.funded).reduce((n, b) => n + b.count * staffedShare(s, b) * levelOf(b), 0);
 }
-/** Police coverage from the City chapter pays off here; towers and militia add escort strength. */
-export function protection(s: GameState) {
-  const towers = Math.min(.6, staffedTowers(s) * .2 * (regionOf(s).border === 'walls' ? 1.5 : 1));
-  return clamp(.35 * (cityActive(s) ? cityOf(s).police : 0) + towers + pathGuard(s), 0, .9);
+/** The sides of the farm a watchtower watches over: the main road to the west or east of the farmhouse, or the river below it. */
+export function towerSides(s: GameState, b: { id: number }): RouteSide[] {
+  const w = worldOf(s, 'heartland'), p = w.pos[`svc:${b.id}`], home = w.pos.farmhouse ?? [0, ROAD_Y];
+  if (!p) return [];
+  const x = p[0] + 1.5, y = p[1] + 1.5, out: RouteSide[] = [];
+  if (Math.abs(y - (ROAD_Y + ROAD_H / 2)) <= TOWER_REACH) out.push(x < home[0] ? 'west' : 'east');
+  if (y > ROAD_Y + ROAD_H && Math.abs(x - (riverX('heartland', Math.floor(y)) + 1)) <= TOWER_REACH) out.push('south');
+  return out;
 }
-/** Daily chance that one caravan on the road is raided. */
-export function raidRisk(s: GameState) {
+/** How near a road or the river a watchtower must stand to watch it. */
+export const TOWER_REACH = 10;
+/** Watchtowers on one side, staffed share × level. */
+export function towersOn(s: GameState, side: RouteSide) {
+  return townOf(s).services.filter(b => b.type === 'watchtower' && b.active && b.funded && towerSides(s, b).includes(side)).reduce((n, b) => n + b.count * staffedShare(s, b) * levelOf(b), 0);
+}
+/** Militia halls ride out with every caravan: escort strength from staffed halls by level, up to 0.35. */
+export const MILITIA_ESCORT = [.1, .18, .25];
+export function militiaEscort(s: GameState) {
+  return Math.min(.35, townOf(s).services.filter(b => b.type === 'militia' && b.active && b.funded).reduce((n, b) => n + b.count * staffedShare(s, b) * MILITIA_ESCORT[levelOf(b) - 1], 0));
+}
+/** How well caravans to a neighbour are guarded: the city's police, the militia's escorts, your path, and watchtowers on that side (half again as strong behind walls). Without a neighbour: the average over your routes. */
+export function protection(s: GameState, to?: NeighbourId): number {
+  if (!to) { const ids = NEIGHBOUR_IDS.filter(id => regionOf(s).neighbours[id].route), list = ids.length ? ids : NEIGHBOUR_IDS; return list.reduce((n, id) => n + protection(s, id), 0) / list.length; }
+  const towers = Math.min(.6, towersOn(s, ROUTE_SIDE[to]) * .25 * (regionOf(s).border === 'walls' ? 1.5 : 1));
+  return clamp(.35 * (cityActive(s) ? cityOf(s).police : 0) + militiaEscort(s) + towers + pathGuard(s), 0, .9);
+}
+/** Daily chance that a caravan on the road to this neighbour is raided. */
+export function raidRisk(s: GameState, to?: NeighbourId) {
   const v = regionOf(s);
-  return clamp((.04 + .12 * v.bandits) * (1 - protection(s)) * (v.border === 'walls' ? .7 : 1) * (s.tick < v.defiantUntil ? 1.5 : 1), 0, .6);
+  return clamp((.04 + .12 * v.bandits) * (1 - protection(s, to)) * (v.border === 'walls' ? .7 : 1) * (s.tick < v.defiantUntil ? 1.5 : 1), 0, .6);
 }
+/** A neighbour's order: the good they want (or one you trade), about $25k of it, inside 15 days, for 30% on top. */
+export const REQUEST_DAYS = 15, REQUEST_BONUS = .3;
+function newRequest(s: GameState, id: NeighbourId): NeighbourRequest | null {
+  const want = NEIGHBOURS[id].wants, held = GOOD_IDS.filter(g => GOODS[g].kind !== 'input' && s.markets[id][g] && s.regions.heartland.inventory[g] >= 1);
+  const good = random(s) < .5 || !held.length ? want : held[Math.floor(random(s) * held.length)];
+  if (!s.markets[id][good]) return null;
+  const price = Math.max(.01, priceUsd(s, id, good)), qty = Math.max(50, Math.round(25000 * s.macro.cpi / price / 50) * 50);
+  return { good, qty, done: 0, deadline: s.tick + REQUEST_DAYS * 24, bonus: round2(qty * price * REQUEST_BONUS) };
+}
+function requestsDaily(s: GameState) {
+  const v = regionOf(s), today = day(s);
+  for (const id of NEIGHBOUR_IDS) {
+    const n = v.neighbours[id], r = n.request, who = NEIGHBOURS[id];
+    if (!r) continue;
+    if (r.done >= r.qty) {
+      post(s, 'contract', r.bonus, `${who.leader}'s order filled: ${GOODS[r.good].name}`, 'heartland', 'trading');
+      n.trust = Math.min(100, n.trust + 10); n.request = null; v.filled = (v.filled ?? 0) + 1;
+      log(s, 'opportunity', `${who.leader} is delighted: ${num0(r.qty)} ${GOODS[r.good].name.toLowerCase()} delivered. +$${Math.round(r.bonus).toLocaleString()} bonus and +10 trust.`, 'region');
+    } else if (s.tick >= r.deadline) {
+      n.trust = Math.max(0, n.trust - 6); n.request = null; v.missed = (v.missed ?? 0) + 1;
+      log(s, 'warning', `${who.leader}'s order ran out: ${num0(r.done)} of ${num0(r.qty)} ${GOODS[r.good].name.toLowerCase()} arrived. −6 trust.`, 'region');
+    }
+  }
+  if (today < (v.nextRequest ?? Math.floor(v.enteredAt / 24) + 7)) return;
+  const free = NEIGHBOUR_IDS.filter(id => !v.neighbours[id].request);
+  v.nextRequest = today + 10 + Math.floor(random(s) * 8);
+  if (!free.length) return;
+  const id = free[Math.floor(random(s) * free.length)], r = newRequest(s, id);
+  if (!r) return;
+  v.neighbours[id].request = r;
+  log(s, 'opportunity', `${NEIGHBOURS[id].leader} of ${REGIONS[id].name} asks for ${num0(r.qty)} ${GOODS[r.good].name.toLowerCase()} within ${REQUEST_DAYS} days: +$${Math.round(r.bonus).toLocaleString()} on top of the market price. Send it by caravan.`, 'region');
+}
+const num0 = (n: number) => Math.round(n).toLocaleString();
 export const tollIncome = (s: GameState) => regionOf(s).border === 'walls' ? round2(400 * s.macro.cpi * staffedTowers(s)) : 0;
 
 function resolveRaid(s: GameState, answer: 'pursue' | 'absorb'): ActionResult {
-  const v = regionOf(s), raid = v.raid, t = townOf(s);
+  const v = regionOf(s), raid = v.raid;
   if (!raid) return { ok: false, error: 'There is no open raid.' };
   if (answer === 'pursue') {
     const cost = pursuitCost(s);
-    if (t.cash < cost) return { ok: false, error: 'Fund the public treasury before sending a pursuit.' };
-    post(s, 'civic', -cost, 'Raid pursuit', 'heartland', 'corporate', 'town');
-    const back = Math.floor(raid.lost * clamp(.3 + .7 * protection(s), 0, 1));
+    if (s.cash < cost) return { ok: false, error: `A pursuit costs $${cost.toLocaleString()}.` };
+    post(s, 'civic', -cost, 'Raid pursuit', 'heartland', 'corporate');
+    const back = Math.floor(raid.lost * clamp(.3 + .7 * protection(s, raid.to), 0, 1));
     if (back > 0) addGoods(s, 'heartland', raid.good, back);
     v.bandits = Math.max(.1, v.bandits - .15); v.pursued++;
     log(s, 'info', `Your patrol recovered ${back} of ${raid.lost} ${GOODS[raid.good].name.toLowerCase()}.`, 'region');
@@ -80,11 +136,11 @@ export function regionDaily(s: GameState) {
     if (n.treaty && n.trust < TREATY_TRUST - 20) { n.treaty = false; log(s, 'warning', `${NEIGHBOURS[id].leader} has torn up your trade treaty. Rebuild trust to sign again.`, 'region'); }
   }
   const toll = tollIncome(s);
-  if (toll > 0) post(s, 'tolls', toll, 'Border tolls', 'heartland', 'corporate', 'town');
+  if (toll > 0) post(s, 'tolls', toll, 'Border tolls', 'heartland', 'corporate');
   // Raids hit caravans still on the road; the loss is real goods.
   // One bandit band: at most one caravan on the road is hit per day.
-  const road = s.shipments.filter(sh => sh.caravan && s.tick < sh.arrives);
-  const sh = road.length && random(s) < raidRisk(s) ? road[Math.floor(random(s) * road.length)] : undefined;
+  const road = s.shipments.filter(sh => sh.caravan && s.tick < sh.arrives), pick = road.length ? road[Math.floor(random(s) * road.length)] : undefined;
+  const sh = pick && random(s) < raidRisk(s, isNeighbour(pick.to) ? pick.to : undefined) ? pick : undefined;
   if (sh && Math.floor(sh.qty * .3) >= 1) {
     const lost = Math.floor(sh.qty * .3);
     sh.qty -= lost; v.raids++; v.bandits = Math.min(1, v.bandits + .02);
@@ -92,6 +148,7 @@ export function regionDaily(s: GameState) {
     log(s, 'warning', `Bandits raided your caravan to ${REGIONS[to].name}: ${lost} ${GOODS[sh.good].name.toLowerCase()} lost.`, 'region');
     if (!v.raid) v.raid = { id: nextId(s), to, good: sh.good, lost, opened: s.tick, deadline: s.tick + 3 * 24 };
   }
+  requestsDaily(s);
   if (v.raid && s.tick >= v.raid.deadline) {
     const r = resolveRaid(s, 'pursue');
     if (!r.ok) resolveRaid(s, 'absorb');
@@ -131,9 +188,9 @@ function action(s: GameState, a: Action): ActionResult | null {
   if (a.type === 'setBorder') {
     if (a.border !== 'open' && a.border !== 'walls') return fail('Choose open borders or walls & tolls.');
     if (a.border === v.border) return fail('That is already your border policy.');
-    const cost = borderChangeCost(s), t = townOf(s);
-    if (t.cash < cost) return fail('The treasury cannot afford the border works.');
-    post(s, 'civic', -cost, 'Border works', 'heartland', 'corporate', 'town');
+    const cost = borderChangeCost(s);
+    if (s.cash < cost) return fail(`The border works cost $${cost.toLocaleString()}.`);
+    post(s, 'civic', -cost, 'Border works', 'heartland', 'corporate');
     v.border = a.border; return { ok: true };
   }
   if (a.type === 'resolveRaid') return a.answer === 'pursue' || a.answer === 'absorb' ? resolveRaid(s, a.answer) : fail('Pursue or absorb the loss.');

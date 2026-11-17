@@ -386,6 +386,10 @@ export function act(a: Action, success?: string) {
 export const setSpeed = (speed: Speed) => set({ speed });
 export const dismissAway = () => set({ away: null });
 export const go = (page: string) => set({ page });
+/** The neighbour the Region page opens on, when a banner on the map was tapped. */
+let neighbourFocus: string | null = null;
+export const focusNeighbour = (id: string) => { neighbourFocus = id; };
+export const takeNeighbourFocus = () => { const f = neighbourFocus; neighbourFocus = null; return f; };
 export const usePageState = () => useStore((x) => x.page);
 
 // ---------------------------------------------------------------- loop

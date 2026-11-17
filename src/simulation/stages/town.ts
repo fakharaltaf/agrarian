@@ -24,7 +24,7 @@ export function serviceAvailable(s: GameState, type: ServiceType): boolean {
   if(type==='sanitation'||type==='lighting'||type==='waterTower')return t.active||cityActive(s); // the town's own utilities
   if(type==='police'||type==='mall'||type==='office'||type==='parking')return cityActive(s);
   if(isShop(type)||type==='park')return t.active; // shops open in the Town; they merge into markets in the City
-  if(type==='watchtower')return regionActive(s);
+  if(type==='watchtower'||type==='militia')return regionActive(s);
   if(type==='barracks')return nationActive(s)&&nationOf(s).path==='army';
   if(type==='school'||type==='well') return true;
   if(type==='clinic'||type==='road') return t.services.some(b=>b.type==='school'||b.type==='well');

@@ -413,6 +413,9 @@ body { overflow: hidden; }
 .world-overlay { position: absolute; inset: 0; pointer-events: none; overflow: hidden; z-index: 2; }
 .world-overlay > div { position: absolute; left: 0; top: 0; will-change: transform; white-space: nowrap; }
 .wl-name { font: 700 11px var(--font); color: #f6f3e9; background: rgba(24,31,28,0.72); padding: 2px 8px; border-radius: 99px; }
+.wl-neighbour { pointer-events: auto; cursor: pointer; font-size: 13px; padding: 5px 12px; background: rgba(43,32,20,0.86); border: 1.5px solid #e2b04a; box-shadow: 0 2px 8px rgba(0,0,0,.25); min-height: 32px; display: inline-flex; align-items: center; }
+.wl-neighbour:hover { background: rgba(70,52,28,0.95); }
+.wl-neighbour.edge { opacity: .92; }
 .wl-ready { width: 24px; height: 24px; border-radius: 50%; background: #d8aa54; color: #fff; font: 900 14px var(--font); display: grid; place-items: center; box-shadow: 0 2px 8px rgba(0,0,0,0.35); }
 
 /* era banner & forecast in the farm HUD */
@@ -753,6 +756,11 @@ body:has(.modal-bg) .shell .coach { display: none !important; }
 .region-banner{cursor:pointer}.region-banner rect{fill:var(--surface);stroke:var(--line);stroke-width:2}.region-banner.selected rect{stroke:var(--sun);stroke-width:4}
 .region-banner.friendly rect{fill:color-mix(in srgb,var(--leaf) 22%,var(--surface))}.region-banner.wary rect{fill:color-mix(in srgb,var(--sun) 22%,var(--surface))}.region-banner.hostile rect{fill:color-mix(in srgb,var(--clay) 26%,var(--surface))}
 .region-banner:focus-visible{outline:none}.region-banner:focus-visible rect{stroke:var(--accent);stroke-width:4}
+.region-river{fill:none;stroke:color-mix(in srgb,#4a9bbd 70%,var(--surface-2));stroke-width:14;stroke-linecap:round;opacity:.75}
+.region-mainroad{stroke:color-mix(in srgb,var(--muted) 45%,var(--surface-2));stroke-width:7}
+.region-guard{font-size:11px;font-weight:800;fill:var(--text);paint-order:stroke;stroke:var(--surface-2);stroke-width:3px}.region-guard.weak{fill:var(--down)}
+.region-order{display:grid;gap:6px;padding:12px 14px;border-radius:16px;border:1.5px solid var(--gold);background:color-mix(in srgb,var(--gold) 10%,var(--surface))}
+.region-order-head{display:flex;justify-content:space-between;gap:8px;align-items:baseline}.region-order-head span{font-size:12px;color:var(--muted)}
 .region-icon{font-size:20px}.region-name{font-size:13px;font-weight:700;fill:var(--text)}.region-trust{font-size:11px;fill:var(--muted)}.region-caravan{font-size:14px}
 .region-who{display:grid;gap:4px}.region-who span{font-size:15px;color:var(--muted)}
 .region-goods{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}.region-goods button{display:grid;gap:2px;min-height:56px;padding:6px}.region-goods small{font-size:14px;font-variant-numeric:tabular-nums}

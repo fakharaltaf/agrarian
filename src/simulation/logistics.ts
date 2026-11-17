@@ -67,7 +67,7 @@ export function shipmentsTick(s: GameState) {
       const slice = Math.min(sh.qty, Math.max(50, marketDepth(s, sh.to, sh.good) * 0.15));
       s.regions[sh.to].inventory[sh.good] += slice;
       const sale = executeSell(s, sh.to, sh.good, slice, `${sh.caravan ? 'Caravan' : 'Export'} sale: ${GOODS[sh.good].name} in ${REGIONS[sh.to].name}`), sold = sale.qty;
-      if (sh.caravan) creditCaravan(s, sh.to, sh.good, sale.gross);
+      if (sh.caravan) creditCaravan(s, sh.to, sh.good, sale.gross, sold);
       s.regions[sh.to].inventory[sh.good] -= slice - sold;
       sh.qty -= sold;
       if (sold <= 0 && sh.qty >= 1) addGoods(s, sh.caravan ? sh.from : sh.to, sh.good, sh.qty); // market won't take it: store what's left (caravans bring it home)

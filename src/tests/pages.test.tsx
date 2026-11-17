@@ -12,7 +12,7 @@ import { regionOf } from '../simulation/region-state';
 import { nationOf } from '../simulation/nation-state';
 
 let game: GameState;
-vi.mock('../stores/game', () => ({ act: () => null, go: () => {}, useGame: () => game, getGame: () => game, getSpeed: () => 1, usePageState: () => 'farm', useStore: (f: (s: unknown) => unknown) => f({ game, v: 0, speed: 1, page: 'farm', toasts: [] }) }));
+vi.mock('../stores/game', () => ({ act: () => null, go: () => {}, useGame: () => game, getGame: () => game, getSpeed: () => 1, takeNeighbourFocus: () => null, usePageState: () => 'farm', useStore: (f: (s: unknown) => unknown) => f({ game, v: 0, speed: 1, page: 'farm', toasts: [] }) }));
 vi.mock('../app/world/portrait', () => ({ portrait: () => '' }));
 
 const PAGES = ['Analytics', 'Automation', 'Competitors', 'Corporation', 'Equipment', 'Fields', 'Finance', 'Livestock', 'Logistics', 'Markets', 'Overview', 'Policy', 'Production', 'Research', 'Storage', 'Workers', 'World', 'Community', 'Town', 'City', 'Region', 'Nation'];

@@ -17,6 +17,7 @@ export const SERVICE_DEFS: Record<ServiceType, { name: string; icon: string; cos
   mall: {name:'Mall',icon:'🏬',cost:250000,capacity:1e12,jobs:20,kwh:60},
   office: {name:'Office',icon:'🏢',cost:90000,capacity:1e12,jobs:0,kwh:30},
   parking: {name:'Parking complex',icon:'🅿',cost:70000,capacity:1e12,jobs:2,kwh:4},
+  militia: {name:'Militia hall',icon:'🛡',cost:60000,capacity:1e12,jobs:8,kwh:3},
   school: { name: 'School', icon: '📚', cost: 30000, capacity: 80, jobs: 4, kwh: 8 },
   well: { name: 'Well', icon: '💧', cost: 8000, capacity: 100, jobs: 1, kwh: 0 },
   clinic: { name: 'Clinic', icon: '♥', cost: 45000, capacity: 150, jobs: 3, kwh: 16 },
@@ -124,7 +125,7 @@ export const levelOf = (b: { level?: number }) => Math.max(1, Math.min(3, b.leve
 export const serviceRadius = (b: { type: ServiceType; level?: number; size?: number }) => (b.type === 'mall' ? 60 : (SERVICE_RADIUS[b.type] ?? 10) * (svcSize(b) >= 2 ? 2.2 : 1)) * LEVEL_REACH[levelOf(b) - 1];
 export const utilityFamilies = (b: { type: ServiceType; level?: number; count: number; size?: number }) => (UTILITY_FAMILIES[b.type] ?? 0) * b.count * LEVEL_FAMILIES[levelOf(b) - 1] * (svcSize(b) >= 2 ? 1.6 : 1);
 export const levelCapacity = (b: { level?: number; size?: number }) => LEVEL_CAPACITY[levelOf(b) - 1] * (svcSize(b) >= 2 ? 1.6 : 1);
-export const canUpgradeService = (type: ServiceType) => HEAT_SERVICES.includes(type) || !!UTILITY_OF[type] || type === 'office' || type === 'mall' || type === 'parking';
+export const canUpgradeService = (type: ServiceType) => HEAT_SERVICES.includes(type) || !!UTILITY_OF[type] || type === 'office' || type === 'mall' || type === 'parking' || type === 'watchtower' || type === 'militia';
 /** What street a town building needs at its door, by what it is and how big. */
 export function serviceNeed(b: { type: ServiceType; level?: number; size?: number }): LaneNeed {
   if (b.type === 'office') return OFFICE_NEED[levelOf(b) - 1];
