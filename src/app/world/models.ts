@@ -894,6 +894,7 @@ export function buildCivic(type: string, w: number, d: number, level = 1, key = 
   }
   if (type.startsWith('shop')) return w >= 6 ? buildMarketHall(type.slice(4).toLowerCase() as ShopKind, w, d) : buildShop(type.slice(4).toLowerCase() as ShopKind, w, d);
   if (type === 'mall') return buildMall(w, d, level > 1);
+  if (type === 'parking' && w < 6) return buildParking(level, w, d, key);
   if (type === 'office') return buildOffice(Math.max(1, Math.min(3, level)) as 1 | 2 | 3, w, d, key);
   const group = new THREE.Group(), windows: THREE.Mesh[] = [], smoke: THREE.Vector3[] = [];
   group.add(box(w-.1,.08,d-.1,PAL.stone,w/2,0,d/2));
@@ -1356,5 +1357,25 @@ export function buildPark(kind: 'garden' | 'play' | 'sport', level = 1, w = 3, d
     if (level >= 3) { for (const [x, z] of [[0.3, 0.3], [w - 0.3, 0.3], [0.3, d - 0.3], [w - 0.3, d - 0.3]]) g.add(box(0.05, 1.5, 0.05, PAL.metalDark, x, 0.05, z), box(0.3, 0.14, 0.08, 0xffe2a0, x, 1.5, z, { emissive: 0x6b5a2a })); g.add(box(0.7, 0.4, 0.5, 0xe9e2d2, w - 0.6, 0.05, d - 0.4), box(0.76, 0.05, 0.56, 0x4f7aa0, w - 0.6, 0.45, d - 0.4)); }
     tr(0.3, d - 0.35, 0.45);
   }
+  return finish(g);
+}
+
+// ---------------------------------------------------------------- the parking complex: open decks that rise a level at a time
+export function buildParking(level = 1, w = 3, d = 3, key = ''): Model {
+  const g = new THREE.Group(), decks = [2, 3, 5][Math.max(1, Math.min(3, level)) - 1], dh = 0.42, bw = w - 0.4, bd = d - 0.5, cx = w / 2, cz = 0.25 + bd / 2;
+  const concrete = 0xc9c3b4, band = [0x2f5f8f, 0x4f8a4a, 0xb5643c][pick(key + 'p', 3)];
+  g.add(box(w - 0.1, 0.05, d - 0.1, 0x8f8a80, w / 2, 0, d / 2, { rough: 1 }));
+  for (let k = 0; k < decks; k++) {
+    const y = k * dh;
+    g.add(box(bw, 0.06, bd, 0x6f6c66, cx, y + 0.05, cz), box(bw + 0.04, 0.12, 0.05, concrete, cx, y + 0.2, cz + bd / 2), box(bw + 0.04, 0.12, 0.05, concrete, cx, y + 0.2, cz - bd / 2), box(0.05, 0.12, bd, concrete, cx + bw / 2, y + 0.2, cz));
+    g.add(box(bw + 0.05, 0.035, 0.055, band, cx, y + 0.3, cz + bd / 2)); // a coloured stripe on each deck edge
+    for (const [dx, dz] of [[-1, -1], [1, -1], [-1, 1], [1, 1], [0, -1], [0, 1]]) g.add(box(0.08, dh, 0.08, concrete, cx + dx * (bw / 2 - 0.05), y + 0.05, cz + dz * (bd / 2 - 0.05)));
+    for (let i = 0; i < 3; i++) if ((k + i + pick(key + k, 2)) % 3) carProp(g, cx - bw / 3 + i * (bw / 3), cz + (i % 2 ? 0.2 : -0.2), [0xa8322c, 0xf4f2ec, 0x4f7aa0, 0xc99a2e, 0x2a3540][(k * 3 + i) % 5], Math.PI / 2), g.children[g.children.length - 1].position.y = y + 0.08;
+  }
+  const top = decks * dh + 0.05;
+  g.add(box(bw, 0.06, bd, 0x6f6c66, cx, top, cz), box(0.5, 0.5, 0.5, concrete, cx - bw / 2 + 0.3, top, cz - bd / 2 + 0.3), box(0.52, 0.05, 0.52, band, cx - bw / 2 + 0.3, top + 0.5, cz - bd / 2 + 0.3)); // roof deck and the lift house
+  const ramp = box(0.5, 0.05, bd * 0.7, 0x6f6c66, cx + bw / 2 + 0.2, 0.2, cz); ramp.rotation.x = 0.35; g.add(ramp);
+  g.add(box(0.5, 0.5, 0.06, band, cx - bw / 2 + 0.35, top + 0.6, cz - bd / 2 + 0.06), box(0.3, 0.3, 0.07, 0xf4f2ec, cx - bw / 2 + 0.35, top + 0.7, cz - bd / 2 + 0.07)); // the P sign
+  lampPost(g, w - 0.25, d - 0.25, 0.9);
   return finish(g);
 }

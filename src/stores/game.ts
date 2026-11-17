@@ -34,6 +34,7 @@ interface Store {
   hideBuildings: boolean;
   /** the City's crime map: a marker over each home, coloured by crime on its street */
   crimeMap: boolean;
+  trafficMap: boolean;
   prospect: Prospect | null;
   zoning: Zoning | null;
 }
@@ -47,7 +48,7 @@ export type Prospect = { region: RegionId; hover?: [number, number]; survey?: bo
 export const placementUse = (p: Pick<Placement, 'action' | 'key' | 'kind'>) => p.kind === 'move' ? undefined : p.action.type === 'buildHomes' ? 'home' as const : p.action.type === 'buyPlot' || p.action.type === 'buyParcel' ? 'field' as const : p.action.type === 'build' ? buildingUse(store.game, p.action.building) : p.action.type === 'buildService' && COMMERCIAL.test(p.action.service) ? 'shop' as const : undefined;
 export type Placement = { kind: 'new' | 'move'; action: Action; region: RegionId; w: number; d: number; label: string; key?: string; at: [number, number]; /** quarter turns; w and d are already turned */ rot?: number; /** placing one of several: how many are left, of how many */ left?: number; total?: number };
 
-let store: Store = { game: createGame(), v: 0, speed: 1, toasts: [], away: null, catchUp: null, page: 'farm', ready: false, placing: null, roading: null, hideBuildings: false, crimeMap: false, prospect: null, zoning: null };
+let store: Store = { game: createGame(), v: 0, speed: 1, toasts: [], away: null, catchUp: null, page: 'farm', ready: false, placing: null, roading: null, hideBuildings: false, crimeMap: false, trafficMap: false, prospect: null, zoning: null };
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((l) => l());
 const set = (patch: Partial<Store>) => {
@@ -63,6 +64,8 @@ export const buildingsHidden = () => !!store.roading && store.hideBuildings;
 export const toggleHideBuildings = () => set({ hideBuildings: !store.hideBuildings });
 export const setCrimeMap = (on: boolean) => set({ crimeMap: on });
 export const crimeMapOn = () => store.crimeMap;
+export const setTrafficMap = (on: boolean) => set({ trafficMap: on, ...(on ? { crimeMap: false } : {}) });
+export const trafficMapOn = () => store.trafficMap;
 
 // ---------------------------------------------------------------- undo: map edits can be taken back for a game day
 let undos: Edit[] = [], redos: Edit[] = [];

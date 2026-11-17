@@ -3,7 +3,7 @@ import { act, go, setCrimeMap, startPipes, useGame } from '../../stores/game';
 import { population } from '../../simulation/community-state';
 import { cityOf, POLICE_CHARTERS, type PoliceCharter } from '../../simulation/city-state';
 import { caseCost, cityTrainingCost, policeReformCost } from '../../simulation/stages/city';
-import { OFFICE_JOBS, serviceJobs, servicePrice, serviceRadius, townOf } from '../../simulation/town-state';
+import { OFFICE_JOBS, PARKING_SHARE, serviceJobs, servicePrice, serviceRadius, townOf } from '../../simulation/town-state';
 import { serviceDailyCost } from '../../simulation/stages/town';
 import { GOODS } from '../../simulation/config';
 import { Bar, Info, Modal, PageHead, Seg } from '../ui';
@@ -44,7 +44,7 @@ export default function CityPage() {
   const lit = t.power ?? 0, stations = t.services.filter((b) => b.type === 'police'), charter = POLICE_CHARTERS[v.charter ?? 'watch'];
   const idle = stations.find((b) => b.active && b.staffed < serviceJobs(s, 'police') * b.count), paused = stations.find((b) => !b.active);
   const price = servicePrice(s, 'police'), place = () => act({ type: 'buildService', service: 'police', district: 'farmgate' });
-  const offices = t.services.filter((b) => b.type === 'office');
+  const offices = t.services.filter((b) => b.type === 'office'), parkings = t.services.filter((b) => b.type === 'parking').length, slowTiles = Object.keys(t.traffic ?? {}).length;
   const showMap = () => { setCrimeMap(true); go('farm'); };
   const days = v.case ? Math.max(0, Math.ceil((v.case.deadline - s.tick) / 24)) : 0;
 
@@ -87,6 +87,12 @@ export default function CityPage() {
       </SettingRow>
     </section>
     <ShopsSection />
+    <h2 className="civ-h">Traffic</h2>
+    <div className="civ-builds">
+      <BuildCard img={portrait('civic:parking')} fallback="🅿" name={<>Parking complex{parkings > 0 && <small> ×{parkings}</small>}</>}
+        lines={['Town buildings reach homes by road: busy streets slow everyone down, so they reach less far. A car park takes cars off the streets around it.', `${slowTiles} street tile${slowTiles === 1 ? '' : 's'} slowed by traffic · see them on the 🚦 map`, `Takes ${PARKING_SHARE.map((x) => `${Math.round(x * 100)}%`).join(' / ')} of cars off the streets at levels 1–3`]}
+        action={<button className="btn primary" disabled={servicePrice(s, 'parking') > s.cash} onClick={() => act({ type: 'buildService', service: 'parking', district: 'farmgate' })}>Place · {money(servicePrice(s, 'parking'))}</button>} />
+    </div>
     <h2 className="civ-h">Offices</h2>
     <div className="civ-builds">
       <BuildCard img={portrait('civic:office')} fallback="🏢" name={<>Office{offices.length > 0 && <small> ×{offices.length}</small>}</>}

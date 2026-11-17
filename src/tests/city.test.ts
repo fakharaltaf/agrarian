@@ -257,7 +257,7 @@ it('Parks: laid out as gardens, a playground or a sports ground, each reaching t
   expect(dispatch(s, { type: 'zoneLand', region: 'heartland', chunks: chunks.slice(0, 2), zone: 'res' }).ok).toBe(true);
   expect(dispatch(s, { type: 'buildHomes', tier: 'cottage', count: 1, at: o }).ok).toBe(true); c.homes = c.homes.slice(-1); // one home, by the park
   expect(dispatch(s, { type: 'buildService', service: 'park', district: 'farmgate' }).ok).toBe(true); // on the farm's own cleared land, by a road
-  const park = t.services.at(-1)!, pp = w.pos[`svc:${park.id}`]; w.pos[`home:${c.homes[0].id}`] = [pp[0] + 4, pp[1]]; W.touch(w);
+  const park = t.services.at(-1)!, pp = w.pos[`svc:${park.id}`]; w.pos[`home:${c.homes[0].id}`] = [pp[0] + 4, pp[1]]; for (let x = pp[0]; x < pp[0] + 8; x++) w.roads[W.tileId(x, pp[1] - 1)] = 3; W.touch(w); // a street past both doors
   const day = (n: number) => { t.lastDay = -1; s.tick = 24 * n; townDaily(s); };
   day(70); expect(t.parks!.garden).toBeCloseTo(0.5, 5); expect(t.parks!.play).toBeUndefined(); // a new park is gardens, at half strength
   const cash = s.cash; expect(dispatch(s, { type: 'setPark', serviceId: park.id, kind: 'play' }).ok).toBe(true); expect(s.cash).toBe(cash); // the first layout is free

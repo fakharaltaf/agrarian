@@ -15,6 +15,7 @@ export const SERVICE_DEFS: Record<ServiceType, { name: string; icon: string; cos
   shopGeneral: {name:'General store',icon:'🧺',cost:15000,capacity:1e12,jobs:2,kwh:2},
   mall: {name:'Mall',icon:'🏬',cost:250000,capacity:1e12,jobs:20,kwh:60},
   office: {name:'Office',icon:'🏢',cost:90000,capacity:1e12,jobs:0,kwh:30},
+  parking: {name:'Parking complex',icon:'🅿',cost:70000,capacity:1e12,jobs:2,kwh:4},
   school: { name: 'School', icon: '📚', cost: 30000, capacity: 80, jobs: 4, kwh: 8 },
   well: { name: 'Well', icon: '💧', cost: 8000, capacity: 100, jobs: 1, kwh: 0 },
   clinic: { name: 'Clinic', icon: '♥', cost: 45000, capacity: 150, jobs: 3, kwh: 16 },
@@ -27,7 +28,7 @@ export const SERVICE_DEFS: Record<ServiceType, { name: string; icon: string; cos
   barracks: {name:'Barracks',icon:'⚔',cost:120000,capacity:1e12,jobs:20,kwh:10},
 };
 /** How far (in tiles, centre to centre) each service reaches: homes inside the circle are served. */
-export const SERVICE_RADIUS: Partial<Record<ServiceType, number>> = { school: 12, clinic: 12, hospital: 22, well: 8, waterworks: 20, waterTower: 14, sanitation: 12, lighting: 16, police: 14, park: 8, shopBaker: 10, shopDairy: 10, shopButcher: 10, shopGrocer: 10, shopGeneral: 10 };
+export const SERVICE_RADIUS: Partial<Record<ServiceType, number>> = { school: 12, clinic: 12, hospital: 22, well: 8, waterworks: 20, waterTower: 14, sanitation: 12, lighting: 16, police: 14, park: 8, parking: 8, shopBaker: 10, shopDairy: 10, shopButcher: 10, shopGrocer: 10, shopGeneral: 10 };
 /** City shops, and what each sells per resident per day to the homes in its reach. */
 export const SHOP_GOODS: Record<ShopType, Partial<Record<GoodId, number>>> = {
   shopBaker: { bread: 0.6, flour: 0.1 }, shopDairy: { milk: 0.5, cheese: 0.06, butter: 0.05 }, shopButcher: { meat: 0.08 },
@@ -122,7 +123,11 @@ export const levelOf = (b: { level?: number }) => Math.max(1, Math.min(3, b.leve
 export const serviceRadius = (b: { type: ServiceType; level?: number; size?: number }) => (b.type === 'mall' ? 60 : (SERVICE_RADIUS[b.type] ?? 10) * (svcSize(b) >= 2 ? 1.8 : 1)) * LEVEL_REACH[levelOf(b) - 1];
 export const utilityFamilies = (b: { type: ServiceType; level?: number; count: number; size?: number }) => (UTILITY_FAMILIES[b.type] ?? 0) * b.count * LEVEL_FAMILIES[levelOf(b) - 1] * (svcSize(b) >= 2 ? 1.25 : 1);
 export const levelCapacity = (b: { level?: number; size?: number }) => LEVEL_CAPACITY[levelOf(b) - 1] * (svcSize(b) >= 2 ? 1.25 : 1);
-export const canUpgradeService = (type: ServiceType) => HEAT_SERVICES.includes(type) || !!UTILITY_OF[type] || type === 'office' || type === 'mall';
+export const canUpgradeService = (type: ServiceType) => HEAT_SERVICES.includes(type) || !!UTILITY_OF[type] || type === 'office' || type === 'mall' || type === 'parking';
+/** Share of the cars a parking complex takes off the streets in its reach, by level. */
+export const PARKING_SHARE = [0.35, 0.5, 0.65];
+/** A service's reach is measured along the roads: a little more than as the crow flies, since streets turn corners. */
+export const ROAD_REACH = 1.3;
 /** Desks outside firms fill with your residents, by office level; a mall's tower (its level 2) holds as many as a mid-rise. */
 export const OFFICE_JOBS = [20, 50, 120];
 export const officeJobs = (b: { type: ServiceType; level?: number; count: number }) => (b.type === 'office' ? OFFICE_JOBS[levelOf(b) - 1] * b.count : b.type === 'mall' && levelOf(b) >= 2 ? OFFICE_JOBS[1] : 0);

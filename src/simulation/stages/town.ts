@@ -1,4 +1,5 @@
 import { regionActive } from '../region-state';
+import { doorTiles, reachTime, trafficOf, travelCached } from '../access';
 import { buildAs, canPlaceNew, connect, forget, liftTracks, placeNew, placeProblem, SERVICE_FOOTPRINT, touch } from '../world';
 import type { CivicService } from '../types';
 import type { ShopType } from '../types';
@@ -13,7 +14,7 @@ import { larderReserve } from './settlement';
 import { GOODS, WORK_HOURS, type GoodId } from '../config';
 import { clamp, electricityPrice, log, marketWage, nextId, post, priceUsd, random, reservedStock, round2 } from '../core';
 import { communityOf, familiesHere, population, workingAdults, children, residentWorkers } from '../community-state';
-import { createTownState, districtPopulation, factoryJobs, localEmployment, payHouseholds, schoolChangeCost, SERVICE_DEFS, SERVICE_GROUPS, servicePrice, serviceJobs, townOf, townWorkforce, UTILITY_OF, utilityFamilies, serviceRadius, heatAt, levelCapacity, canUpgradeService, levelOf, serviceUpgradePrice, SHOP_GOODS, SHOP_TYPES, isShop, officeJobs, PARK_EFFECT, PARK_KINDS, mergeGroup, sellsKind, shopPull, svcSize, svcSide, serviceName } from '../town-state';
+import { createTownState, districtPopulation, factoryJobs, localEmployment, payHouseholds, schoolChangeCost, SERVICE_DEFS, SERVICE_GROUPS, servicePrice, serviceJobs, townOf, townWorkforce, UTILITY_OF, utilityFamilies, serviceRadius, heatAt, levelCapacity, canUpgradeService, levelOf, serviceUpgradePrice, SHOP_GOODS, SHOP_TYPES, isShop, officeJobs, PARK_EFFECT, PARK_KINDS, PARKING_SHARE, ROAD_REACH, HEAT_FADE, mergeGroup, sellsKind, shopPull, svcSize, serviceName } from '../town-state';
 import { homeUnits } from '../community-state';
 import { doorstep, footprintOf, hasAccess, netReach, NET_QUALITY, tileId, worldOf } from '../world';
 
@@ -21,7 +22,7 @@ export const canStartTown = (s: GameState) => communityOf(s).active && !townOf(s
 export function serviceAvailable(s: GameState, type: ServiceType): boolean {
   const t=townOf(s);
   if(type==='sanitation'||type==='lighting'||type==='waterTower')return t.active||cityActive(s); // the town's own utilities
-  if(type==='police'||type==='mall'||type==='office')return cityActive(s);
+  if(type==='police'||type==='mall'||type==='office'||type==='parking')return cityActive(s);
   if(isShop(type)||type==='park')return t.active; // shops open in the Town; they merge into markets in the City
   if(type==='watchtower')return regionActive(s);
   if(type==='barracks')return nationActive(s)&&nationOf(s).path==='army';
@@ -146,9 +147,17 @@ export function townDaily(s: GameState) {
   const homes=c.homes.map(h=>{const p=w.pos[`home:${h.id}`],fp=footprintOf(s,`home:${h.id}`);return p&&fp?{id:h.id,x:p[0]+fp.w/2,y:p[1]+fp.d/2,door:doorstep(p[0],p[1],fp).map(([x,y])=>tileId(x,y)),families:homeUnits(h)}:null;}).filter(Boolean) as {id:number;x:number;y:number;door:number[];families:number}[];
   const total=homes.reduce((n,h)=>n+h.families,0);
   const working=(b:typeof t.services[number])=>b.active&&b.funded&&(SERVICE_DEFS[b.type].jobs===0||b.staffed>0)&&hasAccess(s,'heartland',`svc:${b.id}`);
+  // Traffic: homes by their families, offices by their desks, shops by their custom, less what parking complexes take off the streets
+  const door=(b:{id:number})=>doorTiles(s,'heartland',`svc:${b.id}`);
+  const trips=[...homes.map(h=>({door:h.door,trips:h.families*2})),...t.services.filter(b=>b.active&&b.type!=='road').map(b=>({door:door(b),trips:b.type==='mall'?120:isShop(b.type)?(svcSize(b)>=2?40:10):officeJobs(b)*.5+(b.type==='parking'?0:4)}))];
+  const parking=t.services.filter(b=>b.type==='parking'&&working(b)).map(b=>({door:door(b),reach:serviceRadius(b),share:PARKING_SHARE[levelOf(b)-1]}));
+  t.traffic=trafficOf(w,trips,parking);
+  const slowSig=`${Object.keys(t.traffic).length}:${Object.values(t.traffic).reduce((a,b)=>a+b,0).toFixed(1)}`;
+  /** How well a service reaches each home: by travel time along the roads from its door to the home's, full within its reach and fading beyond. */
+  const reach=(b:typeof t.services[number])=>{const r=serviceRadius(b)*ROAD_REACH,m=travelCached(w,door(b),r*(1+HEAT_FADE),t.traffic!,slowSig);return homes.map(h=>{const c=reachTime(m,h.door);return c===Infinity?0:heatAt(c,r);});};
   const heat=(types:readonly ServiceType[])=>{
-    const live=t.services.filter(b=>types.includes(b.type)&&working(b)).map(b=>{const p=w.pos[`svc:${b.id}`];return p?{x:p[0]+svcSide(b)/2,y:p[1]+svcSide(b)/2,r:serviceRadius(b)}:null;}).filter(Boolean) as {x:number;y:number;r:number}[];
-    return homes.map(h=>Math.max(0,...live.map(v=>heatAt(Math.hypot(v.x-h.x,v.y-h.y),v.r))));
+    const live=t.services.filter(b=>types.includes(b.type)&&working(b)).map(reach);
+    return homes.map((_,i)=>Math.max(0,...live.map(q=>q[i])));
   };
   const lines=(types:readonly ServiceType[])=>{
     const q=homes.map(()=>0);
@@ -171,14 +180,14 @@ export function townDaily(s: GameState) {
   const powerQ=lines(SERVICE_GROUPS.power);
   const cover={school:share(heat(SERVICE_GROUPS.school)),water:share(wellQ.map((v,i)=>Math.max(v,pipedQ[i]))),medical:share(heat(SERVICE_GROUPS.medical)),sanitation:share(lines(SERVICE_GROUPS.sanitation)),power:share(powerQ)};
   const shopHeat=(kind:ShopType)=>{
-    const live=t.services.filter(b=>sellsKind(b,kind)&&working(b)).map(b=>{const p=w.pos[`svc:${b.id}`],half=svcSide(b)/2;return p?{x:p[0]+half,y:p[1]+half,r:serviceRadius(b),pull:shopPull(b)}:null;}).filter(Boolean) as {x:number;y:number;r:number;pull:number}[];
-    return homes.map(h=>Math.max(0,...live.map(v=>heatAt(Math.hypot(v.x-h.x,v.y-h.y),v.r)*v.pull)));
+    const live=t.services.filter(b=>sellsKind(b,kind)&&working(b)).map(b=>({q:reach(b),pull:shopPull(b)}));
+    return homes.map((_,i)=>Math.max(0,...live.map(v=>v.q[i]*v.pull)));
   };
   // parks: each kind's reach over the families, a bigger park counting for more (level 1 half, level 3 in full)
   t.parks={};
   for(const kind of ['garden','play','sport'] as const){
-    const live=t.services.filter(b=>b.type==='park'&&(b.park??'garden')===kind&&working(b)).map(b=>{const p=w.pos[`svc:${b.id}`];return p?{x:p[0]+svcSide(b)/2,y:p[1]+svcSide(b)/2,r:serviceRadius(b),k:[.5,.75,1][levelOf(b)-1]}:null;}).filter(Boolean) as {x:number;y:number;r:number;k:number}[];
-    if(live.length)t.parks[kind]=share(homes.map(h=>Math.max(0,...live.map(v=>heatAt(Math.hypot(v.x-h.x,v.y-h.y),v.r)*v.k))));
+    const live=t.services.filter(b=>b.type==='park'&&(b.park??'garden')===kind&&working(b)).map(b=>({q:reach(b),k:[.5,.75,1][levelOf(b)-1]}));
+    if(live.length)t.parks[kind]=share(homes.map((_,i)=>Math.max(0,...live.map(v=>v.q[i]*v.k))));
   }
   {const watchQ=heat(['police']),shopQ=SHOP_TYPES.map(shopHeat);cityOf(s).homes=homes.map((h,i)=>({id:h.id,families:h.families,power:powerQ[i],watch:watchQ[i],shops:Object.fromEntries(SHOP_TYPES.map((k,j)=>[k,shopQ[j][i]]).filter(([,v])=>v))}));} // the City reads street power and the watch per home
   for(const id of DISTRICT_IDS){const v=t.coverage[id];v.school=cover.school;v.water=cover.water;v.medical=cover.medical;v.road=1;}

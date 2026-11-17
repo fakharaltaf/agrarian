@@ -1,7 +1,7 @@
 import { act, go, startZoning, useGame } from '../../stores/game';
 import { cityActive, cityOf, shopReach } from '../../simulation/city-state';
 import { GST_RATES } from '../../simulation/stages/city';
-import { MARKET_NAME, SERVICE_DEFS, SHOP_GOODS, SHOP_TYPES, mergeGroup, servicePrice, serviceRadius, svcSize, townOf } from '../../simulation/town-state';
+import { ROAD_REACH, MARKET_NAME, SERVICE_DEFS, SHOP_GOODS, SHOP_TYPES, mergeGroup, servicePrice, serviceRadius, svcSize, townOf } from '../../simulation/town-state';
 import { serviceDailyCost } from '../../simulation/stages/town';
 import type { ServiceType } from '../../simulation/types';
 import { worldOf } from '../../simulation/world';
@@ -39,7 +39,7 @@ export function ShopsSection() {
     <div className="civ-builds">{SHOP_TYPES.map((type) => {
       const d = SERVICE_DEFS[type], n = shops.filter((b) => b.type === type && svcSize(b) === 1).length, halls = shops.filter((b) => b.type === type && svcSize(b) === 2).length, cost = servicePrice(s, type), reach = Math.min(1, shopReach(s, type));
       return <BuildCard key={type} img={portrait(`civic:${type}`)} fallback={d.icon} name={<>{d.name}{n > 0 && <small> ×{n}</small>}{halls > 0 && <small> · {halls > 1 ? `${halls} × ` : ''}{MARKET_NAME[type]}</small>}{mall?.kinds?.includes(type) && <small> · in the Mall</small>}</>}
-        lines={[`Sells ${Object.keys(SHOP_GOODS[type]).map((g) => GOODS[g as keyof typeof GOODS].name.toLowerCase()).join(', ')}`, `Reaches ${Math.round(serviceRadius({ type }))} tiles · ${d.jobs} staff · ${money(Math.round(serviceDailyCost(s, type)))}/day`, <Bar thin key="b" value={reach} label={`Families within a ${d.name.toLowerCase()}'s reach`} color={reach >= 0.7 ? 'var(--up)' : 'var(--gold)'} />]}
+        lines={[`Sells ${Object.keys(SHOP_GOODS[type]).map((g) => GOODS[g as keyof typeof GOODS].name.toLowerCase()).join(', ')}`, `Reaches ${Math.round(serviceRadius({ type }) * ROAD_REACH)} tiles by road · ${d.jobs} staff · ${money(Math.round(serviceDailyCost(s, type)))}/day`, <Bar thin key="b" value={reach} label={`Families within a ${d.name.toLowerCase()}'s reach`} color={reach >= 0.7 ? 'var(--up)' : 'var(--gold)'} />]}
         action={<div className="row wrap civ-case-acts"><button className="btn primary" disabled={cost > s.cash} onClick={() => build(type)}>Place · {money(cost)}</button><button className="btn ghost" disabled={cost * 4 > s.cash} title="Four in a square, a lane apart: ready to merge into a market in the City" onClick={() => act({ type: 'buildService', service: type, district: 'farmgate', block: true })}>Place 4 · {money(cost * 4)}</button></div>} />;
     })}</div>
     <p className="small muted civ-foot">{city ? <>Four shops of one kind in a square, a lane apart, merge into a market. Four markets merge into the Mall{mall ? `: yours holds ${mall.kinds?.length ?? 0} trades` : ''}. Tap a shop on the map to see its square.</> : 'In the City, four shops of one kind in a square merge into a market, and the shops pay GST to the farm.'}</p>

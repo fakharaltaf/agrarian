@@ -1,7 +1,7 @@
 import { homesExposed, nuisanceOf, nuisanceSources, NUISANCE_LOOK, type NuisanceKind } from '../../simulation/nuisance';
 import { oilOpen } from '../../simulation/stages/shared';
 import { cityActive, cityOf } from '../../simulation/city-state';
-import { SERVICE_DEFS, SERVICE_GROUPS, serviceJobs, serviceRadius, townOf, UTILITY_OF, heatAt, mergeGroup, serviceName, svcSide } from '../../simulation/town-state';
+import { ROAD_REACH, SERVICE_DEFS, SERVICE_GROUPS, serviceJobs, serviceRadius, townOf, UTILITY_OF, heatAt, mergeGroup, serviceName } from '../../simulation/town-state';
 import type { ServiceType } from '../../simulation/types';
 import { communityOf, households, population, residentWorkers } from '../../simulation/community-state';
 // The 3D farm. A live, lit, low-poly picture of the simulation: everything shown is read from game state.
@@ -15,12 +15,13 @@ import { priceUsd, stored } from '../../simulation/core';
 import { coverOf } from '../../simulation/agriculture';
 import { spreadNeed } from '../../simulation/agriculture';
 import type { GameState } from '../../simulation/types';
-import { getGame, getSpeed, moveGhost, placementUse, startZoning, stopZoning, zoneHover, zoneTap, type Zoning, prospectHover, prospectTap, roadHover, roadTap, roadDragStart, buildingsHidden, crimeMapOn, setCrimeMap, useStore, undo, redo, canUndo, canRedo, startProspect, startRoads, startPipes, stopProspect, stopRoads, type Placement, type Roading , getPage } from '../../stores/game';
+import { getGame, getSpeed, moveGhost, placementUse, startZoning, stopZoning, zoneHover, zoneTap, type Zoning, prospectHover, prospectTap, roadHover, roadTap, roadDragStart, buildingsHidden, crimeMapOn, setCrimeMap, trafficMapOn, setTrafficMap, useStore, undo, redo, canUndo, canRedo, startProspect, startRoads, startPipes, stopProspect, stopRoads, type Placement, type Roading , getPage } from '../../stores/game';
 import { featureEra, stageAtLeast } from '../../simulation/stages';
 import { preloadArt, artRevision, artModel, playClip } from './art';
 import { money, num, pct0 } from '../format';
 import { Modal } from '../ui';
 import { layoutRegion, type Layout, type Lot, type Plot } from './layout';
+import { doorTiles, reachTime, travelFrom } from '../../simulation/access';
 import { homesCentre, CHUNK, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, LAND_HA_PER_PATCH, MAP, hasAccess, riverTiles, riverX, tileId, roadRoute, roadStretch, roadPick, pipeRoute, pipeStretch, plotSide, fieldWater, wetTiers, linesOf, NET_TOP, UTILITY_NETS, netReach, doorstep, footprintOf, type NetKind, type UtilityNet, tileAt, forSaleAround,  ownedSet, ROAD_H, ROAD_Y, chunkAt, chunkOrigin, clearCost, clearedSet, isRoad, patchesAround, placeProblem, worldOf } from '../../simulation/world';
 import { animal, buildCivic, buildCommunityHome, buildLot, buildWorks, box, cached, cyl, farmhand, hauler, mat, mesh, PAL, person, tree, vehicle, type Model } from './models';
 import { haulOf, MARKET_X, marketRoute } from '../../simulation/hauling';
@@ -91,7 +92,7 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
   const canvas = useRef<HTMLCanvasElement>(null);
   const overlay = useRef<HTMLDivElement>(null);
   const rig = useRef<Rig | null>(null);
-  const crimeMap = useStore((x) => x.crimeMap);
+  const trafficMap = useStore((x) => x.trafficMap), crimeMap = useStore((x) => x.crimeMap);
   useEffect(() => { // turning the crime map on glides to the homes
     const R = rig.current, c = crimeMap && R ? homesCentre(worldOf(getGame(), 'heartland')) : null;
     if (R && c && R.region === 'heartland') R.glide = { x: c[0], z: c[1], zoom: Math.max(R.zoom, 0.55) };
@@ -406,6 +407,7 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
         {oilOpen(getGame()) && <button className={`icon-btn${prospect ? ' on' : ''}`} aria-label="Oil" title="Oil: survey and drill" onClick={() => prospect ? stopProspect() : startProspect(region)}>🛢</button>}
         <button data-coach="roads-btn" className={`icon-btn${roading && !roading.pipe ? ' on' : ''}`} aria-label="Roads" title="Roads: draw, upgrade or remove" onClick={() => roading && !roading.pipe ? stopRoads() : startRoads(region)}>🛤</button>
         {townOf(getGame()).active && <button className={`icon-btn${roading?.pipe && roading.pipe !== 'irrigation' ? ' on' : ''}`} aria-label="Utilities" title="Town utilities: power, water and sewage lines" onClick={() => roading?.pipe && roading.pipe !== 'irrigation' ? stopRoads() : startPipes(region, 'power')}>🔌</button>}
+        {townOf(getGame()).active && <button className={`icon-btn${trafficMap ? ' on' : ''}`} aria-label="Traffic map" aria-pressed={trafficMap} title="Traffic map: green streets flow freely, amber and red are slowed by traffic (a parking complex helps)" onClick={() => setTrafficMap(!trafficMap)}>🚦</button>}
         {cityActive(getGame()) && <button className={`icon-btn${crimeMap ? ' on' : ''}`} aria-label="Crime map" aria-pressed={crimeMap} title="Crime map: green streets are safe, red ones need a watchhouse or lights" onClick={() => setCrimeMap(!crimeMap)}>🛡</button>}
         {featureEra(getGame(), 2) && <button className={`icon-btn${roading?.pipe === 'irrigation' ? ' on' : ''}`} aria-label="Water lines" title="Water lines: dig ditches, upgrade them to pipes and bury them" onClick={() => roading?.pipe === 'irrigation' ? stopRoads() : startPipes(region)}>💧</button>}
       </div>
@@ -745,8 +747,8 @@ function syncCrops(R: Rig, L: Layout, s: GameState) {
 
 /** The placement ghost (green where it fits, red where it does not) and the forest patches about to be cleared. */
 function syncGhost(R: Rig, s: GameState, P: Placement | null, forest: [number, number] | null) {
-  const crime = !P && !forest && R.region === 'heartland' && crimeMapOn() && cityActive(s) ? cityOf(s) : null;
-  const sig = P ? `${P.region}:${P.at}:${P.w}x${P.d}r${P.rot ?? 0}:${P.key ?? ''}:${worldOf(s, P.region).cleared.length}` : forest ? `f${forest}:${worldOf(s, R.region).queue.length}` : crime ? `crime:${crime.lastDay}:${crime.case?.id ?? ''}:${Object.keys(worldOf(s, 'heartland').pos).length}` : '';
+  const crime = !P && !forest && R.region === 'heartland' && crimeMapOn() && cityActive(s) ? cityOf(s) : null, traffic = !P && !forest && !crime && R.region === 'heartland' && trafficMapOn() ? townOf(s).traffic ?? {} : null;
+  const sig = P ? `${P.region}:${P.at}:${P.w}x${P.d}r${P.rot ?? 0}:${P.key ?? ''}:${worldOf(s, P.region).cleared.length}` : forest ? `f${forest}:${worldOf(s, R.region).queue.length}` : crime ? `crime:${crime.lastDay}:${crime.case?.id ?? ''}:${Object.keys(worldOf(s, 'heartland').pos).length}` : traffic ? `traffic:${townOf(s).lastDay}:${Object.keys(traffic).length}:${Object.keys(worldOf(s, 'heartland').roads).length}` : '';
   if (sig === R.ghostSig) return;
   R.ghostSig = sig;
   clear(R.ghost);
@@ -784,18 +786,21 @@ function syncGhost(R: Rig, s: GameState, P: Placement | null, forest: [number, n
     const rad = svcType && !UTILITY_OF[svcType] && svcType !== 'road' ? serviceRadius(svc ?? { type: svcType }) : undefined;
     if (svcType && rad) {
       const group = Object.values(SERVICE_GROUPS).find((g) => (g as readonly string[]).includes(svcType)) as readonly string[] | undefined ?? [svcType];
-      const gx = P.at[0] + P.w / 2, gz = P.at[1] + P.d / 2, pos = worldOf(s, P.region).pos, heats: [number, number, number][] = [[gx, gz, rad]];
-      for (const b of townOf(s).services) if (group.includes(b.type) && `svc:${b.id}` !== P.key) { const q = pos[`svc:${b.id}`]; if (q) heats.push([q[0] + svcSide(b) / 2, q[1] + svcSide(b) / 2, serviceRadius(b)]); }
-      // a heat map in land patches, like the oil survey: deep blue where homes get full service, paling as it fades out
-      const reachAt = (x: number, z: number) => Math.max(...heats.map(([hx, hz, r2]) => heatAt(Math.hypot(x - hx, z - hz), r2)));
+      // reach is measured along the roads from each door: the streets it reaches light up, deep blue where homes get full service, paling as it fades
+      const w0 = worldOf(s, P.region), pos = w0.pos, slow = townOf(s).traffic ?? {}, maps: [Map<number, number>, number][] = [];
+      const ghostDoor = doorstep(P.at[0], P.at[1], { w: P.w, d: P.d }).map(([x, y]) => tileId(x, y));
+      maps.push([travelFrom(w0, ghostDoor, rad * ROAD_REACH * 1.75, slow), rad * ROAD_REACH]);
+      for (const b of townOf(s).services) if (group.includes(b.type) && `svc:${b.id}` !== P.key && pos[`svc:${b.id}`]) { const r2 = serviceRadius(b) * ROAD_REACH; maps.push([travelFrom(w0, doorTiles(s, P.region, `svc:${b.id}`), r2 * 1.75, slow), r2]); }
+      const reachOf = (ids: number[]) => Math.max(0, ...maps.map(([m, r2]) => { const c = reachTime(m, ids); return c === Infinity ? 0 : heatAt(c, r2); }));
+      const tiles = new Map<number, number>(); for (const [m] of maps) for (const id of m.keys()) if (!tiles.has(id)) tiles.set(id, reachOf([id]));
       const cells: THREE.Matrix4[] = [], cols: THREE.Color[] = [];
-      for (let y = MAP.y0; y < MAP.y0 + MAP.h; y += CHUNK) for (let x = MAP.x0; x < MAP.x0 + MAP.w; x += CHUNK) { const v = reachAt(x + 2, y + 2); if (v < 0.03) continue; cells.push(new THREE.Matrix4().makeTranslation(x + 2, 0.06, y + 2)); cols.push(new THREE.Color().setHSL(0.6 - 0.07 * (1 - v), 0.8, 0.38 + 0.25 * (1 - v))); }
-      if (cells.length) { const im = new THREE.InstancedMesh(cached('oilheat', () => new THREE.BoxGeometry(CHUNK * 0.96, 0.02, CHUNK * 0.96)), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55, depthWrite: false }), cells.length); cells.forEach((m, k) => { im.setMatrixAt(k, m); im.setColorAt(k, cols[k]); }); im.frustumCulled = false; R.ghost.add(im); }
+      for (const [id, v] of tiles) { if (v < 0.03) continue; const [x, y] = tileAt(id); cells.push(new THREE.Matrix4().makeTranslation(x + 0.5, 0.09, y + 0.5)); cols.push(new THREE.Color().setHSL(0.6 - 0.07 * (1 - v), 0.8, 0.38 + 0.25 * (1 - v))); }
+      if (cells.length) { const im = new THREE.InstancedMesh(cached('roadheat', () => new THREE.BoxGeometry(0.96, 0.02, 0.96)), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.6, depthWrite: false }), cells.length); cells.forEach((m, k) => { im.setMatrixAt(k, m); im.setColorAt(k, cols[k]); }); im.frustumCulled = false; im.renderOrder = 10; R.ghost.add(im); }
       // a marker over every home: green when fully served, amber at the fading edge, red when nothing reaches it
       const pin = cached('reach-pin', () => new THREE.OctahedronGeometry(0.32, 0));
       for (const [k, q] of Object.entries(pos)) {
         if (!k.startsWith('home:')) continue;
-        const hx = q[0] + 1.5, hz = q[1] + 1.5, v = Math.max(...heats.map(([x, z, r2]) => heatAt(Math.hypot(hx - x, hz - z), r2)));
+        const hx = q[0] + 1.5, hz = q[1] + 1.5, v = reachOf(doorTiles(s, P.region, k));
         R.ghost.add(mesh(pin, new THREE.MeshBasicMaterial({ color: v >= 0.99 ? 0x4cc35a : v > 0 ? 0xf2b82c : 0xe0533d }), hx, 2.6, hz, false));
       }
     }
@@ -810,6 +815,13 @@ function syncGhost(R: Rig, s: GameState, P: Placement | null, forest: [number, n
       R.ghost.add(mesh(disc, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.32, depthWrite: false }), x, 0.06, z, false));
       const m = mesh(pin, new THREE.MeshBasicMaterial({ color }), x, hit ? 3.6 : 2.6, z, false); if (hit) m.scale.setScalar(1.8); R.ghost.add(m);
     }
+    return;
+  }
+  // the traffic map: every street tinted by how freely it flows, green to red
+  if (traffic) {
+    const w0 = worldOf(s, 'heartland'), cells: THREE.Matrix4[] = [], cols: THREE.Color[] = [];
+    for (const k of Object.keys(w0.roads)) { const id = Number(k), v = traffic[id] ?? 1, [x, y] = tileAt(id); cells.push(new THREE.Matrix4().makeTranslation(x + 0.5, 0.09, y + 0.5)); cols.push(new THREE.Color(v >= 1.5 ? 0xe0533d : v > 1.05 ? 0xf2b82c : 0x4cc35a)); }
+    if (cells.length) { const im = new THREE.InstancedMesh(cached('roadheat', () => new THREE.BoxGeometry(0.96, 0.02, 0.96)), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55, depthWrite: false }), cells.length); cells.forEach((m, k) => { im.setMatrixAt(k, m); im.setColorAt(k, cols[k]); }); im.frustumCulled = false; im.renderOrder = 10; R.ghost.add(im); } // drawn after the road surface so the tint shows
     return;
   }
   // owned forest: the patches the crew would clear; land beyond the fence: the patches for sale

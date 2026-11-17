@@ -456,6 +456,7 @@ export function unlink(s: GameState, r: RegionId, key: string) {
 /** Road access is cached per region: recomputed every game hour and straight away when roads or buildings change (touch). */
 const revs = new WeakMap<RegionWorld, number>();
 export const touch = (w: RegionWorld) => { revs.set(w, (revs.get(w) ?? 0) + 1); };
+export const revOf = (w: RegionWorld) => revs.get(w) ?? 0;
 const access = new WeakMap<RegionWorld, { sig: string; net: Set<number>; seen: Map<string, boolean> }>();
 function accessCache(s: GameState, w: RegionWorld) {
   const sig = `${s.tick}|${revs.get(w) ?? 0}`, hit = access.get(w);
