@@ -1220,11 +1220,13 @@ function syncRoads(R: Rig, s: GameState) {
     }
   }
   // a paved road two tiles wide has white dashes down its middle; three has a green belt between its lanes; four a belt down each side; five two lanes either side of a belt
-  const paved = (x: number, y: number) => (w.roads[tileId(x, y)] ?? 0) >= 3, WHITE = C(0xe9e4d6), dash: Band[] = [[-0.035, WHITE, 1], [0.035, WHITE, 1]];
+  // a building's own drive (a track laid to its door) is not part of the street: it neither widens the road nor breaks its tree belt
+  const drives = new Set(Object.values(w.links).flat());
+  const paved = (x: number, y: number) => (w.roads[tileId(x, y)] ?? 0) >= 3 && !drives.has(tileId(x, y)), WHITE = C(0xe9e4d6), dash: Band[] = [[-0.035, WHITE, 1], [0.035, WHITE, 1]];
   // three side by side: a dual road, its middle lane a green belt of grass behind a kerb with a tree on every tile
   const KERB = C(0xc9c3b4), LAWN = C(0x7f9a4a), beltTrees: THREE.Object3D[] = [];
   // belts are gathered first and only drawn in runs of three tiles or more, so a busy street grid is not dotted with single squares of lawn
-  const wanted = new Map<string, [number, number, boolean]>(), belt = (cx: number, cz: number, ew: boolean) => { wanted.set(`${cx},${cz},${ew}`, [cx, cz, ew]); };
+  const wanted = new Map<string, [number, number, boolean, boolean]>(), belt = (cx: number, cz: number, ew: boolean, middle = true) => { wanted.set(`${cx},${cz},${ew}`, [cx, cz, ew, middle]); };
   const drawBelt = (cx: number, cz: number, ew: boolean) => {
     const [ax, az, bx, bz] = ew ? [cx - 0.5, cz, cx + 0.5, cz] : [cx, cz - 0.5, cx, cz + 0.5];
     grass.seg(ax, az, bx, bz, [[-0.36, KERB, 1], [-0.3, LAWN, 1], [0.3, LAWN, 1], [0.36, KERB, 1]]);
@@ -1235,31 +1237,31 @@ function syncRoads(R: Rig, s: GameState) {
     const [x, y] = tileAt(Number(k));
     if (!paved(x, y)) continue;
     // running north–south: x is the west edge of a row of n paved tiles, and the whole row carries on north or south
-    const any = (tx: number, ty: number) => isRoad(ty) || w.roads[tileId(tx, ty)] !== undefined;
     const nx = !paved(x - 1, y) ? across(x, y, 1, 0) : 0, carriesNS = (dy: number) => Array.from({ length: nx }, (_, i) => paved(x + i, y + dy)).every(Boolean) && !paved(x - 1, y + dy) && !paved(x + nx, y + dy);
     if (nx >= 2 && nx <= 5 && (carriesNS(-1) || carriesNS(1))) {
-      const through = carriesNS(-1) && carriesNS(1) && !any(x - 1, y) && !any(x + nx, y), uturn = ((y % 8) + 8) % 8 === 0; // no belt across a side road's mouth; a gap every eight tiles to turn back
+      const through = carriesNS(-1) || carriesNS(1); // a junction row is wider than the road, so belts stop there by themselves
       const line = (i: number) => marks.seg(x + i, y + 0.2, x + i, y + 0.8, dash);
       if (nx === 2) line(1);
-      else if (nx === 3) { if (through && !uturn) belt(x + 1.5, y + 0.5, false); }
-      else if (nx === 4) { if (through) { belt(x + 0.5, y + 0.5, false); belt(x + 3.5, y + 0.5, false); } line(2); }
-      else { if (through && !uturn) belt(x + 2.5, y + 0.5, false); line(1); line(4); }
+      else if (nx === 3) { if (through) belt(x + 1.5, y + 0.5, false); }
+      else if (nx === 4) { if (through) { belt(x + 0.5, y + 0.5, false, false); belt(x + 3.5, y + 0.5, false, false); } line(2); }
+      else { if (through) belt(x + 2.5, y + 0.5, false); line(1); line(4); }
     }
     // running east–west: y is the north edge of a column of n paved tiles
     const ny = !paved(x, y - 1) ? across(x, y, 0, 1) : 0, carriesEW = (dx: number) => Array.from({ length: ny }, (_, i) => paved(x + dx, y + i)).every(Boolean) && !paved(x + dx, y - 1) && !paved(x + dx, y + ny);
     if (ny >= 2 && ny <= 5 && (carriesEW(-1) || carriesEW(1))) {
-      const through = carriesEW(-1) && carriesEW(1) && !any(x, y - 1) && !any(x, y + ny), uturn = ((x % 8) + 8) % 8 === 0;
+      const through = carriesEW(-1) || carriesEW(1);
       const line = (i: number) => marks.seg(x + 0.2, y + i, x + 0.8, y + i, dash);
       if (ny === 2) line(1);
-      else if (ny === 3) { if (through && !uturn) belt(x + 0.5, y + 1.5, true); }
-      else if (ny === 4) { if (through) { belt(x + 0.5, y + 0.5, true); belt(x + 0.5, y + 3.5, true); } line(2); }
-      else { if (through && !uturn) belt(x + 0.5, y + 2.5, true); line(1); line(4); }
+      else if (ny === 3) { if (through) belt(x + 0.5, y + 1.5, true); }
+      else if (ny === 4) { if (through) { belt(x + 0.5, y + 0.5, true, false); belt(x + 0.5, y + 3.5, true, false); } line(2); }
+      else { if (through) belt(x + 0.5, y + 2.5, true); line(1); line(4); }
     }
   }
-  for (const [cx, cz, ew] of wanted.values()) {
+  for (const [cx, cz, ew, middle] of wanted.values()) {
     const has = (k: number) => wanted.has(ew ? `${cx + k},${cz},true` : `${cx},${cz + k},false`);
     let run = 1; for (let k = 1; has(k); k++) run++; for (let k = -1; has(k); k--) run++;
-    if (run >= 3) drawBelt(cx, cz, ew);
+    const at = Math.floor(ew ? cx : cz);
+    if (run >= 3 && !(middle && run >= 12 && ((at % 8) + 8) % 8 === 0)) drawBelt(cx, cz, ew); // a long middle belt leaves a gap every eight tiles to turn back
   }
   if (beltTrees.length) R.roadsG.add(...beltTrees);
   // where a track meets the main road its mouth widens into a soft rounded fan, so the corners are not cut square
