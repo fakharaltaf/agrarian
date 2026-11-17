@@ -23,7 +23,7 @@ import { money, num, pct0 } from '../format';
 import { Modal } from '../ui';
 import { layoutRegion, type Layout, type Lot, type Plot } from './layout';
 import { doorTiles, frontageAt, meets, pressureOf, reachTime, roadTile, travelFrom } from '../../simulation/access';
-import { bridgeAt, isBridge } from '../../simulation/world';
+import { bridgeAt, bridgePlan, isBridge } from '../../simulation/world';
 import { wooded, beltRoute, wideRoadRoute, homesCentre, CHUNK, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, LAND_HA_PER_PATCH, MAP, hasAccess, riverTiles, riverX, tileId, roadStretch, roadPick, pipeRoute, pipeStretch, plotSide, fieldWater, wetTiers, linesOf, NET_TOP, UTILITY_NETS, netReach, doorstep, footprintOf, type NetKind, type UtilityNet, tileAt, forSaleAround,  ownedSet, ROAD_H, ROAD_Y, chunkAt, chunkOrigin, clearCost, clearedSet, isRoad, patchesAround, placeProblem, worldOf } from '../../simulation/world';
 import { animal, buildBridge, buildCivic, buildCommunityHome, buildLot, buildWorks, box, cached, cyl, farmhand, hauler, mat, mesh, PAL, person, tree, vehicle, type Model } from './models';
 import { haulOf, MARKET_X, marketRoute } from '../../simulation/hauling';
@@ -1360,8 +1360,8 @@ function syncRoads(R: Rig, s: GameState) {
     for (const k of ids) { const id = Number(k); if (seen.has(id) || !isBridge(R.region, id)) continue;
       const span = bridgeAt(s, R.region, tileAt(id)); span.forEach((t) => seen.add(t));
       const rows = [...new Set(span.map((t) => tileAt(t)[1]))], y0 = Math.min(...rows), d = Math.max(...rows) - y0 + 1;
-      const cx = rows.reduce((a, y) => a + riverX(R.region, y) + 1, 0) / rows.length, level = Math.min(...span.map((t) => w.roads[t]));
-      const m = buildBridge(level, d); m.position.set(cx, 0, y0 + d / 2); R.roadsG.add(m);
+      const { cx, len } = bridgeFit(R.region, y0, d), level = Math.min(...span.map((t) => w.roads[t]));
+      const m = buildBridge(level, d); m.scale.x = len / 5.2; m.position.set(cx, 0, y0 + d / 2); R.roadsG.add(m); // the model is drawn 5.2 long: stretched to reach both banks
     }
   }
   // where a track meets the main road its mouth widens into a soft rounded fan, so the corners are not cut square
@@ -1500,11 +1500,19 @@ function utilityworks(s: GameState, r: RegionId) {
 }
 /** Road mode: the route a new road would take, or the stretch that would be upgraded or removed. */
 function syncRoadPreview(R: Rig, s: GameState, Rd: Roading | null) {
-  const sig = Rd ? `${Rd.tool}:${Rd.from}:${Rd.hover}:${R.roadSig}` : '';
+  const sig = Rd ? `${Rd.tool}:${Rd.from}:${Rd.hover}:${R.roadSig}:${Rd.tool === 'bridge' ? roadLanes() : ''}` : '';
   if (sig === R.roadPrevSig) return;
   R.roadPrevSig = sig;
   clear(R.roadPrev);
   if (!Rd) return;
+  if (Rd.tool === 'bridge') { // the bridge that would be built where the pointer is, see-through: gold if it can go there, red if not
+    const h = Rd.hover; if (!h || !riverTiles(R.region).has(tileId(h[0], h[1]))) return;
+    const lanes = roadLanes(), plan = bridgePlan(s, R.region, h, lanes), good = !('error' in plan), { cx, len } = bridgeFit(R.region, h[1], lanes);
+    const m = buildBridge(1, lanes), ghost = new THREE.MeshBasicMaterial({ color: good ? 0xffc94d : 0xe0533d, transparent: true, opacity: 0.6, depthWrite: false });
+    m.traverse((o) => { if ((o as THREE.Mesh).isMesh) { (o as THREE.Mesh).material = ghost; o.castShadow = false; } });
+    m.scale.x = len / 5.2; m.position.set(cx, 0.02, h[1] + lanes / 2); R.roadPrev.add(m);
+    return;
+  }
   const w = worldOf(s, R.region);
   const kind = Rd.pipe, own = kind ? linesOf(w, kind) : null;
   if (kind && own) { // every line of this network shows while the tool is open, underground ones too, as a dashed line
@@ -1750,6 +1758,27 @@ function fallsTexture() {
   for (const [x, y, h] of [[1, 2, 10], [6, 14, 12], [11, 4, 9], [3, 20, 8], [13, 22, 7]]) g2.fillRect(x, y, 2, h);
   const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.magFilter = t.minFilter = THREE.NearestFilter; t.colorSpace = THREE.SRGBColorSpace; return t;
 }
+/** The river as drawn: its tiles' middle row by row, eased into curves, and on past the bottom edge. */
+const riverLines = new Map<RegionId, [number, number][]>();
+function riverLine(r: RegionId) {
+  const hit = riverLines.get(r); if (hit) return hit;
+  const rows = new Map<number, number[]>();
+  for (const id of riverTiles(r)) { const [x, y] = tileAt(id); (rows.get(y) ?? rows.set(y, []).get(y)!).push(x); }
+  let line = [...rows.entries()].sort((a, b) => a[0] - b[0]).map(([y, xs]) => [(Math.min(...xs) + Math.max(...xs) + 1) / 2, y + 0.5] as [number, number]);
+  if (line.length >= 2) {
+    for (let y = MAP.y0 + MAP.h; y < MAP.y0 + MAP.h + 90; y++) line.push([riverX(r, y) + 1, y + 0.5]); // on past the bottom edge, out of the farm
+    for (let pass = 0; pass < 3; pass++) line = line.map(([, z], i) => { let sx = 0, n = 0; for (let k = -3; k <= 3; k++) { const p = line[i + k]; if (p) { sx += p[0]; n++; } } return [sx / n, z] as [number, number]; }); // ease the tile steps into curves
+  }
+  riverLines.set(r, line); return line;
+}
+/** Half the water's width at z; the sand runs 0.45 beyond it and the grass starts at 1.1. */
+const riverHalf = (z: number) => 1.45 * (1 + 0.14 * Math.sin(z * 0.27) + 0.08 * Math.sin(z * 0.71));
+/** Where a bridge over rows z0…z0+d stands and how long it must be to reach the grass on both banks, where the river runs across it at a slant. */
+function bridgeFit(r: RegionId, z0: number, d: number) {
+  const line = riverLine(r), z = z0 + d / 2, at = (q: number) => { const i = Math.max(0, Math.min(line.length - 2, line.findIndex(([, lz]) => lz >= q) - 1)); const [x0, a] = line[i], [x1, b] = line[i + 1]; return x0 + (x1 - x0) * Math.max(0, Math.min(1, (q - a) / (b - a || 1))); };
+  const slope = (at(z + 1.5) - at(z - 1.5)) / 3, reach = Math.max(...[z0, z, z0 + d].map((q) => riverHalf(q))) + 0.75; // to the grass, the far corners included
+  return { cx: at(z), len: 2 * reach * Math.sqrt(1 + slope * slope) + Math.abs(slope) * d };
+}
 /** The river: a smooth channel with muddy, pebbly banks, flowing water, a timber bridge, and a waterfall where it leaves a gorge in the mountains along the top of the map. */
 function syncRiver(R: Rig, s: GameState) {
   // redrawn when roads or bridges by the river change, so no pebble, reed or boulder sits on them
@@ -1760,18 +1789,14 @@ function syncRiver(R: Rig, s: GameState) {
   R.riverSig = sig;
   const onRoad = (x: number, z: number) => paved.has(tileId(Math.floor(x), Math.floor(z)));
   clear(R.riverG);
-  const rows = new Map<number, number[]>();
-  for (const id of riverTiles(R.region)) { const [x, y] = tileAt(id); (rows.get(y) ?? rows.set(y, []).get(y)!).push(x); }
-  let line = [...rows.entries()].sort((a, b) => a[0] - b[0]).map(([y, xs]) => [(Math.min(...xs) + Math.max(...xs) + 1) / 2, y + 0.5] as [number, number]);
+  const line = riverLine(R.region);
   if (line.length < 2) return;
-  for (let y = MAP.y0 + MAP.h; y < MAP.y0 + MAP.h + 90; y++) line.push([riverX(R.region, y) + 1, y + 0.5]); // on past the bottom edge, out of the farm
-  for (let pass = 0; pass < 3; pass++) line = line.map(([, z], i) => { let sx = 0, n = 0; for (let k = -3; k <= 3; k++) { const p = line[i + k]; if (p) { sx += p[0]; n++; } } return [sx / n, z] as [number, number]; }); // ease the tile steps into curves
   const sx = riverSource(R.region), top = MAP.y0, C = (h: number) => new THREE.Color(h);
   // upstream in the gorge, then down the map
   const up: [number, number, number][] = [];
   for (let d = 40; d >= 1.3; d -= 0.7) up.push([gorgeX(sx, d), gorgeFloor(d) + 0.06, top - d]);
   const down: [number, number, number][] = [[line[0][0], 0, top + 0.6], ...line.filter(([, z]) => z > top + 1).map(([x, z]) => [x, 0, z] as [number, number, number])];
-  const W = (z: number) => 1.45 * (1 + 0.14 * Math.sin(z * 0.27) + 0.08 * Math.sin(z * 0.71));
+  const W = riverHalf;
   const MUD = C(0x8a7a5a), SAND = C(0xc2ae80), GRASS = C(0x7aa956), SHALLOW = C(0x7cc4cc), DEEP = C(0x4a9bbd);
   const bankProfile = (pts: [number, number, number][]) => (i: number): [number, number, THREE.Color][] => { const w = W(pts[i][2]); return [[-w - 1.1, 0.004, GRASS], [-w - 0.45, 0.008, SAND], [-w + 0.1, 0.01, MUD], [w - 0.1, 0.01, MUD], [w + 0.45, 0.008, SAND], [w + 1.1, 0.004, GRASS]]; };
   const waterProfile = (pts: [number, number, number][], scale: number) => (i: number): [number, number, THREE.Color][] => { const w = W(pts[i][2]) * scale; return [[-w, 0.02, SHALLOW], [-w * 0.72, 0.022, SHALLOW], [-w * 0.6, 0.024, DEEP], [w * 0.6, 0.024, DEEP], [w * 0.72, 0.022, SHALLOW], [w, 0.02, SHALLOW]]; };
