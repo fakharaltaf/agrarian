@@ -1304,6 +1304,7 @@ const LIVESTOCK_LOOK: Record<string, [number[], number, number]> = { cowshed: [[
 /** A merged factory drawn as one larger works (size 2) or plant (size 4), in the colours and with the trade marks of the building it grew from. */
 export function buildWorks(type: string, size: 2 | 4, w: number, d: number): Model {
   const g = new THREE.Group(), L = WORKS_LOOK[type] ?? WORKS_LOOK.flourMill, smoke: THREE.Vector3[] = [], big = size === 4;
+  let pen: Model['pen'];
   g.add(box(w - 0.1, 0.06, d - 0.1, PAL.stone, w / 2, 0, d / 2, { rough: 1 }));
   // the halls: one long main hall, and on a plant a second behind it joined by a link block
   const hw = Math.max(2.2, w * 0.62), hd = big ? Math.max(1.6, d * 0.34) : Math.max(1.4, d * 0.58), wh = big ? 2.6 : 2.2; // taller than the level-3 buildings it replaces
@@ -1318,7 +1319,7 @@ export function buildWorks(type: string, size: 2 | 4, w: number, d: number): Mod
   else if (type in LIVESTOCK_LOOK) { // animal houses: one big yard beside the barns, a silo, troughs, and the animals out in it
     const [col, n, sz] = LIVESTOCK_LOOK[type];
     fenceRect(g, fw + 0.1, d - 0.7, fx - 0.05, 0.3, 0.32);
-    for (let i = 0; i < (big ? n * 2 : n); i++) { const ax = fx + 0.25 + ((i * 0.37) % Math.max(0.4, fw - 0.5)), az = 0.6 + ((i * 0.61) % Math.max(0.4, d - 1.4)); g.add(box(sz, sz * 0.7, sz * 0.5, col[i % col.length], ax, 0.05, az)); g.add(box(sz * 0.35, sz * 0.35, sz * 0.4, col[(i + 1) % col.length], ax + sz * 0.6, sz * 0.45, az)); }
+    void col; void n; void sz; pen = { x0: fx + 0.15, z0: 0.5, x1: fx + fw - 0.15, z1: d - 0.6 }; // the herd itself walks this yard, like any animal house
     silo(g, 0.55, d - 0.6, 0.3, big ? 2.2 : 1.8); trough(g, fx + fw / 2, d - 0.6, Math.min(1, fw - 0.3));
     for (const [hx, hz] of [[1.3, d - 0.35], [1.65, d - 0.4]]) g.add(box(0.3, 0.22, 0.2, PAL.hay, hx, 0.06, hz));
   }
@@ -1329,7 +1330,7 @@ export function buildWorks(type: string, size: 2 | 4, w: number, d: number): Mod
   else if (type === 'winery') { g.add(cyl(0.5, wh + 0.6, L.wall, fx + fw / 2, 0.06, fz + 0.4, 12), cone(0.6, 0.7, L.roof, fx + fw / 2, wh + 0.66, fz + 0.4, 12)); for (let i = 0; i < (big ? 8 : 4); i++) { const b = cyl(0.2, 0.5, PAL.woodDark, 0, 0, 0, 10); b.rotation.x = Math.PI / 2; b.position.set(fx + 0.3 + (i % 2) * 0.5, 0.26 + (Math.floor(i / 2) % 2) * 0.38, fz + 1.5 + Math.floor(i / 4) * 0.7); g.add(b); } for (let i = 0; i < 4; i++) g.add(box(0.04, 0.5, 0.04, PAL.woodDark, 0.6 + i * 0.4, 0.06, d - 0.4), sphere(0.12, 0x6f8f4a, 0.6 + i * 0.4, 0.55, d - 0.4)); }
   g.add(box(Math.min(hw, 2.4), 0.26, 0.4, PAL.stoneDark, 0.25 + hw / 2, 0.06, d - 0.75 > 0.25 + hd + (big ? hd + 0.5 : 0) + 0.3 ? 0.25 + hd + (big ? hd + 0.5 : 0) + 0.25 : d - 0.3)); // loading dock
   lampPost(g, w - 0.3, d - 0.3, 0.9);
-  return finish(g, smoke);
+  return { ...finish(g, smoke), pen };
 }
 
 // ---------------------------------------------------------------- parks: gardens, a playground or a sports ground, each richer by level
