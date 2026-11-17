@@ -1360,7 +1360,7 @@ function syncRoads(R: Rig, s: GameState) {
     for (const k of ids) { const id = Number(k); if (seen.has(id) || !isBridge(R.region, id)) continue;
       const span = bridgeAt(s, R.region, tileAt(id)); span.forEach((t) => seen.add(t));
       const rows = [...new Set(span.map((t) => tileAt(t)[1]))], y0 = Math.min(...rows), d = Math.max(...rows) - y0 + 1;
-      const { cx, len } = bridgeFit(R.region, y0, d), level = Math.min(...span.map((t) => w.roads[t]));
+      const { cx, len } = bridgeFit(R.region, y0, d, w), level = Math.min(...span.map((t) => w.roads[t]));
       const m = buildBridge(level, d); m.scale.x = len / 5.2; m.position.set(cx, 0, y0 + d / 2); R.roadsG.add(m); // the model is drawn 5.2 long: stretched to reach both banks
     }
   }
@@ -1507,7 +1507,7 @@ function syncRoadPreview(R: Rig, s: GameState, Rd: Roading | null) {
   if (!Rd) return;
   if (Rd.tool === 'bridge') { // the bridge that would be built where the pointer is, see-through: gold if it can go there, red if not
     const h = Rd.hover; if (!h || !riverTiles(R.region).has(tileId(h[0], h[1]))) return;
-    const lanes = roadLanes(), plan = bridgePlan(s, R.region, h, lanes), good = !('error' in plan), { cx, len } = bridgeFit(R.region, h[1], lanes);
+    const lanes = roadLanes(), plan = bridgePlan(s, R.region, h, lanes), good = !('error' in plan), { cx, len } = bridgeFit(R.region, h[1], lanes, worldOf(s, R.region));
     const m = buildBridge(1, lanes), ghost = new THREE.MeshBasicMaterial({ color: good ? 0xffc94d : 0xe0533d, transparent: true, opacity: 0.6, depthWrite: false });
     m.traverse((o) => { if ((o as THREE.Mesh).isMesh) { (o as THREE.Mesh).material = ghost; o.castShadow = false; } });
     m.scale.x = len / 5.2; m.position.set(cx, 0.02, h[1] + lanes / 2); R.roadPrev.add(m);
@@ -1774,10 +1774,18 @@ function riverLine(r: RegionId) {
 /** Half the water's width at z; the sand runs 0.45 beyond it and the grass starts at 1.1. */
 const riverHalf = (z: number) => 1.45 * (1 + 0.14 * Math.sin(z * 0.27) + 0.08 * Math.sin(z * 0.71));
 /** Where a bridge over rows z0…z0+d stands and how long it must be to reach the grass on both banks, where the river runs across it at a slant. */
-function bridgeFit(r: RegionId, z0: number, d: number) {
+function bridgeFit(r: RegionId, z0: number, d: number, w?: ReturnType<typeof worldOf>) {
   const line = riverLine(r), z = z0 + d / 2, at = (q: number) => { const i = Math.max(0, Math.min(line.length - 2, line.findIndex(([, lz]) => lz >= q) - 1)); const [x0, a] = line[i], [x1, b] = line[i + 1]; return x0 + (x1 - x0) * Math.max(0, Math.min(1, (q - a) / (b - a || 1))); };
   const slope = (at(z + 1.5) - at(z - 1.5)) / 3, reach = Math.max(...[z0, z, z0 + d].map((q) => riverHalf(q))) + 0.75; // to the grass, the far corners included
-  return { cx: at(z), len: 2 * reach * Math.sqrt(1 + slope * slope) + Math.abs(slope) * d };
+  const cx = at(z), half = reach * Math.sqrt(1 + slope * slope) + Math.abs(slope) * d / 2;
+  let x0 = cx - half, x1 = cx + half;
+  // a road along the bank: the deck stops at its edge rather than lying over it
+  if (w) for (let y = z0; y < z0 + d; y++) {
+    const road = (x: number) => (isRoad(y) || w.roads[tileId(x, y)] !== undefined) && !isBridge(r, tileId(x, y));
+    for (let x = Math.floor(cx); x >= Math.floor(x0); x--) if (road(x)) { x0 = Math.max(x0, x + 1); break; }
+    for (let x = Math.floor(cx); x <= Math.floor(x1); x++) if (road(x)) { x1 = Math.min(x1, x); break; }
+  }
+  return { cx: (x0 + x1) / 2, len: x1 - x0 };
 }
 /** The river: a smooth channel with muddy, pebbly banks, flowing water, a timber bridge, and a waterfall where it leaves a gorge in the mountains along the top of the map. */
 function syncRiver(R: Rig, s: GameState) {
