@@ -290,3 +290,12 @@ it('tree lines are planted like roads on open cleared land, keep buildings and r
   expect(W.roadRoute(s, 'heartland', [spot[0] + 3, y], [spot[0] + 3, y])).toBeNull(); // no road through them
   expect(dispatch(s, { type: 'removeBelt', region: 'heartland', at: [spot[0] + 4, y] }).ok).toBe(true); expect(Object.keys(w.belts!).length).toBe(0);
 });
+
+it('roads can be drawn several lanes wide in one go', async () => {
+  const W = await import('../simulation/world');
+  const s = createGame(1024); s.legacyProgression = true; s.era = 4; post(s, 'prize', 1e6, 'fixture');
+  const w = W.worldOf(s, 'heartland'), o = W.findSpot(s, 'heartland', { w: 14, d: 6 })!, y = o[1] + 1, before = Object.keys(w.roads).length;
+  expect(dispatch(s, { type: 'buildRoad', region: 'heartland', from: [o[0] + 1, y], to: [o[0] + 10, y], lanes: 3 }).ok).toBe(true);
+  for (const dy of [0, 1, 2]) expect(w.roads[W.tileId(o[0] + 5, y + dy)]).toBeTruthy();
+  expect(Object.keys(w.roads).length - before).toBeGreaterThanOrEqual(30);
+});

@@ -483,6 +483,19 @@ export function hasAccess(s: GameState, r: RegionId, key: string) {
 /** Said when something was placed but could not be given a track: the player must draw one. */
 export const accessNote = (s: GameState, r: RegionId, key: string) => hasAccess(s, r, key) ? undefined : 'No route to a road from there: draw one with 🛤, or it won\'t work.';
 /** Route for a player-drawn road between two tiles, over open ground and existing roads. */
+/** A road several lanes wide: the route between the two taps, widened to the right and below by this many tiles. New tiles only; null if any of it is blocked. */
+export function wideRoadRoute(s: GameState, r: RegionId, from: [number, number], to: [number, number], lanes: number) {
+  if (lanes <= 1) return roadRoute(s, r, from, to);
+  const w = worldOf(s, r), open = openGround(s, r), can = (x: number, y: number) => open(x, y) || isRoadTile(w, x, y);
+  if (!can(from[0], from[1]) || !can(to[0], to[1])) return null;
+  const path = route(can, [from], (x, y) => x === to[0] && y === to[1]);
+  if (!path) return null;
+  const band = new Map<number, [number, number]>();
+  for (const [x, y] of [...path, to]) for (let i = 0; i < lanes; i++) for (let j = 0; j < lanes; j++) band.set(tileId(x + i, y + j), [x + i, y + j]);
+  const tiles = [...band.values()];
+  if (tiles.some(([x, y]) => !can(x, y))) return null;
+  return tiles.filter(([x, y]) => !isRoadTile(w, x, y));
+}
 export function roadRoute(s: GameState, r: RegionId, from: [number, number], to: [number, number]) {
   const w = worldOf(s, r), open = openGround(s, r);
   const can = (x: number, y: number) => open(x, y) || isRoadTile(w, x, y);
@@ -601,6 +614,20 @@ function pipeGround(s: GameState, r: RegionId, kind: NetKind) {
   // a utility line may share a tile with the other utilities' lines: they run side by side, or cross
   const shared = (id: number) => !!own[id] || (kind !== 'irrigation' && UTILITY_NETS.some((k) => !!w.nets?.[k]?.[id]));
   return (x: number, y: number) => open(x, y) || (inMap(x, y) && owned.has(chunkAt(x, y)) && (isRoad(y) || !!w.roads[tileId(x, y)] || shared(tileId(x, y))));
+}
+/** Why a road, line or tree line cannot go on this tile, in words the player can act on (null when it can). */
+export function groundProblem(s: GameState, r: RegionId, x: number, y: number, what: 'road' | 'belt'): string | null {
+  const w = worldOf(s, r), id = tileId(x, y);
+  if (!inMap(x, y)) return 'That is off the edge of the map.';
+  if (riverTiles(r).has(id)) return 'That is the river.';
+  if (!ownedSet(w).has(chunkAt(x, y))) return 'That land is not yours yet: buy it first (tap the land beyond the fence).';
+  if (!clearedSet(w).has(chunkAt(x, y))) return 'That land is still forest: clear it first.';
+  const p = placedIn(s, r).find((q) => x >= q.x && x < q.x + q.w && y >= q.y && y < q.y + q.d);
+  if (p) return 'A building or field stands there.';
+  if (what === 'belt' && (isRoad(y) || w.roads[id] !== undefined)) return 'That is a road: trees go beside it, not on it.';
+  if (what === 'belt' && waterBlocks(w, id)) return 'A ditch or line runs there.';
+  if (what === 'road' && w.belts?.[id]) return 'A tree line stands there: fell it first (🌳, Remove).';
+  return null;
 }
 /** A tree line drawn by hand: over open, cleared ground of yours (not roads, water or buildings). New tiles only; null if there is no way. */
 export const BELT_PRICE = 30;

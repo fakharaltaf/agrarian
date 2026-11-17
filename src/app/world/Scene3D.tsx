@@ -15,14 +15,14 @@ import { priceUsd, stored } from '../../simulation/core';
 import { coverOf } from '../../simulation/agriculture';
 import { spreadNeed } from '../../simulation/agriculture';
 import type { GameState } from '../../simulation/types';
-import { getGame, getSpeed, moveGhost, placementUse, startZoning, stopZoning, zoneHover, zoneTap, type Zoning, prospectHover, prospectTap, roadHover, roadTap, roadDragStart, buildingsHidden, crimeMapOn, setCrimeMap, trafficMapOn, setTrafficMap, useStore, undo, redo, canUndo, canRedo, startProspect, startRoads, startPipes, startBelts, stopProspect, stopRoads, type Placement, type Roading , getPage } from '../../stores/game';
+import { getGame, getSpeed, moveGhost, placementUse, startZoning, stopZoning, zoneHover, zoneTap, type Zoning, prospectHover, prospectTap, roadHover, roadTap, roadDragStart, buildingsHidden, crimeMapOn, setCrimeMap, trafficMapOn, setTrafficMap, roadLanes, placementNeed, useStore, undo, redo, canUndo, canRedo, startProspect, startRoads, startPipes, startBelts, stopProspect, stopRoads, type Placement, type Roading , getPage } from '../../stores/game';
 import { featureEra, stageAtLeast } from '../../simulation/stages';
 import { preloadArt, artRevision, artModel, playClip } from './art';
 import { money, num, pct0 } from '../format';
 import { Modal } from '../ui';
 import { layoutRegion, type Layout, type Lot, type Plot } from './layout';
-import { doorTiles, reachTime, travelFrom } from '../../simulation/access';
-import { homesCentre, CHUNK, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, LAND_HA_PER_PATCH, MAP, hasAccess, riverTiles, riverX, tileId, roadRoute, roadStretch, roadPick, pipeRoute, pipeStretch, plotSide, fieldWater, wetTiers, linesOf, NET_TOP, UTILITY_NETS, netReach, doorstep, footprintOf, type NetKind, type UtilityNet, tileAt, forSaleAround,  ownedSet, ROAD_H, ROAD_Y, chunkAt, chunkOrigin, clearCost, clearedSet, isRoad, patchesAround, placeProblem, worldOf } from '../../simulation/world';
+import { doorTiles, frontageAt, meets, reachTime, roadTile, travelFrom } from '../../simulation/access';
+import { beltRoute, wideRoadRoute, homesCentre, CHUNK, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, LAND_HA_PER_PATCH, MAP, hasAccess, riverTiles, riverX, tileId, roadStretch, roadPick, pipeRoute, pipeStretch, plotSide, fieldWater, wetTiers, linesOf, NET_TOP, UTILITY_NETS, netReach, doorstep, footprintOf, type NetKind, type UtilityNet, tileAt, forSaleAround,  ownedSet, ROAD_H, ROAD_Y, chunkAt, chunkOrigin, clearCost, clearedSet, isRoad, patchesAround, placeProblem, worldOf } from '../../simulation/world';
 import { animal, buildCivic, buildCommunityHome, buildLot, buildWorks, box, cached, cyl, farmhand, hauler, mat, mesh, PAL, person, tree, vehicle, type Model } from './models';
 import { haulOf, MARKET_X, marketRoute } from '../../simulation/hauling';
 import { landCostOf, oilOf, oilPremium, oilReading, struckFields, SURVEY_R, surveyedAt } from '../../simulation/oil';
@@ -71,6 +71,7 @@ interface Rig {
   cohortsSeen?: number; oilSeen?: string; glide?: { x: number; z: number; zoom: number }; page?: string;
   renderer: THREE.WebGLRenderer; scene: THREE.Scene; camera: THREE.OrthographicCamera; target: THREE.Vector3; yaw: number; yawTo: number; zoom: number;
   sun: THREE.DirectionalLight; hemi: THREE.HemisphereLight; ground: THREE.Mesh;
+  /** town traffic: cars driving the streets */ cars?: { list: Car[]; body: THREE.InstancedMesh; cabin: THREE.InstancedMesh };
   lots: THREE.Group; fields: THREE.Group; units: THREE.Group; deco: THREE.Group; fx: THREE.Group; sel: THREE.Group; ghost: THREE.Group; ghostSig: string;
   models: { lot: Lot; model: Model; hit: THREE.Mesh }[]; pick: THREE.Object3D[];
   crops: Partial<Record<Shape, THREE.InstancedMesh>>; sig: { lots: string; fields: string; crops: string; sel: string; deco: string };
@@ -201,6 +202,7 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
       animateUnits(R, L, s, now / 1000);
       animateFelling(R, s, now / 1000);
       animateHaul(R, s, now / 1000);
+      animateCars(R, s);
       syncRiver(R);
       animateRiver(R, now / 1000);
       animateNeighbours(R, L, s, now / 1000);
@@ -758,7 +760,7 @@ function syncGhost(R: Rig, s: GameState, P: Placement | null, forest: [number, n
   R.ghostSig = sig;
   clear(R.ghost);
   if (P) {
-    const ok = !placeProblem(s, P.region, P.at[0], P.at[1], { w: P.w, d: P.d }, P.key, P.kind === 'move' ? undefined : placementUse(P));
+    const need = placementNeed(P), ok = !placeProblem(s, P.region, P.at[0], P.at[1], { w: P.w, d: P.d }, P.key, P.kind === 'move' ? undefined : placementUse(P)) && !(need && need.lanes > 1 && !meets(frontageAt(worldOf(s, P.region), P.at[0], P.at[1], P.w, P.d), need));
     const box = mesh(new THREE.BoxGeometry(P.w, 0.25, P.d), new THREE.MeshBasicMaterial({ color: ok ? 0x6fd36a : 0xe0533d, transparent: true, opacity: 0.45, depthWrite: false }), P.at[0] + P.w / 2, 0.13, P.at[1] + P.d / 2, false);
     R.ghost.add(box);
     const edge = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(P.w, 0.25, P.d)), new THREE.LineBasicMaterial({ color: ok ? 0x2f8f3a : 0xa02a1a }));
@@ -1244,9 +1246,9 @@ function syncRoads(R: Rig, s: GameState) {
   const KERB = C(0xc9c3b4), LAWN = C(0x7f9a4a), beltTrees: THREE.Object3D[] = [];
   // belts are gathered first and only drawn in runs of three tiles or more, so a busy street grid is not dotted with single squares of lawn
   const wanted = new Map<string, [number, number, boolean, boolean]>(), belt = (cx: number, cz: number, ew: boolean, middle = true) => { wanted.set(`${cx},${cz},${ew}`, [cx, cz, ew, middle]); };
+  const beds = new Map<number, number>(); // belt tiles, drawn together at the end so crossing belts make one bed with a kerb only round its outside
   const drawBelt = (cx: number, cz: number, ew: boolean) => {
-    const [ax, az, bx, bz] = ew ? [cx - 0.5, cz, cx + 0.5, cz] : [cx, cz - 0.5, cx, cz + 0.5];
-    grass.seg(ax, az, bx, bz, [[-0.36, KERB, 1], [-0.3, LAWN, 1], [0.3, LAWN, 1], [0.36, KERB, 1]]);
+    void ew; beds.set(tileId(Math.floor(cx), Math.floor(cz)), 0.14);
     const t = tree(0.55, R.crownMat, (Math.round(cx) + Math.round(cz)) % 3 === 0 ? 1 : 0); t.position.set(cx, 0, cz); t.rotation.y = (cx * 7 + cz * 3) % 6; beltTrees.push(t);
   };
   const across = (x: number, y: number, ax: number, ay: number) => { let n = 0; while (n < 6 && paved(x + ax * n, y + ay * n)) n++; return n; }; // tiles side by side, from this one on
@@ -1283,10 +1285,19 @@ function syncRoads(R: Rig, s: GameState) {
   // tree lines the player planted: a strip of lawn behind a kerb, a tree on every tile, turning to follow the line
   for (const k of Object.keys(w.belts ?? {})) {
     const id = Number(k), [x, y] = tileAt(id), b = (dx: number, dy: number) => !!w.belts?.[tileId(x + dx, y + dy)];
-    const ew = b(1, 0) || b(-1, 0) || !(b(0, 1) || b(0, -1));
-    grass.seg(ew ? x : x + 0.5, ew ? y + 0.5 : y, ew ? x + 1 : x + 0.5, ew ? y + 0.5 : y + 1, [[-0.42, KERB, 1], [-0.36, LAWN, 1], [0.36, LAWN, 1], [0.42, KERB, 1]]);
-    if ((ew && (b(0, 1) || b(0, -1))) || (!ew && (b(1, 0) || b(-1, 0)))) grass.seg(x + 0.5, y, x + 0.5, y + 1, [[-0.42, KERB, 1], [-0.36, LAWN, 1], [0.36, LAWN, 1], [0.42, KERB, 1]]); // a corner or junction
+    void b; beds.set(id, 0.04);
     const t = tree(0.6, R.crownMat, (x * 7 + y * 3) % 4 === 0 ? 1 : 0); t.position.set(x + 0.5, 0, y + 0.5); t.rotation.y = (x * 7 + y * 3) % 6; beltTrees.push(t);
+  }
+  // lawn beds: each tile's lawn reaches right up to a neighbouring bed tile (so they join into one) and stops short of anything else, with a kerb round the outside
+  for (const [id, inset] of beds) {
+    const [x, y] = tileAt(id), has = (dx: number, dy: number) => beds.has(tileId(x + dx, y + dy));
+    const x0 = x + (has(-1, 0) ? 0 : inset), x1 = x + 1 - (has(1, 0) ? 0 : inset), y0 = y + (has(0, -1) ? 0 : inset), y1 = y + 1 - (has(0, 1) ? 0 : inset), my = (y0 + y1) / 2, h = (y1 - y0) / 2;
+    grass.seg(x0, my, x1, my, [[-h, LAWN, 1], [h, LAWN, 1]]);
+    const k = 0.05;
+    if (!has(0, -1)) grass.seg(x0, y0 + k / 2, x1, y0 + k / 2, [[-k / 2, KERB, 1], [k / 2, KERB, 1]]);
+    if (!has(0, 1)) grass.seg(x0, y1 - k / 2, x1, y1 - k / 2, [[-k / 2, KERB, 1], [k / 2, KERB, 1]]);
+    if (!has(-1, 0)) grass.seg(x0 + k / 2, y0, x0 + k / 2, y1, [[-k / 2, KERB, 1], [k / 2, KERB, 1]]);
+    if (!has(1, 0)) grass.seg(x1 - k / 2, y0, x1 - k / 2, y1, [[-k / 2, KERB, 1], [k / 2, KERB, 1]]);
   }
   if (beltTrees.length) R.roadsG.add(...beltTrees);
   // where a track meets the main road its mouth widens into a soft rounded fan, so the corners are not cut square
@@ -1443,7 +1454,7 @@ function syncRoadPreview(R: Rig, s: GameState, Rd: Roading | null) {
   }
   let tiles: [number, number][] = [], ok = true;
   if (Rd.tool === 'draw') {
-    if (Rd.from && Rd.hover) { const r = kind ? pipeRoute(s, R.region, Rd.from, Rd.hover, kind) : roadRoute(s, R.region, Rd.from, Rd.hover); ok = !!r; tiles = r ?? [Rd.hover]; }
+    if (Rd.from && Rd.hover) { const r = Rd.belt ? beltRoute(s, R.region, Rd.from, Rd.hover) : kind ? pipeRoute(s, R.region, Rd.from, Rd.hover, kind) : wideRoadRoute(s, R.region, Rd.from, Rd.hover, roadLanes()); ok = !!r; tiles = r ?? [Rd.hover]; }
     else if (Rd.hover) tiles = [Rd.hover];
     if (Rd.from) { const m = mesh(cached('road-start', () => new THREE.CylinderGeometry(0.3, 0.3, 0.6, 12)), mat(0xffc94d, { emissive: 0x403000 }), Rd.from[0] + 0.5, 0.3, Rd.from[1] + 0.5, false); R.roadPrev.add(m); }
   } else if (Rd.hover && Rd.from && !kind) { // dragging along a road: only the part between
@@ -1463,6 +1474,50 @@ function syncRoadPreview(R: Rig, s: GameState, Rd: Roading | null) {
     for (const [dx, dy] of [[1, 0], [0, 1], [-1, 0], [0, -1]] as const) if (linked(x + dx, y + dy) && !(plan.has(tileId(x + dx, y + dy)) && (dx < 0 || dy < 0))) d.seg(x + 0.5, y + 0.5, x + 0.5 + dx, y + 0.5 + dy, band);
   }
   if (tiles.length) { const m = d.mesh(true); (m.material as THREE.MeshStandardMaterial).emissive.copy(col).multiplyScalar(0.5); m.renderOrder = 2; R.roadPrev.add(m); }
+}
+
+/** One car: driving from one road tile to the next, keeping to the right. */
+type Car = { a: number; b: number; prev: number; u: number; col: number };
+const CAR_COLS = [0xa8322c, 0xf4f2ec, 0x4f7aa0, 0xc99a2e, 0x2a3540, 0x4f8a4a, 0x8f979b, 0xd98a3a].map((c) => new THREE.Color(c));
+const MAX_CARS = 160;
+/** Cars on the town's streets, as many as the traffic says, going where the cars go: a busier street draws more of them, and a jammed one slows them down. */
+function animateCars(R: Rig, s: GameState) {
+  const t = townOf(s), flow = t.flow ?? {}, w = worldOf(s, 'heartland');
+  const want = R.region === 'heartland' && t.active ? Math.min(MAX_CARS, Math.ceil(Object.values(flow).reduce((a, b) => a + b, 0) / 40)) : 0;
+  if (!R.cars) {
+    if (!want) return;
+    const body = new THREE.InstancedMesh(cached('carbody', () => new THREE.BoxGeometry(0.5, 0.14, 0.28).translate(0, 0.11, 0)), new THREE.MeshStandardMaterial({ roughness: 0.5 }), MAX_CARS);
+    const cabin = new THREE.InstancedMesh(cached('carcabin', () => new THREE.BoxGeometry(0.26, 0.12, 0.24).translate(-0.03, 0.24, 0)), new THREE.MeshStandardMaterial({ color: 0x2a3540, roughness: 0.3 }), MAX_CARS);
+    body.castShadow = true; body.frustumCulled = cabin.frustumCulled = false; body.count = cabin.count = 0;
+    R.units.add(body, cabin); R.cars = { list: [], body, cabin };
+  }
+  const C = R.cars, road = (id: number) => roadTile(w, id), nbrs = (id: number) => { const [x, y] = tileAt(id); return [tileId(x + 1, y), tileId(x - 1, y), tileId(x, y + 1), tileId(x, y - 1)].filter(road); };
+  const busy = Object.keys(flow).map(Number).filter(road);
+  // as many cars as the traffic: new ones join on the busiest streets, extra ones leave
+  while (C.list.length > want) C.list.pop();
+  for (let k = 0; C.list.length < want && busy.length && k < 4; k++) {
+    let pickAt = Math.random() * busy.reduce((a, id) => a + flow[id], 0), a = busy[0];
+    for (const id of busy) { pickAt -= flow[id]; if (pickAt <= 0) { a = id; break; } }
+    const n = nbrs(a); if (!n.length) continue;
+    C.list.push({ a, b: n[Math.floor(Math.random() * n.length)], prev: -1, u: Math.random(), col: Math.floor(Math.random() * CAR_COLS.length) });
+  }
+  const go = getSpeed() > 0 ? 1 : 0, m = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), pos = new THREE.Vector3(), one = new THREE.Vector3(1, 1, 1);
+  C.list = C.list.filter((c) => road(c.a) && road(c.b));
+  C.list.forEach((c, i) => {
+    c.u += R.dt * go * 1.6 / ((t.traffic?.[c.b] ?? 1) * (c.u > 0.5 ? 1 : 1));
+    while (c.u >= 1) { // on to the next tile: the busier way is likelier, never straight back unless it is a dead end
+      c.u -= 1; const opts = nbrs(c.b).filter((n) => n !== c.a);
+      let next = c.a;
+      if (opts.length) { let r = Math.random() * opts.reduce((a, n) => a + 1 + (flow[n] ?? 0), 0); next = opts[0]; for (const n of opts) { r -= 1 + (flow[n] ?? 0); if (r <= 0) { next = n; break; } } }
+      c.prev = c.a; c.a = c.b; c.b = next;
+    }
+    const [ax, ay] = tileAt(c.a), [bx, by] = tileAt(c.b), dx = bx - ax, dz = by - ay;
+    pos.set(ax + 0.5 + dx * c.u - dz * 0.2, 0.02, ay + 0.5 + dz * c.u + dx * 0.2); // keep to the right of the way it is going
+    q.setFromAxisAngle(up, Math.atan2(-dz, dx));
+    m.compose(pos, q, one); C.body.setMatrixAt(i, m); C.cabin.setMatrixAt(i, m); C.body.setColorAt(i, CAR_COLS[c.col]);
+  });
+  C.body.count = C.cabin.count = C.list.length;
+  C.body.instanceMatrix.needsUpdate = C.cabin.instanceMatrix.needsUpdate = true; if (C.body.instanceColor) C.body.instanceColor.needsUpdate = true;
 }
 
 /** Carts and trucks on their way to the village market and back, and the market itself. */

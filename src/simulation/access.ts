@@ -8,7 +8,7 @@ import { doorstep, footprintOf, isRoad, MAP, revOf, tileAt, tileId, worldOf, typ
 /** Time to cross one tile, by grade (0 the main road): dirt is slow, paved is quick. */
 const GRADE_COST = [1, 1.8, 1.35, 1];
 /** Cars a tile of road carries at ease, per tile of width, by grade. */
-const GRADE_CAP = [40, 8, 14, 20];
+const GRADE_CAP = [80, 12, 25, 40];
 
 export const roadTile = (w: RegionWorld, id: number) => id >= 0 && id < MAP.w * MAP.h && (w.roads[id] !== undefined || isRoad(Math.floor(id / MAP.w) + MAP.y0));
 const gradeOf = (w: RegionWorld, id: number) => (w.roads[id] !== undefined ? w.roads[id] : 0);
@@ -37,10 +37,13 @@ export function trafficOf(w: RegionWorld, sources: TripSource[], sinks: TripSink
     for (const r of reach) { const cars = src.trips * r.w / sum; for (let id = r.at; id >= 0; id = r.m.prev.get(id) ?? -1) load.set(id, (load.get(id) ?? 0) + cars); }
   }
   for (const p of parks) for (const id of spread(w, p.door, p.reach)) { const l = load.get(id); if (l) load.set(id, l * (1 - p.share)); }
+  // the cars share out across the street's lanes: pool each tile's load over the row of tiles across the street
+  const lanes = new Map<number, number>();
+  for (const [id, l] of load) { const across = crossing(w, id); for (const a of across) lanes.set(a, (lanes.get(a) ?? 0) + l / across.length); }
   const slow: Record<number, number> = {}, flow: Record<number, number> = {};
-  for (const [id, l] of load) {
+  for (const [id, l] of lanes) {
     if (l >= 0.5) flow[id] = Math.round(l);
-    const x = l / (GRADE_CAP[gradeOf(w, id)] * roadWidth(w, id));
+    const x = l / GRADE_CAP[gradeOf(w, id)];
     if (x > 0.6) slow[id] = Math.round(Math.min(4, 1 + 2 * (x - 0.6)) * 100) / 100; // free-flowing up to 60% of what the road carries, then slower and slower
   }
   return { slow, flow };
@@ -65,6 +68,12 @@ function paths(w: RegionWorld, door: number[], budget: number) {
   return { best, prev };
 }
 
+/** The tiles across the street at this tile: the narrower of its runs (its width). */
+function crossing(w: RegionWorld, id: number) {
+  const [x, y] = tileAt(id), run = (dx: number, dy: number) => { const out = [id]; for (let k = 1; k < 6 && roadTile(w, tileId(x + dx * k, y + dy * k)); k++) out.push(tileId(x + dx * k, y + dy * k)); for (let k = 1; k < 6 && roadTile(w, tileId(x - dx * k, y - dy * k)); k++) out.push(tileId(x - dx * k, y - dy * k)); return out; };
+  const a = run(1, 0), b = run(0, 1);
+  return a.length <= b.length ? a : b;
+}
 // ---------------------------------------------------------------- frontage: the street a building stands on
 /** The widest street within a short drive of these door tiles, and its grade: what a building fronts onto. */
 export function frontageOf(w: RegionWorld, door: number[]) {

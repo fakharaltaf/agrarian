@@ -1,3 +1,4 @@
+import { frontageAt, meets, needText } from '../../simulation/access';
 import { homesReached, nuisanceOf, NUISANCE_LOOK, type NuisanceKind } from '../../simulation/nuisance';
 import { upgradeNeedsPower } from '../../simulation/stages/shared';
 import { bestCrop } from '../crops';
@@ -13,8 +14,8 @@ import { buildingMargin } from '../../simulation/processing';
 import { planQuote } from '../../simulation/engine';
 import { DISCOVERIES, ERA_UNLOCK_TEXT, dailyGoals, dailyPrize, forecast, herdOf, homePlotPrice, housing, isManual, isReady, objective, chapterGate, gateProgress, type GateRow, PAGES, seedShortfall, upgradeCost } from '../../simulation/engine';
 import type { CivicService, GameState } from '../../simulation/types';
-import { act, cancelPlacement, confirmPlacement, planPlacementHere, rotatePlacement, go, placementUse, setRoadTool, toggleHideBuildings, setNet, undo, redo, canUndo, canRedo, setSurveying, setZoneTool, startPipes, type Prospect, startPlacement, stopProspect, stopRoads, stopZoning, type Zoning, useGame, usePageState, useStore, type Placement, type Roading } from '../../stores/game';
-import { WATER_LEVEL, WATER_PRICE, WATER_TIERS, wetTiers, NET_PRICE, NET_TIERS, NET_TOP, NET_QUALITY, linesOf, upgradeAllPlan, BELT_PRICE, beltRoute, beltStretch, buildAs, buildAsOpen, lineBuildPrice, roadBuildPrice, type LineKind, type UtilityNet, pipeRoute, pipeStretch, cutsOff, footprintOf, forSaleAround, isRoad, MAP, ROAD_GRADES, ROAD_H, roadRoute, roadPick, roadTilePrice, worldOf, patchesAround, placeProblem, plotSide, PROBLEM_TEXT } from '../../simulation/world';
+import { act, cancelPlacement, confirmPlacement, planPlacementHere, placementNeed, rotatePlacement, go, placementUse, setRoadTool, toggleHideBuildings, setNet, setRoadLanes, undo, redo, canUndo, canRedo, setSurveying, setZoneTool, startPipes, type Prospect, startPlacement, stopProspect, stopRoads, stopZoning, type Zoning, useGame, usePageState, useStore, type Placement, type Roading } from '../../stores/game';
+import { WATER_LEVEL, WATER_PRICE, WATER_TIERS, wetTiers, NET_PRICE, NET_TIERS, NET_TOP, NET_QUALITY, linesOf, groundProblem, wideRoadRoute, upgradeAllPlan, BELT_PRICE, beltRoute, beltStretch, buildAs, buildAsOpen, lineBuildPrice, roadBuildPrice, type LineKind, type UtilityNet, pipeRoute, pipeStretch, cutsOff, footprintOf, forSaleAround, isRoad, MAP, ROAD_GRADES, ROAD_H, roadPick, roadTilePrice, worldOf, patchesAround, placeProblem, plotSide, PROBLEM_TEXT } from '../../simulation/world';
 import { buildingPrice, moveFee, parcelPrice } from '../../simulation/engine';
 import { APARTMENT_FAMILIES, homeLevel, homeUpgradePrice } from '../../simulation/community-state';
 import { homeUpgradeNeeds } from '../../simulation/stages/settlement';
@@ -380,17 +381,18 @@ function BeltBar({ s, r }: { s: GameState; r: Roading }) {
   const h = r.hover, price = Math.round(BELT_PRICE * s.macro.cpi), w = worldOf(s, r.region);
   let hint: string;
   if (r.tool === 'remove') { const st = h ? beltStretch(w, h[0], h[1]) : []; hint = st.length ? `Fell ${st.length} tile${st.length === 1 ? '' : 's'} of trees` : 'Tap a tree line to fell that run'; }
-  else { const route = r.from && h ? beltRoute(s, r.region, r.from, h) : null; hint = !r.from ? `Tap where the trees start · ${money(price)} a tile` : !h ? 'Tap where the row goes next' : route ? `${route.length} trees · ${money(price * route.length)} · tap to plant` : 'Can\'t plant there: keep to your own cleared land, clear of roads, water and buildings'; }
+  else { const route = r.from && h ? beltRoute(s, r.region, r.from, h) : null; hint = !r.from ? `Tap where the trees start · ${money(price)} a tile` : !h ? 'Tap where the row goes next' : route ? `${route.length} trees · ${money(price * route.length)} · tap to plant` : groundProblem(s, r.region, h[0], h[1], 'belt') ?? 'No way through for a row of trees from here: plant it in shorter runs'; }
   return <LineDock label="Tree lines" head={<b className="dock-title">🌳 Tree lines</b>} hint={hint} tool={r.tool} draw="Plant" noUpgrade />;
 }
 
 function RoadBar({ s, r }: { s: GameState; r: Roading }) {
+  const lanes = useStore((x) => x.roadLanes);
   const w = worldOf(s, r.region), price = roadBuildPrice(s), h = r.hover;
   // what the next tap would do, with its price, before you commit
   let hint: string;
   if (r.tool === 'draw') {
-    const route = r.from && h ? roadRoute(s, r.region, r.from, h) : null;
-    hint = !r.from ? 'Tap where the road starts' : !h ? `Tap where it goes next · ${money(price)} a tile` : route ? `${route.length} tiles · ${money(price * route.length)} · tap to build` : 'Can\'t get there: keep to your own cleared land';
+    const route = r.from && h ? wideRoadRoute(s, r.region, r.from, h, lanes) : null;
+    hint = !r.from ? 'Tap where the road starts' : !h ? `Tap where it goes next · ${money(price)} a tile` : route ? `${route.length} tiles · ${money(price * route.length)} · tap to build` : groundProblem(s, r.region, h[0], h[1], 'road') ?? (lanes > 1 ? `A ${lanes}-lane road needs open land ${lanes} tiles wide all the way` : 'No way through from here: try a point in between');
   } else if (h && isRoad(h[1])) {
     hint = w.main >= 3 ? 'The main road is already paved' : `Whole main road → ${ROAD_GRADES[w.main + 1].toLowerCase()} · ${money(roadTilePrice(s, w.main + 1) * MAP.w * ROAD_H)}`;
     if (r.tool === 'remove') hint = 'The main road stays';
@@ -400,12 +402,12 @@ function RoadBar({ s, r }: { s: GameState; r: Roading }) {
     else if (r.tool === 'upgrade') { const g = Math.min(3, Math.min(...st.map((id) => w.roads[id])) + 1), n = st.filter((id) => w.roads[id] < g).length; hint = n ? `${n} tiles → ${ROAD_GRADES[g].toLowerCase()} · ${money(roadTilePrice(s, g) * n)}` : 'Already paved'; }
     else { const lost = cutsOff(s, r.region, st); hint = `Remove ${st.length} tiles${lost.length ? ` · cuts off ${lost.length} building${lost.length === 1 ? '' : 's'}` : ''}`; }
   }
-  return <LineDock label="Roads" head={<b className="dock-title">🛤 Roads</b>} hint={hint} tool={r.tool} draw="Draw" all={{ region: r.region, nets: ['road'] }} as={{ what: 'road', names: ROAD_GRADES.slice(1) }} />;
+  return <LineDock label="Roads" head={<b className="dock-title">🛤 Roads</b>} hint={hint} tool={r.tool} draw="Draw" all={{ region: r.region, nets: ['road'] }} as={{ what: 'road', names: ROAD_GRADES.slice(1) }} extra={r.tool === 'draw' && <select className="dock-as" aria-label="Lanes" title="How many lanes wide new roads are" value={lanes} onChange={(e) => setRoadLanes(+e.target.value)}>{[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n} lane{n > 1 ? 's' : ''}</option>)}</select>} />;
 }
 
 /** The dock for roads and lines: what you're working on (with Hide and Done), what the next tap does, then the tools at thumb height. */
 const UndoIcon = ({ redo }: { redo?: boolean }) => <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden style={redo ? { transform: 'scaleX(-1)' } : undefined}><path d="M9 14 4 9l5-5" /><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" /></svg>;
-function LineDock({ label, head, hint, tool, draw, all, as, noUpgrade }: { noUpgrade?: boolean; label: string; head: React.ReactNode; hint: string; tool: Roading['tool']; draw: string; all?: { region: RegionId; nets: LineKind[] }; /** what a new one is built as: the choices, and which of road or line it sets */ as?: { what: 'road' | 'line'; names: readonly string[] } }) {
+function LineDock({ label, head, hint, tool, draw, all, as, noUpgrade, extra }: { noUpgrade?: boolean; extra?: React.ReactNode; label: string; head: React.ReactNode; hint: string; tool: Roading['tool']; draw: string; all?: { region: RegionId; nets: LineKind[] }; /** what a new one is built as: the choices, and which of road or line it sets */ as?: { what: 'road' | 'line'; names: readonly string[] } }) {
   const s = useGame(), plan = all && tool === 'upgrade' ? upgradeAllPlan(s, worldOf(s, all.region), all.nets) : null;
   const hidden = useStore((x) => x.hideBuildings), bad = /^(Can't|Dry)/.test(hint);
   const tools = ([['draw', '✏', draw], ['upgrade', '⬆', 'Upgrade'], ['remove', '✕', 'Remove']] as const).filter(([t]) => !(noUpgrade && t === 'upgrade'));
@@ -417,6 +419,7 @@ function LineDock({ label, head, hint, tool, draw, all, as, noUpgrade }: { noUpg
     </div>
     <div className={`dock-hint${bad ? ' bad' : ''}`}>
       <p aria-live="polite">{hint}</p>
+      {extra}
       {as && tool === 'draw' && buildAsOpen(s) && <select className="dock-as" aria-label="Build as" title="What new ones are built as" value={Math.min(as.names.length, buildAs(s, as.what))} onChange={(e) => act({ type: 'setBuildAs', what: as.what, level: +e.target.value })}>{as.names.map((n, i) => <option key={n} value={i + 1}>{n}</option>)}</select>}
       {plan && plan.tiles > 0 && <button className="dock-all" disabled={plan.cost > s.cash} title={`Raise all ${plan.tiles} tiles one step${all!.nets.includes('road') ? ' (the main road is upgraded on its own)' : ''}`} onClick={() => act({ type: 'upgradeAllLines', ...all! })}>⬆ All · {money(plan.cost)}</button>}
       <button className="dock-undo" aria-label="Undo" title="Undo (Ctrl/⌘ Z)" disabled={!canUndo()} onClick={() => undo()}><UndoIcon /></button>
@@ -431,12 +434,13 @@ function LineDock({ label, head, hint, tool, draw, all, as, noUpgrade }: { noUpg
 function PlacementBar({ s, p }: { s: GameState; p: Placement }) {
   const problem = placeProblem(s, p.region, p.at[0], p.at[1], { w: p.w, d: p.d }, p.key, p.kind === 'move' ? undefined : placementUse(p)), cost = placementCost(s, p);
   const quote = p.kind === 'new' && (problem === 'unowned' || problem === 'forest') ? planQuote(s, p.region, p.at, p.w, p.d, p.action) : null;
+  const need = placementNeed(p), street = !problem && need && need.lanes > 1 && !meets(frontageAt(worldOf(s, p.region), p.at[0], p.at[1], p.w, p.d), need) ? `Needs ${needText(need)}: draw a wider street beside it first (🛤, set the lanes).` : null;
   return <div className="placement-bar" role="dialog" aria-label={`Placing ${p.label}`}>
     <div className="placement-info"><b>{p.kind === 'move' ? '✥ Moving' : '📍 Placing'} {p.label}{p.total ? ` ${p.total - p.left! + 1} of ${p.total}` : ''}{cost > 0 ? ` · ${money(cost)}` : ''}</b>
-      <span className={problem && !quote?.ok ? 'bad' : 'muted'}>{quote?.ok ? `Not yours or not cleared yet. Buy and clear it, and it is placed when the crew finishes (about ${quote.hours} h).` : quote && !quote.ok && quote.error !== PROBLEM_TEXT.occupied ? quote.error : problem ? PROBLEM_TEXT[problem] : matchMedia('(pointer: fine)').matches ? 'Click a green spot to place it.' : 'Tap where it goes, then confirm.'}</span></div>
+      <span className={(problem && !quote?.ok) || street ? 'bad' : 'muted'}>{street ?? null}{street ? null : quote?.ok ? `Not yours or not cleared yet. Buy and clear it, and it is placed when the crew finishes (about ${quote.hours} h).` : quote && !quote.ok && quote.error !== PROBLEM_TEXT.occupied ? quote.error : problem ? PROBLEM_TEXT[problem] : matchMedia('(pointer: fine)').matches ? 'Click a green spot to place it.' : 'Tap where it goes, then confirm.'}</span></div>
     {!p.key?.startsWith('field:') && p.action.type !== 'buyPlot' && p.action.type !== 'buyParcel' && <button className="btn ghost" aria-label="Rotate" title="Rotate (R)" onClick={() => rotatePlacement()}>⟳ Rotate</button>}
     {quote?.ok ? <button className="btn primary" disabled={quote.cost > s.cash} title={`Buys ${quote.buy.length} patch${quote.buy.length === 1 ? '' : 'es'} and clears ${quote.clear.length}. The crew needs about ${quote.hours} hours; your ${p.label} goes up when they finish.`} onClick={() => planPlacementHere()}>Buy & clear · {money(quote.cost)}</button>
-      : <button className="btn primary" disabled={!!problem} onClick={() => confirmPlacement()}>{p.kind === 'move' ? 'Move here' : 'Place'}</button>}
+      : <button className="btn primary" disabled={!!problem || !!street} onClick={() => confirmPlacement()}>{p.kind === 'move' ? 'Move here' : 'Place'}</button>}
     <button className="btn ghost" onClick={() => cancelPlacement()}>Cancel</button>
   </div>;
 }

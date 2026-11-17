@@ -909,3 +909,4 @@ body:has(.modal-bg) .shell .coach { display: none !important; }
 .need-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; font-size: 14px; color: var(--muted); }
 .need-list .met { color: var(--up); }
 .dock-as { font: 700 13px var(--font); color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; height: 36px; padding: 0 6px; max-width: 150px; flex: none; }
+@media (max-width: 480px) { .dock-hint { flex-wrap: wrap; } .dock-hint p { flex-basis: 100%; } }

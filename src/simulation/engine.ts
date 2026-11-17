@@ -13,7 +13,7 @@ import {
 import { buildingDivision, clamp, debt, factoryCrop, equity, freeSpace, has, known, log, marketWage, nextId, post, random, round2, todayBook, lean } from './core';
 import { coverOf, coverPrice, COVERS } from './agriculture';
 import { addGoods, canGrow, clearField, fertilizeField, fieldsTick, frostNight, harvestField, isManual, isReady, newField, plantField, spoilageDaily } from './agriculture';
-import { BELT_PRICE, beltRoute, beltStretch, buildAs, buildAsOpen, lineBuildPrice, lineBuildTier, roadBuildPrice, liftTracks, riverTiles, chunkAt, COMMERCIAL, type Use, type Zone, reconcileWorld, unlink, accessNote, cutsOff, buyable, chunksIn, connect, placedIn, touch, useOf, buildingUse, INDUSTRY_TO_GROW, WATER_LEVEL, NET_PRICE, NET_TIERS, NET_TOP, linesOf, lineTiles, lineTop, upgradeAllPlan, pipeRoute, pipeStretch, hasWater, isRoad, MAP, ROAD_GRADES, ROAD_H, roadRoute, roadPick, roadTilePrice, tileId, canPlaceNew, LAND_HA_PER_PATCH,  own, ownedSet, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, clearCost, clearedSet, FOOTPRINT, footprintOf, forget, rotOf, turned, MOVE_DOWNTIME, placeNew, placeProblem, plotSide, PROBLEM_TEXT, seedWorld, TIMBER_PER_PATCH, worldOf } from './world';
+import { groundProblem, wideRoadRoute, BELT_PRICE, beltRoute, beltStretch, buildAs, buildAsOpen, lineBuildPrice, lineBuildTier, roadBuildPrice, liftTracks, riverTiles, chunkAt, COMMERCIAL, type Use, type Zone, reconcileWorld, unlink, accessNote, cutsOff, buyable, chunksIn, connect, placedIn, touch, useOf, buildingUse, INDUSTRY_TO_GROW, WATER_LEVEL, NET_PRICE, NET_TIERS, NET_TOP, linesOf, lineTiles, lineTop, upgradeAllPlan, pipeRoute, pipeStretch, hasWater, isRoad, MAP, ROAD_GRADES, ROAD_H, roadPick, roadTilePrice, tileId, canPlaceNew, LAND_HA_PER_PATCH,  own, ownedSet, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, clearCost, clearedSet, FOOTPRINT, footprintOf, forget, rotOf, turned, MOVE_DOWNTIME, placeNew, placeProblem, plotSide, PROBLEM_TEXT, seedWorld, TIMBER_PER_PATCH, worldOf } from './world';
 import { buyAnimals, livestockDaily, sellAnimals } from './livestock';
 import { claimDaily, startDay } from './daily';
 import { createMarkets, drawWeather, executeBuy, executeSell, quoteBuy, macroDaily, marketsDaily, marketsTick, priceFromInv } from './markets';
@@ -601,8 +601,8 @@ export function dispatch(s: GameState, a: Action): ActionResult {
     }
     case 'buildRoad': {
       if (!s.regions[a.region]?.unlocked) return fail('You have no operations there.');
-      const tiles = roadRoute(s, a.region, a.from, a.to);
-      if (!tiles) return fail('A road cannot get there: keep to your own cleared land and go around buildings.');
+      const lanes = Math.max(1, Math.min(5, Math.round(a.lanes ?? 1))), tiles = wideRoadRoute(s, a.region, a.from, a.to, lanes);
+      if (!tiles) return fail(groundProblem(s, a.region, a.to[0], a.to[1], 'road') ?? (lanes > 1 ? `A ${lanes}-lane road cannot fit there: it needs open cleared land of yours ${lanes} tiles wide all the way.` : 'No way through: buildings, fields, water or trees block every path. Try a point in between.'));
       if (!tiles.length) return fail('There is already a road all the way.');
       const grade = buildAs(s, 'road'), cost = Math.round(roadBuildPrice(s, grade) * tiles.length * 100) / 100;
       if (cost > s.cash) return fail(`That road costs $${cost.toLocaleString()}.`);
@@ -724,7 +724,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
     }
     case 'buildBelt': {
       const tiles = beltRoute(s, a.region, a.from, a.to);
-      if (!tiles) return fail('Trees need your own cleared land, clear of roads, water and buildings.');
+      if (!tiles) return fail(groundProblem(s, a.region, a.to[0], a.to[1], 'belt') ?? groundProblem(s, a.region, a.from[0], a.from[1], 'belt') ?? 'No way through for a row of trees: roads, buildings or water cross the way. Plant it in shorter runs.');
       if (!tiles.length) return fail('There are trees all the way already.');
       const cost = Math.round(BELT_PRICE * s.macro.cpi * tiles.length);
       if (cost > s.cash) return fail(`That tree line costs $${cost.toLocaleString()}.`);

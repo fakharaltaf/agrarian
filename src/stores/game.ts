@@ -1,11 +1,13 @@
 // The bridge between the pure simulation and React. The GameState object is mutated in place by
 // the engine; subscribers re-render on a version counter at most ~5 times a second.
+import { APARTMENT_NEED } from '../simulation/access';
+import { serviceNeed } from '../simulation/town-state';
 import { useSyncExternalStore } from 'react';
 import { CONFIG } from '../simulation/config';
 import { advance, createGame } from '../simulation/engine';
 import { dispatchEdit, undoEdit, undoable, type Edit } from '../simulation/undo';
 import { BUILDINGS, type RegionId } from '../simulation/config';
-import { beltRoute, FOOTPRINT, SERVICE_FOOTPRINT, findSpot, homesCentre, homeFootprint, plotSide, worldOf, chunkAt, roadRoute, pipeRoute, rotOf, buildingUse, COMMERCIAL, type NetKind } from '../simulation/world';
+import { groundProblem, buildAs, beltRoute, FOOTPRINT, SERVICE_FOOTPRINT, findSpot, homesCentre, homeFootprint, plotSide, worldOf, chunkAt, roadRoute, pipeRoute, rotOf, buildingUse, COMMERCIAL, type NetKind } from '../simulation/world';
 import { SERVICE_DEFS } from '../simulation/town-state';
 import { parseSave, SAVE_VERSION, type SaveFile } from '../simulation/persistence';
 export { parseSave, SAVE_VERSION } from '../simulation/persistence';
@@ -35,6 +37,8 @@ interface Store {
   /** the City's crime map: a marker over each home, coloured by crime on its street */
   crimeMap: boolean;
   trafficMap: boolean;
+  /** how many lanes wide new roads are drawn */
+  roadLanes: number;
   prospect: Prospect | null;
   zoning: Zoning | null;
 }
@@ -45,10 +49,12 @@ export type Zoning = { region: RegionId; zone: 'res' | 'ind' | 'com' | 'farm'; h
 /** What a placement is, for zoning checks in the preview. */
 /** The oil tool: drilling, or (survey) picking the area a survey reads. */
 export type Prospect = { region: RegionId; hover?: [number, number]; survey?: boolean };
+/** The street a new placement needs at its door, if more than a track. */
+export const placementNeed = (p: Pick<Placement, 'action' | 'kind'>) => p.kind === 'move' ? null : p.action.type === 'buildHomes' && p.action.tier === 'apartment' ? APARTMENT_NEED[0] : p.action.type === 'buildService' ? serviceNeed({ type: p.action.service, level: buildAs(store.game, 'service') }) : null;
 export const placementUse = (p: Pick<Placement, 'action' | 'key' | 'kind'>) => p.kind === 'move' ? undefined : p.action.type === 'buildHomes' ? 'home' as const : p.action.type === 'buyPlot' || p.action.type === 'buyParcel' ? 'field' as const : p.action.type === 'build' ? buildingUse(store.game, p.action.building) : p.action.type === 'buildService' && COMMERCIAL.test(p.action.service) ? 'shop' as const : undefined;
 export type Placement = { kind: 'new' | 'move'; action: Action; region: RegionId; w: number; d: number; label: string; key?: string; at: [number, number]; /** quarter turns; w and d are already turned */ rot?: number; /** placing one of several: how many are left, of how many */ left?: number; total?: number };
 
-let store: Store = { game: createGame(), v: 0, speed: 1, toasts: [], away: null, catchUp: null, page: 'farm', ready: false, placing: null, roading: null, hideBuildings: false, crimeMap: false, trafficMap: false, prospect: null, zoning: null };
+let store: Store = { game: createGame(), v: 0, speed: 1, toasts: [], away: null, catchUp: null, page: 'farm', ready: false, placing: null, roading: null, hideBuildings: false, crimeMap: false, trafficMap: false, roadLanes: 1, prospect: null, zoning: null };
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((l) => l());
 const set = (patch: Partial<Store>) => {
@@ -66,6 +72,8 @@ export const setCrimeMap = (on: boolean) => set({ crimeMap: on });
 export const crimeMapOn = () => store.crimeMap;
 export const setTrafficMap = (on: boolean) => set({ trafficMap: on, ...(on ? { crimeMap: false } : {}) });
 export const trafficMapOn = () => store.trafficMap;
+export const setRoadLanes = (n: number) => set({ roadLanes: n, ...(store.roading ? { roading: { ...store.roading, from: undefined } } : {}) });
+export const roadLanes = () => store.roadLanes;
 
 // ---------------------------------------------------------------- undo: map edits can be taken back for a game day
 let undos: Edit[] = [], redos: Edit[] = [];
@@ -308,13 +316,14 @@ export function roadTap(at: [number, number] | null) {
   if (!R || !at) return;
   if (R.belt) { // tree lines: tap to start, tap again to plant up to there; the remove tool fells a whole run
     if (R.tool === 'remove') { act({ type: 'removeBelt', region: R.region, at }); return; }
-    if (!R.from) { if (!beltRoute(store.game, R.region, at, at)) { toast('Plant trees on your own cleared land, clear of roads, water and buildings.'); return; } set({ roading: { ...R, from: at } }); return; }
+    if (!R.from) { if (!beltRoute(store.game, R.region, at, at)) { toast(groundProblem(store.game, R.region, at[0], at[1], 'belt') ?? 'Trees cannot go there.'); return; } set({ roading: { ...R, from: at } }); return; }
+    { const why = groundProblem(store.game, R.region, at[0], at[1], 'belt'); if (why && !beltRoute(store.game, R.region, R.from, at)) { toast(why); sfx('error'); return; } }
     if (act({ type: 'buildBelt', region: R.region, from: R.from, to: at })) set({ roading: { ...store.roading!, from: at } });
     return;
   }
   if (R.tool === 'draw') {
-    if (!R.from) { if (!(R.pipe ? pipeRoute(store.game, R.region, at, at, R.pipe) : roadRoute(store.game, R.region, at, at))) { toast(R.pipe === 'irrigation' ? 'Start a ditch on your own cleared land, beside the river or on another water line.' : R.pipe ? 'Start a line on your own cleared land, beside its building or on another line.' : 'Start a road on your own cleared land or on an existing road.'); return; } return set({ roading: { ...R, from: at } }); }
-    if (act(R.pipe ? { type: 'buildPipe', region: R.region, from: R.from, to: at, net: R.pipe } : { type: 'buildRoad', region: R.region, from: R.from, to: at })) set({ roading: { ...store.roading!, from: at } }); // keep drawing from here
+    if (!R.from) { if (!(R.pipe ? pipeRoute(store.game, R.region, at, at, R.pipe) : roadRoute(store.game, R.region, at, at))) { toast(!R.pipe ? groundProblem(store.game, R.region, at[0], at[1], 'road') ?? 'A road cannot start there.' : R.pipe === 'irrigation' ? 'Start a ditch on your own cleared land, beside the river or on another water line.' : R.pipe ? 'Start a line on your own cleared land, beside its building or on another line.' : 'Start a road on your own cleared land or on an existing road.'); return; } return set({ roading: { ...R, from: at } }); }
+    if (act(R.pipe ? { type: 'buildPipe', region: R.region, from: R.from, to: at, net: R.pipe } : { type: 'buildRoad', region: R.region, from: R.from, to: at, lanes: store.roadLanes })) set({ roading: { ...store.roading!, from: at } }); // keep drawing from here
     return;
   }
   // a drag along a road (from where it started to here) takes only that part; a tap takes the whole stretch

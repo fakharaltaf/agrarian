@@ -150,7 +150,7 @@ export function townDaily(s: GameState) {
   // Traffic: homes by their families, offices by their desks, shops by their custom, less what parking complexes take off the streets
   const door=(b:{id:number})=>doorTiles(s,'heartland',`svc:${b.id}`);
   // every family makes trips; shops, markets and the mall draw the most of them, then offices, then schools, clinics and the rest
-  const trips=homes.map(h=>({door:h.door,trips:h.families*2}));
+  const trips=homes.map(h=>({door:h.door,trips:h.families*.4})); // cars on the road at the busy hour: about two in five families
   const sinks=t.services.filter(b=>b.active&&b.type!=='road'&&b.type!=='parking'&&!UTILITY_OF[b.type]).map(b=>({door:door(b),pull:b.type==='mall'?40:isShop(b.type)?(svcSize(b)>=2?12:4):b.type==='office'?2+officeJobs(b)/10:2}));
   const parking=t.services.filter(b=>b.type==='parking'&&working(b)).map(b=>({door:door(b),reach:serviceRadius(b),share:PARKING_SHARE[levelOf(b)-1]}));
   const tr=sinks.length?trafficOf(w,trips,sinks,parking):{slow:{},flow:{}};
@@ -199,7 +199,7 @@ export function townDaily(s: GameState) {
   for(const id of DISTRICT_IDS){const v=t.coverage[id];v.school=cover.school;v.water=cover.water;v.medical=cover.medical;v.road=1;}
   t.sanitation=cover.sanitation;t.power=cover.power;t.medical=cover.medical;
   // jammed streets and buildings too big for theirs wear on the families living there
-  {const slow=t.traffic??{},jam=homes.map(h=>{const home=c.homes.find(x=>x.id===h.id);const cramped=home?.tier==='apartment'&&!meets(frontageOf(w,h.door),APARTMENT_NEED[(home.level??1)-1]);const near=h.door.filter(id=>(slow[id]??1)>1.2).length;return cramped||near>0?1:0;});t.jammed=share(jam);}
+  {const slow=t.traffic??{},jam=homes.map(h=>{const home=c.homes.find(x=>x.id===h.id);const cramped=home?.tier==='apartment'&&!meets(frontageOf(w,h.door),APARTMENT_NEED[(home.level??1)-1]);const near=h.door.filter(id=>(slow[id]??1)>1.4).length;return cramped||near>0?1:0;});t.jammed=share(jam);}
   // service fees: a share of what the town's services cost the farm each day, paid by the families out of their savings
   {const fee=c.serviceFee??0,due=round2(t.lastCost*fee),paid=round2(Math.min(due,c.householdCash*.05));t.feesPaid=paid;if(paid>0){c.householdCash=round2(c.householdCash-paid);post(s,'fees',paid,'Town service fees','heartland','corporate');}}
   const people=population(s);
