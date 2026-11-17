@@ -1246,7 +1246,7 @@ function syncRoads(R: Rig, s: GameState) {
   const KERB = C(0xc9c3b4), LAWN = C(0x7f9a4a), beltTrees: THREE.Object3D[] = [];
   // belts are gathered first and only drawn in runs of three tiles or more, so a busy street grid is not dotted with single squares of lawn
   const wanted = new Map<string, [number, number, boolean, boolean]>(), belt = (cx: number, cz: number, ew: boolean, middle = true) => { wanted.set(`${cx},${cz},${ew}`, [cx, cz, ew, middle]); };
-  const beds = new Map<number, number>(); // belt tiles, drawn together at the end so crossing belts make one bed with a kerb only round its outside
+  const beds = new Map<number, number>(), walks = new Set<number>(); // belt tiles, drawn together at the end so crossing belts make one bed with a kerb only round its outside
   const drawBelt = (cx: number, cz: number, ew: boolean) => {
     void ew; beds.set(tileId(Math.floor(cx), Math.floor(cz)), 0.14);
     const t = tree(0.55, R.crownMat, (Math.round(cx) + Math.round(cz)) % 3 === 0 ? 1 : 0); t.position.set(cx, 0, cz); t.rotation.y = (cx * 7 + cz * 3) % 6; beltTrees.push(t);
@@ -1282,17 +1282,26 @@ function syncRoads(R: Rig, s: GameState) {
     const at = Math.floor(ew ? cx : cz);
     if (run >= 3 && !(middle && run >= 12 && ((at % 8) + 8) % 8 === 0)) drawBelt(cx, cz, ew); // a long middle belt leaves a gap every eight tiles to turn back
   }
-  // tree lines the player planted: a strip of lawn behind a kerb, a tree on every tile, turning to follow the line
+  // tree lines the player planted: a lawn with a walking path round its edge, trees and bushes in turn along it
+  const bushGeo = cached('beltbush', () => new THREE.IcosahedronGeometry(0.16, 1)), BUSH = [mat(0x4f7f3c), mat(0x5f8f4a), mat(0x6b9a4c)];
   for (const k of Object.keys(w.belts ?? {})) {
-    const id = Number(k), [x, y] = tileAt(id), b = (dx: number, dy: number) => !!w.belts?.[tileId(x + dx, y + dy)];
-    void b; beds.set(id, 0.04);
-    const t = tree(0.6, R.crownMat, (x * 7 + y * 3) % 4 === 0 ? 1 : 0); t.position.set(x + 0.5, 0, y + 0.5); t.rotation.y = (x * 7 + y * 3) % 6; beltTrees.push(t);
+    const id = Number(k), [x, y] = tileAt(id), h = (x * 7 + y * 3) % 6;
+    beds.set(id, 0.04); walks.add(id);
+    if ((x + y) % 2 === 0) { const t = tree(0.55, R.crownMat, h % 3 === 0 ? 1 : 0); t.position.set(x + 0.5, 0, y + 0.5); t.rotation.y = h; beltTrees.push(t); }
+    else for (const [dx, dz, sc] of [[0.35, 0.4, 1], [0.62, 0.55, 0.8], [0.45, 0.68, 0.7]] as const) { const m = mesh(bushGeo, BUSH[(h + Math.round(dx * 10)) % 3], x + dx, 0.12 * sc, y + dz); m.scale.set(sc, sc * 0.8, sc); beltTrees.push(m); }
   }
   // lawn beds: each tile's lawn reaches right up to a neighbouring bed tile (so they join into one) and stops short of anything else, with a kerb round the outside
   for (const [id, inset] of beds) {
     const [x, y] = tileAt(id), has = (dx: number, dy: number) => beds.has(tileId(x + dx, y + dy));
     const x0 = x + (has(-1, 0) ? 0 : inset), x1 = x + 1 - (has(1, 0) ? 0 : inset), y0 = y + (has(0, -1) ? 0 : inset), y1 = y + 1 - (has(0, 1) ? 0 : inset), my = (y0 + y1) / 2, h = (y1 - y0) / 2;
     grass.seg(x0, my, x1, my, [[-h, LAWN, 1], [h, LAWN, 1]]);
+    if (walks.has(id)) { // a gravel walk just inside the kerb, along every outer edge
+      const p = 0.2, PATH = C(0xe3d8c0);
+      if (!has(0, -1)) grass.seg(x0, y0 + p / 2, x1, y0 + p / 2, [[-p / 2, PATH, 1], [p / 2, PATH, 1]]);
+      if (!has(0, 1)) grass.seg(x0, y1 - p / 2, x1, y1 - p / 2, [[-p / 2, PATH, 1], [p / 2, PATH, 1]]);
+      if (!has(-1, 0)) grass.seg(x0 + p / 2, y0, x0 + p / 2, y1, [[-p / 2, PATH, 1], [p / 2, PATH, 1]]);
+      if (!has(1, 0)) grass.seg(x1 - p / 2, y0, x1 - p / 2, y1, [[-p / 2, PATH, 1], [p / 2, PATH, 1]]);
+    }
     const k = 0.05;
     if (!has(0, -1)) grass.seg(x0, y0 + k / 2, x1, y0 + k / 2, [[-k / 2, KERB, 1], [k / 2, KERB, 1]]);
     if (!has(0, 1)) grass.seg(x0, y1 - k / 2, x1, y1 - k / 2, [[-k / 2, KERB, 1], [k / 2, KERB, 1]]);
