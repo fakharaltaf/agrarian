@@ -2348,8 +2348,8 @@ function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el
     const day = Math.floor(g.tick / 24), ck = `${k}@${day}@${g.buildings.length}`;
     if (anotherCache.k !== ck) { anotherCache.k = ck; anotherCache.q = anotherQuote(g, k); }
     const q = anotherCache.q; if (!q) return '';
-    const why = q.why ?? (q.price > g.cash ? `Needs ${money(q.price)}` : '');
-    return `<button data-action="another:0" type="button"${why ? ` disabled title="${why.replace(/"/g, '&quot;')}"` : ''}>＋ Another · ${money(q.price)}</button>`;
+    const poor = !q.why && q.price > g.cash; // a spot-dependent reason is only a hint: you choose where it goes
+    return `<button data-action="another:0" type="button"${poor ? ` disabled title="Needs ${money(q.price)}"` : q.why ? ` title="${q.why.replace(/"/g, '&quot;')}"` : ''}>＋ Another${q.why ? '' : ` · ${money(q.price)}`}</button>`;
   };
   const button = (action: string, label: string) => `<button data-action="${action}" type="button"${label==='ⓘ'?' aria-label="Inspect selected item"':''}>${label}</button>`;
   void placeCost;

@@ -6,7 +6,7 @@ import { bestRetailCentre } from './facility-levels';
 import { wellField, DRILL_PRICE, oilChance, oilOf, SURVEY_PRICE, SURVEY_R, surveyedAt, landCostOf } from './oil';
 import { haulDaily, haulOf, haulTick, horseCartValue, usesCarts, VEHICLES } from './hauling';
 import { emptyProductionReport } from './production-report';
-import { canUpgradeService, levelOf, payHouseholds, svcSize, townOf } from './town-state';
+import { canUpgradeService, isShop, levelOf, payHouseholds, svcSize, townOf } from './town-state';
 import { idleMachine, machineSaleValue } from './operations';
 // Orchestrates every system. Pure: no React, no DOM. Functions mutate the GameState passed in.
 import {
@@ -16,7 +16,7 @@ import { VERTICAL_CROPS, maxLevel, recipeOf, vfArea, buildingDivision, clamp, de
 import { coverOf, coverPrice, COVERS } from './agriculture';
 import { FIELD_LEVELS, fieldLevel, fieldUpgradePrice, fieldUpgradeProblem, upgradeField } from './field-levels';
 import { addGoods, canGrow, clearField, fertilizeField, fieldsTick, frostNight, harvestField, isManual, isReady, newField, plantField, spoilageDaily } from './agriculture';
-import { BRIDGE_COST, BRIDGE_GRADES, bridgeAt, bridgePlan, clearOpenPatches, growFarmhouse, groundProblem, wideRoadRoute, BELT_PRICE, beltRoute, beltStretch, buildAs, buildAsOpen, lineBuildPrice, lineBuildTier, roadBuildPrice, liftTracks, riverTiles, chunkAt, COMMERCIAL, type Use, type Zone, reconcileWorld, unlink, accessNote, cutsOff, buyable, chunksIn, connect, placedIn, touch, useOf, buildingUse, INDUSTRY_TO_GROW, WATER_LEVEL, NET_PRICE, NET_TIERS, NET_TOP, linesOf, lineTiles, lineTop, upgradeAllPlan, pipeRoute, pipeStretch, hasWater, isRoad, MAP, ROAD_GRADES, ROAD_H, roadPick, roadTilePrice, tileId, canPlaceNew, LAND_HA_PER_PATCH,  own, ownedSet, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, clearCost, clearedSet, FOOTPRINT, footprintOf, forget, rotOf, turned, MOVE_DOWNTIME, placeNew, placeProblem, plotSide, PROBLEM_TEXT, seedWorld, TIMBER_PER_PATCH, worldOf } from './world';
+import { findSpot, homeFootprint, SERVICE_FOOTPRINT, BRIDGE_COST, BRIDGE_GRADES, bridgeAt, bridgePlan, clearOpenPatches, growFarmhouse, groundProblem, wideRoadRoute, BELT_PRICE, beltRoute, beltStretch, buildAs, buildAsOpen, lineBuildPrice, lineBuildTier, roadBuildPrice, liftTracks, riverTiles, chunkAt, COMMERCIAL, type Use, type Zone, reconcileWorld, unlink, accessNote, cutsOff, buyable, chunksIn, connect, placedIn, touch, useOf, buildingUse, INDUSTRY_TO_GROW, WATER_LEVEL, NET_PRICE, NET_TIERS, NET_TOP, linesOf, lineTiles, lineTop, upgradeAllPlan, pipeRoute, pipeStretch, hasWater, isRoad, MAP, ROAD_GRADES, ROAD_H, roadPick, roadTilePrice, tileId, canPlaceNew, LAND_HA_PER_PATCH,  own, ownedSet, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, clearCost, clearedSet, FOOTPRINT, footprintOf, forget, rotOf, turned, MOVE_DOWNTIME, placeNew, placeProblem, plotSide, PROBLEM_TEXT, seedWorld, TIMBER_PER_PATCH, worldOf } from './world';
 import { buyAnimals, livestockDaily, sellAnimals } from './livestock';
 import { claimDaily, startDay } from './daily';
 import { createMarkets, drawWeather, executeBuy, executeSell, quoteBuy, macroDaily, marketsDaily, marketsTick, priceFromInv } from './markets';
@@ -180,30 +180,31 @@ export const machinePrice = (s: GameState, t: keyof typeof MACHINES) => Math.rou
 export const irrigationPrice = (s: GameState, ha: number) => Math.round(ha * (CONFIG.irrigationCostPerHa + (has(s, 'dripIrrigation') ? 200 : 0)) * s.macro.cpi);
 export const regionEntryCost = (s: GameState) => Math.round(25000 * s.macro.cpi);
 /** How to build one more like `key`: the build, then the upgrades that bring it to the same level. Null for what cannot be copied (oil wells, merged shops). */
-export function anotherOf(s: GameState, key: string): { first: Action; up: (id: number) => Action; levels: number; newest: (c: GameState) => number } | null {
+export function anotherOf(s: GameState, key: string): { first: Action; /** the ground a new one needs, and the land use it stands on */ region: RegionId; fp: { w: number; d: number }; use?: Use; up: (id: number) => Action; target: number; level: (c: GameState, id: number) => number; newest: (c: GameState) => number } | null {
   const [k, raw] = key.split(':'), id = +raw;
   if (k === 'b') {
     const b = s.buildings.find((x) => x.id === id);
     if (!b || b.type === 'oilWell' || b.type === 'verticalFarm') return null; // vertical farms come from fields: convert another field instead
-    return { first: { type: 'build', region: b.region, building: b.type, count: 1 }, up: (n) => ({ type: 'upgradeBuilding', buildingId: n }), levels: (b.level || 1) - 1, newest: (c) => c.buildings[c.buildings.length - 1].id };
+    return { region: b.region, fp: { w: FOOTPRINT[b.type][0], d: FOOTPRINT[b.type][1] }, use: buildingUse(s, b.type), first: { type: 'build', region: b.region, building: b.type, count: 1 }, up: (n) => ({ type: 'upgradeBuilding', buildingId: n }), target: b.level || 1, level: (c, n) => c.buildings.find((x) => x.id === n)?.level ?? 1, newest: (c) => c.buildings[c.buildings.length - 1].id };
   }
   if (k === 'svc') {
     const v = townOf(s).services.find((x) => x.id === id);
     if (!v || svcSize(v) > 1 || v.type === 'barracks') return null;
-    return { first: { type: 'buildService', service: v.type, district: v.district, count: 1 }, up: (n) => ({ type: 'upgradeService', serviceId: n }), levels: canUpgradeService(v.type) ? levelOf(v) - 1 : 0, newest: (c) => { const l = townOf(c).services; return l[l.length - 1].id; } };
+    return { region: 'heartland', fp: SERVICE_FOOTPRINT, use: isShop(v.type) ? 'shop' : undefined, first: { type: 'buildService', service: v.type, district: v.district, count: 1 }, up: (n) => ({ type: 'upgradeService', serviceId: n }), target: canUpgradeService(v.type) ? levelOf(v) : 1, level: (c, n) => { const x = townOf(c).services.find((y) => y.id === n); return x ? levelOf(x) : 1; }, newest: (c) => { const l = townOf(c).services; return l[l.length - 1].id; } };
   }
   if (k === 'home') {
     const h = communityOf(s).homes.find((x) => x.id === id);
     if (!h) return null;
-    return { first: { type: 'buildHomes', tier: h.tier, count: 1 }, up: (n) => ({ type: 'upgradeHome', homeId: n }), levels: homeLevel(h) - 1, newest: (c) => { const l = communityOf(c).homes; return l[l.length - 1].id; } };
+    return { region: 'heartland', fp: homeFootprint({ ...h, count: 1 }), use: 'home', first: { type: 'buildHomes', tier: h.tier, count: 1 }, up: (n) => ({ type: 'upgradeHome', homeId: n }), target: homeLevel(h), level: (c, n) => { const x = communityOf(c).homes.find((y) => y.id === n); return x ? homeLevel(x) : 1; }, newest: (c) => { const l = communityOf(c).homes; return l[l.length - 1].id; } };
   }
   return null;
 }
 function runAnother(c: GameState, plan: NonNullable<ReturnType<typeof anotherOf>>, at?: [number, number], rot?: number): ActionResult {
+  at ??= findSpot(c, plan.region, plan.fp, false, plan.use) ?? undefined; // a spot of its own: without one a town service would just join the existing one
   const r = dispatch(c, { ...plan.first, ...(at ? { at } : {}), ...(rot !== undefined ? { rot } : {}) } as Action);
   if (!r.ok) return r;
   const id = plan.newest(c);
-  for (let i = 0; i < plan.levels; i++) { const u = dispatch(c, plan.up(id)); if (!u.ok) return u; }
+  while (plan.level(c, id) < plan.target) { const u = dispatch(c, plan.up(id)); if (!u.ok) return u; } // new ones may start above level 1 (Build as)
   return r;
 }
 /** What one more like `key` costs, and why it can't be built now (cash aside). Rehearsed on a copy with deep pockets. */

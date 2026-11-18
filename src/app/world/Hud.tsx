@@ -559,10 +559,10 @@ function ServiceCard({ s, svc, onClose }: { s: GameState; svc: CivicService; onC
 function AddAnother({ s, k, level }: { s: GameState; k: string; level: number }) {
   const day = Math.floor(s.tick / 24), q = useMemo(() => anotherQuote(s, k), [k, day, s.buildings.length, townOf(s).services.length, communityOf(s).homes.length]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!q) return null;
-  const why = q.why ?? (q.price > s.cash ? `Needs ${money(q.price)}, you have ${money(s.cash)}` : undefined);
+  const poor = !q.why && q.price > s.cash; // q.why depends on where it goes (room, road, zone): you choose the spot, so it's a hint, not a block
   return <>
-    <button className="btn ghost sm" disabled={!!why} title={why} onClick={() => act({ type: 'addAnother', key: k })}>＋ Add another{level > 1 ? ` (level ${level})` : ''} · {money(q.price)}</button>
-    {why && <span className="faint small">{why}</span>}
+    <button className="btn ghost sm" disabled={poor} title={q.why} onClick={() => act({ type: 'addAnother', key: k })}>＋ Add another{level > 1 ? ` (level ${level})` : ''}{q.why ? '' : ` · ${money(q.price)}`}</button>
+    {(poor || q.why) && <span className="faint small">{poor ? `Needs ${money(q.price)}, you have ${money(s.cash)}` : q.why}</span>}
   </>;
 }
 /** What a building does to the homes around it at its level: smell, noise, smoke, or fresh bread, and how many homes it reaches. */
