@@ -2,7 +2,7 @@
 // Balance rule: with the research that unlocks it, a level-N field grows what a level-N food factory uses
 // (level 2 ≈ 2× and level 3 ≈ 4× today's harvest), so the land that fed a mill keeps feeding it as the mill grows.
 import { TECH } from './config';
-import { has } from './core';
+import { factoryCrop, has, post } from './core';
 import type { Field, GameState } from './types';
 
 export interface FieldLevel { name: string; yield: number; /** research it needs */ needs: string[]; /** USD per hectare at today's prices */ pricePerHa: number; /** nutrients taken per harvest, and irrigation water billed, as multiples of level 1 */ uptake: number; water: number; does: string }
@@ -26,4 +26,16 @@ export function fieldUpgradeProblem(s: GameState, f: Field): string | null {
 /** The research the farm has done that lifts every harvest, as the "Included:" line shows it. */
 export function fieldResearchIncluded(s: GameState): string[] {
   return [has(s, 'improvedSeeds') && 'Improved seeds +10% yield', has(s, 'hybrids') && 'High-yield hybrids +20% yield', has(s, 'precisionFert') && 'Precision fertilisation −30% fertiliser', has(s, 'dripIrrigation') && 'Drip irrigation −35% water', has(s, 'precisionIrrigation') && 'Precision irrigation −60% water', has(s, 'mech2') && 'Efficient drivetrains: machines 30% faster'].filter(Boolean) as string[];
+}
+/** Fields that feed a factory now short of their crop and could go up a level: where an upgrade pays off first. Cheapest first. */
+export function fieldsWorthUpgrading(s: GameState): Field[] {
+  const short = new Set(s.buildings.filter((b) => b.active && b.reason.startsWith('Not enough') && factoryCrop(b) && b.reason.toLowerCase().includes(factoryCrop(b)!)).map((b) => b.id));
+  return s.fields.filter((f) => f.supplies !== null && short.has(f.supplies) && !fieldUpgradeProblem(s, f)).sort((a, b) => fieldUpgradePrice(s, a) - fieldUpgradePrice(s, b) || a.id - b.id);
+}
+/** Pay for one level and raise the field: part of the land's book value. Callers check fieldUpgradeProblem and cash first. */
+export function upgradeField(s: GameState, f: Field) {
+  const price = fieldUpgradePrice(s, f);
+  post(s, 'building', -price, `Field ${f.id} → ${FIELD_LEVELS[fieldLevel(f)].name.toLowerCase()}`, f.region);
+  f.cost += price;
+  f.level = fieldLevel(f) + 1;
 }

@@ -1,7 +1,8 @@
 // Farm advisor: reads the last two weeks of books and the farm, and names the few changes worth the most money.
 // Rates use whole finished days only, so the advice holds steady through the day. Pure and deterministic.
 import { BUILDINGS, CONFIG, CROPS, GOODS, LEDGER_KINDS, MACHINES, OPEX_KINDS, REVENUE_KINDS, REGION_IDS, WORK_HOURS, type GoodId, type LedgerKind } from './config';
-import { day, refPrice, seedCost, stored } from './core';
+import { day, priceUsd, refPrice, seedCost, stored } from './core';
+import { FIELD_LEVELS, fieldLevel, fieldUpgradePrice, fieldsWorthUpgrading, levelOfField } from './field-levels';
 import { buildingMargin } from './processing';
 import { cropScore } from './automation';
 import { expectedYield, fertility, isManual, isReady, readyAt, spoilValue, spreadNeed } from './agriculture';
@@ -148,6 +149,15 @@ export function diagnose(s: GameState): Diagnosis {
   const held = REGION_IDS.reduce((a, r) => a + (Object.keys(s.regions[r].inventory) as GoodId[]).reduce((b, g) => b + (GOODS[g].kind !== 'input' && s.markets[r][g] ? s.regions[r].inventory[g] * s.markets[r][g]!.price : 0), 0), 0);
   if (held > Math.max(20000, revenue * 20)) add({ id: 'idleStock', icon: '📦', page: s.automation.policies.sellDiscipline > 0 ? 'automation' : 'markets', gain: 0, weight: held / 30,
     title: `${r0(held)} of stock sitting unsold`, proof: s.automation.policies.sellDiscipline > 0 ? `Your manager waits for ${s.automation.policies.sellDiscipline.toFixed(2)}× the average price` : 'Nothing is selling it' });
+
+  // a factory short of its crop, fed by fields that could go up a level: the extra harvest, valued at today's price
+  const up = fieldsWorthUpgrading(s).filter((f) => fieldUpgradePrice(s, f) <= s.cash);
+  if (up.length) {
+    const extra = up.reduce((a, f) => { const c = f.plan ?? f.crop; return c ? a + (expectedYield(s, f, c) * (FIELD_LEVELS[fieldLevel(f)].yield / levelOfField(f).yield - 1) * 24) / CROPS[c].growthTicks * priceUsd(s, f.region, c) : a; }, 0);
+    const cost = up.reduce((a, f) => a + fieldUpgradePrice(s, f), 0);
+    add({ id: 'fieldLevels', icon: '🌾', page: 'fields', gain: extra, title: `Upgrade the fields feeding your ${BUILDINGS[s.buildings.find((b) => b.id === up[0].supplies)!.type].name.toLowerCase()}`,
+      proof: `It runs short of its crop · ${up.length} field${up.length > 1 ? 's' : ''} can go up a level for ${r0(cost)}`, act: { label: `Upgrade · ${r0(cost)}`, action: { type: 'upgradeField', fieldIds: up.map((f) => f.id) } } });
+  }
 
   // paying for empty buildings
   const st = stored(s, 'heartland');

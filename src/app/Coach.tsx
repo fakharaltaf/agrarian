@@ -16,6 +16,7 @@ import { advice } from './Advisor';
 import { stageAtLeast } from '../simulation/stages';
 import { haulOf, usesCarts } from '../simulation/hauling';
 import { hasAccess, worldOf } from '../simulation/world';
+import { fieldLevel, fieldsWorthUpgrading } from '../simulation/field-levels';
 
 export interface CoachTip {
   id: string;
@@ -47,6 +48,7 @@ export const TIPS: CoachTip[] = [
   {id:'families',page:'community',target:'nav-community',title:'Families follow their workers',body:'Each hand you employ brings a family of 3–5 once there is a home for them. Feed them from your stores; they make your workers happier and steadier.',when:s=>communityOf(s).active&&Object.values(worldOf(s,'heartland').zones).includes('res'),done:s=>Object.keys(communityOf(s).families??{}).length>=2},
   {id:'warmth',page:'community',target:'nav-community',title:'Cold homes',body:'Below 10°C every family burns diesel for heat. With stocking on it is bought for them; cold homes make families unhappy, and unhappy families leave.',when:s=>communityOf(s).active&&communityOf(s).warm<0.8&&s.regions.heartland.temp<10},
   {id:'reach',page:'town',target:'nav-town',title:'Services serve their neighbours',body:'A school, clinic or water tower only serves the homes inside its circle. When you place one, homes turn green if they are covered and red if not.',when:s=>townOf(s).active,done:s=>townOf(s).services.filter(b=>b.type!=='waterTower').length>=2},
+  {id:'field-levels',page:'farm',target:'field-levels',title:'Let your fields keep up',body:'A factory is short of its crop. With the research you have, the fields feeding it can go up a level: an improved field grows ×1.8, an intensive one ×3. Open one of them and press ⬆.',when:s=>fieldsWorthUpgrading(s).length>0,done:s=>s.fields.some(f=>fieldLevel(f)>1)},
   { id: 'plant', page: 'farm', target: 'plant-btn', title: 'Plant your first crop', body: 'This is your one hectare. You own ten wheat seeds — exactly enough. Press Plant (or P).',
     when: () => true, done: (s) => anyField(s, (f) => !!f.crop) || s.stats.harvests > 0 },
   { id: 'time', page: 'farm', target: 'clock', title: 'Time runs by itself', body: 'Each real second is one in-game hour. Wheat needs 12 hours to ripen; the field turns gold when it is ready.',

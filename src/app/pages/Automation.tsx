@@ -70,6 +70,8 @@ function PoliciesCard({ s }: { s: GameState }) {
           {P.autoRotate && s.buildings.some((b) => BUILDINGS[b.type].recipe) && (
             <Labeled text="Grow for my factories"><OnOff label="Grow for my factories" value={P.supplyFactories} onChange={(v) => setP({ supplyFactories: v })} /></Labeled>
           )}
+          {has(s, 'improvedSeeds') && has(s, 'dripIrrigation') && s.fields.some((f) => f.supplies) && <Labeled text="Upgrade fields that feed my factories"><OnOff label="Upgrade fields that feed my factories" value={!!P.upgradeFields} onChange={(v) => setP({ upgradeFields: v })} /></Labeled>}
+          {P.upgradeFields && <p className="small muted">Each day, when a factory runs short of its crop, managers upgrade the fields supplying it one level, cheapest first, while the cash reserve allows.</p>}
           {P.autoRotate && P.supplyFactories && <p className="small muted">A crop is worth whichever pays more: the market price, or what your own factory turns it into (less staff costs) while that factory is short of it. Once two days of input are waiting, the market decides again.</p>}
         </Policy>
 

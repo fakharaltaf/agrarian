@@ -295,7 +295,7 @@ function FieldLevels({ s, fields }: { s: GameState; fields: Field[] }) {
   const can = fields.filter((f) => !fieldUpgradeProblem(s, f)), cost = can.reduce((n, f) => n + fieldUpgradePrice(s, f), 0);
   const why = can.length ? (cost > s.cash ? `Needs ${money(cost)}` : null) : fieldUpgradeProblem(s, fields.find((f) => fieldLevel(f) < 3) ?? fields[0]);
   const included = fieldResearchIncluded(s);
-  return <div className="stack s" style={{ borderTop: '1px solid var(--line)', paddingTop: 10 }}>
+  return <div className="stack s" data-coach="field-levels" style={{ borderTop: '1px solid var(--line)', paddingTop: 10 }}>
     <div className="row between wrap">
       <h3>{one ? levelOfField(one).name : 'Field levels'} <span className="muted small">{one ? `level ${lv} · ×${levelOfField(one).yield} yield` : `from level ${lv}`}</span></h3>
       {lv < 3 && (can.length ? <Confirm className="btn ghost sm" disabled={cost > s.cash} label={`⬆ ${one ? next.name : `${can.length} fields`} · ${money(cost)}`} title={one ? `Make field ${one.id} an ${next.name.toLowerCase()}?` : `Upgrade ${can.length} fields one level?`} confirmLabel={`Pay ${money(cost)}`}

@@ -106,3 +106,31 @@ it('Supply and demand counts what fields grow and what mills use, including mill
   const three = goodBalance(s, 'heartland', 'wheat', { type: 'flourMill', n: 3 });
   expect(three.used).toBeCloseTo(3 * BUILDINGS.flourMill.recipe!.inputs.wheat! * BUILDINGS.flourMill.recipe!.batchesPerHour * 24, 0);
 });
+
+it('Managers upgrade the fields feeding a short factory, cheapest first, within the cash reserve, only when asked', async () => {
+  const { policiesDaily } = await import('../simulation/automation');
+  const { diagnose } = await import('../simulation/advisor');
+  const setup = () => {
+    const s = ready(5150);
+    research(s, 'improvedSeeds', 'dripIrrigation');
+    dispatch(s, { type: 'build', region: 'heartland', building: 'flourMill' });
+    const mill = s.buildings.find((b) => b.type === 'flourMill')!;
+    mill.reason = 'Not enough wheat';
+    s.fields[0].irrigated = true; s.fields[0].supplies = mill.id;
+    dispatch(s, { type: 'hire', region: 'heartland', role: 'manager' } as never);
+    if (!s.workers.some((w) => w.role === 'manager')) s.workers.push({ ...(s.workers[0] ?? {}), id: 999, region: 'heartland', role: 'manager' } as never);
+    return s;
+  };
+  const off = setup();
+  policiesDaily(off);
+  expect(off.fields[0].level ?? 1).toBe(1); // policy off: nothing bought
+  expect(diagnose(off).advice.some((a) => a.id === 'fieldLevels')).toBe(true);
+  const on = setup();
+  on.automation.policies.upgradeFields = true;
+  on.automation.policies.cashReserve = on.cash; // nothing spendable
+  policiesDaily(on);
+  expect(on.fields[0].level ?? 1).toBe(1);
+  on.automation.policies.cashReserve = 0;
+  policiesDaily(on);
+  expect(on.fields[0].level).toBe(2);
+});

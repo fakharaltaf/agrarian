@@ -14,7 +14,7 @@ import {
 } from './config';
 import { VERTICAL_CROPS, buildingDivision, clamp, debt, factoryCrop, equity, freeSpace, has, known, log, marketWage, nextId, post, random, round2, todayBook, lean } from './core';
 import { coverOf, coverPrice, COVERS } from './agriculture';
-import { FIELD_LEVELS, fieldLevel, fieldUpgradePrice, fieldUpgradeProblem } from './field-levels';
+import { FIELD_LEVELS, fieldLevel, fieldUpgradePrice, fieldUpgradeProblem, upgradeField } from './field-levels';
 import { addGoods, canGrow, clearField, fertilizeField, fieldsTick, frostNight, harvestField, isManual, isReady, newField, plantField, spoilageDaily } from './agriculture';
 import { BRIDGE_COST, BRIDGE_GRADES, bridgeAt, bridgePlan, clearOpenPatches, growFarmhouse, groundProblem, wideRoadRoute, BELT_PRICE, beltRoute, beltStretch, buildAs, buildAsOpen, lineBuildPrice, lineBuildTier, roadBuildPrice, liftTracks, riverTiles, chunkAt, COMMERCIAL, type Use, type Zone, reconcileWorld, unlink, accessNote, cutsOff, buyable, chunksIn, connect, placedIn, touch, useOf, buildingUse, INDUSTRY_TO_GROW, WATER_LEVEL, NET_PRICE, NET_TIERS, NET_TOP, linesOf, lineTiles, lineTop, upgradeAllPlan, pipeRoute, pipeStretch, hasWater, isRoad, MAP, ROAD_GRADES, ROAD_H, roadPick, roadTilePrice, tileId, canPlaceNew, LAND_HA_PER_PATCH,  own, ownedSet, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, clearCost, clearedSet, FOOTPRINT, footprintOf, forget, rotOf, turned, MOVE_DOWNTIME, placeNew, placeProblem, plotSide, PROBLEM_TEXT, seedWorld, TIMBER_PER_PATCH, worldOf } from './world';
 import { buyAnimals, livestockDaily, sellAnimals } from './livestock';
@@ -409,12 +409,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       if (!can.length) return fail(fs.length ? fieldUpgradeProblem(s, fs[0])! : 'No such field.');
       const cost = can.reduce((n, f) => n + fieldUpgradePrice(s, f), 0);
       if (cost > s.cash) return fail(`Upgrading ${can.length === 1 ? 'the field' : `${can.length} fields`} costs $${cost.toLocaleString()}.`);
-      for (const f of can) {
-        const price = fieldUpgradePrice(s, f);
-        post(s, 'building', -price, `Field ${f.id} → ${FIELD_LEVELS[fieldLevel(f)].name.toLowerCase()}`, f.region);
-        f.cost += price; // part of the land's book value
-        f.level = fieldLevel(f) + 1;
-      }
+      for (const f of can) upgradeField(s, f);
       const skipped = fs.length - can.length;
       return ok(`${can.length === 1 ? `Field ${can[0].id} is now an ${FIELD_LEVELS[fieldLevel(can[0]) - 1].name.toLowerCase()}` : `${can.length} fields upgraded`}.${skipped ? ` ${skipped} could not be: ${fieldUpgradeProblem(s, fs.find((f) => !can.includes(f))!)}` : ''}`);
     }
