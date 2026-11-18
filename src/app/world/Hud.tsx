@@ -13,7 +13,7 @@ import { townOf, SERVICE_DEFS, UTILITY_OF, levelOf, serviceUpgradePrice, utility
 // Everything that floats over the world: objective, selection panel, market, land, region switcher.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ANIMALS, ANIMAL_IDS, BUILDINGS, CONFIG, COWS_PER_DAIRY_BATCH, ERAS, GOODS, REGIONS, type CropId, type RegionId } from '../../simulation/config';
-import { known, recipeOf, throughput, VERTICAL_CROPS } from '../../simulation/core';
+import { known, maxLevel, recipeOf, throughput, VERTICAL_CROPS } from '../../simulation/core';
 import { buildingMargin } from '../../simulation/processing';
 import { planQuote } from '../../simulation/engine';
 import { anotherQuote, DISCOVERIES, ERA_UNLOCK_TEXT, dailyGoals, dailyPrize, forecast, herdOf, homePlotPrice, housing, isManual, isReady, objective, chapterGate, gateProgress, type GateRow, PAGES, seedShortfall, upgradeCost } from '../../simulation/engine';
@@ -653,7 +653,7 @@ function LotPanel({ s, lot, region, onClose }: { s: GameState; lot: Lot; region:
         {picked?.type === 'oilWell' && <div className={`callout ${field && field.left > 0 ? '' : 'warn'}`}>{field ? `This well draws on field ${field.i + 1}: ${num(field.left)} of ${num(field.reserve)} bbl left · ${field.wells.length} well${field.wells.length === 1 ? '' : 's'} (${field.balanced} balanced)` : 'No oil under this well: it pumps nothing. Demolish it.'}</div>}
         {reason && reason !== 'Idle' && <div className={`callout ${/Not enough|full|Disease/.test(reason) ? 'warn' : ''}`}>{reason}</div>}
         {d.category === 'livestock' && <HerdInfo s={s} lot={lot} />}
-        {known(s, 'upgrades') && bs.map((b, i) => b.level < 3 && (
+        {known(s, 'upgrades') && bs.map((b, i) => b.level < maxLevel(b.type) && (
           <div key={b.id} className="row between small">
             <span className="muted">{bs.length > 1 ? `#${i + 1} ` : ''}Level {b.level} → {b.level + 1}: {(() => { const now = throughput(b), next = throughput({ type: b.type, level: b.level + 1 }); return `+${Math.round((next / now - 1) * 100)}%`; })()} {d.recipe ? 'output' : d.category === 'livestock' ? 'space' : 'capacity'}</span>
             {!trafficRoom(s, b.region, `b:${b.id}`, b.level + 1).ok ? <span className="faint small" title={trafficRoom(s, b.region, `b:${b.id}`, b.level + 1).why}>🚦 {trafficRoom(s, b.region, `b:${b.id}`, b.level + 1).need}</span> : upgradeNeedsPower(s, b) ? <span className="faint small" title={upgradeNeedsPower(s, b)!}>⚡ Needs your own power</span> : <Confirm label={`Upgrade · ${money(upgradeCost(s, b))}`} className="btn ghost sm" disabled={upgradeCost(s, b) > s.cash} title={`Upgrade ${d.name.toLowerCase()} to level ${b.level + 1}?`} body={<>Costs <b>{money(upgradeCost(s, b))}</b>. {d.recipe ? 'More output per hour, but staff cost rises 30%.' : d.category === 'livestock' ? 'Room for more animals.' : 'More storage space.'}{nuisanceChange(b)}</>} onConfirm={() => act({ type: 'upgradeBuilding', buildingId: b.id })} confirmLabel="Upgrade" />}

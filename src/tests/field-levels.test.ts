@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { advance, createGame, dispatch, expectedYield, harvestField } from '../simulation/engine';
+import { advance, buildingPrice, createGame, dispatch, expectedYield, harvestField } from '../simulation/engine';
 import { post, throughput, recipeOf } from '../simulation/core';
 import { CROPS, BUILDINGS } from '../simulation/config';
 import { techFactor } from '../simulation/agriculture';
@@ -86,14 +86,14 @@ it('A vertical farm grows the crop you choose, worth the same as greens, held fo
   expect(dispatch(s, { type: 'build', region: 'heartland', building: 'verticalFarm', grows: 'wheat' }).ok).toBe(true);
   const vf = s.buildings.find((b) => b.type === 'verticalFarm')!, mill = s.buildings.find((b) => b.type === 'flourMill')!;
   expect(vf.grows).toBe('wheat');
-  expect(recipeOf(vf)!.outputs.wheat).toBe(40); // 20 greens at $6 = 40 wheat at $3
+  expect(recipeOf(vf)!.outputs.wheat).toBe(27); // $80 a batch: 13 greens at $6, or 27 wheat at $3
   const before = s.regions.heartland.inventory.wheat;
   advance(s, 3);
   expect(s.regions.heartland.inventory.wheat).toBeGreaterThan(before);
   expect(mill.reserved).toBeGreaterThan(0);
   expect(dispatch(s, { type: 'setGrows', buildingId: vf.id, grows: 'greens' }).ok).toBe(true);
   expect(vf.grows).toBeUndefined();
-  expect(throughput({ type: 'verticalFarm', level: 3 })).toBe(4);
+  expect(throughput({ type: 'verticalFarm', level: 3 })).toBe(3);
   expect(BUILDINGS.verticalFarm.recipe!.kwh).toBeGreaterThan(0);
 });
 
@@ -116,4 +116,17 @@ it('The advisor suggests upgrading the fields that feed a short factory', async 
   mill.reason = 'Not enough wheat';
   s.fields[0].irrigated = true; s.fields[0].supplies = mill.id;
   expect(diagnose(s).advice.some((a) => a.id === 'fieldLevels')).toBe(true);
+});
+
+it('A vertical farm climbs five levels, each twice the price of the last, to six times its first output', () => {
+  const s = ready();
+  research(s, 'verticalFarming');
+  expect(dispatch(s, { type: 'build', region: 'heartland', building: 'verticalFarm' }).ok).toBe(true);
+  const vf = s.buildings.find((b) => b.type === 'verticalFarm')!, price = buildingPrice(s, 'verticalFarm', 'heartland');
+  const paid: number[] = [];
+  for (let l = 1; l < 5; l++) { const c = s.cash; expect(dispatch(s, { type: 'upgradeBuilding', buildingId: vf.id }).ok).toBe(true); paid.push(c - s.cash); }
+  expect(vf.level).toBe(5);
+  expect(paid.map((p) => Math.round(p / price))).toEqual([1, 2, 4, 8]);
+  expect(throughput(vf)).toBe(6);
+  expect(dispatch(s, { type: 'upgradeBuilding', buildingId: vf.id }).ok).toBe(false);
 });

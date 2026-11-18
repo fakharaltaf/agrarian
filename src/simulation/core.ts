@@ -20,7 +20,7 @@ export const levelMult = (level: number) => [1, 1.8, 2.5][Math.max(0, Math.min(2
 export const sizeOutput = (b: { size?: number }) => (b.size === 4 ? 6 : b.size === 2 ? 2.6 : 1);
 /** ...on fewer hands: a Works pays 1.5 buildings' staff, a Plant 2.5. */
 export const sizeStaff = (b: { size?: number }) => (b.size === 4 ? 2.5 : b.size === 2 ? 1.5 : 1);
-export const throughput = (b: { type: string; level: number; size?: number }) => (GROWS_X2.has(b.type) ? [1, 2, 4][Math.max(0, Math.min(2, (b.level || 1) - 1))] : levelMult(b.level)) * sizeOutput(b);
+export const throughput = (b: { type: string; level: number; size?: number }) => (b.type === 'verticalFarm' ? VERTICAL_LEVELS[Math.max(0, Math.min(4, (b.level || 1) - 1))] : GROWS_X2.has(b.type) ? [1, 2, 4][Math.max(0, Math.min(2, (b.level || 1) - 1))] : levelMult(b.level)) * sizeOutput(b);
 /** Animal houses merge too: two side by side become one big barn, two of those a farm of their own. */
 export const LIVESTOCK_HOUSE: ReadonlySet<string> = new Set(['cowshed', 'pigsty', 'coop', 'sheepfold']);
 /** Stores and power plants merge too. */
@@ -228,12 +228,16 @@ export const severity = (s: GameState, kind: EventKind, r?: RegionId, g?: GoodId
 // ---------------------------------------------------------------- dedicated supply
 
 /** The crop a factory takes in, if fields can grow it for that factory. */
-/** Food factories and vertical farms double with each level, so a level-N line keeps up with a level-N farm. */
-export const GROWS_X2: ReadonlySet<string> = new Set(['flourMill', 'bakery', 'feedMill', 'ranch', 'dairy', 'creamery', 'oilPress', 'sugarMill', 'winery', 'verticalFarm']);
+/** Food factories double with each level, so a level-N line keeps up with a level-N farm. */
+export const GROWS_X2: ReadonlySet<string> = new Set(['flourMill', 'bakery', 'feedMill', 'ranch', 'dairy', 'creamery', 'oilPress', 'sugarMill', 'winery']);
+/** A vertical farm climbs five levels, each dearer than the last (see upgradeCost): level 5 makes six times level 1. */
+export const VERTICAL_LEVELS = [1, 2, 3, 4.5, 6];
+/** The highest level a building can reach. */
+export const maxLevel = (t: string) => (t === 'verticalFarm' ? 5 : 3);
 /** What a vertical farm can grow: greens, or an annual field crop. */
 export const VERTICAL_CROPS: GoodId[] = ['greens', 'wheat', 'corn', 'potatoes', 'soybeans', 'rice'];
 /** Any crop a vertical farm grows is worth the same per batch at base prices, so the choice is about what you need, not a hidden best answer. */
-const VERTICAL_BATCH_VALUE = 120;
+const VERTICAL_BATCH_VALUE = 80;
 /** A building's recipe: a vertical farm's output is its chosen crop. */
 export function recipeOf(b: { type: Building['type']; grows?: GoodId }) {
   const rec = BUILDINGS[b.type].recipe;

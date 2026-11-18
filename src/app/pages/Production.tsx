@@ -4,7 +4,7 @@ import { productionReport, productionPriceRails } from '../../simulation/product
 import { townIndustryFactor } from '../../simulation/town-state';
 import { useMemo, useState, type ReactNode } from 'react';
 import { ANIMALS, BUILDINGS, COWS_PER_DAIRY_BATCH, CROPS, GOODS, REGIONS, SUNRISE, SUNSET, type BuildingType, type CropId, type GoodId, type RegionId, TECH } from '../../simulation/config';
-import { electricityPrice, factoryCrop, has, throughput, priceUsd, recipeOf, sumBooks, VERTICAL_CROPS } from '../../simulation/core';
+import { electricityPrice, factoryCrop, has, maxLevel, throughput, priceUsd, recipeOf, sumBooks, VERTICAL_CROPS } from '../../simulation/core';
 import { buildingPrice, expectedYield, landFits } from '../../simulation/engine';
 import { buildingMargin, solarOutput } from '../../simulation/processing';
 import type { Building, GameState } from '../../simulation/types';
@@ -241,7 +241,7 @@ const extraNeed = (s: GameState, g: Group, levels: number) => {
   if (g.type === 'dairy') return 0; // its cows move in from the cowshed and eat the same feed there
   const rec = BUILDINGS[g.type].recipe!;
   const q = Object.values(rec.inputs)[0] ?? 0;
-  return g.list.filter((b) => b.active && (b.level || 1) < 3).reduce((a, b) => a + q * rec.batchesPerHour * townIndustryFactor(s,g.region) * 24 * (throughput({ type: b.type, level: Math.min(3, (b.level || 1) + levels) }) - throughput(b)), 0);
+  return g.list.filter((b) => b.active && (b.level || 1) < maxLevel(b.type)).reduce((a, b) => a + q * rec.batchesPerHour * townIndustryFactor(s,g.region) * 24 * (throughput({ type: b.type, level: Math.min(maxLevel(b.type), (b.level || 1) + levels) }) - throughput(b)), 0);
 };
 
 /** Is one more of these worth building? The gain is what one running unit is worth today. */
@@ -297,7 +297,7 @@ function Option({ icon, title, sub, children, good }: { icon: string; title: Rea
 
 function LineCard({ s, g, groups }: { s: GameState; g: Group; groups: Group[] }) {
   const speed=useStore(x=>x.speed),d=BUILDINGS[g.type],rec=d.recipe,paused=g.active===0;
-  const [panel,setPanel]=useState<'run'|'rails'|'grow'>('run'),[growth,setGrowth]=useState<'upgrade'|'another'>(()=>g.list.some(b=>b.level<3)?'upgrade':'another');
+  const [panel,setPanel]=useState<'run'|'rails'|'grow'>('run'),[growth,setGrowth]=useState<'upgrade'|'another'>(()=>g.list.some(b=>b.level<maxLevel(b.type))?'upgrade':'another');
   const current=rec?lineEcon(s,g.list,paused):null,report=productionReport(g.list);
   const fallback={earn:g.outValue*24,inputs:g.inCost*24,staff:g.opCost*24,power:0,alt:0,worth:g.margin*24};
   const shown=report.days?report:current??fallback;
@@ -315,7 +315,7 @@ function LineCard({ s, g, groups }: { s: GameState; g: Group; groups: Group[] })
   const more=current&&!paused?addMore(s,g,groups,current.worth):null;
   const buildCost=buildingPrice(s,g.type,g.region);
   const toggle=(on:boolean)=>g.list.filter(b=>b.active!==on).forEach(b=>act({type:'toggleBuilding',buildingId:b.id}));
-  const upgradeAll=()=>g.list.filter(b=>special?special.ids.includes(b.id):b.active&&(b.level||1)<3).forEach(b=>act({type:'upgradeBuilding',buildingId:b.id}));
+  const upgradeAll=()=>g.list.filter(b=>special?special.ids.includes(b.id):b.active&&(b.level||1)<maxLevel(b.type)).forEach(b=>act({type:'upgradeBuilding',buildingId:b.id}));
   const victim=[...g.list].sort((a,b)=>Number(a.active)-Number(b.active)||a.util-b.util)[0],refund=Math.round(Math.max(0,victim.cost-victim.depreciated)*.5);
   const rails=productionPriceRails(g.type,report),img=portrait(g.type);
   const input=ins(g.type)[0]?.[0],output=outs(g.type,g.list[0].grows)[0]?.[0];

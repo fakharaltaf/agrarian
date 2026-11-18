@@ -5,7 +5,7 @@ import { townIndustryFactor } from './town-state';
 // facilities in a region earns per day, what pausing it really saves, the prices it needs
 // to break even, and whether upgrading would pay. Everything is valued at today's prices.
 import { CROPS, BUILDINGS, CONFIG, COWS_PER_DAIRY_BATCH, REGIONS, SUNRISE, SUNSET, type BuildingType, type GoodId, type RegionId } from './config';
-import { buildingDivision, electricityPrice, execOn, has, levelMult, priceUsd, recipeOf, throughput } from './core';
+import { buildingDivision, electricityPrice, execOn, has, levelMult, maxLevel, priceUsd, recipeOf, throughput } from './core';
 import { expectedYield } from './agriculture';
 import { upgradeCost } from './engine';
 import type { Building, GameState } from './types';
@@ -67,7 +67,7 @@ function econOf(s: GameState, t: BuildingType, r: RegionId, units: Unit[], rec =
 }
 
 const units = (s: GameState, list: Building[], full = false): Unit[] =>
-  list.filter((b) => b.active || full).map((b) => ({ level: b.level || 1, bph: full ? BUILDINGS[b.type].recipe!.batchesPerHour * levelMult(b.level) * (b.size === 4 ? 6 : b.size === 2 ? 2.6 : 1) * townIndustryFactor(s, b.region) : b.stats.out }));
+  list.filter((b) => b.active || full).map((b) => ({ level: b.level || 1, bph: full ? BUILDINGS[b.type].recipe!.batchesPerHour * throughput(b) * townIndustryFactor(s, b.region) : b.stats.out }));
 
 /** A dairy can only run as many batches as there are cows to milk. */
 function capByCows(s: GameState, t: BuildingType, r: RegionId, us: Unit[]): Unit[] {
@@ -103,7 +103,7 @@ export interface Upgrade { cost: number; worthAfter: number; gain: number; level
 /** One level up for every unit below the top level, at the current pace scaled by capacity. Null when maxed. */
 export function upgradeOutlook(s: GameState, list: Building[]): Upgrade | null {
   const t = list[0].type, r = list[0].region;
-  const up = list.filter((b) => b.active && (b.level || 1) < 3);
+  const up = list.filter((b) => b.active && (b.level || 1) < maxLevel(t));
   if (!up.length || !BUILDINGS[t].recipe) return null;
   const level = Math.min(...up.map((b) => b.level || 1)) + 1;
   const cost = up.reduce((a, b) => a + upgradeCost(s, b), 0);
@@ -112,8 +112,8 @@ export function upgradeOutlook(s: GameState, list: Building[]): Upgrade | null {
   if (short) return { cost, worthAfter: now, gain: 0, level, blocked: 'It already runs short of inputs, so more capacity would sit idle.' };
   // capacity grows with the level multiplier; staff by 30% a level
   const after = capByCows(s, t, r, list.filter((b) => b.active).map((b) => {
-    const L = (b.level || 1) < 3 ? (b.level || 1) + 1 : b.level || 1;
-    return { level: L, bph: b.stats.out * (levelMult(L) / levelMult(b.level)) };
+    const L = (b.level || 1) < maxLevel(t) ? (b.level || 1) + 1 : b.level || 1;
+    return { level: L, bph: b.stats.out * (throughput({ ...b, level: L }) / throughput(b)) };
   }));
   const worthAfter = econOf(s, t, r, after, recipeOf(list[0])).worth;
   const blocked = t === 'dairy' && after.reduce((a, u) => a + u.bph, 0) < list.filter((b) => b.active).reduce((a, b) => a + b.stats.out * levelMult(Math.min(3, (b.level || 1) + 1)) / levelMult(b.level), 0) - 1e-6
