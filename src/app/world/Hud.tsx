@@ -11,12 +11,12 @@ import {cityActive} from '../../simulation/city-state';
 import { isShop, officeJobs, PARK_KINDS, PARKING_SHARE, ROAD_REACH, serviceName, svcSize, SERVICE_RADIUS } from '../../simulation/town-state';
 import { townOf, SERVICE_DEFS, UTILITY_OF, levelOf, serviceUpgradePrice, utilityFamilies, serviceRadius, canUpgradeService } from '../../simulation/town-state';
 // Everything that floats over the world: objective, selection panel, market, land, region switcher.
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ANIMALS, ANIMAL_IDS, BUILDINGS, CONFIG, COWS_PER_DAIRY_BATCH, ERAS, GOODS, REGIONS, type CropId, type RegionId } from '../../simulation/config';
 import { known, throughput } from '../../simulation/core';
 import { buildingMargin } from '../../simulation/processing';
 import { planQuote } from '../../simulation/engine';
-import { DISCOVERIES, ERA_UNLOCK_TEXT, dailyGoals, dailyPrize, forecast, herdOf, homePlotPrice, housing, isManual, isReady, objective, chapterGate, gateProgress, type GateRow, PAGES, seedShortfall, upgradeCost } from '../../simulation/engine';
+import { anotherQuote, DISCOVERIES, ERA_UNLOCK_TEXT, dailyGoals, dailyPrize, forecast, herdOf, homePlotPrice, housing, isManual, isReady, objective, chapterGate, gateProgress, type GateRow, PAGES, seedShortfall, upgradeCost } from '../../simulation/engine';
 import type { CivicService, GameState } from '../../simulation/types';
 import { act, cancelPlacement, confirmPlacement, planPlacementHere, placementNeed, rotatePlacement, go, placementUse, setRoadTool, toggleHideBuildings, setNet, setRoadLanes, undo, redo, canUndo, canRedo, setSurveying, setZoneTool, startPipes, type Prospect, startPlacement, stopProspect, stopRoads, stopZoning, type Zoning, useGame, usePageState, useStore, type Placement, type Roading } from '../../stores/game';
 import { BRIDGE_COST, BRIDGE_GRADES, bridgeAt, bridgePlan } from '../../simulation/world';
@@ -33,7 +33,7 @@ import { unlockedRegions } from '../pages/shared';
 import { Bar, Card, Confirm, Modal, Select, usePref , Seg } from '../ui';
 import { AdvisorPill } from '../Advisor';
 import { Scene3D, fertilisePlan, lotName, type WorldPick } from './Scene3D';
-import { layoutRegion, type Lot } from './layout';
+import { anotherKey, layoutRegion, type Lot } from './layout';
 import { communityOf, homeCapacity, homeFamilies, households, population } from '../../simulation/community-state';
 
 function EraBanner({ s }: { s: GameState }) {
@@ -260,6 +260,7 @@ export function Hud() {
           else if(kind==='merge'&&lot?.service){ if(act({type:'mergeService',serviceId:lot.service.id})) setLot(null); }
           else if(kind==='merge'&&lot?.buildings[0]){ if(act({type:'mergeBuilding',buildingId:lot.buildings[0].id})) setLot(null); }
           else if(kind==='layout'&&lot?.buildings[0]){ act({type:'setLayout',buildingId:lot.buildings[0].id}); }
+          else if(kind==='another'&&lot){ const k=anotherKey(lot); if(k&&act({type:'addAnother',key:k})) setLot(null); }
           else if(kind==='homeup'&&lot){ setPanel(true); setJournal(false); }
           else if(kind==='movelot'&&lot){ const fp=footprintOf(s,lot.place); if(fp){ startPlacement({kind:'move',key:lot.place,region,w:fp.w,d:fp.d,label:lotName(lot),action:{type:'seeTip',tip:''}}); setLot(null); } }
           else if(kind==='plant'||kind==='harvest') act(kind==='harvest'?{type:'harvest',fieldId:id}:{type:'plant',fieldId:id,crop});
@@ -544,6 +545,7 @@ function ServiceCard({ s, svc, onClose }: { s: GameState; svc: CivicService; onC
         {officeJobs(svc) > 0 && <p className="small">Outside firms offer <b>{officeJobs(svc)} desks</b> to your residents and pay their wages.</p>}
         {grows && lv < (svc.type === 'mall' ? 2 : 3) && <button className="btn primary sm" disabled={price > s.cash || jammed} onClick={() => act({ type: 'upgradeService', serviceId: svc.id })}>⬆ {svc.type === 'mall' ? 'Office tower' : `Level ${lv + 1}`} · {money(price)}</button>}
         {net && <button className="btn ghost sm" onClick={() => { startPipes('heartland', net); onClose(); }}>🔌 Lay lines</button>}
+        <AddAnother s={s} k={`svc:${svc.id}`} level={grows ? lv : 1} />
         <Confirm label="Demolish" className="btn danger sm" title={`Demolish this ${serviceName(svc).toLowerCase()}?`} body={`You get back about ${money(Math.round(svc.cost * 0.5))}. Homes it served lose the service; any lines stay in the ground.`} onConfirm={() => { act({ type: 'demolishService', serviceId: svc.id }); onClose(); }} confirmLabel="Demolish" />
         {svc.type === 'police' || isShop(svc.type) || svc.type === 'mall' ? <button className="btn ghost sm" onClick={() => go('city')}>City</button> : <button className="btn ghost sm" onClick={() => go('town')}>Town</button>}
       </div>
@@ -551,6 +553,16 @@ function ServiceCard({ s, svc, onClose }: { s: GameState; svc: CivicService; onC
   </Card>;
 }
 
+/** One more of the same, built to the same level: its price, or why it can't be built (on a phone there's no hover, so the reason shows). */
+function AddAnother({ s, k, level }: { s: GameState; k: string; level: number }) {
+  const day = Math.floor(s.tick / 24), q = useMemo(() => anotherQuote(s, k), [k, day, s.buildings.length, townOf(s).services.length, communityOf(s).homes.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!q) return null;
+  const why = q.why ?? (q.price > s.cash ? `Needs ${money(q.price)}, you have ${money(s.cash)}` : undefined);
+  return <>
+    <button className="btn ghost sm" disabled={!!why} title={why} onClick={() => act({ type: 'addAnother', key: k })}>＋ Add another{level > 1 ? ` (level ${level})` : ''} · {money(q.price)}</button>
+    {why && <span className="faint small">{why}</span>}
+  </>;
+}
 /** What a building does to the homes around it at its level: smell, noise, smoke, or fresh bread, and how many homes it reaches. */
 function NuisanceLine({ s, b }: { s: GameState; b: GameState['buildings'][number] }) {
   const n = nuisanceOf(b.type, b.level), kinds = Object.entries(n) as [NuisanceKind, number][];
@@ -580,6 +592,7 @@ function LotPanel({ s, lot, region, onClose }: { s: GameState; lot: Lot; region:
         <div className="row wrap">
           {lv < 3 && <button className="btn primary sm" disabled={!ready || price > s.cash} onClick={() => act({ type: 'upgradeHome', homeId: home.id })}>⬆ {lv === 1 ? 'Mid-rise' : 'Tower'} · {money(price)}</button>}
           {lv < 3 && !ready && <button className="btn ghost sm" onClick={() => { startPipes('heartland', 'power'); onClose(); }}>🔌 Lay lines</button>}
+          <AddAnother s={s} k={`home:${home.id}`} level={lv} />
           <button className="btn ghost sm" onClick={() => go('community')}>Homes & families</button>
         </div>
       </div>
@@ -648,6 +661,7 @@ function LotPanel({ s, lot, region, onClose }: { s: GameState; lot: Lot; region:
         <div className="row wrap">
           {d.recipe && <button className="btn ghost sm" onClick={() => bs.forEach((b) => b.active === (active === bs.length) && act({ type: 'toggleBuilding', buildingId: b.id }))}>{active === bs.length ? 'Pause' : 'Resume'}{bs.length > 1 ? ' all' : ''}</button>}
           {page && <button className="btn ghost sm" onClick={() => go(page)}>Open {page}</button>}
+          {picked && <AddAnother s={s} k={`b:${picked.id}`} level={picked.level} />}
           {picked && <Confirm label={bs.length > 1 ? 'Demolish this one' : 'Demolish'} className="btn danger sm" title={`Demolish this ${d.name.toLowerCase()}?`} body={`The one you tapped on the map goes. You get back about ${money(Math.max(0, picked.cost - picked.depreciated) * 0.5)}. Stock that no longer fits is sold or lost.`} onConfirm={() => act({ type: 'demolish', buildingId: picked.id })} confirmLabel="Demolish" />}
         </div>
       </div>

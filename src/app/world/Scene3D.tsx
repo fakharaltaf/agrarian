@@ -9,7 +9,7 @@ import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { ANIMALS, BUILDINGS, CROPS, GOODS, REGIONS, SEASONS, SUNRISE, SUNSET, type AnimalId, type CropId, type RegionId } from '../../simulation/config';
-import { factoryMerge, hasShapes } from '../../simulation/engine';
+import { anotherQuote, factoryMerge, hasShapes } from '../../simulation/engine';
 import { mergedName, shownLevel } from '../../simulation/core';
 import { fieldMovable, timingFactor, fertility, growth, isMature, isReady } from '../../simulation/engine';
 import { priceUsd, stored } from '../../simulation/core';
@@ -21,7 +21,7 @@ import { featureEra, stageAtLeast } from '../../simulation/stages';
 import { preloadArt, artRevision, artModel, playClip } from './art';
 import { money, num, pct0 } from '../format';
 import { Modal } from '../ui';
-import { layoutRegion, type Layout, type Lot, type Plot } from './layout';
+import { anotherKey, layoutRegion, type Layout, type Lot, type Plot } from './layout';
 import { doorTiles, frontageAt, meets, pressureOf, reachTime, roadTile, travelFrom } from '../../simulation/access';
 import { bridgeAt, bridgePlan, isBridge } from '../../simulation/world';
 import { isNeighbour, regionActive, regionOf, ROUTE_SIDE, type NeighbourId } from '../../simulation/region-state';
@@ -107,7 +107,8 @@ interface Rig {
   felling?: { chunk: number; trees: THREE.Group[]; fallAt: number[]; extras: THREE.Group };
 }
 
-export type WorldAction = 'harvest' | 'plant' | 'inspect' | 'plan' | 'place' | 'fertilise' | 'irrigate' | 'pipes' | 'move' | 'movelot' | 'merge' | 'homeup' | 'layout' | 'placeok' | 'placecancel' | 'clear1' | 'clear9' | 'buy1' | 'buy9';
+const anotherCache: { k: string; q: ReturnType<typeof anotherQuote> } = { k: '', q: null };
+export type WorldAction = 'harvest' | 'plant' | 'inspect' | 'plan' | 'place' | 'fertilise' | 'irrigate' | 'pipes' | 'move' | 'movelot' | 'merge' | 'another' | 'homeup' | 'layout' | 'placeok' | 'placecancel' | 'clear1' | 'clear9' | 'buy1' | 'buy9';
 
 export function Scene3D({ region, visiting, selected, onPick, plantLabel, onAction, selectedLot, placing, forestAt, placeCost, roading, prospect, zoning }: { region: RegionId; /** looking round a neighbour's town: no tools */ visiting?: boolean; selected: number[]; onPick: (p: WorldPick) => void; plantLabel?: string; selectedLot?: string; onAction?: (kind: WorldAction, fieldId: number) => void; placing?: Placement | null; forestAt?: [number, number] | null; placeCost?: number; roading?: Roading | null; prospect?: { region: RegionId; hover?: [number, number] } | null; zoning?: Zoning | null }) {
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -2325,6 +2326,15 @@ function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el
     const [x, y] = project(p.x, (p.tone === 'family' ? 2.4 : 1.2) + (t - p.t0) * (p.tone === 'family' ? 0.35 : 0.9), p.z);
     want.push({ key: p.key, x, y, html: p.text, cls: `wl-pop ${p.tone ?? ''}` });
   }
+  /** one more of the same: priced once per lot a day, not every frame */
+  const anotherButton = (g: GameState, lot: Lot) => {
+    const k = anotherKey(lot); if (!k) return '';
+    const day = Math.floor(g.tick / 24), ck = `${k}@${day}@${g.buildings.length}`;
+    if (anotherCache.k !== ck) { anotherCache.k = ck; anotherCache.q = anotherQuote(g, k); }
+    const q = anotherCache.q; if (!q) return '';
+    const why = q.why ?? (q.price > g.cash ? `Needs ${money(q.price)}` : '');
+    return `<button data-action="another:0" type="button"${why ? ` disabled title="${why.replace(/"/g, '&quot;')}"` : ''}>＋ Another · ${money(q.price)}</button>`;
+  };
   const button = (action: string, label: string) => `<button data-action="${action}" type="button"${label==='ⓘ'?' aria-label="Inspect selected item"':''}>${label}</button>`;
   void placeCost;
   if (placing) {
@@ -2372,7 +2382,7 @@ function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el
       const merge=mg?.complete?button('merge:0',`⧉ Merge into ${mg.into} · ${money(mg.price)}`):fm?.ready?button('merge:0',`⧉ Merge into a ${fm.into} · ${money(fm.price)}`):'';
       if(fm&&!fm.ready&&(fm.mate||lot.buildings[0].level>=3)){const [hx,hy]=project(lot.x+lot.w/2,0.6,lot.y+lot.d+0.5);want.push({key:'merge-hint',x:hx,y:hy,html:`To merge: ${fm.why}`,cls:'wl-note'});}
       if(mg&&!mg.complete&&mg.members.length>1){const [hx,hy]=project(mg.origin[0]+mg.step-0.5,0.6,mg.origin[1]+mg.step-0.5);want.push({key:'merge-hint',x:hx,y:hy,html:`${mg.members.length}/4 for a ${mg.into}`,cls:'wl-note'});}
-      want.push({key:'place-act',x:Math.max(100,Math.min(W-100,px)),y:Math.max(80,Math.min(H-30,py)),html:merge+((lot.buildings[0]?.size ?? 1) > 1 && hasShapes(lot.buildings[0].longSpan ?? lot.buildings[0].span ?? [1, 1]) ? button('layout:0', lot.buildings[0].layout === 1 && lot.buildings[0].longSpan ? '▭ Make long' : '◻ Make square') : '')+(lot.key.startsWith('community:apartment:')&&(lot.level??1)<3?button('homeup:0',(lot.level??1)===1?'⬆ Mid-rise':'⬆ Tower'):'')+button('place:0',label)+(lot.type==='oilWell'?'':button('movelot:0','✥ Move'))+button('inspect:0','ⓘ'),cls:'wl-radial'});
+      want.push({key:'place-act',x:W<600?(W-96)/2:Math.max(100,Math.min(W-100,px)),y:Math.max(80,Math.min(H-30,py)),html:merge+((lot.buildings[0]?.size ?? 1) > 1 && hasShapes(lot.buildings[0].longSpan ?? lot.buildings[0].span ?? [1, 1]) ? button('layout:0', lot.buildings[0].layout === 1 && lot.buildings[0].longSpan ? '▭ Make long' : '◻ Make square') : '')+(lot.key.startsWith('community:apartment:')&&(lot.level??1)<3?button('homeup:0',(lot.level??1)===1?'⬆ Mid-rise':'⬆ Tower'):'')+button('place:0',label)+anotherButton(s,lot)+(lot.type==='oilWell'?'':button('movelot:0','✥ Move'))+button('inspect:0','ⓘ'),cls:'wl-radial'});
     }
   }
   const st=stored(s,R.region), store=L.lots.find(l=>l.type!=='house'&&l.type!=='shed'&&BUILDINGS[l.type].category==='storage');

@@ -977,3 +977,5 @@ body:has(.modal-bg) .shell .coach { display: none !important; }
 .visit-fold { color: #d9ccb0; font-size: 14px; }
 .visit-card.folded > :not(.visit-head):not(.btn) { display: none; }
 @media (max-width: 600px) { .visit-card { bottom: calc(60px + env(safe-area-inset-bottom)); } .visit-card p { display: block; } }
+.stepper { gap: 4px; align-items: center; flex-wrap: nowrap; }
+@media (max-width: 600px) { .world-overlay > .wl-radial { flex-wrap: wrap; justify-content: center; max-width: calc(100vw - 116px); border-radius: 22px; z-index: 2; } }
