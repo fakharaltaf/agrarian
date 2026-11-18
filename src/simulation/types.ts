@@ -498,6 +498,8 @@ export type Action =
   | { type: 'setGrows'; buildingId: number; grows: GoodId }
   /** one more like a building, town service or apartment block (`b:ID`, `svc:ID`, `home:ID`), raised to its level */
   | { type: 'upgradeField'; fieldIds: number[] }
+  /** an intensive field becomes a vertical farm on the same ground */
+  | { type: 'convertField'; fieldId: number }
   | { type: 'addAnother'; key: string; at?: [number, number]; rot?: number }
   | { type: 'moveObject'; region: RegionId; key: string; at: [number, number]; rot?: number }
   | { type: 'clearForest'; region: RegionId; chunks: number[] }

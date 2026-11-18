@@ -129,7 +129,7 @@ export function footprintOf(s: GameState, key: string): Footprint | null {
 export function baseFootprint(s: GameState, key: string): Footprint | null {
   const [kind, id] = key.split(':');
   if (kind === 'field') { const f = s.fields.find((x) => x.id === +id); return f ? { w: plotSide(f.ha), d: plotSide(f.ha) } : null; }
-  if (kind === 'b') { const b = s.buildings.find((x) => x.id === +id); if (!b) return null; const [w, d] = b.span ?? (b.type === 'verticalFarm' ? [VERTICAL_SIDE[Math.max(0, Math.min(4, b.level - 1))], VERTICAL_SIDE[Math.max(0, Math.min(4, b.level - 1))]] : FOOTPRINT[b.type]); return { w, d }; }
+  if (kind === 'b') { const b = s.buildings.find((x) => x.id === +id); if (!b) return null; const [w, d] = b.span ?? FOOTPRINT[b.type]; return { w, d }; }
   if (kind === 'home') { const h = (s.stageState.settlement?.homes as CommunityHome[] | undefined)?.find((x) => x.id === +id); return h ? homeFootprint(h) : null; }
   if (kind === 'svc') { const z = (s.stageState.town as { services?: { id: number; size?: number }[] } | undefined)?.services?.find((x) => x.id === +id)?.size ?? 1, n = z >= 4 ? 15 : z === 2 ? 7 : 3; return { w: n, d: n }; }
   if (key === 'farmhouse') { const n = s.farmhouseSide ?? 3; return { w: n, d: n }; }
@@ -664,8 +664,6 @@ function pipeGround(s: GameState, r: RegionId, kind: NetKind) {
 /** The farmhouse grows with each chapter: 3×3 for the homestead up to 6×6 for the City's mansion. */
 export const FARMHOUSE_SIDE = [3, 3, 4, 4, 5, 5, 6];
 /** Grow the farmhouse to its chapter's size where there is room: on its own ground first, else spreading back and to the side. Returns true if it grew. */
-/** A vertical farm spreads as it climbs: a 3×3 tower at level 1 to a 7×7 complex at level 5 (still far smaller than the fields it replaces). */
-export const VERTICAL_SIDE = [3, 4, 5, 6, 7];
 /** Room for something that grows on the spot: `grow` makes its footprint bigger, and the new ground must cover the old, centred as nearly as it can be.
  *  Tracks in the way are lifted and laid again round it. When nothing fits, `shrink` puts it back and nothing has changed. */
 export function growInPlace(s: GameState, r: RegionId, key: string, grow: () => void, shrink: () => void): boolean {

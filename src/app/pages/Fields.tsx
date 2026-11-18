@@ -16,6 +16,7 @@ import { duration, money, num, pct, pct0, price, stamp } from '../format';
 import { Bar, Card, Confirm, Info, Seg, Select, Swatch, Tip, usePref } from '../ui';
 import { unlockedRegions } from './shared';
 import { featureEra, stageAtLeast } from '../../simulation/stages';
+import { convertQuote } from '../../simulation/engine';
 import { FIELD_LEVELS, fieldLevel, fieldResearchIncluded, fieldUpgradePrice, fieldUpgradeProblem, levelOfField } from '../../simulation/field-levels';
 import { fieldWater, WATER_LEVEL, WATER_TIERS } from '../../simulation/world';
 import { HOMESTEAD_PRICES, homesteadState } from '../../simulation/stages/homestead';
@@ -302,6 +303,12 @@ function FieldLevels({ s, fields }: { s: GameState; fields: Field[] }) {
         body={<>{one ? next.does : 'Each goes up one level.'} With its research, a level-{lv + 1} field grows enough for a level-{lv + 1} factory from the same land.</>} onConfirm={() => act({ type: 'upgradeField', fieldIds: can.map((f) => f.id) })} /> : null)}
     </div>
     {lv < 3 && <p className="small">{next.name}: {next.does}{why ? <> <span className="down">{why}</span></> : null}</p>}
+    {one && lv === 3 && (() => { const q = convertQuote(s, one); return <div className="row between wrap">
+      <span className="small">🏢 A vertical farm on this {q.side}×{q.side} ground: about <b>{Math.round(q.area)}×</b> a small tower's {GOODS[q.grows].name.toLowerCase()}, rising a floor at a time with upgrades.{q.why && <> <span className="down">{q.why}</span></>}</span>
+      {!q.why && <Confirm className="btn ghost sm" disabled={q.price > s.cash} label={`Convert · ${money(q.price)}`} title={`Turn field ${one.id} into a vertical farm?`} confirmLabel={`Pay ${money(q.price)}`}
+        body={<>The field becomes a vertical farm on the same {q.side}×{q.side} ground, growing {GOODS[q.grows].name.toLowerCase()}{one.supplies ? ' for the same production house' : ''}. It makes far more than the field, but pays staff and draws a great deal of electricity every hour it runs. {one.crop ? 'The crop growing on it now is lost. ' : ''}It can't be turned back into a field.</>}
+        onConfirm={() => act({ type: 'convertField', fieldId: one.id })} />}
+    </div>; })()}
     {included.length > 0 && <p className="small muted">Included: {included.join(' · ')}.</p>}
   </div>;
 }

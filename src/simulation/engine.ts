@@ -12,11 +12,11 @@ import { idleMachine, machineSaleValue } from './operations';
 import {
   BUILDINGS, CONFIG, CROPS, GOODS, GOOD_IDS, MACHINES, PERKS, REGIONS, REGION_IDS, TECH, TICKS_PER_DAY, type CropId, type GoodId, type RegionId,
 } from './config';
-import { VERTICAL_CROPS, maxLevel, buildingDivision, clamp, debt, factoryCrop, equity, freeSpace, has, known, log, marketWage, nextId, post, random, round2, todayBook, lean } from './core';
+import { VERTICAL_CROPS, maxLevel, vfArea, buildingDivision, clamp, debt, factoryCrop, equity, freeSpace, has, known, log, marketWage, nextId, post, random, round2, todayBook, lean } from './core';
 import { coverOf, coverPrice, COVERS } from './agriculture';
 import { FIELD_LEVELS, fieldLevel, fieldUpgradePrice, fieldUpgradeProblem, upgradeField } from './field-levels';
 import { addGoods, canGrow, clearField, fertilizeField, fieldsTick, frostNight, harvestField, isManual, isReady, newField, plantField, spoilageDaily } from './agriculture';
-import { growInPlace, VERTICAL_SIDE, BRIDGE_COST, BRIDGE_GRADES, bridgeAt, bridgePlan, clearOpenPatches, growFarmhouse, groundProblem, wideRoadRoute, BELT_PRICE, beltRoute, beltStretch, buildAs, buildAsOpen, lineBuildPrice, lineBuildTier, roadBuildPrice, liftTracks, riverTiles, chunkAt, COMMERCIAL, type Use, type Zone, reconcileWorld, unlink, accessNote, cutsOff, buyable, chunksIn, connect, placedIn, touch, useOf, buildingUse, INDUSTRY_TO_GROW, WATER_LEVEL, NET_PRICE, NET_TIERS, NET_TOP, linesOf, lineTiles, lineTop, upgradeAllPlan, pipeRoute, pipeStretch, hasWater, isRoad, MAP, ROAD_GRADES, ROAD_H, roadPick, roadTilePrice, tileId, canPlaceNew, LAND_HA_PER_PATCH,  own, ownedSet, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, clearCost, clearedSet, FOOTPRINT, footprintOf, forget, rotOf, turned, MOVE_DOWNTIME, placeNew, placeProblem, plotSide, PROBLEM_TEXT, seedWorld, TIMBER_PER_PATCH, worldOf } from './world';
+import { BRIDGE_COST, BRIDGE_GRADES, bridgeAt, bridgePlan, clearOpenPatches, growFarmhouse, groundProblem, wideRoadRoute, BELT_PRICE, beltRoute, beltStretch, buildAs, buildAsOpen, lineBuildPrice, lineBuildTier, roadBuildPrice, liftTracks, riverTiles, chunkAt, COMMERCIAL, type Use, type Zone, reconcileWorld, unlink, accessNote, cutsOff, buyable, chunksIn, connect, placedIn, touch, useOf, buildingUse, INDUSTRY_TO_GROW, WATER_LEVEL, NET_PRICE, NET_TIERS, NET_TOP, linesOf, lineTiles, lineTop, upgradeAllPlan, pipeRoute, pipeStretch, hasWater, isRoad, MAP, ROAD_GRADES, ROAD_H, roadPick, roadTilePrice, tileId, canPlaceNew, LAND_HA_PER_PATCH,  own, ownedSet, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, clearCost, clearedSet, FOOTPRINT, footprintOf, forget, rotOf, turned, MOVE_DOWNTIME, placeNew, placeProblem, plotSide, PROBLEM_TEXT, seedWorld, TIMBER_PER_PATCH, worldOf } from './world';
 import { buyAnimals, livestockDaily, sellAnimals } from './livestock';
 import { claimDaily, startDay } from './daily';
 import { createMarkets, drawWeather, executeBuy, executeSell, quoteBuy, macroDaily, marketsDaily, marketsTick, priceFromInv } from './markets';
@@ -184,7 +184,7 @@ export function anotherOf(s: GameState, key: string): { first: Action; up: (id: 
   const [k, raw] = key.split(':'), id = +raw;
   if (k === 'b') {
     const b = s.buildings.find((x) => x.id === id);
-    if (!b || b.type === 'oilWell') return null;
+    if (!b || b.type === 'oilWell' || (b.type === 'verticalFarm' && b.span)) return null; // a converted vertical farm stands on its field's ground: convert another field instead
     return { first: { type: 'build', region: b.region, building: b.type, count: 1, ...(b.grows ? { grows: b.grows } : {}) }, up: (n) => ({ type: 'upgradeBuilding', buildingId: n }), levels: (b.level || 1) - 1, newest: (c) => c.buildings[c.buildings.length - 1].id };
   }
   if (k === 'svc') {
@@ -217,6 +217,13 @@ export function anotherQuote(s: GameState, key: string): { price: number; why?: 
 }
 /** A crop a vertical farm may grow: greens, or an annual crop the farm has unlocked. */
 const growable = (s: GameState, g: GoodId) => VERTICAL_CROPS.includes(g) && (g === 'greens' || s.unlockedCrops.includes(g as CropId));
+/** What turning a field into a vertical farm costs and grows: the field's ground, its crop (if a tower can grow it), the tower's price scaled to that ground. */
+export function convertQuote(s: GameState, f: Field): { price: number; side: number; area: number; grows: GoodId; why?: string } {
+  const side = plotSide(f.ha), area = (side * side) / 9, c = f.crop ?? f.plan;
+  const grows: GoodId = c && growable(s, c) ? c : 'greens';
+  const why = fieldLevel(f) < 3 ? 'Only an intensive (level 3) field can become a vertical farm.' : !has(s, 'verticalFarming') ? 'Research Vertical farming first.' : !featureEra(s, BUILDINGS.verticalFarm.minEra) ? 'Vertical farms are not available yet.' : undefined;
+  return { price: Math.round(buildingPrice(s, 'verticalFarm', f.region) * area), side, area, grows, why };
+}
 /** How many of a building the farm's free land holds, up to n: the build itself, run on a copy with deep pockets. */
 export function landFits(s: GameState, t: keyof typeof BUILDINGS, r: RegionId, n: number): number {
   const c = structuredClone(s);
@@ -225,7 +232,7 @@ export function landFits(s: GameState, t: keyof typeof BUILDINGS, r: RegionId, n
   dispatch(c, { type: 'build', region: r, building: t, count: n });
   return c.buildings.length - before;
 }
-export const upgradeCost = (s: GameState, b: { type: keyof typeof BUILDINGS; level: number; region: RegionId }) => Math.round(buildingPrice(s, b.type, b.region) * (b.type === 'verticalFarm' ? [1, 2, 4, 8][Math.max(0, Math.min(3, (b.level || 1) - 1))] : b.level === 1 ? 0.8 : 1.4)); // a vertical farm's levels double in price each step
+export const upgradeCost = (s: GameState, b: { type: keyof typeof BUILDINGS; level: number; region: RegionId; span?: [number, number] }) => Math.round(buildingPrice(s, b.type, b.region) * vfArea(b) * (b.type === 'verticalFarm' ? [1, 2, 4, 8][Math.max(0, Math.min(3, (b.level || 1) - 1))] : b.level === 1 ? 0.8 : 1.4)); // a vertical farm's levels double in price each step
 export const machineUpgradeCost = (s: GameState, m: { type: keyof typeof MACHINES; tier: number }) => Math.round(machinePrice(s, m.type) * 0.5 * m.tier);
 /** Moving fee: a tenth of a building's price; fields by area; homes, services and landmarks a flat amount. */
 const orchard = (f: Field) => !!f.crop && !!CROPS[f.crop].perennial;
@@ -492,6 +499,22 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       s.regions[a.region].parcelsBought++;
       log(s, 'info', `Bought a ${a.ha} ha parcel in ${REGIONS[a.region].name} (field ${f.id}).`, 'fields');
       return ok();
+    }
+    case 'convertField': {
+      const f = field(s, a.fieldId);
+      if (!f) return fail('No such field.');
+      const q = convertQuote(s, f);
+      if (q.why) return fail(q.why);
+      if (q.price > s.cash) return fail(`Converting it costs $${q.price.toLocaleString()}.`);
+      const w = worldOf(s, f.region), at = w.pos[`field:${f.id}`];
+      if (!at) return fail('That field is not on the map.');
+      const id = nextId(s), grows = q.grows === 'greens' ? undefined : q.grows;
+      s.buildings.push({ id, type: 'verticalFarm', region: f.region, span: [q.side, q.side], ...(grows ? { grows } : {}), ...(f.supplies ? { supplies: f.supplies } : {}), active: true, level: 1, cost: q.price + f.cost, depreciated: 0, util: 0, reserved: 0, reason: '', productionReport: emptyProductionReport(), stats: { out: 0, inCost: 0, outValue: 0, opCost: 0 } });
+      post(s, 'building', -q.price, `Field ${f.id} → vertical farm`, f.region, 'processing');
+      s.fields.splice(s.fields.indexOf(f), 1);
+      forget(s, f.region, `field:${f.id}`);
+      w.pos[`b:${id}`] = [at[0], at[1]]; touch(w); connect(s, f.region, `b:${id}`);
+      return ok(`Field ${f.id} is now a vertical farm on the same ${q.side}×${q.side} ground, growing ${GOODS[q.grows].name.toLowerCase()}: about ${Math.round(q.area)}× a small tower's output. Upgrades add floors.`);
     }
     case 'sellField': {
       const f = field(s, a.fieldId);
@@ -1200,8 +1223,6 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       if (power) return fail(`${BUILDINGS[b.type].name}s grow only on the farm's own power. ${power}`);
       if (cost > s.cash) return fail(`Upgrading costs $${Math.round(cost).toLocaleString()}.`);
       const next = b.level + 1;
-      if (b.type === 'verticalFarm' && !growInPlace(s, b.region, `b:${b.id}`, () => (b.level = next), () => (b.level = next - 1))) // it spreads over the ground around it
-        return fail(`A level-${next} vertical farm covers ${VERTICAL_SIDE[next - 1]}×${VERTICAL_SIDE[next - 1]} tiles: clear the ground around it, or move it somewhere roomier.`);
       post(s, 'building', -cost, `Upgrade ${BUILDINGS[b.type].name} to level ${next}`, b.region, buildingDivision(b.type));
       b.level = next;
       b.cost += cost;

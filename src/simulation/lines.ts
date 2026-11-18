@@ -5,13 +5,13 @@ import { townIndustryFactor } from './town-state';
 // facilities in a region earns per day, what pausing it really saves, the prices it needs
 // to break even, and whether upgrading would pay. Everything is valued at today's prices.
 import { CROPS, BUILDINGS, CONFIG, COWS_PER_DAIRY_BATCH, REGIONS, SUNRISE, SUNSET, type BuildingType, type GoodId, type RegionId } from './config';
-import { buildingDivision, electricityPrice, execOn, has, levelMult, maxLevel, priceUsd, recipeOf, throughput } from './core';
+import { buildingDivision, electricityPrice, execOn, has, levelMult, maxLevel, priceUsd, recipeOf, sizeStaff, throughput } from './core';
 import { expectedYield } from './agriculture';
 import { upgradeCost } from './engine';
 import type { Building, GameState } from './types';
 
 /** One facility as the economics see it: its level and how many batches an hour it runs. */
-interface Unit { level: number; bph: number }
+interface Unit { level: number; bph: number; /** staff as a multiple of one plain building's (merged, or a big vertical farm) */ k?: number }
 
 export interface LineEcon {
   earn: number; inputs: number; staff: number; power: number;
@@ -53,7 +53,7 @@ function econOf(s: GameState, t: BuildingType, r: RegionId, units: Unit[], rec =
   const kwh = rec.kwh * kwhMult(s, rec.kwh) * batches;
   if (kwh < 0) earn += -kwh * elec;
   const power = Math.max(0, kwh) * elec;
-  const staff = units.reduce((a, u) => a + staffDay(s, t, u.level), 0);
+  const staff = units.reduce((a, u) => a + staffDay(s, t, u.level) * (u.k ?? 1), 0);
   const profit = earn - inputs - staff - power;
   let alt = 0;
   if (t === 'dairy') {
@@ -67,7 +67,7 @@ function econOf(s: GameState, t: BuildingType, r: RegionId, units: Unit[], rec =
 }
 
 const units = (s: GameState, list: Building[], full = false): Unit[] =>
-  list.filter((b) => b.active || full).map((b) => ({ level: b.level || 1, bph: full ? BUILDINGS[b.type].recipe!.batchesPerHour * throughput(b) * townIndustryFactor(s, b.region) : b.stats.out }));
+  list.filter((b) => b.active || full).map((b) => ({ level: b.level || 1, k: sizeStaff(b), bph: full ? BUILDINGS[b.type].recipe!.batchesPerHour * throughput(b) * townIndustryFactor(s, b.region) : b.stats.out }));
 
 /** A dairy can only run as many batches as there are cows to milk. */
 function capByCows(s: GameState, t: BuildingType, r: RegionId, us: Unit[]): Unit[] {
