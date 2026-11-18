@@ -971,3 +971,9 @@ body:has(.modal-bg) .shell .coach { display: none !important; }
 .visit-facts b { color: #f2c94c; }
 @media (max-width: 600px) { .visit-card { left: 12px; right: 12px; bottom: 64px; width: auto; gap: 8px; } .visit-card p { display: none; } .region-zoom { bottom: 16px; } }
 .hud .visit-top, .hud .visit-card { z-index: 6; }
+.visit-head { all: unset; display: flex; align-items: center; gap: 10px; cursor: pointer; }
+.visit-head:focus-visible { outline: 2px solid #e2b04a; outline-offset: 4px; border-radius: 8px; }
+.visit-head > div { flex: 1; }
+.visit-fold { color: #d9ccb0; font-size: 14px; }
+.visit-card.folded > :not(.visit-head):not(.btn) { display: none; }
+@media (max-width: 600px) { .visit-card { bottom: calc(60px + env(safe-area-inset-bottom)); } .visit-card p { display: block; } }

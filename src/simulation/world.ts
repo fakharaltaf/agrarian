@@ -600,16 +600,17 @@ const rivers = new Map<RegionId, Set<number>>();
 /** The river's west tile at row y; it keeps going past the map edges, where it is only scenery. */
 /** Where the sea begins (the first tile column under water), on a coast. */
 export const SEA_X: Partial<Record<RegionId, number>> = { coastal: 74 };
-export function riverX(r: RegionId, y: number) {
+export function riverXf(r: RegionId, y: number) {
   const k = [...r].reduce((a, ch) => a + ch.charCodeAt(0), 0), base = r === 'heartland' ? -27 : -27 + ((k * 37) % 21) - 10;
-  return Math.round(base + 5 * Math.sin(y * 0.06 + k) + 2 * Math.sin(y * 0.17 + 1));
+  return base + 5 * Math.sin(y * 0.06 + k) + 2 * Math.sin(y * 0.17 + 1);
 }
+export const riverX = (r: RegionId, y: number) => Math.round(riverXf(r, y));
 /** Each region's river: two tiles wide, winding north to south. In Heartland it runs just west of the starting valley. */
 export function riverTiles(r: RegionId): Set<number> {
   const hit = rivers.get(r);
   if (hit) return hit;
   const set = new Set<number>();
-  if (r === 'arid') { rivers.set(r, set); return set; } // the desert has no river
+  if (r === 'arid' || r === 'coastal') { rivers.set(r, set); return set; } // no river in the desert; on the coast the sea instead
   let prev: number | null = null;
   for (let y = MAP.y0; y < MAP.y0 + MAP.h; y++) {
     const x = riverX(r, y);

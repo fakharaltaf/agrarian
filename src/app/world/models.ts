@@ -801,6 +801,7 @@ export { cached, cyl, mesh };
 
 /** Civic housing keeps the farm's materials while making density visible. */
 export function buildCommunityHome(tier: string, w: number, d: number, key = '', level = 1): Model {
+  if (REGIONAL[tier]) { const group = new THREE.Group(), smoke: THREE.Vector3[] = []; REGIONAL[tier](group, w, d, hashStr(key), smoke); const windows: THREE.Mesh[] = []; group.traverse((o) => { if ((o as THREE.Mesh).isMesh && o.userData.window) windows.push(o as THREE.Mesh); }); return { group, smoke, windows }; }
   if (tier === 'apartment' && level >= 2) return buildApartmentTower(level >= 3 ? 3 : 2, w, d, key);
   const group = new THREE.Group(), windows: THREE.Mesh[] = [], smoke: THREE.Vector3[] = [];
   const seed = hashStr(key);
@@ -880,6 +881,83 @@ export function buildCommunityHome(tier: string, w: number, d: number, key = '',
   group.traverse((o) => { if ((o as THREE.Mesh).isMesh && o.userData.window && !windows.includes(o as THREE.Mesh)) windows.push(o as THREE.Mesh); });
   return { group, smoke, windows };
 }
+
+// ---------------------------------------------------------------- the neighbours' own ways of building
+const ADOBE = [0xd8b98a, 0xe0c49a, 0xcfae80, 0xc9a276, 0xe2cfa6];
+const winOf = (o: THREE.Mesh) => { o.userData.window = true; return o; };
+/** Homes and halls in each neighbour's own style. All face +z (the street), on a w×d lot from (0,0). */
+const REGIONAL: Record<string, (g: THREE.Group, w: number, d: number, seed: number, smoke: THREE.Vector3[]) => void> = {
+  /** a mud-brick house: flat roof behind a parapet, roof beams poking through, small deep windows, a walled yard; some have a second storey or a dome */
+  adobe(g, w, d, seed) {
+    const wall = ADOBE[Math.floor(seed * ADOBE.length)], dark = new THREE.Color(wall).multiplyScalar(0.82).getHex();
+    const bw = w - 0.6, bd = d * 0.55, h = 0.95, cx = w / 2, cz = 0.35 + bd / 2, front = cz + bd / 2;
+    g.add(box(w - 0.1, 0.03, d - 0.1, 0xd9c49a, w / 2, 0, d / 2, { rough: 1 }));
+    g.add(box(bw, h, bd, wall, cx, 0, cz, { rough: 1 }), box(bw + 0.06, 0.16, bd + 0.06, dark, cx, h, cz, { rough: 1 })); // walls and parapet
+    for (let i = 0; i < 4; i++) g.add(box(0.06, 0.06, 0.22, PAL.woodDark, cx - bw / 2 + 0.25 + i * (bw - 0.5) / 3, h - 0.15, front + 0.08)); // vigas through the wall
+    g.add(box(0.3, 0.6, 0.04, PAL.woodDark, cx - 0.25, 0, front + 0.01));
+    g.add(winOf(box(0.2, 0.22, 0.04, PAL.window, cx + 0.35, 0.45, front + 0.01)), box(0.28, 0.04, 0.06, dark, cx + 0.35, 0.33, front + 0.03));
+    if (seed > 0.55) { // an upper room set back, with its own little roof terrace
+      g.add(box(bw * 0.5, 0.7, bd * 0.6, wall, cx - bw * 0.2, h, cz - bd * 0.15, { rough: 1 }), box(bw * 0.5 + 0.05, 0.12, bd * 0.6 + 0.05, dark, cx - bw * 0.2, h + 0.7, cz - bd * 0.15));
+      g.add(winOf(box(0.18, 0.2, 0.04, PAL.window, cx - bw * 0.2, h + 0.3, cz - bd * 0.15 + bd * 0.3 + 0.01)));
+    } else if (seed > 0.3) g.add(mesh(cached('adobeDome', () => new THREE.SphereGeometry(0.42, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2)), mat(0xeadbb8), cx + bw * 0.2, h + 0.1, cz - 0.1));
+    // the yard: a low wall round the front with a gap for the gate, a palm or a water jar
+    for (const [x0, x1] of [[0.15, cx - 0.3], [cx + 0.3, w - 0.15]]) g.add(box(x1 - x0, 0.32, 0.12, wall, (x0 + x1) / 2, 0, d - 0.15, { rough: 1 }));
+    for (const x of [0.15, w - 0.15]) g.add(box(0.12, 0.32, d - front - 0.2, wall, x, 0, (front + d - 0.1) / 2, { rough: 1 }));
+    if (seed * 7 % 1 > 0.5) { g.add(cyl(0.04, 0.9, 0x8a6a44, w - 0.45, 0, d - 0.45, 5)); for (let k = 0; k < 5; k++) { const f = box(0.45, 0.02, 0.1, 0x5f8a3a, w - 0.45, 0.9, d - 0.45); f.rotation.y = (k * Math.PI * 2) / 5; f.rotation.z = -0.4; g.add(f); } }
+    else g.add(cyl(0.12, 0.25, 0xb5623a, 0.5, 0, d - 0.45, 8, 0.08));
+  },
+  /** the khan's hall: a fortified kasbah with corner towers, battlements, a gate and a dome */
+  kasbah(g, w, d) {
+    const wall = 0xd2ad7a, dark = 0xb08a5c, cx = w / 2, cz = d / 2;
+    g.add(box(w - 0.1, 0.03, d - 0.1, 0xd9c49a, cx, 0, cz, { rough: 1 }));
+    g.add(box(w - 1, 1.5, d - 1, wall, cx, 0, cz, { rough: 1 }));
+    for (const [x, z] of [[0.55, 0.55], [w - 0.55, 0.55], [0.55, d - 0.55], [w - 0.55, d - 0.55]]) { g.add(box(0.7, 2.2, 0.7, wall, x, 0, z, { rough: 1 })); for (const [dx, dz] of [[-0.25, -0.25], [0.25, -0.25], [-0.25, 0.25], [0.25, 0.25]]) g.add(box(0.16, 0.18, 0.16, dark, x + dx, 2.2, z + dz)); }
+    for (let i = 0; i < 8; i++) g.add(box(0.18, 0.18, 0.18, dark, 1 + i * (w - 2) / 7, 1.5, d - 0.5));
+    g.add(box(0.8, 1.1, 0.06, PAL.woodDark, cx, 0, d - 0.48), box(1.1, 0.12, 0.1, dark, cx, 1.1, d - 0.45));
+    g.add(mesh(cached('kasbahDome', () => new THREE.SphereGeometry(0.75, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2)), mat(0x4f8fa8, { rough: 0.5 }), cx, 1.5, cz - 0.2));
+    g.add(box(0.04, 1.3, 0.04, PAL.metalDark, w - 0.55, 2.4, 0.55), box(0.5, 0.3, 0.02, 0x2f8a5a, w - 0.3, 3.3, 0.55));
+    for (const x of [cx - 1, cx + 1]) g.add(winOf(box(0.18, 0.3, 0.04, PAL.window, x, 0.7, d - 0.48)));
+  },
+  /** a stilt hut: a woven-walled room raised on posts above the wet ground, a steep thatched roof, a ladder and a veranda */
+  hut(g, w, d, seed) {
+    const cx = w / 2, cz = d / 2 - 0.2, s = 1.5 + seed * 0.4, lift = 0.6, thatch = [0xb89a5a, 0xa8884a, 0xc4a868][Math.floor(seed * 3)];
+    for (const [dx, dz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) g.add(box(0.08, lift, 0.08, PAL.woodDark, cx + dx * (s / 2 - 0.05), 0, cz + dz * (s / 2 - 0.05)));
+    g.add(box(s + 0.3, 0.06, s + 0.5, PAL.wood, cx, lift, cz + 0.1)); // floor and veranda
+    g.add(box(s, 0.75, s, 0xc9a874, cx, lift + 0.06, cz, { rough: 1 }));
+    for (let i = 0; i < 4; i++) g.add(box(s + 0.01, 0.02, s + 0.01, 0xa8884a, cx, lift + 0.2 + i * 0.16, cz)); // the weave
+    g.add(box(0.3, 0.5, 0.03, PAL.woodDark, cx, lift + 0.06, cz + s / 2 + 0.01));
+    g.add(winOf(box(0.2, 0.2, 0.03, PAL.window, cx + s / 4 + 0.05, lift + 0.4, cz + s / 2 + 0.01)));
+    g.add(mesh(cached(`hutRoof${s.toFixed(2)}`, () => new THREE.ConeGeometry(s * 0.92, 1.1, 4).rotateY(Math.PI / 4)), mat(thatch), cx, lift + 0.81 + 0.55, cz));
+    for (const k of [0, 1, 2]) g.add(box(0.3, 0.03, 0.05, PAL.wood, cx - 0.3, 0.15 + k * 0.2, cz + s / 2 + 0.3 + k * 0.08)); // ladder rungs
+    for (const x of [cx - 0.45, cx - 0.15]) { const rail = box(0.04, 0.7, 0.04, PAL.wood, x, 0, cz + s / 2 + 0.45); rail.rotation.x = -0.35; g.add(rail); }
+    if (seed > 0.4) { g.add(cyl(0.04, 1.4, 0x8a6a44, w - 0.35, 0, 0.4, 5)); for (let k = 0; k < 6; k++) { const f = box(0.55, 0.02, 0.12, 0x4f9a3a, w - 0.35, 1.4, 0.4); f.rotation.y = (k * Math.PI) / 3; f.rotation.z = -0.45; g.add(f); } } // a banana palm
+  },
+  /** the queen's longhouse: a long raised hall with a sweeping thatched roof and carved posts */
+  longhouse(g, w, d) {
+    const cx = w / 2, cz = d / 2, lw = w - 0.4, ld = d - 1, lift = 0.5;
+    for (let i = 0; i < 5; i++) for (const dz of [-1, 1]) g.add(box(0.1, lift, 0.1, PAL.woodDark, 0.3 + i * (lw - 0.2) / 4, 0, cz + dz * (ld / 2 - 0.1)));
+    g.add(box(lw, 0.08, ld + 0.4, PAL.wood, cx, lift, cz + 0.2), box(lw - 0.3, 0.9, ld - 0.3, 0xc9a874, cx, lift + 0.08, cz, { rough: 1 }));
+    g.add(gable(lw + 0.2, ld + 0.4, 1.3, 0xb89a5a, cx, lift + 0.98, cz));
+    for (const x of [0.15, w - 0.15]) g.add(box(0.12, 2.4, 0.12, 0x8a4a2e, x, 0, cz), sphere(0.16, 0xd8b85a, x, 2.45, cz));
+    g.add(box(0.5, 0.6, 0.03, PAL.woodDark, cx, lift + 0.08, cz + ld / 2 - 0.14));
+  },
+  /** a whitewashed harbour house: white walls, painted shutters and door, a terracotta or blue roof, a fishing net drying by the door */
+  whitewash(g, w, d, seed) {
+    const paint = [0x2f6f9a, 0x3f8f86, 0xc0613a, 0x6a5aa0][Math.floor(seed * 4)], roof = seed > 0.5 ? 0xc0613a : 0x3f6f9a, two = seed * 13 % 1 > 0.45;
+    const bw = w - 0.5, bd = d * 0.55, h = two ? 1.5 : 0.95, cx = w / 2, cz = 0.4 + bd / 2, front = cz + bd / 2;
+    g.add(box(w - 0.1, 0.03, d - 0.1, 0xd8d2c4, cx, 0, d / 2, { rough: 1 }));
+    g.add(box(bw, h, bd, 0xf4f2ec, cx, 0, cz), gable(bw, bd, 0.45, roof, cx, h, cz));
+    g.add(box(0.3, 0.6, 0.04, paint, cx, 0, front + 0.01));
+    for (const y of two ? [0.4, 1.05] : [0.45]) for (const x of [cx - bw / 3, cx + bw / 3]) {
+      if (y < 0.5 && Math.abs(x - cx) < 0.3) continue;
+      g.add(winOf(box(0.22, 0.26, 0.03, PAL.window, x, y, front + 0.01)), box(0.08, 0.28, 0.04, paint, x - 0.16, y - 0.01, front + 0.02), box(0.08, 0.28, 0.04, paint, x + 0.16, y - 0.01, front + 0.02));
+    }
+    g.add(box(0.7, 0.04, 0.3, paint, cx, 0.68, front + 0.14)); // an awning over the door
+    g.add(box(0.03, 0.5, 0.5, 0x8a7a5a, w - 0.2, 0.05, d - 0.6, { opacity: 0.7 })); // a net on its frame
+    g.add(cyl(0.12, 0.35, 0xd8a050, 0.4, 0, d - 0.35, 8)); // a pot of geraniums
+    g.add(sphere(0.12, 0xc94c4c, 0.4, 0.4, d - 0.35));
+  },
+};
 
 /** Small civic landmarks use the farm palette and shared geometry caches. */
 export function buildCivic(type: string, w: number, d: number, level = 1, key = ''): Model {

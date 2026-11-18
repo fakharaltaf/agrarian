@@ -11,7 +11,9 @@ export interface NeighbourLot { key: string; name: string; kind: 'home' | 'civic
 export interface NeighbourField { x: number; y: number; s: number; crop: CropId; /** how far grown, 0–1 */ phase: number }
 export interface NeighbourTown { roads: Record<number, number>; cleared: number[]; lots: NeighbourLot[]; fields: NeighbourField[] }
 
-const NAMES: Record<string, string> = { hall: 'Town hall' };
+const NAMES: Record<string, string> = { hall: 'Town hall', kasbah: 'The Khan’s kasbah', longhouse: 'The Queen’s longhouse' };
+/** Landmarks drawn in the town's own style (with the homes' models), standing in for its hall. */
+const LANDMARK = new Set(['kasbah', 'longhouse']);
 type Build = NeighbourTown & { id: NeighbourId; taken: Set<number>; clear: Set<number>; n: number; rand: () => number };
 
 // ---------------------------------------------------------------- building blocks
@@ -51,12 +53,13 @@ function alongStreet(b: Build, x0: number, y0: number, x1: number, y1: number, m
   }
 }
 /** A service on the first free spot round a point, front to the nearest street. */
-function service(b: Build, type: string, level: number, cx: number, cy: number, size = 3) {
+function service(b: Build, type: string, level: number, cx: number, cy: number, size = 3, d = size === 4 ? 3 : size) {
+  const kind = LANDMARK.has(type) ? 'home' : 'civic';
   for (let r = 0; r < 12; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
     if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
     const x = cx + dx, y = cy + dy;
     const facing = [[0, size, 0], [size, 0, 1], [0, -1, 2], [-1, 0, 3]].find(([ox, oy]) => b.roads[tileId(x + (ox ? ox : 1), y + (oy ? oy : 1))] !== undefined);
-    if (facing && lot(b, 'civic', type, level, x, y, facing[2], size === 4 ? 4 : size, size === 4 ? 3 : size)) return;
+    if (facing && lot(b, kind, type, level, x, y, facing[2], size, d)) return;
   }
 }
 function fields(b: Build, spots: [number, number, number][], crops: CropId[]) {
@@ -74,16 +77,16 @@ const PLANS: Record<NeighbourId, (b: Build) => void> = {
   // a frontier village: two dirt tracks off the main road, scattered cottages, the militia and the khan's hall at the crossing, a few watered plots
   arid(b) {
     road(b, 24, S, 24, 32, 1); road(b, 8, 20, 42, 20, 1); road(b, 14, 29, 24, 29, 1);
-    service(b, 'hall', 1, 25, 16, 4); service(b, 'militia', 1, 20, 21); service(b, 'watchtower', 1, 26, 21); service(b, 'well', 1, 19, 16); service(b, 'shopGeneral', 1, 29, 16); service(b, 'clinic', 1, 33, 21);
-    const home = pick(b, [['cottage', 1, 1]]);
+    service(b, 'kasbah', 1, 25, 14, 6, 5); service(b, 'militia', 1, 20, 21); service(b, 'watchtower', 1, 26, 21); service(b, 'well', 1, 19, 16); service(b, 'shopGeneral', 1, 29, 16); service(b, 'clinic', 1, 33, 21);
+    const home = pick(b, [['adobe', 1, 1]]);
     alongStreet(b, 24, S, 24, 32, home, [1, 3], 0.7); alongStreet(b, 8, 20, 42, 20, home, [1, 4], 0.65); alongStreet(b, 14, 29, 24, 29, home, [1, 2], 0.8);
     fields(b, [[46, 12, 5], [46, 19, 4], [6, 24, 5], [30, 26, 5], [36, 26, 4], [12, 34, 5]], ['cotton', 'grapes', 'wheat']);
   },
   // a hamlet of huts round a loop track, plantations cut out of the jungle around it
   tropics(b) {
     road(b, 16, S, 16, 20, 1); road(b, 16, 20, 34, 20, 1); road(b, 34, 20, 34, 30, 1); road(b, 12, 30, 34, 30, 1); road(b, 12, 20, 12, 30, 1); road(b, 12, 20, 16, 20, 1);
-    service(b, 'hall', 1, 21, 22, 4); service(b, 'well', 1, 17, 16); service(b, 'clinic', 1, 27, 16); service(b, 'shopGeneral', 1, 26, 22);
-    const hut = pick(b, [['cottage', 1, 1]]);
+    service(b, 'longhouse', 1, 20, 22, 6, 4); service(b, 'well', 1, 17, 16); service(b, 'clinic', 1, 27, 16); service(b, 'shopGeneral', 1, 26, 22);
+    const hut = pick(b, [['hut', 1, 1]]);
     for (const [a, c, d, e] of [[16, S, 16, 20], [16, 20, 34, 20], [34, 20, 34, 30], [12, 30, 34, 30], [12, 20, 12, 30]] as const) alongStreet(b, a, c, d, e, hut, [2, 4], 0.6);
     fields(b, [[40, 12, 7], [40, 21, 6], [40, 29, 8], [4, 34, 6], [16, 34, 7], [26, 35, 6], [36, 39, 7], [50, 14, 6], [50, 24, 8]], ['coffee', 'sugarcane', 'rice']);
   },
@@ -113,7 +116,7 @@ const PLANS: Record<NeighbourId, (b: Build) => void> = {
       const bx = x0 + i * 8 + 1, by = y0 + j * 8 + 1, far = Math.hypot(i - mid[0], j - mid[1]);
       if (k % 3 === 1 && civic.length) { const [t, l, s] = civic.shift()!; if (s === 6) { lot(b, 'civic', t, l, bx, by, 2, 6, 6); return; } lot(b, 'civic', t, l, bx, by, 2, s === 4 ? 4 : 3, 3); }
       for (const [dx, dy, rot] of [[0, 0, 2], [3, 0, 2], [0, 4, 0], [3, 4, 0]] as const) {
-        const tier = far < 1.6 ? 'apartment' : far < 2.6 ? (b.rand() < 0.5 ? 'apartment' : 'terrace') : 'terrace', level = tier === 'apartment' ? (far < 1.2 ? 3 : 2) : 1;
+        const tier = far < 1.6 ? 'apartment' : far < 2.4 ? (b.rand() < 0.5 ? 'apartment' : 'terrace') : b.rand() < 0.7 ? 'whitewash' : 'terrace', level = tier === 'apartment' ? (far < 1.2 ? 3 : 2) : 1;
         lot(b, 'home', tier, level, bx + dx + (dx ? 1 : 0), by + dy, rot);
       }
     });

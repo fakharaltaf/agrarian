@@ -27,7 +27,7 @@ import { bridgeAt, bridgePlan, isBridge } from '../../simulation/world';
 import { isNeighbour, regionActive, regionOf, ROUTE_SIDE, type NeighbourId } from '../../simulation/region-state';
 import { canStartRegion } from '../../simulation/stages/region';
 import { neighbourTown } from '../../simulation/neighbour-towns';
-import { SEA_X } from '../../simulation/world';
+import { SEA_X, riverXf } from '../../simulation/world';
 import { wooded, beltRoute, wideRoadRoute, homesCentre, CHUNK, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, LAND_HA_PER_PATCH, MAP, hasAccess, riverTiles, riverX, tileId, roadStretch, roadPick, pipeRoute, pipeStretch, plotSide, fieldWater, wetTiers, linesOf, NET_TOP, UTILITY_NETS, netReach, doorstep, footprintOf, type NetKind, type UtilityNet, tileAt, forSaleAround,  ownedSet, ROAD_H, ROAD_Y, chunkAt, chunkOrigin, clearCost, clearedSet, isRoad, patchesAround, placeProblem, worldOf } from '../../simulation/world';
 import { animal, buildBridge, buildCivic, cone, sphere, buildCommunityHome, buildLot, buildWorks, box, cached, cyl, farmhand, hauler, mat, mesh, PAL, person, tree, vehicle, type Model } from './models';
 import { haulOf, MARKET_X, marketRoute } from '../../simulation/hauling';
@@ -103,7 +103,7 @@ interface Rig {
   haulers: Map<string, THREE.Group>; tickSeen: number; tickAt: number;
   riverG: THREE.Group; riverSig: string; foam?: { im: THREE.InstancedMesh; pts: [number, number][]; phase: number[] }; fall?: THREE.Texture;
   oilG: THREE.Group; oilSig: string; zoneG: THREE.Group; zoneSig: string;
-  /** the neighbours' towns past the map's edges, and the caravans on their way to them */ townsG: THREE.Group; townsSig: string; sceneryG: THREE.Group; scenerySig: string; caravans: Map<number, THREE.Group>;
+  /** the neighbours' towns past the map's edges, and the caravans on their way to them */ townsG: THREE.Group; townsSig: string; sceneryG: THREE.Group; scenerySig: string; /** the open sea's surface and the boats on it, rocking */ sea?: { geo: THREE.BufferGeometry; base: Float32Array; boats: THREE.Object3D[] }; caravans: Map<number, THREE.Group>;
   felling?: { chunk: number; trees: THREE.Group[]; fallAt: number[]; extras: THREE.Group };
 }
 
@@ -401,7 +401,7 @@ export function Scene3D({ region, visiting, selected, onPick, plantLabel, onActi
       R.glide = undefined; R.target.x = (x0 + x1) / 2; R.target.z = (z0 + z1) / 2;
       R.zoom = Math.max(0.06, Math.min(3, 9 / (Math.max(span / aspect, span * 0.62) * 1.04 + 1.5)));
     });
-    (window as unknown as Record<string, unknown>).__world = { zoom: zoomBy, rotate: (d: number) => rig.current && (rig.current.yawTo += (d * Math.PI) / 2), snapshot, region: () => rig.current?.region ?? 'heartland' };
+    (window as unknown as Record<string, unknown>).__world = { look: (x: number, z: number, zoom: number) => { const R = rig.current; if (R) { R.glide = undefined; R.target.set(x, 0, z); R.zoom = zoom; } }, zoom: zoomBy, rotate: (d: number) => rig.current && (rig.current.yawTo += (d * Math.PI) / 2), snapshot, region: () => rig.current?.region ?? 'heartland' };
     return () => {
       c.removeEventListener('pointerdown', down);
       c.removeEventListener('pointermove', move);
@@ -1018,7 +1018,8 @@ function syncDeco(R: Rig, L: Layout, s: GameState) {
     const river = riverTiles(R.region);
     for (const p of patchTrees(c, ox, oy, look === 'jungle' ? n + 3 : n)) {
       if (hash(p.x * 5.3 + p.z * 1.7) > wild.keep || p.x >= sea - 3) continue; // thinner woods out on the plains and the desert, none on the beach or in the sea
-      if (look === 'desert') { // scrub, cacti and rocks
+      if (look === 'desert') { // scrub, cacti and rocks, out on the flats only
+        if (p.z < MAP.y0 && terrainH(R.region, p.x, p.z, src) > 0.2) continue;
         const h = hash(p.x * 2.3 + p.z * 7.1);
         if (h < 0.4) { cacti.push(new THREE.Matrix4().compose(new THREE.Vector3(p.x, 0, p.z), q.setFromAxisAngle(up, p.rot), new THREE.Vector3(p.k, p.k, p.k))); continue; }
         if (h < 0.7) { rocks.push(new THREE.Matrix4().compose(new THREE.Vector3(p.x, 0, p.z), q.setFromAxisAngle(up, p.rot), new THREE.Vector3(p.k * 0.6, p.k * 0.4, p.k * 0.5))); continue; }
@@ -1026,10 +1027,10 @@ function syncDeco(R: Rig, L: Layout, s: GameState) {
       if ([-2, -1, 0, 1, 2].some((d) => river.has(tileId(Math.floor(p.x) + d, Math.floor(p.z))))) continue; // no trees in the river or on its banks, owned land or not
       if (river.size && p.z >= MAP.y0 + MAP.h && Math.abs(p.x - riverX(R.region, Math.floor(p.z)) - 1) < 3.5) continue; // and where it flows on past the map
       let ty = 0;
-      if (p.z < MAP.y0 && river.size) { // on the mountains: trees thin out up the slopes, none on rock or in the gorge
-        ty = mountainH(p.x, p.z, src);
-        const slope = Math.abs(mountainH(p.x + 0.6, p.z, src) - ty) + Math.abs(mountainH(p.x, p.z - 0.6, src) - ty);
-        if (ty > 6.5 || slope > 1.1 || hash(p.x * 1.7 + p.z) < ty / 8 || Math.abs(p.x - gorgeX(src, MAP.y0 - p.z)) < 2.5) continue;
+      if (p.z < MAP.y0 && look !== 'desert') { // up the slopes: trees thin out, none on rock, in the gorge or on the volcano's ash
+        ty = terrainH(R.region, p.x, p.z, src);
+        const slope = Math.abs(terrainH(R.region, p.x + 0.6, p.z, src) - ty) + Math.abs(terrainH(R.region, p.x, p.z - 0.6, src) - ty), ridge = RIDGE[R.region];
+        if (ty > (ridge === 'volcano' ? 9 : ridge === 'alps' ? 6.5 : 99) || slope > 1.1 || hash(p.x * 1.7 + p.z) < ty / (ridge === 'alps' ? 8 : 16) || (ridge === 'alps' && Math.abs(p.x - gorgeX(src, MAP.y0 - p.z)) < 2.5)) continue;
       }
       q.setFromAxisAngle(up, p.rot);
       const m = new THREE.Matrix4().compose(new THREE.Vector3(p.x, ty, p.z), q, new THREE.Vector3(p.k, p.ky, p.k));
@@ -1773,6 +1774,26 @@ function mountainH(x: number, z: number, sx: number) {
   const gw = 1.5 + d * 0.12, g = Math.exp(-(((x - gorgeX(sx, d)) / gw) ** 2));
   return h * (1 - g) + Math.min(h, gorgeFloor(d)) * g;
 }
+/** What rises past each map's top edge: your mountain range with its gorge and falls, the River Plains' rolling hills, the Tropical
+ * Highlands' volcano, the Arid Frontier's red sandstone mesas, the coast's green headland dropping into the sea. */
+type Ridge = 'alps' | 'hills' | 'volcano' | 'mesa' | 'headland';
+const RIDGE: Record<RegionId, Ridge> = { heartland: 'alps', river: 'hills', tropics: 'volcano', arid: 'mesa', coastal: 'headland' };
+const VOLCANO: [number, number] = [22, MAP.y0 - 34];
+/** Height of the land past the top edge, for this region. A river runs on north through a flat-floored valley. */
+function terrainH(r: RegionId, x: number, z: number, sx: number) {
+  const kind = RIDGE[r], d = MAP.y0 - z;
+  if (d <= 0) return 0;
+  if (kind === 'alps') return mountainH(x, z, sx);
+  let h: number;
+  if (kind === 'hills') h = smooth(0, 10, d) * (1 + 3.2 * vnoise(x * 0.06, z * 0.06) + 1.6 * vnoise(x * 0.14 + 5, z * 0.14)) * (1 + 0.7 * smooth(20, 55, d));
+  else if (kind === 'volcano') {
+    const r0 = Math.hypot(x - VOLCANO[0], (z - VOLCANO[1]) * 1.1), cone = Math.max(0, 27 - r0 * 0.95 - Math.max(0, r0 - 12) * 0.5), crater = r0 < 4.2 ? (4.2 - r0) * 1.7 : 0;
+    h = Math.max(smooth(0, 7, d) * (1.4 + 4.5 * vnoise(x * 0.1, z * 0.1)), cone - crater + vnoise(x * 0.4, z * 0.4) * 0.8 * Math.min(1, cone / 4));
+  } else if (kind === 'mesa') { const n = vnoise(x * 0.035 + 1.3, z * 0.035) * 0.7 + vnoise(x * 0.09, z * 0.09) * 0.3, rise = smooth(2, 16, d); h = rise * (smooth(0.46, 0.5, n) * 5 + smooth(0.6, 0.63, n) * 4.5 + smooth(0.72, 0.74, n) * 4) + rise * vnoise(x * 0.3, z * 0.3) * 0.25; } // flat-topped buttes in tiers, sheer red cliffs between
+  else { h = smooth(0, 14, d) * (2.2 + 5 * vnoise(x * 0.07, z * 0.07)); const sea = SEA_X[r]; if (sea !== undefined) h *= smooth(sea + 1, sea - 6, x); }
+  if (riverTiles(r).size) h *= smooth(2.6, 6 + d * 0.12, Math.abs(x - riverXf(r, z) - 1));
+  return h;
+}
 /** A strip along a path of [x, y, z] points; each cross-section is a list of [offset, lift, colour]. */
 function strip(path: [number, number, number][], profile: (i: number) => [number, number, THREE.Color][], vScale = 0.25) {
   const pos: number[] = [], col: number[] = [], uv: number[] = [], idx: number[] = [];
@@ -1828,22 +1849,28 @@ function syncNeighbourTowns(R: Rig, s: GameState) {
 /** What gives each region its own horizon: the sea, beach and harbour on the coast; red mesas round the desert. */
 function syncScenery(R: Rig) {
   if (R.scenerySig === R.region) return;
-  R.scenerySig = R.region; clear(R.sceneryG);
+  R.scenerySig = R.region; clear(R.sceneryG); R.sea?.geo.dispose(); R.sea = undefined;
   const sea = SEA_X[R.region];
   if (sea !== undefined) {
-    const water = new THREE.Mesh(cached('sea', () => new THREE.PlaneGeometry(600, 900).rotateX(-Math.PI / 2)), new THREE.MeshStandardMaterial({ color: 0x3f98c8, roughness: 0.25, metalness: 0.1 }));
-    water.position.set(sea + 300, 0.03, 100); water.receiveShadow = true;
+    // the sea: a faceted surface whose swells roll in towards the shore, deepening in colour away from the beach
+    const geo = new THREE.PlaneGeometry(300, 700, 150, 300).rotateX(-Math.PI / 2).translate(150, 0, 0), pos = geo.attributes.position as THREE.BufferAttribute, cols: number[] = [], near = new THREE.Color(0x58b4d0), deep = new THREE.Color(0x2c7fb0), c = new THREE.Color();
+    for (let i = 0; i < pos.count; i++) { c.copy(near).lerp(deep, Math.min(1, pos.getX(i) / 40)); cols.push(c.r, c.g, c.b); }
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
+    const water = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.2, metalness: 0.1, flatShading: true }));
+    water.position.set(sea, 0.14, 60); // above the ground, even in a trough water.receiveShadow = true; water.castShadow = false;
+    R.sea = { geo, base: Float32Array.from(pos.array as Float32Array), boats: [] };
     const sand = new THREE.Mesh(cached('beach', () => new THREE.PlaneGeometry(4, 900).rotateX(-Math.PI / 2)), mat(0xe6d3a0, { rough: 1 }));
     sand.position.set(sea - 1.5, 0.015, 100); sand.receiveShadow = true;
     const shallow = new THREE.Mesh(cached('shallows', () => new THREE.PlaneGeometry(3, 900).rotateX(-Math.PI / 2)), new THREE.MeshStandardMaterial({ color: 0x7cc4cc, roughness: 0.4 }));
     shallow.position.set(sea + 1.5, 0.035, 100);
     R.sceneryG.add(water, sand, shallow);
+    for (let i = 0; i < 26; i++) { const x = sea + 1.2 + hash(i * 3.3) * 1.2, z = -60 + i * 9 + hash(i) * 4; const f = mesh(cached('surf', () => new THREE.BoxGeometry(0.25, 0.02, 2.2)), mat(0xf4f8fa, { opacity: 0.8 }), x, 0.06, z, false); f.userData.surf = i; R.sceneryG.add(f); } // surf breaking on the beach
     const cz = ROAD_Y + ROAD_H / 2;
     for (const z of [cz - 7, cz + 5, cz + 15]) R.sceneryG.add(box(9, 0.25, 1.6, PAL.wood, sea + 4.5, 0, z), ...[0, 3, 6, 9].map((dx) => box(0.25, 0.6, 0.25, PAL.woodDark, sea + dx, -0.4, z + 0.7))); // piers
     R.sceneryG.add(box(4, 0.4, 14, PAL.stone, sea + 1, 0, cz + 3)); // the quay where the road ends
     for (const [x, z, k] of [[sea + 6, cz - 5, 1.6], [sea + 7, cz + 7.2, 1.4], [sea + 4, cz + 17, 1.2], [sea + 22, cz - 20, 2], [sea + 30, cz + 30, 1.8]] as const) {
       const ship = new THREE.Group(); ship.add(box(3, 0.6, 1, PAL.woodDark, 0, -0.2, 0), box(0.8, 0.5, 0.8, PAL.barnRed, -0.6, 0.4, 0), cyl(0.05, 2.6, PAL.wood, 0.5, 0.4, 0, 5), box(1.3, 1.7, 0.05, PAL.white, 0.2, 1, 0));
-      ship.position.set(x, 0, z); ship.scale.setScalar(k / 1.6); R.sceneryG.add(ship);
+      ship.position.set(x, 0, z); ship.scale.setScalar(k / 1.6); ship.userData.home = [x, z]; R.sceneryG.add(ship); R.sea.boats.push(ship);
     }
     const lh = new THREE.Group(); for (let i = 0; i < 6; i++) lh.add(cyl(0.9 - i * 0.06, 0.9, i % 2 ? 0xc0392b : PAL.white, 0, i * 0.9, 0, 12)); lh.add(cone(0.8, 0.8, 0xc0392b, 0, 5.4, 0, 12), sphere(0.35, 0xfff2b0, 0, 5.2, 0, { emissive: 0xc0a040 }));
     lh.position.set(sea + 2, 0, cz - 26); R.sceneryG.add(lh); // the lighthouse on the point
@@ -1911,6 +1938,46 @@ function bridgeFit(r: RegionId, z0: number, d: number, w?: ReturnType<typeof wor
   }
   return { cx: (x0 + x1) / 2, len: x1 - x0 };
 }
+/** What rises past the top edge of the map, drawn whatever the river does. */
+function buildRidge(R: Rig, sx: number) {
+  const top = MAP.y0, C = (h: number) => new THREE.Color(h);
+  // the mountains: a heightfield along the whole top edge, flat-shaded rock, scrub and snow
+  const xs: number[] = [];
+  const fine = RIDGE[R.region] === 'mesa' || RIDGE[R.region] === 'volcano'; // sheer cliffs and a steep cone need a finer mesh
+  for (let x = MAP.x0 - 60; x <= MAP.x0 + MAP.w + 60; x += fine || Math.abs(x - sx) < 6 ? 0.75 : 1.5) xs.push(x);
+  const ds = [0, 0.3, 0.6, 0.9, 1.0, 1.08, 1.3, 1.6, 2, 2.5, 3, 3.6, 4.3, 5];
+  for (let d = 6; d <= 62; d += fine ? 0.75 : 1.5) ds.push(d);
+  const H = (x: number, d: number) => terrainH(R.region, x, top - d, sx), kind = RIDGE[R.region];
+  const pos: number[] = [], col: number[] = [], c = new THREE.Color();
+  const ROCK = [C(0x9a9283), C(0xa29a8a), C(0x938b7d)], SNOW = C(0xeef1f4), SCRUB = C(0x56703f), MEADOW = C(0x7c8c58), FOOT = C(REGION_GROUND[R.region] ?? 0x88ba5c);
+  const SANDC = C(0xd8c08a), MESATOP = C(0xd9a46a), RED1 = C(0xc97a48), RED2 = C(0xb5623a), ASH = C(0x6e6660), BASALT = C(0x4a4440), JUNGLE = C(0x3f8f3a), JUNGLE2 = C(0x2f7d35), JUNGLE_FLOOR = C(0x4f9c3f), HILL = C(0x86bf56), HILL2 = C(0x5f9a40), HEAD = C(0x9cc068), HEAD2 = C(0x7fae52), CHALK = C(0xe4dcc8);
+  const tri = (a: number[], b: number[], cc: number[]) => {
+    const e1 = new THREE.Vector3(b[0] - a[0], b[1] - a[1], b[2] - a[2]), e2 = new THREE.Vector3(cc[0] - a[0], cc[1] - a[1], cc[2] - a[2]), n = e1.cross(e2).normalize();
+    const ny = Math.abs(n.y), h = (a[1] + b[1] + cc[1]) / 3, r = vh(a[0] * 0.7, a[2] * 0.7);
+    if (kind === 'mesa') { c.copy(h < 0.3 ? SANDC : ny > 0.8 ? MESATOP : Math.floor(h / 1.2) % 2 ? RED1 : RED2); for (const p of [a, b, cc]) { pos.push(p[0], p[1], p[2]); col.push(c.r, c.g, c.b); } return; }
+    if (kind === 'volcano') { c.copy(h > 17 ? (ny > 0.5 ? ASH : BASALT) : h > 9 ? BASALT.clone().lerp(JUNGLE, (17 - h) / 8 * r) : h < 0.35 ? JUNGLE_FLOOR : JUNGLE.clone().lerp(JUNGLE2, r)); for (const p of [a, b, cc]) { pos.push(p[0], p[1], p[2]); col.push(c.r, c.g, c.b); } return; }
+    if (kind === 'hills' || kind === 'headland') { c.copy(ny < 0.42 ? (kind === 'headland' ? CHALK : ROCK[1]) : h < 0.35 ? FOOT : kind === 'headland' ? HEAD.clone().lerp(HEAD2, r) : HILL.clone().lerp(HILL2, r * 0.8 + h / 25)); for (const p of [a, b, cc]) { pos.push(p[0], p[1], p[2]); col.push(c.r, c.g, c.b); } return; }
+    if (h > 13 + 3 * vnoise(a[0] * 0.1, a[2] * 0.1) && ny > 0.45) c.copy(SNOW);
+    else if ((ny < 0.62 && h > 3.8) || ny < 0.4 || h > 10) c.copy(ROCK[Math.floor(r * 3)]); // the low bank at the foot stays grassy; rock starts higher up
+    else if (h < 0.35) c.copy(FOOT);
+    else if (h < 6.5) c.copy(SCRUB).lerp(MEADOW, r * 0.4).lerp(ROCK[1], ny < 0.75 && h > 3.8 ? 0.45 : 0);
+    else c.copy(MEADOW).lerp(ROCK[0], r);
+    for (const p of [a, b, cc]) { pos.push(p[0], p[1], p[2]); col.push(c.r, c.g, c.b); }
+  };
+  for (let j = 0; j < ds.length - 1; j++) for (let i = 0; i < xs.length - 1; i++) {
+    const p = (ii: number, jj: number) => [xs[ii], H(xs[ii], ds[jj]), top - ds[jj]];
+    const a = p(i, j), b = p(i + 1, j), e = p(i, j + 1), f = p(i + 1, j + 1);
+    tri(a, b, e); tri(b, f, e);
+  }
+  const mg = new THREE.BufferGeometry(); mg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); mg.setAttribute('color', new THREE.Float32BufferAttribute(col, 3)); mg.computeVertexNormals();
+  const mtn = new THREE.Mesh(mg, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, flatShading: true, side: THREE.DoubleSide })); mtn.receiveShadow = true; mtn.castShadow = true; R.riverG.add(mtn);
+  if (RIDGE[R.region] === 'volcano') { // a red glow in the crater and smoke drifting off it
+    const [vx, vz] = VOLCANO, lava = mesh(cached('lava', () => new THREE.CircleGeometry(3.4, 14).rotateX(-Math.PI / 2)), mat(0xff6a2a, { emissive: 0xd8401a }), vx, terrainH(R.region, vx, vz, sx) + 0.3, vz, false); R.riverG.add(lava);
+    const smokeG = new THREE.Group(); smokeG.name = 'volcano-smoke'; smokeG.position.set(vx, 24, vz);
+    for (let i = 0; i < 9; i++) { const m = mesh(cached('vsmoke', () => new THREE.IcosahedronGeometry(1, 1)), mat(0x9a948e, { opacity: 0.55 }), 0, i * 1.6, 0, false); m.userData.k = i; smokeG.add(m); }
+    R.riverG.add(smokeG);
+  }
+}
 /** The river: a smooth channel with muddy, pebbly banks, flowing water, a timber bridge, and a waterfall where it leaves a gorge in the mountains along the top of the map. */
 function syncRiver(R: Rig, s: GameState) {
   // redrawn when roads or bridges by the river change, so no pebble, reed or boulder sits on them
@@ -1920,14 +1987,17 @@ function syncRiver(R: Rig, s: GameState) {
   if (R.riverSig === sig) return;
   R.riverSig = sig;
   const onRoad = (x: number, z: number) => paved.has(tileId(Math.floor(x), Math.floor(z)));
-  clear(R.riverG);
+  clear(R.riverG); R.foam = undefined;
+  const sx = riverSource(R.region), top = MAP.y0, C = (h: number) => new THREE.Color(h), falls = RIDGE[R.region] === 'alps';
+  buildRidge(R, sx);
   const line = riverLine(R.region);
   if (line.length < 2) return;
-  const sx = riverSource(R.region), top = MAP.y0, C = (h: number) => new THREE.Color(h);
   // upstream in the gorge, then down the map
   const up: [number, number, number][] = [];
   for (let d = 40; d >= 1.3; d -= 0.7) up.push([gorgeX(sx, d), gorgeFloor(d) + 0.06, top - d]);
-  const down: [number, number, number][] = [[line[0][0], 0, top + 0.6], ...line.filter(([, z]) => z > top + 1).map(([x, z]) => [x, 0, z] as [number, number, number])];
+  const north: [number, number, number][] = []; // no falls: the river comes on in from the north through its valley
+  if (!falls) for (let z = top - 60; z < top + 1; z += 1) north.push([riverXf(R.region, z) + 1, 0, z]);
+  const down: [number, number, number][] = [...(falls ? [[line[0][0], 0, top + 0.6] as [number, number, number]] : north), ...line.filter(([, z]) => z > top + 1).map(([x, z]) => [x, 0, z] as [number, number, number])];
   const W = riverHalf;
   const MUD = C(0x8a7a5a), SAND = C(0xc2ae80), GRASS = C(0x7aa956), SHALLOW = C(0x7cc4cc), DEEP = C(0x4a9bbd);
   const bankProfile = (pts: [number, number, number][]) => (i: number): [number, number, THREE.Color][] => { const w = W(pts[i][2]); return [[-w - 1.1, 0.004, GRASS], [-w - 0.45, 0.008, SAND], [-w + 0.1, 0.01, MUD], [w - 0.1, 0.01, MUD], [w + 0.45, 0.008, SAND], [w + 1.1, 0.004, GRASS]]; };
@@ -1936,7 +2006,7 @@ function syncRiver(R: Rig, s: GameState) {
   const waterMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, flatShading: true }); // flat colour bands, like the rest of the art
   const addStrip = (geo: THREE.BufferGeometry, m: THREE.Material) => { const o = new THREE.Mesh(geo, m); o.receiveShadow = true; R.riverG.add(o); };
   addStrip(strip(down, bankProfile(down)), bankMat); addStrip(strip(down, waterProfile(down, 1)), waterMat);
-  addStrip(strip(up, waterProfile(up, 0.6)), waterMat);
+  if (falls) addStrip(strip(up, waterProfile(up, 0.6)), waterMat);
   // pebbles and reeds along the banks
   const stones: THREE.Matrix4[] = [], reeds: THREE.Matrix4[] = [], q = new THREE.Quaternion(), upV = new THREE.Vector3(0, 1, 0);
   down.forEach(([x, , z], i) => {
@@ -1959,31 +2029,8 @@ function syncRiver(R: Rig, s: GameState) {
     R.riverG.add(box(5.2, 0.12, ROAD_H + 0.2, PAL.wood, bx, 0.06, bz));
     for (const dz of [-ROAD_H / 2 - 0.05, ROAD_H / 2 + 0.05]) { R.riverG.add(box(5.2, 0.06, 0.06, PAL.woodDark, bx, 0.45, bz + dz)); for (let i = -2; i <= 2; i++) R.riverG.add(box(0.08, 0.42, 0.08, PAL.woodDark, bx + i * 1.2, 0.06, bz + dz)); }
   }
-  // the mountains: a heightfield along the whole top edge, flat-shaded rock, scrub and snow
-  const xs: number[] = [];
-  for (let x = MAP.x0 - 60; x <= MAP.x0 + MAP.w + 60; x += Math.abs(x - sx) < 6 ? 0.75 : 1.5) xs.push(x);
-  const ds = [0, 0.3, 0.6, 0.9, 1.0, 1.08, 1.3, 1.6, 2, 2.5, 3, 3.6, 4.3, 5];
-  for (let d = 6; d <= 62; d += 1.5) ds.push(d);
-  const H = (x: number, d: number) => mountainH(x, top - d, sx);
-  const pos: number[] = [], col: number[] = [], c = new THREE.Color();
-  const ROCK = [C(0x9a9283), C(0xa29a8a), C(0x938b7d)], SNOW = C(0xeef1f4), SCRUB = C(0x56703f), MEADOW = C(0x7c8c58), FOOT = C(0x88ba5c);
-  const tri = (a: number[], b: number[], cc: number[]) => {
-    const e1 = new THREE.Vector3(b[0] - a[0], b[1] - a[1], b[2] - a[2]), e2 = new THREE.Vector3(cc[0] - a[0], cc[1] - a[1], cc[2] - a[2]), n = e1.cross(e2).normalize();
-    const ny = Math.abs(n.y), h = (a[1] + b[1] + cc[1]) / 3, r = vh(a[0] * 0.7, a[2] * 0.7);
-    if (h > 13 + 3 * vnoise(a[0] * 0.1, a[2] * 0.1) && ny > 0.45) c.copy(SNOW);
-    else if ((ny < 0.62 && h > 3.8) || ny < 0.4 || h > 10) c.copy(ROCK[Math.floor(r * 3)]); // the low bank at the foot stays grassy; rock starts higher up
-    else if (h < 0.35) c.copy(FOOT);
-    else if (h < 6.5) c.copy(SCRUB).lerp(MEADOW, r * 0.4).lerp(ROCK[1], ny < 0.75 && h > 3.8 ? 0.45 : 0);
-    else c.copy(MEADOW).lerp(ROCK[0], r);
-    for (const p of [a, b, cc]) { pos.push(p[0], p[1], p[2]); col.push(c.r, c.g, c.b); }
-  };
-  for (let j = 0; j < ds.length - 1; j++) for (let i = 0; i < xs.length - 1; i++) {
-    const p = (ii: number, jj: number) => [xs[ii], H(xs[ii], ds[jj]), top - ds[jj]];
-    const a = p(i, j), b = p(i + 1, j), e = p(i, j + 1), f = p(i + 1, j + 1);
-    tri(a, b, e); tri(b, f, e);
-  }
-  const mg = new THREE.BufferGeometry(); mg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); mg.setAttribute('color', new THREE.Float32BufferAttribute(col, 3)); mg.computeVertexNormals();
-  const mtn = new THREE.Mesh(mg, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, flatShading: true, side: THREE.DoubleSide })); mtn.receiveShadow = true; mtn.castShadow = true; R.riverG.add(mtn);
+  const FOAM = mat(0xf4fafb, { rough: 0.9, emissive: 0x3a4446 });
+  if (falls) {
   // the falls: water pouring off the gorge's lip into a foaming pool
   const fallTex = fallsTexture(); fallTex.repeat.set(1, 1.5); R.fall = fallTex;
   const lip = gorgeFloor(1.3) + 0.06, fallPath: [number, number, number][] = [];
@@ -1993,10 +2040,10 @@ function syncRiver(R: Rig, s: GameState) {
   fallPath.forEach(([x, y, z], k) => { for (const [o, u] of [[-1.05, 0], [1.05, 1]]) { fp.push(x + o * (1 + t2(k) * 0.35), y, z); fu.push(u, k / 8); } if (k) fi.push((k - 1) * 2, k * 2, (k - 1) * 2 + 1, (k - 1) * 2 + 1, k * 2, k * 2 + 1); });
   fallGeo.setAttribute('position', new THREE.Float32BufferAttribute(fp, 3)); fallGeo.setAttribute('uv', new THREE.Float32BufferAttribute(fu, 2)); fallGeo.setIndex(fi); fallGeo.computeVertexNormals();
   R.riverG.add(new THREE.Mesh(fallGeo, new THREE.MeshStandardMaterial({ map: fallTex, emissive: 0x52666c, emissiveMap: fallTex, roughness: 0.6, side: THREE.DoubleSide }))); // lit, so it darkens at night like everything else
-  const FOAM = mat(0xf4fafb, { rough: 0.9, emissive: 0x3a4446 });
   const lipFoam = mesh(cached('lipfoam', () => new THREE.BoxGeometry(2.3, 0.18, 0.35)), FOAM, sx, lip + 0.02, top - 1.3, false); R.riverG.add(lipFoam); // white water spilling over the lip
   const pool = mesh(cached('pool', () => new THREE.CircleGeometry(2.2, 10)), new THREE.MeshStandardMaterial({ color: 0x4a9bbd, roughness: 0.7 }), sx, 0.018, top + 0.5, false); pool.rotation.x = -Math.PI / 2; R.riverG.add(pool);
   for (let i = 0; i < 9; i++) { const m = mesh(cached('splash', () => new THREE.IcosahedronGeometry(1, 0)), FOAM, sx - 1.4 + (i % 5) * 0.7, 0.05, top + 0.15 + (i > 4 ? 0.55 : 0) + vh(i, 7) * 0.3, false); m.scale.set(0.4 + vh(i, 9) * 0.25, 0.22, 0.4 + vh(i, 9) * 0.25); m.name = 'mist'; R.riverG.add(m); } // chunky white splash at the foot
+  }
   // rocks in the stream with white water breaking round them
   const ring = cached('foamring2', () => new THREE.RingGeometry(0.3, 0.42, 18).rotateX(-Math.PI / 2)), froth = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.45, depthWrite: false });
   for (let i = 8; i < line.length - 2; i += 13) {
@@ -2005,7 +2052,7 @@ function syncRiver(R: Rig, s: GameState) {
     const rk = mesh(cached('boulder', () => new THREE.DodecahedronGeometry(1, 0)), mat(0x8a847a, { rough: 1 }), x + o, 0, z); rk.scale.set(0.3, 0.2, 0.28); rk.rotation.y = i; R.riverG.add(rk);
     R.riverG.add(mesh(ring, froth, x + o, 0.035, z, false));
   }
-  for (let i = 0; i < 6; i++) { const rk = mesh(cached('boulder', () => new THREE.DodecahedronGeometry(1, 0)), mat(i % 2 ? 0x77716a : 0x8a847a, { rough: 1 }), sx + (i < 3 ? -1 : 1) * (1.9 + (i % 3) * 0.55), 0.15, top + 0.2 + (i % 3) * 0.6); rk.scale.set(0.5 + (i % 3) * 0.15, 0.4 + (i % 2) * 0.2, 0.45); rk.rotation.y = i; R.riverG.add(rk); }
+  if (falls) for (let i = 0; i < 6; i++) { const rk = mesh(cached('boulder', () => new THREE.DodecahedronGeometry(1, 0)), mat(i % 2 ? 0x77716a : 0x8a847a, { rough: 1 }), sx + (i < 3 ? -1 : 1) * (1.9 + (i % 3) * 0.55), 0.15, top + 0.2 + (i % 3) * 0.6); rk.scale.set(0.5 + (i % 3) * 0.15, 0.4 + (i % 2) * 0.2, 0.45); rk.rotation.y = i; R.riverG.add(rk); }
   // foam flecks that drift downstream
   const n = Math.min(480, line.length * 2.4 | 0);
   const im = new THREE.InstancedMesh(cached('foam', () => new THREE.BoxGeometry(0.3, 0.01, 0.08)), FOAM, n);
@@ -2013,6 +2060,15 @@ function syncRiver(R: Rig, s: GameState) {
   R.foam = { im, pts: line, phase: Array.from({ length: n }, (_, i) => vh(i, 300)) };
 }
 function animateRiver(R: Rig, t: number) {
+  if (R.sea && R.sceneryG.visible) { // swells rolling in from the open sea, boats riding them
+    const pos = R.sea.geo.attributes.position as THREE.BufferAttribute, b = R.sea.base;
+    for (let i = 0; i < pos.count; i++) { const x = b[i * 3], z = b[i * 3 + 2]; pos.setY(i, Math.sin(x * 0.55 + t * 1.6) * 0.07 * Math.min(1, x / 4) + Math.sin(z * 0.4 + x * 0.2 + t * 0.9) * 0.05); }
+    pos.needsUpdate = true; R.sea.geo.computeVertexNormals();
+    for (const o of R.sea.boats) { const [hx, hz] = o.userData.home as [number, number]; o.position.y = Math.sin(hx * 0.55 + t * 1.6) * 0.07 + 0.02; o.rotation.z = Math.sin(t * 1.3 + hz) * 0.05; o.rotation.x = Math.sin(t * 1.1 + hx) * 0.03; }
+    for (const f of R.sceneryG.children) if (f.userData.surf !== undefined) { const k = (t * 0.35 + f.userData.surf * 0.37) % 1; f.position.x = SEA_X[R.region]! + 2.6 - k * 1.8; f.scale.x = 1 + k * 2; ((f as THREE.Mesh).material as THREE.MeshStandardMaterial).opacity = 0.8; f.visible = k < 0.9; }
+  }
+  const vs = R.riverG.getObjectByName('volcano-smoke');
+  if (vs) for (const m of vs.children) { const k = (m.userData.k / 9 + t * 0.04) % 1; m.position.set(k * 9, k * 14, -k * 3); m.scale.setScalar(1.2 + k * 3.5); }
   if (!R.foam) return;
   const { im, pts, phase } = R.foam, m = new THREE.Matrix4(), L = pts.length - 1;
   phase.forEach((p0, i) => {
@@ -2348,7 +2404,7 @@ function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el
     if (lot.key.startsWith('community:')) continue; // rows of homes read at a glance; a label on each is just clutter
     const [x, y] = project(lot.x + lot.w / 2, 0, lot.y + lot.d + 0.3);
     if (x < -60 || y < -20 || x > W + 60 || y > H + 20) continue;
-    if (lot.neighbour && lot.key.startsWith('community:')) continue; // a neighbour's homes go unlabelled, like yours in a crowd
+    if (lot.neighbour && lot.key.startsWith('community:') && !lot.name) continue; // a neighbour's homes go unlabelled, like yours in a crowd
     const name = lotName(lot);
     const lvl = lot.service?.size ? shownLevel(lot.service) : Math.max(1, ...lot.buildings.map(shownLevel));
     const noRoad = !lot.neighbour && !hasAccess(s, R.region, lot.place);
