@@ -524,7 +524,8 @@ export function buildLot(type: Lot['type'], w: number, d: number, variant = '', 
     }
     case 'verticalFarm': { // a glass tower: steel frame, floors of its crop under violet grow lights, plant room on the roof
       const crop = variant && variant in GOODS ? parseInt(GOODS[variant as GoodId].color.slice(1), 16) : 0x5faf4a; // the floors show what it grows
-      const floors = [6, 8, 10, 12, 14][level - 1] ?? 6, fw = 1.6, H = floors * 0.567, cx = w / 2, cz = d / 2; // more floors of greens each level
+      const floors = [6, 8, 10, 12, 14][level - 1] ?? 6, fw = Math.max(1.6, Math.min(w, d) - 1.4), H = floors * 0.567, cx = w / 2, cz = d / 2; // more floors of greens each level
+      pad(); // its yard: the whole plot it stands on
       g.add(box(fw + 0.2, 0.08, fw + 0.2, PAL.stoneDark, cx, 0, cz));
       g.add(box(fw, H, fw, 0xa9d4de, cx, 0.08, cz, { opacity: 0.35, rough: 0.1 }));
       for (let i = 0; i < floors; i++) {
@@ -533,6 +534,8 @@ export function buildLot(type: Lot['type'], w: number, d: number, variant = '', 
         const glow = box(fw - 0.2, 0.02, fw - 0.2, 0xc07ae0, cx, y + 0.42, cz, { emissive: 0x6a2a8a }); glow.userData.window = true; g.add(glow);
       }
       for (const [dx, dz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) g.add(box(0.07, H, 0.07, PAL.metalDark, cx + (dx * fw) / 2, 0.08, cz + (dz * fw) / 2));
+      for (let k = 1, n = Math.round(fw / 1.2); k < n; k++) { const o = -fw / 2 + (k * fw) / n; for (const [x, z] of [[cx + o, cz - fw / 2], [cx + o, cz + fw / 2], [cx - fw / 2, cz + o], [cx + fw / 2, cz + o]]) g.add(box(0.05, H, 0.05, PAL.metalDark, x, 0.08, z)); } // a wider tower has more mullions
+      if (w >= 5) g.add(box(1.0, 0.7, 0.6, PAL.white, cx - fw / 2 + 0.5, 0.08, cz + fw / 2 + 0.35), box(0.7, 0.5, 0.03, 0x6a7a86, cx - fw / 2 + 0.5, 0.08, cz + fw / 2 + 0.66)); // a loading bay
       for (let i = 1; i <= floors; i++) g.add(box(fw + 0.04, 0.04, fw + 0.04, PAL.metalDark, cx, 0.08 + i * (H / floors) - 0.02, cz));
       g.add(box(fw + 0.1, 0.1, fw + 0.1, PAL.metalDark, cx, H + 0.08, cz), box(0.7, 0.35, 0.5, PAL.white, cx - 0.3, H + 0.18, cz - 0.3));
       g.add(cyl(0.18, 0.3, PAL.metal, cx + 0.45, H + 0.18, cz + 0.4, 10));

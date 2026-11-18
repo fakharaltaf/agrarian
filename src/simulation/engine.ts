@@ -16,7 +16,7 @@ import { VERTICAL_CROPS, maxLevel, buildingDivision, clamp, debt, factoryCrop, e
 import { coverOf, coverPrice, COVERS } from './agriculture';
 import { FIELD_LEVELS, fieldLevel, fieldUpgradePrice, fieldUpgradeProblem, upgradeField } from './field-levels';
 import { addGoods, canGrow, clearField, fertilizeField, fieldsTick, frostNight, harvestField, isManual, isReady, newField, plantField, spoilageDaily } from './agriculture';
-import { BRIDGE_COST, BRIDGE_GRADES, bridgeAt, bridgePlan, clearOpenPatches, growFarmhouse, groundProblem, wideRoadRoute, BELT_PRICE, beltRoute, beltStretch, buildAs, buildAsOpen, lineBuildPrice, lineBuildTier, roadBuildPrice, liftTracks, riverTiles, chunkAt, COMMERCIAL, type Use, type Zone, reconcileWorld, unlink, accessNote, cutsOff, buyable, chunksIn, connect, placedIn, touch, useOf, buildingUse, INDUSTRY_TO_GROW, WATER_LEVEL, NET_PRICE, NET_TIERS, NET_TOP, linesOf, lineTiles, lineTop, upgradeAllPlan, pipeRoute, pipeStretch, hasWater, isRoad, MAP, ROAD_GRADES, ROAD_H, roadPick, roadTilePrice, tileId, canPlaceNew, LAND_HA_PER_PATCH,  own, ownedSet, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, clearCost, clearedSet, FOOTPRINT, footprintOf, forget, rotOf, turned, MOVE_DOWNTIME, placeNew, placeProblem, plotSide, PROBLEM_TEXT, seedWorld, TIMBER_PER_PATCH, worldOf } from './world';
+import { growInPlace, VERTICAL_SIDE, BRIDGE_COST, BRIDGE_GRADES, bridgeAt, bridgePlan, clearOpenPatches, growFarmhouse, groundProblem, wideRoadRoute, BELT_PRICE, beltRoute, beltStretch, buildAs, buildAsOpen, lineBuildPrice, lineBuildTier, roadBuildPrice, liftTracks, riverTiles, chunkAt, COMMERCIAL, type Use, type Zone, reconcileWorld, unlink, accessNote, cutsOff, buyable, chunksIn, connect, placedIn, touch, useOf, buildingUse, INDUSTRY_TO_GROW, WATER_LEVEL, NET_PRICE, NET_TIERS, NET_TOP, linesOf, lineTiles, lineTop, upgradeAllPlan, pipeRoute, pipeStretch, hasWater, isRoad, MAP, ROAD_GRADES, ROAD_H, roadPick, roadTilePrice, tileId, canPlaceNew, LAND_HA_PER_PATCH,  own, ownedSet, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, clearCost, clearedSet, FOOTPRINT, footprintOf, forget, rotOf, turned, MOVE_DOWNTIME, placeNew, placeProblem, plotSide, PROBLEM_TEXT, seedWorld, TIMBER_PER_PATCH, worldOf } from './world';
 import { buyAnimals, livestockDaily, sellAnimals } from './livestock';
 import { claimDaily, startDay } from './daily';
 import { createMarkets, drawWeather, executeBuy, executeSell, quoteBuy, macroDaily, marketsDaily, marketsTick, priceFromInv } from './markets';
@@ -1199,8 +1199,11 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       const power = upgradeNeedsPower(s, b);
       if (power) return fail(`${BUILDINGS[b.type].name}s grow only on the farm's own power. ${power}`);
       if (cost > s.cash) return fail(`Upgrading costs $${Math.round(cost).toLocaleString()}.`);
-      post(s, 'building', -cost, `Upgrade ${BUILDINGS[b.type].name} to level ${b.level + 1}`, b.region, buildingDivision(b.type));
-      b.level++;
+      const next = b.level + 1;
+      if (b.type === 'verticalFarm' && !growInPlace(s, b.region, `b:${b.id}`, () => (b.level = next), () => (b.level = next - 1))) // it spreads over the ground around it
+        return fail(`A level-${next} vertical farm covers ${VERTICAL_SIDE[next - 1]}×${VERTICAL_SIDE[next - 1]} tiles: clear the ground around it, or move it somewhere roomier.`);
+      post(s, 'building', -cost, `Upgrade ${BUILDINGS[b.type].name} to level ${next}`, b.region, buildingDivision(b.type));
+      b.level = next;
       b.cost += cost;
       // a bigger factory runs on whatever powers the farm, and that shapes its character
       if (!s.legacyProgression && FOOD_FACTORY.has(b.type)) {

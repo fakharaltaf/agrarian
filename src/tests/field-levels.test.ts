@@ -153,3 +153,21 @@ it('A horse cart in the yard sells for half a new one; one on the road keeps its
   expect(H.trips[0].vehicle).toBe('horse:0'); // the cart on the road is still counted busy
   expect(dispatch(s, { type: 'sellHorseCart' }).ok).toBe(false); // the last one is out on the road
 });
+
+it('A vertical farm spreads over more ground at each level, or refuses when hemmed in', async () => {
+  const { footprintOf, worldOf } = await import('../simulation/world');
+  const s = ready();
+  research(s, 'verticalFarming');
+  dispatch(s, { type: 'build', region: 'heartland', building: 'verticalFarm' });
+  const vf = s.buildings.find((b) => b.type === 'verticalFarm')!, key = `b:${vf.id}`;
+  expect(footprintOf(s, key)).toEqual({ w: 3, d: 3 });
+  expect(dispatch(s, { type: 'upgradeBuilding', buildingId: vf.id }).ok).toBe(true);
+  expect(footprintOf(s, key)).toEqual({ w: 4, d: 4 });
+  // hem it in: claim the ground all round it for a field, then it cannot grow and nothing is charged
+  const p = worldOf(s, 'heartland').pos[key]!;
+  const blocked = structuredClone(s);
+  blocked.world!.heartland!.pos['field:' + blocked.fields[0].id] = [p[0] - 2, p[1] - 2];
+  const before = blocked.cash, r = dispatch(blocked, { type: 'upgradeBuilding', buildingId: vf.id });
+  if (!r.ok) { expect(blocked.cash).toBe(before); expect(blocked.buildings.find((b) => b.id === vf.id)!.level).toBe(2); expect(footprintOf(blocked, key)).toEqual({ w: 4, d: 4 }); }
+  else expect(footprintOf(blocked, key)).toEqual({ w: 5, d: 5 }); // found a spot round the field
+});

@@ -10,7 +10,7 @@ import { svcSide } from '../../simulation/town-state';
 import { townOf } from '../../simulation/town-state';
 import { communityOf } from '../../simulation/community-state';
 import { CONFIG } from '../../simulation/config';
-import { FOOTPRINT, HOME_BLOCKS, MAP, ROAD_Y, findSpot, placeProblem, plotSide, worldOf } from '../../simulation/world';
+import { baseFootprint, FOOTPRINT, HOME_BLOCKS, MAP, ROAD_Y, findSpot, placeProblem, plotSide, worldOf } from '../../simulation/world';
 
 /** Where each region's for-sale sign stands: it stays put until something is built on its spot. */
 const saleSpot = new Map<RegionId, [number, number]>();
@@ -42,7 +42,7 @@ export function layoutRegion(s: GameState, r: RegionId): Layout {
     add('crew', 'crew', 'house', []);
     add('office', 'office', 'house', []);
   }
-  for (const b of s.buildings) if (b.region === r && BUILDINGS[b.type]) add(`b:${b.id}`, `b:${b.id}`, b.type, [b], b.span ? { w: b.span[0], d: b.span[1] } : {});
+  for (const b of s.buildings) if (b.region === r && BUILDINGS[b.type]) add(`b:${b.id}`, `b:${b.id}`, b.type, [b], (() => { const f = baseFootprint(s, `b:${b.id}`); return f ? { w: f.w, d: f.d } : {}; })()); // as built: merged spans, a vertical farm's level
   if (r === 'heartland' && communityOf(s).active) {
     for (const home of communityOf(s).homes) {
       const p = at(`home:${home.id}`);

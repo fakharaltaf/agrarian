@@ -48,7 +48,7 @@ export type WorldState = Partial<Record<RegionId, RegionWorld>>;
 export const FOOTPRINT: Record<BuildingType | 'house' | 'shed', [number, number]> = {
   house: [3, 3], shed: [2, 2], barn: [3, 2], silo: [2, 2], coldStore: [3, 2], warehouse: [5, 3], oilTank: [3, 3], flourMill: [2, 2], bakery: [2, 2],
   feedMill: [3, 2], ranch: [5, 4], dairy: [5, 3], creamery: [3, 2], oilPress: [3, 2], sugarMill: [3, 2], biogas: [3, 3], solar: [5, 3],
-  verticalFarm: [2, 2], windTurbine: [2, 2], oilWell: [2, 2], refinery: [12, 8], distribution: [5, 3], lab: [3, 2], lab2: [4, 3], coop: [3, 3], pigsty: [4, 3], cowshed: [5, 4], sheepfold: [5, 4], winery: [3, 3],
+  verticalFarm: [3, 3], windTurbine: [2, 2], oilWell: [2, 2], refinery: [12, 8], distribution: [5, 3], lab: [3, 2], lab2: [4, 3], coop: [3, 3], pigsty: [4, 3], cowshed: [5, 4], sheepfold: [5, 4], winery: [3, 3],
 };
 /** A field's side in tiles: 1 ha = 2×2 tiles, growing with hectares but capped at 16×16 from 64 ha, so a bigger field packs more hectares into the same ground (the reason to buy one). Past 100 ha it grows again, slowly: 500 ha is 30×30. */
 export const plotSide = (ha: number) => Math.max(2, ha > 100 ? Math.round(16 + (Math.min(ha, 500) - 100) * 14 / 400) : Math.min(16, Math.round(2 * Math.sqrt(ha))));
@@ -129,7 +129,7 @@ export function footprintOf(s: GameState, key: string): Footprint | null {
 export function baseFootprint(s: GameState, key: string): Footprint | null {
   const [kind, id] = key.split(':');
   if (kind === 'field') { const f = s.fields.find((x) => x.id === +id); return f ? { w: plotSide(f.ha), d: plotSide(f.ha) } : null; }
-  if (kind === 'b') { const b = s.buildings.find((x) => x.id === +id); if (!b) return null; const [w, d] = b.span ?? FOOTPRINT[b.type]; return { w, d }; }
+  if (kind === 'b') { const b = s.buildings.find((x) => x.id === +id); if (!b) return null; const [w, d] = b.span ?? (b.type === 'verticalFarm' ? [VERTICAL_SIDE[Math.max(0, Math.min(4, b.level - 1))], VERTICAL_SIDE[Math.max(0, Math.min(4, b.level - 1))]] : FOOTPRINT[b.type]); return { w, d }; }
   if (kind === 'home') { const h = (s.stageState.settlement?.homes as CommunityHome[] | undefined)?.find((x) => x.id === +id); return h ? homeFootprint(h) : null; }
   if (kind === 'svc') { const z = (s.stageState.town as { services?: { id: number; size?: number }[] } | undefined)?.services?.find((x) => x.id === +id)?.size ?? 1, n = z >= 4 ? 15 : z === 2 ? 7 : 3; return { w: n, d: n }; }
   if (key === 'farmhouse') { const n = s.farmhouseSide ?? 3; return { w: n, d: n }; }
@@ -664,6 +664,27 @@ function pipeGround(s: GameState, r: RegionId, kind: NetKind) {
 /** The farmhouse grows with each chapter: 3×3 for the homestead up to 6×6 for the City's mansion. */
 export const FARMHOUSE_SIDE = [3, 3, 4, 4, 5, 5, 6];
 /** Grow the farmhouse to its chapter's size where there is room: on its own ground first, else spreading back and to the side. Returns true if it grew. */
+/** A vertical farm spreads as it climbs: a 3×3 tower at level 1 to a 7×7 complex at level 5 (still far smaller than the fields it replaces). */
+export const VERTICAL_SIDE = [3, 4, 5, 6, 7];
+/** Room for something that grows on the spot: `grow` makes its footprint bigger, and the new ground must cover the old, centred as nearly as it can be.
+ *  Tracks in the way are lifted and laid again round it. When nothing fits, `shrink` puts it back and nothing has changed. */
+export function growInPlace(s: GameState, r: RegionId, key: string, grow: () => void, shrink: () => void): boolean {
+  const w = worldOf(s, r), p = w.pos[key], old = footprintOf(s, key);
+  if (!p || !old) return false;
+  grow();
+  const now = footprintOf(s, key)!, dw = now.w - old.w, dd = now.d - old.d, tries: [number, number][] = [];
+  for (let dy = -dd; dy <= 0; dy++) for (let dx = -dw; dx <= 0; dx++) tries.push([dx, dy]);
+  tries.sort((a, b) => Math.abs(a[0] + dw / 2) + Math.abs(a[1] + dd / 2) - (Math.abs(b[0] + dw / 2) + Math.abs(b[1] + dd / 2)));
+  for (const [dx, dy] of tries) {
+    const x = p[0] + dx, y = p[1] + dy, snap = structuredClone({ roads: w.roads, links: w.links });
+    const lifted = liftTracks(s, r, x, y, now.w, now.d);
+    if (placeProblem(s, r, x, y, now, key)) { w.roads = snap.roads; w.links = snap.links; touch(w); continue; }
+    w.pos[key] = [x, y]; touch(w); connect(s, r, key); for (const k of lifted) if (w.pos[k] && k !== key) connect(s, r, k);
+    return true;
+  }
+  shrink();
+  return false;
+}
 export function growFarmhouse(s: GameState, tier: number) {
   const w = worldOf(s, 'heartland'), p = w.pos.farmhouse, now = s.farmhouseSide ?? 3, want = FARMHOUSE_SIDE[Math.max(0, Math.min(6, tier - 1))];
   if (!p || want <= now) return false;
