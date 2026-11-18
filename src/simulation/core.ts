@@ -228,17 +228,18 @@ export const severity = (s: GameState, kind: EventKind, r?: RegionId, g?: GoodId
 // ---------------------------------------------------------------- dedicated supply
 
 /** The crop a factory takes in, if fields can grow it for that factory. */
-/** Food factories and vertical farms double with each level, so a level-N line keeps up with a level-N farm. */
-export const GROWS_X2: ReadonlySet<string> = new Set(['flourMill', 'bakery', 'feedMill', 'ranch', 'dairy', 'creamery', 'oilPress', 'sugarMill', 'winery', 'verticalFarm']);
+/** Food factories double with each level, so a level-N line keeps up with a level-N farm. */
+export const GROWS_X2: ReadonlySet<string> = new Set(['flourMill', 'bakery', 'feedMill', 'ranch', 'dairy', 'creamery', 'oilPress', 'sugarMill', 'winery']);
 /** What a vertical farm can grow: greens, or an annual field crop. */
 export const VERTICAL_CROPS: GoodId[] = ['greens', 'wheat', 'corn', 'potatoes', 'soybeans', 'rice'];
-/** Any crop a vertical farm grows is worth the same per batch at base prices, so the choice is about what you need, not a hidden best answer. */
-const VERTICAL_BATCH_VALUE = 120;
+/** A batch of greens is worth $120 at base prices; staples grown under lights come to half that, so they lose money on grid power
+ *  and only break even on your own surplus: a way to feed your mills when land runs out, not a money machine. */
+const VERTICAL_BATCH_VALUE = 120, STAPLE_SHARE = 0.5;
 /** A building's recipe: a vertical farm's output is its chosen crop. */
 export function recipeOf(b: { type: Building['type']; grows?: GoodId }) {
   const rec = BUILDINGS[b.type].recipe;
   if (b.type !== 'verticalFarm' || !rec || !b.grows || b.grows === 'greens') return rec;
-  return { ...rec, outputs: { [b.grows]: Math.round(VERTICAL_BATCH_VALUE / GOODS[b.grows].basePrice) } as Partial<Record<GoodId, number>> };
+  return { ...rec, outputs: { [b.grows]: Math.round((VERTICAL_BATCH_VALUE * STAPLE_SHARE) / GOODS[b.grows].basePrice) } as Partial<Record<GoodId, number>> };
 }
 export const factoryCrop = (b: Building): CropId | null => {
   const ins = Object.keys(BUILDINGS[b.type].recipe?.inputs ?? {}) as GoodId[];

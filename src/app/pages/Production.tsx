@@ -189,7 +189,7 @@ function BuildCard({ s }: { s: GameState }) {
         </dl>
         {d.recipe && e.breakEven > 1 && <div className="callout bad">At today's {REGIONS[r].name} prices this facility loses money even at full capacity.</div>}
         {t === 'distribution' && <p className="explain">{retailChannel(s,r)>0?`A ${pct0(retailChannel(s,r))} channel already runs here; another level-one centre adds no premium.`:`Adds 12% to processed sales. Staff breaks even at ${money(e.staff/.12)}/h in base processed sales.`}</p>}
-        {t === 'verticalFarm' && <p className="small muted">Power comes from your own solar, wind or biogas first (surplus is otherwise sold at half price), then the grid at {price(e.elec)}/kWh. On the grid it pays thinly; on your own surplus far better.</p>}
+        {t === 'verticalFarm' && <p className="small muted">Power comes from your own solar, wind or biogas first (surplus is otherwise sold at half price), then the grid at {price(e.elec)}/kWh. {grows && grows !== 'greens' ? ' Staples under lights cost about what they are worth: on the grid they lose money, on your own surplus they roughly break even. Grow them to feed your mills when land runs out.' : ' Greens pay thinly on the grid and better on your own surplus.'}</p>}
         {d.recipe && (has(s, 'processEfficiency') || has(s, 'foodTech')) && (
           <p className="small muted">Included: {[has(s, 'processEfficiency') && 'Process efficiency +10% output', has(s, 'foodTech') && 'Low-energy food tech −30% kWh'].filter(Boolean).join(' · ')}.</p>
         )}
