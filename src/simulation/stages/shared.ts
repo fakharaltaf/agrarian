@@ -19,7 +19,7 @@ export const oilOpen = (s: GameState) => s.legacyProgression ? s.era >= 4
   : LATER.has(s.stageId) || (s.stageId === 'industry' && (workingFactories(s) >= 2 || s.buildings.some((b) => b.type === 'oilWell')));
 /** Why a food production house cannot grow past its first level yet: it needs the farm's own energy. Null when it may. */
 export const upgradeNeedsPower = (s: GameState, b: { type: string }) => {
-  if (s.legacyProgression || !FOOD_FACTORY.has(b.type)) return null;
+  if (s.legacyProgression || !(FOOD_FACTORY.has(b.type) || b.type === 'verticalFarm')) return null;
   const m = energyMix(s);
   return m.oil + m.clean ? null : 'Needs your own power: drill for oil, or build a wind turbine, solar farm or biogas plant.';
 };

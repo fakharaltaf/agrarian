@@ -4,8 +4,9 @@ import { townIndustryFactor } from './town-state';
 // Production-line economics for the UI: one source of truth for what a group of same-type
 // facilities in a region earns per day, what pausing it really saves, the prices it needs
 // to break even, and whether upgrading would pay. Everything is valued at today's prices.
-import { BUILDINGS, CONFIG, COWS_PER_DAIRY_BATCH, REGIONS, SUNRISE, SUNSET, type BuildingType, type GoodId, type RegionId } from './config';
-import { buildingDivision, electricityPrice, execOn, has, levelMult, priceUsd } from './core';
+import { CROPS, BUILDINGS, CONFIG, COWS_PER_DAIRY_BATCH, REGIONS, SUNRISE, SUNSET, type BuildingType, type GoodId, type RegionId } from './config';
+import { buildingDivision, electricityPrice, execOn, has, levelMult, priceUsd, recipeOf, throughput } from './core';
+import { expectedYield } from './agriculture';
 import { upgradeCost } from './engine';
 import type { Building, GameState } from './types';
 
@@ -40,8 +41,7 @@ function cowsheds(s: GameState, r: RegionId) {
   return { count: h?.count ?? 0, yieldK: h ? h.health * h.fed : 1 };
 }
 
-function econOf(s: GameState, t: BuildingType, r: RegionId, units: Unit[]): LineEcon {
-  const rec = BUILDINGS[t].recipe!;
+function econOf(s: GameState, t: BuildingType, r: RegionId, units: Unit[], rec = BUILDINGS[t].recipe!): LineEcon {
   const p = (g: GoodId) => dayPrice(s, r, g);
   const elec = electricityPrice(s, r);
   const batches = units.reduce((a, u) => a + u.bph, 0) * 24; // per day
@@ -79,7 +79,7 @@ function capByCows(s: GameState, t: BuildingType, r: RegionId, us: Unit[]): Unit
 /** The line at its current pace (smoothed batches), or, if `full`, flat out with every unit running. */
 export function lineEcon(s: GameState, list: Building[], full = false): LineEcon {
   const t = list[0].type, r = list[0].region;
-  return econOf(s, t, r, full ? capByCows(s, t, r, units(s, list, true)) : units(s, list));
+  return econOf(s, t, r, full ? capByCows(s, t, r, units(s, list, true)) : units(s, list), recipeOf(list[0]));
 }
 
 export interface Target { good: GoodId; side: 'sell' | 'buy'; now: number; need: number; change: number }
@@ -115,7 +115,7 @@ export function upgradeOutlook(s: GameState, list: Building[]): Upgrade | null {
     const L = (b.level || 1) < 3 ? (b.level || 1) + 1 : b.level || 1;
     return { level: L, bph: b.stats.out * (levelMult(L) / levelMult(b.level)) };
   }));
-  const worthAfter = econOf(s, t, r, after).worth;
+  const worthAfter = econOf(s, t, r, after, recipeOf(list[0])).worth;
   const blocked = t === 'dairy' && after.reduce((a, u) => a + u.bph, 0) < list.filter((b) => b.active).reduce((a, b) => a + b.stats.out * levelMult(Math.min(3, (b.level || 1) + 1)) / levelMult(b.level), 0) - 1e-6
     ? 'You would need more cows to fill the bigger dairy.' : undefined;
   return { cost, worthAfter, gain: worthAfter - now, level, blocked };
@@ -143,4 +143,21 @@ export function facilityUpgrade(s: GameState, list: Building[]): FacilityUpgrade
   return {cost,ids:candidates.map(b=>b.id),level,extraStaff,extraKwh,
     conservativeGain:type==='solar'?extraKwh*electricityPrice(s,r)*.5-extraStaff:null,
     rateBefore,rateAfter,extraBaseSales:rateAfter>rateBefore?extraStaff/(rateAfter-rateBefore):null};
+}
+
+/** A good's daily supply and demand in a region at full pace: what fields growing or planned for it and your
+ *  buildings make, and what your running buildings use flat out (plus `extra` new ones at level 1). Fields count at today's conditions. */
+export function goodBalance(s: GameState, r: RegionId, g: GoodId, extra?: { type: BuildingType; n: number }) {
+  let grown = 0, used = 0, fields = 0;
+  if (g in CROPS) for (const f of s.fields) if (f.region === r && (f.crop ?? f.plan) === g) { grown += (expectedYield(s, f, g as keyof typeof CROPS) * 24) / CROPS[g as keyof typeof CROPS].growthTicks; fields++; }
+  const pace = (b: { type: BuildingType; level: number; size?: number }) => BUILDINGS[b.type].recipe!.batchesPerHour * throughput(b) * townIndustryFactor(s, r) * 24;
+  for (const b of s.buildings) {
+    if (b.region !== r || !b.active) continue;
+    const rec = recipeOf(b);
+    if (!rec) continue;
+    grown += (rec.outputs[g] ?? 0) * outMult(s) * pace(b);
+    used += (rec.inputs[g] ?? 0) * pace(b);
+  }
+  if (extra) used += (BUILDINGS[extra.type].recipe?.inputs[g] ?? 0) * pace({ type: extra.type, level: 1 }) * extra.n;
+  return { grown, used, fields };
 }

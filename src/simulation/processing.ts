@@ -6,7 +6,7 @@ import { larderReserve } from './stages/settlement';
 // Factories, energy and building upkeep. One production model for every industry:
 // batches = min(capacity, scarcest input, output room, power) — Leontief, like a real line.
 import { BUILDINGS, COWS_PER_DAIRY_BATCH, FACTORY_GOODS, GOODS, REGIONS, REGION_IDS, SUNRISE, SUNSET, type GoodId, type RegionId } from './config';
-import { buildingDivision, clamp, electricityPrice, execOn, freeSpace, has, hour, levelMult, throughput, post, priceUsd, round2, reserveCap, reservedStock, severity , sizeStaff , sizeOutput } from './core';
+import { buildingDivision, clamp, electricityPrice, factoryCrop, recipeOf, execOn, freeSpace, has, hour, levelMult, throughput, post, priceUsd, round2, reserveCap, reservedStock, severity , sizeStaff , sizeOutput } from './core';
 import { addGoods } from './agriculture';
 import { avg30 } from './markets';
 import { drawOil, wellField } from './oil';
@@ -79,8 +79,7 @@ export function buildingsTick(s: GameState) {
 
 /** Runs one factory hour; returns cows milked and actual electricity generated. */
 function produce(s: GameState, b: Building, staff: number, cows = 0) {
-  const def = BUILDINGS[b.type];
-  const rec = def.recipe!;
+  const rec = recipeOf(b)!;
   const reg = s.regions[b.region];
   const inv = reg.inventory;
   const cap = rec.batchesPerHour * throughput(b) * townIndustryFactor(s, b.region);
@@ -138,8 +137,10 @@ function produce(s: GameState, b: Building, staff: number, cows = 0) {
     }
     inCost += q * batches * (s.markets[b.region][g] ? avg30(s, b.region, g) : priceUsd(s, b.region, g)); // inputs at their 30-day average, so a line's verdict does not flip red and green with each day's crop price
   }
+  const before = Object.fromEntries(Object.keys(rec.outputs).map((g) => [g, inv[g as GoodId]]));
   for (const [g, q] of Object.entries(rec.outputs) as [GoodId, number][]) {
     addGoods(s, b.region, g, q * outMult * batches, quality);
+    if (b.type === 'verticalFarm') holdForMills(s, b, g, inv[g] - (before[g] ?? 0));
     s.stats.produced[g] = (s.stats.produced[g] ?? 0) + q * outMult * batches;
     if (oil && g === 'oil') drawOil(s, b, q * outMult * batches);
     if (FACTORY_GOODS.has(g)) s.stats.factoryMade = (s.stats.factoryMade ?? 0) + q * outMult * batches * priceUsd(s, b.region, g); // Industry's goal: what your production houses make (not what animals give)
@@ -161,6 +162,12 @@ function produce(s: GameState, b: Building, staff: number, cows = 0) {
   st.outValue = st.outValue * (1 - EMA) + outValue * EMA;
   st.opCost = st.opCost * (1 - EMA) + opCost * EMA;
   return {cows:b.type === 'dairy'?batches*COWS_PER_DAIRY_BATCH:0,generated:Math.max(0,-kwh)};
+}
+
+/** A vertical farm's grain is held for your own mills that take it, as a dedicated field's harvest is, emptiest first. */
+function holdForMills(s: GameState, b: Building, g: GoodId, got: number) {
+  const mills = s.buildings.filter((m) => m.region === b.region && m.active && factoryCrop(m) === g).sort((x, y) => x.reserved / reserveCap(x) - y.reserved / reserveCap(y));
+  for (const m of mills) { if (got <= 0) break; const take = Math.min(got, reserveCap(m) - m.reserved); if (take > 0) { m.reserved += take; got -= take; } }
 }
 
 /** Hourly operating margin at market prices (inputs valued at what you could have sold them for). */

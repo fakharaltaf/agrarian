@@ -12,8 +12,9 @@ import { idleMachine, machineSaleValue } from './operations';
 import {
   BUILDINGS, CONFIG, CROPS, GOODS, GOOD_IDS, MACHINES, PERKS, REGIONS, REGION_IDS, TECH, TICKS_PER_DAY, type CropId, type GoodId, type RegionId,
 } from './config';
-import { buildingDivision, clamp, debt, factoryCrop, equity, freeSpace, has, known, log, marketWage, nextId, post, random, round2, todayBook, lean } from './core';
+import { VERTICAL_CROPS, buildingDivision, clamp, debt, factoryCrop, equity, freeSpace, has, known, log, marketWage, nextId, post, random, round2, todayBook, lean } from './core';
 import { coverOf, coverPrice, COVERS } from './agriculture';
+import { FIELD_LEVELS, fieldLevel, fieldUpgradePrice, fieldUpgradeProblem } from './field-levels';
 import { addGoods, canGrow, clearField, fertilizeField, fieldsTick, frostNight, harvestField, isManual, isReady, newField, plantField, spoilageDaily } from './agriculture';
 import { BRIDGE_COST, BRIDGE_GRADES, bridgeAt, bridgePlan, clearOpenPatches, growFarmhouse, groundProblem, wideRoadRoute, BELT_PRICE, beltRoute, beltStretch, buildAs, buildAsOpen, lineBuildPrice, lineBuildTier, roadBuildPrice, liftTracks, riverTiles, chunkAt, COMMERCIAL, type Use, type Zone, reconcileWorld, unlink, accessNote, cutsOff, buyable, chunksIn, connect, placedIn, touch, useOf, buildingUse, INDUSTRY_TO_GROW, WATER_LEVEL, NET_PRICE, NET_TIERS, NET_TOP, linesOf, lineTiles, lineTop, upgradeAllPlan, pipeRoute, pipeStretch, hasWater, isRoad, MAP, ROAD_GRADES, ROAD_H, roadPick, roadTilePrice, tileId, canPlaceNew, LAND_HA_PER_PATCH,  own, ownedSet, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, clearCost, clearedSet, FOOTPRINT, footprintOf, forget, rotOf, turned, MOVE_DOWNTIME, placeNew, placeProblem, plotSide, PROBLEM_TEXT, seedWorld, TIMBER_PER_PATCH, worldOf } from './world';
 import { buyAnimals, livestockDaily, sellAnimals } from './livestock';
@@ -184,7 +185,7 @@ export function anotherOf(s: GameState, key: string): { first: Action; up: (id: 
   if (k === 'b') {
     const b = s.buildings.find((x) => x.id === id);
     if (!b || b.type === 'oilWell') return null;
-    return { first: { type: 'build', region: b.region, building: b.type, count: 1 }, up: (n) => ({ type: 'upgradeBuilding', buildingId: n }), levels: (b.level || 1) - 1, newest: (c) => c.buildings[c.buildings.length - 1].id };
+    return { first: { type: 'build', region: b.region, building: b.type, count: 1, ...(b.grows ? { grows: b.grows } : {}) }, up: (n) => ({ type: 'upgradeBuilding', buildingId: n }), levels: (b.level || 1) - 1, newest: (c) => c.buildings[c.buildings.length - 1].id };
   }
   if (k === 'svc') {
     const v = townOf(s).services.find((x) => x.id === id);
@@ -214,6 +215,8 @@ export function anotherQuote(s: GameState, key: string): { price: number; why?: 
   const r = runAnother(c, plan);
   return { price: Math.round(rich - c.cash), why: r.ok ? undefined : r.error };
 }
+/** A crop a vertical farm may grow: greens, or an annual crop the farm has unlocked. */
+const growable = (s: GameState, g: GoodId) => VERTICAL_CROPS.includes(g) && (g === 'greens' || s.unlockedCrops.includes(g as CropId));
 /** How many of a building the farm's free land holds, up to n: the build itself, run on a copy with deep pockets. */
 export function landFits(s: GameState, t: keyof typeof BUILDINGS, r: RegionId, n: number): number {
   const c = structuredClone(s);
@@ -400,6 +403,21 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       }
       return errs.length === a.fieldIds.length ? fail(errs[0] ?? 'Nothing fertilised.') : ok(errs.length ? `${errs.length} field(s) skipped: ${errs[0]}` : undefined);
     }
+    case 'upgradeField': {
+      const fs = a.fieldIds.map((id) => field(s, id)).filter(Boolean) as Field[];
+      const can = fs.filter((f) => !fieldUpgradeProblem(s, f));
+      if (!can.length) return fail(fs.length ? fieldUpgradeProblem(s, fs[0])! : 'No such field.');
+      const cost = can.reduce((n, f) => n + fieldUpgradePrice(s, f), 0);
+      if (cost > s.cash) return fail(`Upgrading ${can.length === 1 ? 'the field' : `${can.length} fields`} costs $${cost.toLocaleString()}.`);
+      for (const f of can) {
+        const price = fieldUpgradePrice(s, f);
+        post(s, 'building', -price, `Field ${f.id} → ${FIELD_LEVELS[fieldLevel(f)].name.toLowerCase()}`, f.region);
+        f.cost += price; // part of the land's book value
+        f.level = fieldLevel(f) + 1;
+      }
+      const skipped = fs.length - can.length;
+      return ok(`${can.length === 1 ? `Field ${can[0].id} is now an ${FIELD_LEVELS[fieldLevel(can[0]) - 1].name.toLowerCase()}` : `${can.length} fields upgraded`}.${skipped ? ` ${skipped} could not be: ${fieldUpgradeProblem(s, fs.find((f) => !can.includes(f))!)}` : ''}`);
+    }
     case 'irrigate': {
       if (!featureEra(s, 2)) return fail('Irrigation is not available yet.');
       const fs = a.fieldIds.map((id) => field(s, id)).filter((f) => f && !f.irrigated) as NonNullable<ReturnType<typeof field>>[];
@@ -568,6 +586,13 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       service(s, m);
       return ok();
     }
+    case 'setGrows': {
+      const b = s.buildings.find((x) => x.id === a.buildingId);
+      if (!b || b.type !== 'verticalFarm') return fail('Only a vertical farm can change what it grows.');
+      if (!growable(s, a.grows)) return fail('A vertical farm grows greens, grain, potatoes, soybeans or rice you have unlocked.');
+      if (a.grows === 'greens') delete b.grows; else b.grows = a.grows;
+      return ok(`It now grows ${GOODS[a.grows].name.toLowerCase()}.`);
+    }
     case 'addAnother': {
       const plan = anotherOf(s, a.key);
       if (!plan) return fail('This one cannot be copied.');
@@ -588,6 +613,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       if (a.building === 'cowshed' && !(s.legacyProgression ? s.era >= 3 : stageAtLeast(s, 'farm-business'))) return fail('Cowsheds arrive with the Farm Business chapter.');
       const n = a.count ?? 1;
       if (!Number.isInteger(n) || n < 1 || n > 50) return fail('Build between 1 and 50 at a time.');
+      if (a.grows && (a.building !== 'verticalFarm' || !growable(s, a.grows))) return fail('A vertical farm grows greens, grain, potatoes, soybeans or rice you have unlocked.');
       const price = buildingPrice(s, a.building, a.region);
       if (price * n > s.cash) return fail(`Costs $${(price * n).toLocaleString()}.`);
       if (a.at && n > 1) return fail('Place buildings one at a time.');
@@ -597,7 +623,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       let built = 0;
       for (let i = 0; i < n; i++) {
         const id = nextId(s);
-        s.buildings.push({ id, type: a.building, region: a.region, active: true, level: 1, cost: price, depreciated: 0, util: 0, reserved: 0, reason: '', productionReport: emptyProductionReport(), stats: { out: 0, inCost: 0, outValue: 0, opCost: 0 } });
+        s.buildings.push({ id, type: a.building, region: a.region, ...(a.grows && a.grows !== 'greens' ? { grows: a.grows } : {}), active: true, level: 1, cost: price, depreciated: 0, util: 0, reserved: 0, reason: '', productionReport: emptyProductionReport(), stats: { out: 0, inCost: 0, outValue: 0, opCost: 0 } });
         const placed = placeNew(s, a.region, `b:${id}`, a.at, a.rot);
         if (placed) { s.buildings.pop(); if (!i) return fail(placed); log(s, 'warning', `Only ${i} ${d.name.toLowerCase()}s fitted. Clear forest to make room for more.`, 'farm'); break; }
         post(s, 'building', -price, d.name, a.region);

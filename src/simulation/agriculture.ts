@@ -78,9 +78,10 @@ export const timingFactor = (s: GameState, f: Field) => {
 };
 
 /** Forecast for a field if planted now under current conditions (used by UI and managers). */
+import { levelOfField } from './field-levels';
 export function expectedYield(s: GameState, f: Field, c: CropId) {
   const base = f.ha * CONFIG.seedsPerHa * CROPS[c].yieldPerSeed;
-  return base * soilFactor(f, c) * waterFactor(s, f, c) * tempFactor(s, f, c) * techFactor(s) * (REGIONS[f.region].suitability[c] ?? 0) * (1 - 0.6 * f.pest) * (1 - f.frost) * ageFactor(s, f, c);
+  return base * soilFactor(f, c) * waterFactor(s, f, c) * tempFactor(s, f, c) * techFactor(s) * (REGIONS[f.region].suitability[c] ?? 0) * (1 - 0.6 * f.pest) * (1 - f.frost) * ageFactor(s, f, c) * levelOfField(f).yield;
 }
 
 /** Old orchards bear less: full yield until two years before the end of their life, then a decline to 40%. */
@@ -139,18 +140,19 @@ export function harvestField(s: GameState, f: Field, bruise = 0): HarvestBreakdo
     weather: f.acc.temp / n || tempFactor(s, f, c),
     pest: 1 - 0.6 * f.pest,
     tech: techFactor(s),
+    level: levelOfField(f).yield,
     suitability: REGIONS[f.region].suitability[c] ?? 0,
     timing: timingFactor(s, f) * ageFactor(s, f, c),
     frost: 1 - f.frost,
     quality: 0,
   };
-  b.units = Math.max(0, Math.round(b.base * b.soil * b.water * b.weather * b.pest * b.tech * b.suitability * b.timing * b.frost));
+  b.units = Math.max(0, Math.round(b.base * b.soil * b.water * b.weather * b.pest * b.tech * (b.level ?? 1) * b.suitability * b.timing * b.frost));
   // Quality: good soil, steady water and weather, few pests, timely picking. An agronomist lifts it a grade step.
   const agronomist = s.workers.some((w) => w.region === f.region && w.perk === 'agronomist');
   b.quality = clamp(0.2 + 0.35 * soilAdequacy(f, c) + 0.25 * Math.min(b.water, b.weather) + 0.2 * b.pest - 0.4 * (1 - timingFactor(s, f)) - 0.3 * f.frost + (agronomist ? 0.1 : 0) + (f.greenhouse ? 0.05 : 0) - bruise, 0, 1);
   // Nutrient removal; rotation and soybeans matter.
   const u = def.uptake;
-  const hy = has(s, 'hybrids') ? 1.4 : 1;
+  const hy = (has(s, 'hybrids') ? 1.4 : 1) * levelOfField(f).uptake; // a bigger harvest takes more out of the soil
   const nf = has(s, 'nitrogenFixing') && ['wheat', 'corn', 'rice'].includes(c) ? 0.5 : 1;
   if (coverOf(f) !== 3) { // a hydroponic crop never touches the soil
   f.soil.n = clamp(f.soil.n - (u.n > 0 ? u.n * hy * nf : u.n), 0, 1.5);
@@ -262,7 +264,7 @@ export function fieldsTick(s: GameState) {
       const capLeft = REGIONS[f.region].waterCap === Infinity ? Infinity : REGIONS[f.region].waterCap * irrigatedHa(s, f.region) - reg.waterToday;
       const units = Math.max(0, Math.min(want * CONFIG.irrigationWaterPerHa * 4, capLeft));
       if (units > 0) {
-        const use = units * (precision ? 0.4 : drip ? 0.65 : 1);
+        const use = units * (precision ? 0.4 : drip ? 0.65 : 1) * levelOfField(f).water;
         reg.waterToday += units;
         f.moisture = clamp(f.moisture + units / f.ha / (CONFIG.irrigationWaterPerHa * 4), 0, 1); // fills the gap this hour
         post(s, 'water', -use * REGIONS[f.region].waterPrice * s.macro.cpi, 'Irrigation water', f.region);

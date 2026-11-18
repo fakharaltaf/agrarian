@@ -1,7 +1,7 @@
 import { bestRetailCentre } from './facility-levels';
 // Reporting only: this module never posts money, consumes goods or draws randomness.
 import { ANIMALS, BUILDINGS, COWS_PER_DAIRY_BATCH, MANURE, type GoodId, type RegionId } from './config';
-import { has, levelMult, priceUsd } from './core';
+import { has, priceUsd, recipeOf, throughput } from './core';
 import { townIndustryFactor } from './town-state';
 import type { Building, GameState, ProductionDay, ProductionReport } from './types';
 export const emptyProductionReport = (): ProductionReport => ({ open: null, days: [], lastBatches: 0, lastTick: -1 });
@@ -23,13 +23,13 @@ function reportDay(report:ProductionReport,today:number) {
 }
 /** Count an actual operating hour. Completed days publish only when the next one starts. */
 export function recordProductionHour(s:GameState,b:Building,batches:number,earn:number,inputs:number,staff:number,power:number) {
-  const definition=BUILDINGS[b.type],recipe=definition.recipe,report=b.productionReport;
+  const definition=BUILDINGS[b.type],recipe=recipeOf(b),report=b.productionReport;
   if(!recipe&&definition.category!=='energy'&&definition.category!=='commerce')return;
   if(report.lastTick===s.tick)return;
   const d=reportDay(report,Math.floor(s.tick/24));
   report.lastTick=s.tick;report.lastBatches=batches;
   d.hours++;d.batches+=batches;
-  d.capacity+=recipe?recipe.batchesPerHour*levelMult(b.level)*townIndustryFactor(s,b.region):1;
+  d.capacity+=recipe?recipe.batchesPerHour*throughput(b)*townIndustryFactor(s,b.region):1;
   d.earn+=earn;d.inputs+=inputs;d.staff+=staff;d.power+=power;
   d.reasons[b.reason]=(d.reasons[b.reason]??0)+1;
   if(!recipe)return;

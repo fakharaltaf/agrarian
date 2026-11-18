@@ -8,6 +8,8 @@ export interface HarvestBreakdown {
   crop: CropId;
   units: number;
   base: number;
+  /** the field's level multiplier (missing on harvests before field upgrades) */
+  level?: number;
   soil: number;
   water: number;
   weather: number;
@@ -34,6 +36,8 @@ export interface Field {
   soil: Soil;
   moisture: number;
   irrigated: boolean;
+  /** field upgrades, 1–3 (missing = 1): an improved, then an intensive field, each unlocked by research */
+  level?: number;
   greenhouse: boolean; // glass: no frost, steady temperature, heating in cold weather
   /** what covers the field: 1 polytunnels (no frost), 2 a greenhouse, 3 a hydroponic house (no soil, a third more yield, lit and pumped by electricity) */
   cover?: number;
@@ -93,6 +97,8 @@ export interface ProductionReport { open: ProductionDay | null; days: Production
 export interface Building {
   /** a merged building's shape: 0 long (the two side by side), 1 square */
   layout?: number;
+  /** a vertical farm's crop (missing = fresh greens) */
+  grows?: GoodId;
   /** a merged building's long shape, kept so it can switch back from square */
   longSpan?: [number, number];
   /** merged factories: 2 a Works (two level-3 factories), 4 a Plant (two Works) */
@@ -484,8 +490,10 @@ export type Action =
   | { type: 'sellMachine'; machineId: number }
   | { type: 'sellIdleMachines'; machineIds: number[] }
   | { type: 'service'; machineId: number }
-  | { type: 'build'; region: RegionId; building: BuildingType; count?: number; at?: [number, number]; rot?: number }
+  | { type: 'build'; region: RegionId; building: BuildingType; count?: number; at?: [number, number]; rot?: number; /** a vertical farm's crop */ grows?: GoodId }
+  | { type: 'setGrows'; buildingId: number; grows: GoodId }
   /** one more like a building, town service or apartment block (`b:ID`, `svc:ID`, `home:ID`), raised to its level */
+  | { type: 'upgradeField'; fieldIds: number[] }
   | { type: 'addAnother'; key: string; at?: [number, number]; rot?: number }
   | { type: 'moveObject'; region: RegionId; key: string; at: [number, number]; rot?: number }
   | { type: 'clearForest'; region: RegionId; chunks: number[] }
