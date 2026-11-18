@@ -1,7 +1,7 @@
 import type { NeighbourId } from '../simulation/region-state';
 // The bridge between the pure simulation and React. The GameState object is mutated in place by
 // the engine; subscribers re-render on a version counter at most ~5 times a second.
-import { planQuote } from '../simulation/engine';
+import { anotherOf, planQuote } from '../simulation/engine';
 import { APARTMENT_NEED } from '../simulation/access';
 import { serviceNeed } from '../simulation/town-state';
 import { useSyncExternalStore } from 'react';
@@ -293,6 +293,7 @@ function placementFor(a: Action): { region: RegionId; w: number; d: number; labe
   if ('at' in a && a.at) return null;
   if (a.type === 'buyPlot') return { region: 'heartland', w: plotSide(1), d: plotSide(1), label: 'New field (1 ha)' };
   if (a.type === 'buyParcel') return { region: a.region, w: plotSide(a.ha), d: plotSide(a.ha), label: `New field (${a.ha} ha)` };
+  if (a.type === 'addAnother') { const plan = anotherOf(store.game, a.key); return plan && placementFor(plan.first); }
   if (a.type === 'build') { const [w, d] = FOOTPRINT[a.building]; return { region: a.region, w, d, label: BUILDINGS[a.building].name }; }
   if (a.type === 'buildHomes') { const f = homeFootprint({ id: 0, tier: a.tier, count: 1, cost: 0 }); return { region: 'heartland', ...f, label: `${a.tier[0].toUpperCase()}${a.tier.slice(1)} home` }; }
   if (a.type === 'buildService' && a.block) return { region: 'heartland', w: 7, d: 7, label: `4 × ${SERVICE_DEFS[a.service].name}` };

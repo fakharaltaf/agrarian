@@ -485,6 +485,8 @@ export type Action =
   | { type: 'sellIdleMachines'; machineIds: number[] }
   | { type: 'service'; machineId: number }
   | { type: 'build'; region: RegionId; building: BuildingType; count?: number; at?: [number, number]; rot?: number }
+  /** one more like a building, town service or apartment block (`b:ID`, `svc:ID`, `home:ID`), raised to its level */
+  | { type: 'addAnother'; key: string; at?: [number, number]; rot?: number }
   | { type: 'moveObject'; region: RegionId; key: string; at: [number, number]; rot?: number }
   | { type: 'clearForest'; region: RegionId; chunks: number[] }
   | { type: 'demolish'; buildingId: number }

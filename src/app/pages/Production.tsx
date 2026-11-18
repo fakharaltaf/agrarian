@@ -2,17 +2,17 @@ import { upgradeNeedsPower } from '../../simulation/stages/shared';
 import { retailAllowance, retailChannel, solarCapacity } from '../../simulation/facility-levels';
 import { productionReport, productionPriceRails } from '../../simulation/production-report';
 import { townIndustryFactor } from '../../simulation/town-state';
-import { useState, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { ANIMALS, BUILDINGS, COWS_PER_DAIRY_BATCH, CROPS, GOODS, REGIONS, SUNRISE, SUNSET, type BuildingType, type GoodId, type RegionId, TECH } from '../../simulation/config';
 import { electricityPrice, factoryCrop, has, throughput, priceUsd, sumBooks } from '../../simulation/core';
-import { buildingPrice, expectedYield } from '../../simulation/engine';
+import { buildingPrice, expectedYield, landFits } from '../../simulation/engine';
 import { buildingMargin, solarOutput } from '../../simulation/processing';
 import type { Building, GameState } from '../../simulation/types';
 import { act, go, useGame, useStore } from '../../stores/game';
 import { facilityUpgrade, lineEcon, upgradeOutlook } from '../../simulation/lines';
 import { portrait } from '../world/portrait';
 import { money, num, pct0, price } from '../format';
-import { Card, Confirm, Empty, Info, Kpi, PageHead, Select, usePref } from '../ui';
+import { Card, Confirm, Empty, Info, Kpi, NumberInput, PageHead, Select, usePref } from '../ui';
 import { regionOptions, unlockedRegions } from './shared';
 
 const qtyFormat=new Intl.NumberFormat('en-US',{notation:'compact',maximumSignificantDigits:2});
@@ -54,6 +54,9 @@ function recipeText(s: GameState, t: BuildingType) {
   return `${ins(t).length ? side(ins(t)) : 'electricity'} → ${outs(t).length ? side(outs(t), outMult) : `${num(-kwh)} kWh`}${kwh > 0 ? ` · ${num(kwh, kwh % 1 ? 1 : 0)} kWh` : ''} · ${rec.batchesPerHour} batches/h`;
 }
 
+/** the engine builds at most this many in one go */
+const MAX_BUILD = 50;
+const plural = (w: string) => (/[^aeiou]y$/.test(w) ? `${w.slice(0, -1)}ies` : /(s|sh|ch|x)$/.test(w) ? `${w}es` : `${w}s`);
 const tone = (n: number) => (n > 0.005 ? 'up' : n < -0.005 ? 'down' : '');
 
 interface Group { key: string; type: BuildingType; region: RegionId; list: Building[]; active: number; util: number; reason: string; outValue: number; inCost: number; opCost: number; margin: number }
@@ -136,27 +139,40 @@ function BuildCard({ s }: { s: GameState }) {
   const cost = buildingPrice(s, t, r);
   const e = fullEcon(s, t, r);
   const rt = recipeText(s, t);
+  const [qty, setQty] = useState(1);
+  const n = Math.max(1, Math.min(MAX_BUILD, qty));
+  const byCash = Math.floor(s.cash / cost);
+  const day = Math.floor(s.tick / 24);
+  const byLand = useMemo(() => (locked ? n : landFits(s, t, r, n)), [t, r, n, locked, day, s.buildings.length, s.fields.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  const fits = Math.min(byCash, byLand);
+  const why = fits >= n ? null : [byCash < n && `cash covers ${byCash}`, byLand < n && `your free land holds ${byLand}`].filter(Boolean).join(' and ');
+  const name = n > 1 ? plural(d.name.toLowerCase()) : d.name.toLowerCase();
   return (
     <Card title="Build a facility" info="Prices are in USD and scale with inflation; Coastal land costs 20% more to build on, Arid and Tropics 15% less.">
       <div className="stack">
         <div className="row wrap">
           <Select label="Facility" value={t} onChange={setType} options={types.map((x) => ({ v: x, label: `${BUILDINGS[x].name}${BUILDINGS[x].research && !has(s, BUILDINGS[x].research!) ? ' (research needed)' : ''}` }))} />
           {regions.length > 1 && <Select label="Region" value={r} onChange={setRegion} options={regions} />}
+          <span className="row stepper"><span className="muted small">How many</span>
+            <button className="btn ghost sm" aria-label="One fewer" disabled={n <= 1} onClick={() => setQty(n - 1)}>−</button>
+            <NumberInput label="How many" value={n} min={1} max={MAX_BUILD} width={56} onChange={(v) => setQty(Math.round(v))} />
+            <button className="btn ghost sm" aria-label="One more" disabled={n >= MAX_BUILD} onClick={() => setQty(n + 1)}>+</button>
+          </span>
         </div>
         <p className="explain">{d.blurb}</p>
         {rt && <p className="mono small">{rt}</p>}
         <dl className="facts">
-          <dt>Price</dt><dd>{money(cost)}</dd>
-          <dt>Staff</dt><dd>{money(e.staff)}/h</dd>
+          <dt>Price{n > 1 ? ` (${n})` : ''}</dt><dd>{money(cost * n)}</dd>
+          <dt>Staff</dt><dd>{money(e.staff * n)}/h</dd>
           {d.recipe && <>
-            <dt>Output value at capacity</dt><dd>{money(e.outVal)}/h</dd>
-            <dt>Inputs at market</dt><dd>−{money(e.inVal)}/h</dd>
-            <dt>Electricity ({price(e.elec)}/kWh)</dt><dd>−{money(e.energy)}/h</dd>
-            <dt>Margin at full capacity</dt><dd className={tone(e.margin)}>{money(e.margin)}/h · {money(e.margin * 24)}/day</dd>
-            <dt>Break-even utilisation <Info text="Utilisation at which the batch margin just pays the staff: staff ÷ (margin per batch × batches per hour)." breakdown={[['Staff', `${money(e.staff)}/h`], ['Margin per batch', money(e.perBatch)], ['Batches per hour', String(e.bph)]]} /></dt>
+            <dt>Output value at capacity</dt><dd>{money(e.outVal * n)}/h</dd>
+            <dt>Inputs at market</dt><dd>−{money(e.inVal * n)}/h</dd>
+            <dt>Electricity ({price(e.elec)}/kWh)</dt><dd>−{money(e.energy * n)}/h</dd>
+            <dt>Margin at full capacity</dt><dd className={tone(e.margin)}>{money(e.margin * n)}/h · {money(e.margin * n * 24)}/day</dd>
+            <dt>Break-even utilisation{n > 1 ? ' (each)' : ''} <Info text="Utilisation at which the batch margin just pays the staff: staff ÷ (margin per batch × batches per hour)." breakdown={[['Staff', `${money(e.staff)}/h`], ['Margin per batch', money(e.perBatch)], ['Batches per hour', String(e.bph)]]} /></dt>
             <dd className={e.breakEven > 1 ? 'down' : e.breakEven > 0.7 ? 'warn' : ''}>{Number.isFinite(e.breakEven) ? pct0(e.breakEven) : 'never — inputs cost more than outputs'}</dd>
           </>}
-          {d.solarKw && <><dt>Generation (clear day)</dt><dd>≈{num(e.solarDay)} kWh/day ≈ {money(e.solarDay * e.elec * .5)}–{money(e.solarDay * e.elec)} gross</dd></>}
+          {d.solarKw && <><dt>Generation (clear day)</dt><dd>≈{num(e.solarDay * n)} kWh/day ≈ {money(e.solarDay * n * e.elec * .5)}–{money(e.solarDay * n * e.elec)} gross</dd></>}
         </dl>
         {d.recipe && e.breakEven > 1 && <div className="callout bad">At today's {REGIONS[r].name} prices this facility loses money even at full capacity.</div>}
         {t === 'distribution' && <p className="explain">{retailChannel(s,r)>0?`A ${pct0(retailChannel(s,r))} channel already runs here; another level-one centre adds no premium.`:`Adds 12% to processed sales. Staff breaks even at ${money(e.staff/.12)}/h in base processed sales.`}</p>}
@@ -164,9 +180,12 @@ function BuildCard({ s }: { s: GameState }) {
           <p className="small muted">Included: {[has(s, 'processEfficiency') && 'Process efficiency +10% output', has(s, 'foodTech') && 'Low-energy food tech −30% kWh'].filter(Boolean).join(' · ')}.</p>
         )}
         {locked ? <p className="muted small">Requires research: {locked}.</p> : (
-          <Confirm className="btn primary" disabled={cost > s.cash} label={`Build ${d.name.toLowerCase()} · ${money(cost)}`} title={`Build a ${d.name.toLowerCase()}?`} confirmLabel={`Pay ${money(cost)}`}
-            body={<>A {d.name.toLowerCase()} in {REGIONS[r].name} costs {money(cost)} and {money(e.staff)}/h in staff while it runs. It depreciates over 20 years; demolishing returns half its book value.</>}
-            onConfirm={() => act({ type: 'build', region: r, building: t }, `${d.name} built.`)} />
+          <div className="stack s">
+            <Confirm className="btn primary" disabled={!!why} label={`Build ${n > 1 ? `${n} ` : ''}${name} · ${money(cost * n)}`} title={`Build ${n > 1 ? `${n} ${name}` : `a ${name}`}?`} confirmLabel={`Pay ${money(cost * n)}`}
+              body={<>{n > 1 ? `${n} ${name}` : `A ${name}`} in {REGIONS[r].name} cost{n > 1 ? '' : 's'} {money(cost * n)} and {money(e.staff * n)}/h in staff while {n > 1 ? 'they run' : 'it runs'}. {n > 1 ? 'You place them one after another. ' : ''}{n > 1 ? 'They depreciate' : 'It depreciates'} over 20 years; demolishing returns half the book value.</>}
+              onConfirm={() => act({ type: 'build', region: r, building: t, count: n }, `${d.name} built.`)} />
+            {why && <p className="small down">Can't build {n}: {why}.{fits > 0 && <> <button className="btn ghost sm" onClick={() => setQty(fits)}>Build {fits} instead</button></>}</p>}
+          </div>
         )}
         {s.era < 7 && <p className="faint small">Vertical farms unlock in Era 7.</p>}
       </div>

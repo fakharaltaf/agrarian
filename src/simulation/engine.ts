@@ -6,7 +6,7 @@ import { bestRetailCentre } from './facility-levels';
 import { wellField, DRILL_PRICE, oilChance, oilOf, SURVEY_PRICE, SURVEY_R, surveyedAt, landCostOf } from './oil';
 import { haulDaily, haulOf, haulTick, usesCarts, VEHICLES } from './hauling';
 import { emptyProductionReport } from './production-report';
-import { payHouseholds } from './town-state';
+import { canUpgradeService, levelOf, payHouseholds, svcSize, townOf } from './town-state';
 import { idleMachine, machineSaleValue } from './operations';
 // Orchestrates every system. Pure: no React, no DOM. Functions mutate the GameState passed in.
 import {
@@ -32,7 +32,7 @@ import { featureEra, handleActiveStageAction, stageAtLeast, stageIdForEra, STAGE
 import { prepareLarder } from './stages/settlement';
 import { refreshHomestead } from './stages/homestead';
 import {releaseNeighbourJob} from './employment';
-import { availableResidents, recruitableResidents, communityOf } from './community-state';
+import { availableResidents, recruitableResidents, communityOf, homeLevel } from './community-state';
 import { shipGoods, shipmentsTick } from './logistics';
 import type { Action, ActionResult, Field, GameState, RegionState } from './types';
 import { SAVE_VERSION } from './persistence';
@@ -178,6 +178,50 @@ export const buildingPrice = (s: GameState, t: keyof typeof BUILDINGS, r: Region
 export const machinePrice = (s: GameState, t: keyof typeof MACHINES) => Math.round(MACHINES[t].price * s.macro.cpi);
 export const irrigationPrice = (s: GameState, ha: number) => Math.round(ha * (CONFIG.irrigationCostPerHa + (has(s, 'dripIrrigation') ? 200 : 0)) * s.macro.cpi);
 export const regionEntryCost = (s: GameState) => Math.round(25000 * s.macro.cpi);
+/** How to build one more like `key`: the build, then the upgrades that bring it to the same level. Null for what cannot be copied (oil wells, merged shops). */
+export function anotherOf(s: GameState, key: string): { first: Action; up: (id: number) => Action; levels: number; newest: (c: GameState) => number } | null {
+  const [k, raw] = key.split(':'), id = +raw;
+  if (k === 'b') {
+    const b = s.buildings.find((x) => x.id === id);
+    if (!b || b.type === 'oilWell') return null;
+    return { first: { type: 'build', region: b.region, building: b.type, count: 1 }, up: (n) => ({ type: 'upgradeBuilding', buildingId: n }), levels: (b.level || 1) - 1, newest: (c) => c.buildings[c.buildings.length - 1].id };
+  }
+  if (k === 'svc') {
+    const v = townOf(s).services.find((x) => x.id === id);
+    if (!v || svcSize(v) > 1 || v.type === 'barracks') return null;
+    return { first: { type: 'buildService', service: v.type, district: v.district, count: 1 }, up: (n) => ({ type: 'upgradeService', serviceId: n }), levels: canUpgradeService(v.type) ? levelOf(v) - 1 : 0, newest: (c) => { const l = townOf(c).services; return l[l.length - 1].id; } };
+  }
+  if (k === 'home') {
+    const h = communityOf(s).homes.find((x) => x.id === id);
+    if (!h) return null;
+    return { first: { type: 'buildHomes', tier: h.tier, count: 1 }, up: (n) => ({ type: 'upgradeHome', homeId: n }), levels: homeLevel(h) - 1, newest: (c) => { const l = communityOf(c).homes; return l[l.length - 1].id; } };
+  }
+  return null;
+}
+function runAnother(c: GameState, plan: NonNullable<ReturnType<typeof anotherOf>>, at?: [number, number], rot?: number): ActionResult {
+  const r = dispatch(c, { ...plan.first, ...(at ? { at } : {}), ...(rot !== undefined ? { rot } : {}) } as Action);
+  if (!r.ok) return r;
+  const id = plan.newest(c);
+  for (let i = 0; i < plan.levels; i++) { const u = dispatch(c, plan.up(id)); if (!u.ok) return u; }
+  return r;
+}
+/** What one more like `key` costs, and why it can't be built now (cash aside). Rehearsed on a copy with deep pockets. */
+export function anotherQuote(s: GameState, key: string): { price: number; why?: string } | null {
+  const plan = anotherOf(s, key);
+  if (!plan) return null;
+  const c = structuredClone(s), rich = 1e15;
+  c.cash = rich;
+  const r = runAnother(c, plan);
+  return { price: Math.round(rich - c.cash), why: r.ok ? undefined : r.error };
+}
+/** How many of a building the farm's free land holds, up to n: the build itself, run on a copy with deep pockets. */
+export function landFits(s: GameState, t: keyof typeof BUILDINGS, r: RegionId, n: number): number {
+  const c = structuredClone(s);
+  c.cash = 1e15;
+  const before = c.buildings.length;
+  dispatch(c, { type: 'build', region: r, building: t, count: n });
+  return c.buildings.length - before;
+}
 export const upgradeCost = (s: GameState, b: { type: keyof typeof BUILDINGS; level: number; region: RegionId }) => Math.round(buildingPrice(s, b.type, b.region) * (b.level === 1 ? 0.8 : 1.4));
 export const machineUpgradeCost = (s: GameState, m: { type: keyof typeof MACHINES; tier: number }) => Math.round(machinePrice(s, m.type) * 0.5 * m.tier);
 /** Moving fee: a tenth of a building's price; fields by area; homes, services and landmarks a flat amount. */
@@ -523,6 +567,12 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       if (serviceCost(s, m) > s.cash) return fail(`Costs $${Math.round(serviceCost(s, m))}.`);
       service(s, m);
       return ok();
+    }
+    case 'addAnother': {
+      const plan = anotherOf(s, a.key);
+      if (!plan) return fail('This one cannot be copied.');
+      const trial = runAnother(structuredClone(s), plan, a.at, a.rot); // all or nothing: rehearse on a copy first
+      return trial.ok ? runAnother(s, plan, a.at, a.rot) : trial;
     }
     case 'build': {
       const d = BUILDINGS[a.building];
