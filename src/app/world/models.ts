@@ -1,7 +1,8 @@
 // Stylised low-poly models, built from simple shapes in a shared palette so everything belongs together.
 // 1 world unit = 1 tile. Models sit on y = 0 with their footprint starting at (0, 0).
 import * as THREE from 'three';
-import type { AnimalId, MachineType } from '../../simulation/config';
+import type { AnimalId, GoodId, MachineType } from '../../simulation/config';
+import { GOODS } from '../../simulation/config';
 import type { Lot } from './layout';
 import { artFigure, artModel, recolor, type ArtId } from './art';
 
@@ -521,13 +522,14 @@ export function buildLot(type: Lot['type'], w: number, d: number, variant = '', 
       if (level === 3) { g.add(cyl(0.4, 5.6, 0xc9ccd0, 5.2, 0.06, 6.7, 12)); for (let y = 1; y < 5.6; y += 1.2) g.add(cyl(0.54, 0.04, PAL.metalDark, 5.2, y, 6.7, 12)); g.add(cyl(0.22, 3.0, 0x8a8f96, 8.6, 1.9, 6.4, 10)); smoke.push(new THREE.Vector3(8.6, 5.0, 6.4)); }
       break;
     }
-    case 'verticalFarm': { // a glass tower: steel frame, floors of greens under violet grow lights, plant room on the roof
+    case 'verticalFarm': { // a glass tower: steel frame, floors of its crop under violet grow lights, plant room on the roof
+      const crop = variant && variant in GOODS ? parseInt(GOODS[variant as GoodId].color.slice(1), 16) : 0x5faf4a; // the floors show what it grows
       const floors = [6, 8, 10][level - 1] ?? 6, fw = 1.6, H = floors * 0.567, cx = w / 2, cz = d / 2; // more floors of greens each level
       g.add(box(fw + 0.2, 0.08, fw + 0.2, PAL.stoneDark, cx, 0, cz));
       g.add(box(fw, H, fw, 0xa9d4de, cx, 0.08, cz, { opacity: 0.35, rough: 0.1 }));
       for (let i = 0; i < floors; i++) {
         const y = 0.3 + i * 0.52;
-        g.add(box(fw - 0.12, 0.05, fw - 0.12, PAL.metalDark, cx, y, cz), box(fw - 0.2, 0.1, fw - 0.2, 0x5faf4a, cx, y + 0.05, cz));
+        g.add(box(fw - 0.12, 0.05, fw - 0.12, PAL.metalDark, cx, y, cz), box(fw - 0.2, 0.1, fw - 0.2, crop, cx, y + 0.05, cz));
         const glow = box(fw - 0.2, 0.02, fw - 0.2, 0xc07ae0, cx, y + 0.42, cz, { emissive: 0x6a2a8a }); glow.userData.window = true; g.add(glow);
       }
       for (const [dx, dz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) g.add(box(0.07, H, 0.07, PAL.metalDark, cx + (dx * fw) / 2, 0.08, cz + (dz * fw) / 2));
