@@ -101,6 +101,8 @@ export interface Building {
   grows?: GoodId;
   /** a vertical farm's production house: its harvest is held for that building, as a dedicated field's is */
   supplies?: number;
+  /** a vertical farm: the hectares of the field it was built on (1 ha = one tower's worth) */
+  ha?: number;
   /** a merged building's long shape, kept so it can switch back from square */
   longSpan?: [number, number];
   /** merged factories: 2 a Works (two level-3 factories), 4 a Plant (two Works) */
@@ -494,7 +496,7 @@ export type Action =
   | { type: 'sellMachine'; machineId: number }
   | { type: 'sellIdleMachines'; machineIds: number[] }
   | { type: 'service'; machineId: number }
-  | { type: 'build'; region: RegionId; building: BuildingType; count?: number; at?: [number, number]; rot?: number; /** a vertical farm's crop */ grows?: GoodId }
+  | { type: 'build'; region: RegionId; building: BuildingType; count?: number; at?: [number, number]; rot?: number }
   | { type: 'setGrows'; buildingId: number; grows: GoodId }
   /** one more like a building, town service or apartment block (`b:ID`, `svc:ID`, `home:ID`), raised to its level */
   | { type: 'upgradeField'; fieldIds: number[] }

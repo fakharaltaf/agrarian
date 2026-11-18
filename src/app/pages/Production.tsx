@@ -3,8 +3,8 @@ import { retailAllowance, retailChannel, solarCapacity } from '../../simulation/
 import { productionReport, productionPriceRails } from '../../simulation/production-report';
 import { townIndustryFactor } from '../../simulation/town-state';
 import { useMemo, useState, type ReactNode } from 'react';
-import { ANIMALS, BUILDINGS, COWS_PER_DAIRY_BATCH, CROPS, GOODS, REGIONS, SUNRISE, SUNSET, type BuildingType, type CropId, type GoodId, type RegionId, TECH } from '../../simulation/config';
-import { electricityPrice, factoryCrop, has, maxLevel, throughput, priceUsd, recipeOf, sumBooks, VERTICAL_CROPS } from '../../simulation/core';
+import { ANIMALS, BUILDINGS, COWS_PER_DAIRY_BATCH, CROPS, GOODS, REGIONS, SUNRISE, SUNSET, type BuildingType, type GoodId, type RegionId, TECH } from '../../simulation/config';
+import { electricityPrice, factoryCrop, has, maxLevel, throughput, priceUsd, recipeOf, sumBooks } from '../../simulation/core';
 import { buildingPrice, expectedYield, landFits } from '../../simulation/engine';
 import { buildingMargin, solarOutput } from '../../simulation/processing';
 import type { Building, GameState } from '../../simulation/types';
@@ -129,7 +129,7 @@ export default function ProductionPage() {
 // ---------------------------------------------------------------- build
 
 function BuildCard({ s }: { s: GameState }) {
-  const types = (Object.keys(BUILDINGS) as BuildingType[]).filter((t) => isFactory(t) && BUILDINGS[t].minEra <= s.era);
+  const types = (Object.keys(BUILDINGS) as BuildingType[]).filter((t) => isFactory(t) && t !== 'verticalFarm' && BUILDINGS[t].minEra <= s.era); // vertical farms are converted from fields
   const [type, setType] = usePref<BuildingType>('prod.build', 'flourMill');
   const t = types.includes(type) ? type : types[0];
   const regions = regionOptions(s);
@@ -138,11 +138,8 @@ function BuildCard({ s }: { s: GameState }) {
   const d = BUILDINGS[t];
   const locked = d.research && !has(s, d.research) ? TECH[d.research].name : null;
   const cost = buildingPrice(s, t, r);
-  const [grows0, setGrows] = usePref<GoodId>('prod.grows', 'greens');
-  const growOpts = VERTICAL_CROPS.filter((g) => g === 'greens' || s.unlockedCrops.includes(g as CropId));
-  const grows = t === 'verticalFarm' && growOpts.includes(grows0) ? grows0 : undefined;
-  const e = fullEcon(s, t, r, grows);
-  const rt = recipeText(s, t, grows);
+  const e = fullEcon(s, t, r);
+  const rt = recipeText(s, t);
   const [qty, setQty] = useState(1);
   const n = Math.max(1, Math.min(MAX_BUILD, qty));
   const byCash = Math.floor(s.cash / cost);
@@ -157,7 +154,6 @@ function BuildCard({ s }: { s: GameState }) {
         <div className="row wrap">
           <Select label="Facility" value={t} onChange={setType} options={types.map((x) => ({ v: x, label: `${BUILDINGS[x].name}${BUILDINGS[x].research && !has(s, BUILDINGS[x].research!) ? ' (research needed)' : ''}` }))} />
           {regions.length > 1 && <Select label="Region" value={r} onChange={setRegion} options={regions} />}
-          {t === 'verticalFarm' && <Select label="Grows" value={grows ?? 'greens'} onChange={setGrows} options={growOpts.map((g) => ({ v: g, label: `Grows ${GOODS[g].name.toLowerCase()}` }))} />}
           <span className="row stepper"><span className="muted small">How many</span>
             <button className="btn ghost sm" aria-label="One fewer" disabled={n <= 1} onClick={() => setQty(n - 1)}>−</button>
             <NumberInput label="How many" value={n} min={1} max={MAX_BUILD} width={56} onChange={(v) => setQty(Math.round(v))} />
@@ -166,13 +162,11 @@ function BuildCard({ s }: { s: GameState }) {
         </div>
         <p className="explain">{d.blurb}</p>
         {rt && <p className="mono small">{rt}</p>}
-        {(() => { // the input it needs (or, for a vertical farm, the crop it adds) against what the region makes and uses
-          const good = t === 'verticalFarm' ? (grows ?? 'greens') : ins(t)[0]?.[0];
+        {(() => { // the input it needs against what the region makes and uses
+          const good = ins(t)[0]?.[0];
           if (!good || !d.recipe) return null;
-          const bal = goodBalance(s, r, good, t === 'verticalFarm' ? undefined : { type: t, n });
-          const adds = t === 'verticalFarm' ? (outs(t, grows)[0]?.[1] ?? 0) * (has(s, 'processEfficiency') ? 1.1 : 1) * d.recipe.batchesPerHour * townIndustryFactor(s, r) * 24 * n : 0;
-          const grown = bal.grown + adds, short = bal.used > grown;
-          return <p className={`small ${short ? 'down' : 'muted'}`}>{GOODS[good].name} in {REGIONS[r].name}: <b>{num(grown)}/day</b> made <Info text="At full pace: fields at today's forecast yield, replanted straight after each harvest (big fields take longer to work, so they make less), plus what your buildings turn out running flat out." />{adds ? ` (${num(adds)} by ${n > 1 ? 'these' : 'this one'})` : ''} · <b>{num(bal.used)}/day</b> used at full speed{t !== 'verticalFarm' ? ` with ${n > 1 ? `these ${n}` : 'this one'}` : ''}{short ? ` · ${num(bal.used - grown)}/day short: grow more, upgrade fields, or buy it` : ''}.</p>;
+          const bal = goodBalance(s, r, good, { type: t, n }), short = bal.used > bal.grown;
+          return <p className={`small ${short ? 'down' : 'muted'}`}>{GOODS[good].name} in {REGIONS[r].name}: <b>{num(bal.grown)}/day</b> made <Info text="At full pace: fields at today's forecast yield, replanted straight after each harvest (big fields take longer to work, so they make less), plus what your buildings turn out running flat out." /> · <b>{num(bal.used)}/day</b> used at full speed with {n > 1 ? `these ${n}` : 'this one'}{short ? ` · ${num(bal.used - bal.grown)}/day short: grow more, upgrade fields, or buy it` : ''}.</p>;
         })()}
         <dl className="facts">
           <dt>Price{n > 1 ? ` (${n})` : ''}</dt><dd>{money(cost * n)}</dd>
@@ -189,7 +183,6 @@ function BuildCard({ s }: { s: GameState }) {
         </dl>
         {d.recipe && e.breakEven > 1 && <div className="callout bad">At today's {REGIONS[r].name} prices this facility loses money even at full capacity.</div>}
         {t === 'distribution' && <p className="explain">{retailChannel(s,r)>0?`A ${pct0(retailChannel(s,r))} channel already runs here; another level-one centre adds no premium.`:`Adds 12% to processed sales. Staff breaks even at ${money(e.staff/.12)}/h in base processed sales.`}</p>}
-        {t === 'verticalFarm' && <p className="small muted">Power comes from your own solar, wind or biogas first (surplus is otherwise sold at half price), then the grid at {price(e.elec)}/kWh. On the grid it pays thinly; on your own surplus far better.</p>}
         {d.recipe && (has(s, 'processEfficiency') || has(s, 'foodTech')) && (
           <p className="small muted">Included: {[has(s, 'processEfficiency') && 'Process efficiency +10% output', has(s, 'foodTech') && 'Low-energy food tech −30% kWh'].filter(Boolean).join(' · ')}.</p>
         )}
@@ -197,7 +190,7 @@ function BuildCard({ s }: { s: GameState }) {
           <div className="stack s">
             <Confirm className="btn primary" disabled={!!why} label={`Build ${n > 1 ? `${n} ` : ''}${name} · ${money(cost * n)}`} title={`Build ${n > 1 ? `${n} ${name}` : `a ${name}`}?`} confirmLabel={`Pay ${money(cost * n)}`}
               body={<>{n > 1 ? `${n} ${name}` : `A ${name}`} in {REGIONS[r].name} cost{n > 1 ? '' : 's'} {money(cost * n)} and {money(e.staff * n)}/h in staff while {n > 1 ? 'they run' : 'it runs'}. {n > 1 ? 'You place them one after another. ' : ''}{n > 1 ? 'They depreciate' : 'It depreciates'} over 20 years; demolishing returns half the book value.</>}
-              onConfirm={() => act({ type: 'build', region: r, building: t, count: n, ...(grows ? { grows } : {}) }, `${d.name} built.`)} />
+              onConfirm={() => act({ type: 'build', region: r, building: t, count: n }, `${d.name} built.`)} />
             {why && <p className="small down">Can't build {n}: {why}.{fits > 0 && <> <button className="btn ghost sm" onClick={() => setQty(fits)}>Build {fits} instead</button></>}</p>}
           </div>
         )}

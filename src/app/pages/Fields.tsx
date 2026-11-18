@@ -304,7 +304,7 @@ function FieldLevels({ s, fields }: { s: GameState; fields: Field[] }) {
     </div>
     {lv < 3 && <p className="small">{next.name}: {next.does}{why ? <> <span className="down">{why}</span></> : null}</p>}
     {one && lv === 3 && (() => { const q = convertQuote(s, one); return <div className="row between wrap">
-      <span className="small">🏢 A vertical farm on this {q.side}×{q.side} ground: about <b>{Math.round(q.area)}×</b> a small tower's {GOODS[q.grows].name.toLowerCase()}, rising a floor at a time with upgrades.{q.why && <> <span className="down">{q.why}</span></>}</span>
+      <span className="small">🏢 A vertical farm on this {q.side}×{q.side} ground: about <b>{num(q.perDay)} {GOODS[q.grows].name.toLowerCase()}/day</b> at level 1, rising a floor at a time with upgrades.{q.why && <> <span className="down">{q.why}</span></>}</span>
       {!q.why && <Confirm className="btn ghost sm" disabled={q.price > s.cash} label={`Convert · ${money(q.price)}`} title={`Turn field ${one.id} into a vertical farm?`} confirmLabel={`Pay ${money(q.price)}`}
         body={<>The field becomes a vertical farm on the same {q.side}×{q.side} ground, growing {GOODS[q.grows].name.toLowerCase()}{one.supplies ? ' for the same production house' : ''}. It makes far more than the field, but pays staff and draws a great deal of electricity every hour it runs. {one.crop ? 'The crop growing on it now is lost. ' : ''}It can't be turned back into a field.</>}
         onConfirm={() => act({ type: 'convertField', fieldId: one.id })} />}

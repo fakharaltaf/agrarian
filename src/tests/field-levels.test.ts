@@ -13,6 +13,13 @@ function ready(seed = 3001) {
   return s;
 }
 const research = (s: GameState, ...ids: string[]) => s.research.done.push(...ids);
+/** A vertical farm the only way there is: an intensive field converted (the starting field is 1 ha, one tower's worth). */
+function vertical(s: GameState, plan: 'wheat' | null = null) {
+  research(s, 'verticalFarming');
+  const f = s.fields[0]; f.level = 3; f.irrigated = true; f.crop = null; f.plan = plan;
+  expect(dispatch(s, { type: 'convertField', fieldId: f.id }).ok).toBe(true);
+  return s.buildings[s.buildings.length - 1];
+}
 
 it('A field goes up a level only with its research and irrigation, and is paid for by the hectare', () => {
   const s = ready(), f = s.fields[0];
@@ -80,11 +87,10 @@ it('A vertical farm grows the crop you choose, worth the same as greens, held fo
   const s = ready();
   research(s, 'verticalFarming', 'solar', 'robotics', 'mech2', 'farmSoftware');
   s.unlockedCrops = [...new Set([...s.unlockedCrops, 'wheat'])] as typeof s.unlockedCrops;
-  expect(dispatch(s, { type: 'build', region: 'heartland', building: 'flourMill', grows: 'wheat' }).ok).toBe(false); // only vertical farms grow
+  expect(dispatch(s, { type: 'build', region: 'heartland', building: 'verticalFarm' }).ok).toBe(false); // only from fields
   expect(dispatch(s, { type: 'build', region: 'heartland', building: 'silo' }).ok).toBe(true);
   expect(dispatch(s, { type: 'build', region: 'heartland', building: 'flourMill' }).ok).toBe(true);
-  expect(dispatch(s, { type: 'build', region: 'heartland', building: 'verticalFarm', grows: 'wheat' }).ok).toBe(true);
-  const vf = s.buildings.find((b) => b.type === 'verticalFarm')!, mill = s.buildings.find((b) => b.type === 'flourMill')!;
+  const vf = vertical(s, 'wheat'), mill = s.buildings.find((b) => b.type === 'flourMill')!;
   expect(vf.grows).toBe('wheat');
   expect(recipeOf(vf)!.outputs.wheat).toBe(27); // $80 a batch: 13 greens at $6, or 27 wheat at $3
   advance(s, 3);
@@ -127,9 +133,7 @@ it('The advisor suggests upgrading the fields that feed a short factory', async 
 
 it('A vertical farm climbs five levels, each twice the price of the last, to six times its first output', () => {
   const s = ready();
-  research(s, 'verticalFarming');
-  expect(dispatch(s, { type: 'build', region: 'heartland', building: 'verticalFarm' }).ok).toBe(true);
-  const vf = s.buildings.find((b) => b.type === 'verticalFarm')!, price = buildingPrice(s, 'verticalFarm', 'heartland');
+  const vf = vertical(s), price = buildingPrice(s, 'verticalFarm', 'heartland');
   const paid: number[] = [];
   for (let l = 1; l < 5; l++) { const c = s.cash; expect(dispatch(s, { type: 'upgradeBuilding', buildingId: vf.id }).ok).toBe(true); paid.push(c - s.cash); }
   expect(vf.level).toBe(5);
@@ -154,16 +158,11 @@ it('A horse cart in the yard sells for half a new one; one on the road keeps its
   expect(dispatch(s, { type: 'sellHorseCart' }).ok).toBe(false); // the last one is out on the road
 });
 
-it('An intensive field converts into a vertical farm on the same ground, its output and price scaled to that ground; upgrades add floors, not ground', async () => {
+it('An intensive field converts into a vertical farm on the same ground, worth one tower per hectare; upgrades add floors, not ground', async () => {
   const { footprintOf, plotSide, worldOf } = await import('../simulation/world');
   const { convertQuote } = await import('../simulation/engine');
   const s = ready();
   research(s, 'verticalFarming');
-  dispatch(s, { type: 'build', region: 'heartland', building: 'verticalFarm' });
-  const tower = s.buildings.find((b) => b.type === 'verticalFarm')!;
-  expect(footprintOf(s, `b:${tower.id}`)).toEqual({ w: 3, d: 3 });
-  dispatch(s, { type: 'upgradeBuilding', buildingId: tower.id });
-  expect(footprintOf(s, `b:${tower.id}`)).toEqual({ w: 3, d: 3 }); // taller, not bigger
   expect(dispatch(s, { type: 'buyParcel', region: 'heartland', ha: 5 }).ok).toBe(true);
   const f = s.fields.find((x) => x.ha === 5)!, at = worldOf(s, 'heartland').pos[`field:${f.id}`]!;
   f.plan = 'wheat';
@@ -171,12 +170,16 @@ it('An intensive field converts into a vertical farm on the same ground, its out
   f.level = 3;
   const q = convertQuote(s, f), cash = s.cash;
   expect(q.side).toBe(plotSide(5));
+  expect(q.area).toBe(5);
   expect(dispatch(s, { type: 'convertField', fieldId: f.id }).ok).toBe(true);
-  const vf = s.buildings[s.buildings.length - 1];
+  const vf = s.buildings[s.buildings.length - 1], key = `b:${vf.id}`;
   expect(s.fields.includes(f)).toBe(false);
-  expect(worldOf(s, 'heartland').pos[`b:${vf.id}`]).toEqual(at);
-  expect(footprintOf(s, `b:${vf.id}`)).toEqual({ w: q.side, d: q.side });
+  expect(worldOf(s, 'heartland').pos[key]).toEqual(at);
+  expect(footprintOf(s, key)).toEqual({ w: q.side, d: q.side });
   expect(vf.grows).toBe('wheat');
-  expect(cash - s.cash).toBeCloseTo(buildingPrice(s, 'verticalFarm', 'heartland') * q.area, -1);
-  expect(throughput(vf) / throughput(tower)).toBeCloseTo(q.area / 2, 5); // tower is level 2 (×2), the converted one level 1
+  expect(cash - s.cash).toBeCloseTo(buildingPrice(s, 'verticalFarm', 'heartland') * 5, -1);
+  expect(throughput(vf)).toBe(5); // five towers' worth at level 1
+  dispatch(s, { type: 'upgradeBuilding', buildingId: vf.id });
+  expect(throughput(vf)).toBe(10);
+  expect(footprintOf(s, key)).toEqual({ w: q.side, d: q.side }); // taller, not bigger
 });

@@ -335,7 +335,7 @@ export const TECHS: TechDef[] = [
   { id: 'agAI', name: 'Agricultural AI', category: 'Artificial Intelligence', cost: 150000, days: 25, requires: ['farmSoftware', 'soilTesting'], advanced: true, benefit: 'Managers pursue strategic objectives: soil targets, rotation and selling discipline.', tradeoff: 'Managers still need salaries.' },
   { id: 'climateForecast', name: 'Climate forecasting', category: 'Artificial Intelligence', cost: 80000, days: 18, requires: ['agAI'], advanced: true, benefit: 'Drought and flood warnings 10 days ahead.', tradeoff: 'None.' },
   { id: 'marketAI', name: 'Market intelligence', category: 'Artificial Intelligence', cost: 70000, days: 15, requires: ['farmSoftware'], benefit: 'Shows a 10-day price outlook from current supply and demand.', tradeoff: 'Forecasts are model-based, not guarantees.' },
-  { id: 'verticalFarming', name: 'Vertical farming', category: 'Renewable Energy', cost: 250000, days: 30, requires: ['solar', 'robotics'], advanced: true, benefit: 'Unlocks vertical farms.', tradeoff: 'Enormous electricity demand.' },
+  { id: 'verticalFarming', name: 'Vertical farming', category: 'Renewable Energy', cost: 250000, days: 30, requires: ['solar', 'robotics'], advanced: true, benefit: 'Intensive (level 3) fields can be converted into vertical farms.', tradeoff: 'Enormous electricity demand.' },
 ];
 export const TECH = Object.fromEntries(TECHS.map((t) => [t.id, t])) as Record<string, TechDef>;
 
