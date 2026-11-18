@@ -1,12 +1,12 @@
 // The Region view: a 2.5D diorama of the whole region, reached through the clouds. Your land in the middle, the main road running
 // west to the Arid Frontier and east to the Coastal Trade Hub, the river running south past the River Plains to the bay, and the
 // Tropical Highlands across the water. Drawn once from fixed geography; only the caravans and labels follow the game.
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { box, cone, cyl, gable, hauler, mat, PAL, sphere } from './models';
 import { graphicsQuality } from './Scene3D';
-import { focusNeighbour, getGame, go, throughClouds, travel, useGame, useStore } from '../../stores/game';
+import { getGame, travel, useGame, useStore, visitTown } from '../../stores/game';
 import { attitude, isNeighbour, NEIGHBOUR_IDS, NEIGHBOURS, regionOf, ROUTE_SIDE, type NeighbourId } from '../../simulation/region-state';
 import { GOODS, REGIONS } from '../../simulation/config';
 import { population } from '../../simulation/community-state';
@@ -110,7 +110,7 @@ function groundColor(x: number, z: number, h: number, slope: number, out: THREE.
 }
 
 // ---------------------------------------------------------------- building the diorama
-type Rig = { scene: THREE.Scene; owned: THREE.BufferGeometry[]; water: THREE.Mesh; waterBase: Float32Array; spin: { o: THREE.Object3D; axis: 'x' | 'z' }[]; ships: { o: THREE.Object3D; cx: number; cz: number; r: number; v: number; a: number }[]; clouds: THREE.Group[]; caravans: Map<number, THREE.Object3D>; units: THREE.Group; townHits: THREE.Object3D[]; walkers: Walker[]; fog?: { inst: THREE.InstancedMesh; at: THREE.Matrix4[] } };
+type Rig = { scene: THREE.Scene; owned: THREE.BufferGeometry[]; water: THREE.Mesh; waterBase: Float32Array; spin: { o: THREE.Object3D; axis: 'x' | 'z' }[]; ships: { o: THREE.Object3D; cx: number; cz: number; r: number; v: number; a: number }[]; clouds: THREE.Group[]; caravans: Map<number, THREE.Object3D>; units: THREE.Group; townHits: THREE.Object3D[]; walkers: Walker[] };
 type Walker = { o: THREE.Object3D; seg: number[]; t: number; dir: number; v: number };
 /** The streets of the town being built, for its people to walk. */
 let curPaths: number[][] = [];
@@ -383,14 +383,6 @@ function buildFog(rig: Rig, low: boolean) {
   const inst = new THREE.InstancedMesh(geo, new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x7f8a96, roughness: 1 }), list.length), m = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), col = new THREE.Color();
   list.forEach(([x, y, z, sc, a], i) => { m.compose(new THREE.Vector3(x, y, z), q.setFromAxisAngle(up, a), new THREE.Vector3(sc * 1.3, sc * 0.75, sc)); inst.setMatrixAt(i, m); inst.setColorAt(i, col.setHSL(0.58, 0.25, 0.93 + (i % 5) * 0.012)); });
   inst.receiveShadow = true; rig.scene.add(inst);
-  rig.fog = { inst, at: list.map((_, i) => { const mm = new THREE.Matrix4(); inst.getMatrixAt(i, mm); return mm; }) };
-}
-/** On a visit the clouds round the town part, so its surroundings are seen; they close again when you leave. */
-function fogAround(rig: Rig | null, place: NeighbourId | null) {
-  if (!rig?.fog) return;
-  const { inst, at } = rig.fog, p = new THREE.Vector3(), none = new THREE.Matrix4().makeScale(0, 0, 0);
-  at.forEach((m, i) => { p.setFromMatrixPosition(m); inst.setMatrixAt(i, place && Math.hypot(p.x - TOWNS[place][0], p.z - TOWNS[place][1]) < 26 ? none : m); });
-  inst.instanceMatrix.needsUpdate = true;
 }
 const SHIRT = [0xc9553f, 0x3f6fc9, 0xe0b23a, 0x4c9a5a, 0x8a5ac9, 0xd07a2f, 0xf1e6cc], SKIN = [0xe0b48a, 0xc68c5e, 0x8d5a3b, 0xf0c9a0];
 /** Townsfolk going up and down their streets. */
@@ -459,15 +451,8 @@ const LABEL_Y: Record<Place, number> = { home: 5, arid: 6, coastal: 5, river: 5,
 
 export default function RegionView() {
   const s = useGame(), v = regionOf(s), page = useStore((x) => x.page);
-  const canvas = useRef<HTMLCanvasElement>(null), labels = useRef<Record<string, HTMLButtonElement | null>>({}), cam = useRef({ x: -4, z: 36, d: 200, goal: 200, min: 22, max: 300, home: 200, pitch: PITCH, visit: null as NeighbourId | null });
-  const [visit, setVisit] = useState<NeighbourId | null>(null), rigRef = useRef<Rig | null>(null);
-  /** Visit a town: through the clouds, down to its streets. Back out the same way. */
-  const goVisit = (id: NeighbourId | null) => throughClouds(() => {
-    const C = cam.current; C.visit = id; setVisit(id); go('farm'); fogAround(rigRef.current, id);
-    if (id) { C.x = TOWNS[id][0]; C.z = TOWNS[id][1]; C.goal = 26; C.d = 36; C.pitch = 0.92; C.min = 12; C.max = 48; }
-    else { C.x = -4; C.z = 36; C.goal = C.home; C.d = C.home * 0.8; C.pitch = PITCH; C.min = 22; C.max = C.home * 1.15; }
-  });
-  const open = (p: Place) => { if (p === 'home') travel('farm'); else if (!cam.current.visit) goVisit(p); };
+  const canvas = useRef<HTMLCanvasElement>(null), labels = useRef<Record<string, HTMLButtonElement | null>>({}), cam = useRef({ x: -4, z: 36, d: 200, goal: 200, min: 22, max: 300, home: 200, pitch: PITCH });
+  const open = (p: Place) => { if (p === 'home') travel('farm'); else visitTown(p); };
 
   useEffect(() => {
     const c = canvas.current!;
@@ -486,7 +471,7 @@ export default function RegionView() {
     sun.shadow.mapSize.set(4096, 4096); sun.shadow.bias = -0.0006; sun.shadow.normalBias = 0.4;
     scene.add(sun);
     const rig: Rig = { scene, owned: [], water: null!, waterBase: new Float32Array(), spin: [], ships: [], clouds: [], caravans: new Map(), units: new THREE.Group(), townHits: [], walkers: [] };
-    scene.add(rig.units); rigRef.current = rig;
+    scene.add(rig.units);
     const taken: [number, number, number, number][] = [];
     buildTerrain(rig); buildRoad(rig); buildFields(rig, taken); buildTowns(rig, getGame()); buildTrees(rig, taken); buildFog(rig, low); buildClouds(rig);
     for (const [cx, cz, r, v0] of [[85, 3, 5, 0.05]] as const) { const o = ship(); o.traverse((m) => { m.castShadow = true; }); scene.add(o); rig.ships.push({ o, cx, cz, r, v: v0, a: cx * 0.1 }); } // ships at sea
@@ -496,7 +481,7 @@ export default function RegionView() {
     const fit = (W: number, H: number) => {
       const t = Math.tan(((FOV / 2) * Math.PI) / 180), dw = 100 / (t * (W / H)), dh = (70 * Math.sin(PITCH)) / t;
       C.home = W < 600 ? 84 / (t * (W / H)) : Math.max(dw, dh) * 1.04; // what you can see, edge to edge; a phone fits the towns across
-      C.max = C.home * 1.15; if (!C.visit) C.goal = C.home;
+      C.max = C.home * 1.15; C.goal = C.home;
     };
     let W = 0, H = 0, raf = 0, last = performance.now();
     const frame = (now: number) => {
@@ -505,8 +490,7 @@ export default function RegionView() {
       if (w !== W || h !== H) { const first = !W; W = w; H = h; renderer.setSize(W, H, false); camera.aspect = W / H; camera.updateProjectionMatrix(); fit(W, H); if (first) C.d = C.goal * 0.55; }
       const dt = Math.max(0, Math.min(0.05, (now - last) / 1000)), t = now / 1000; last = now;
       C.d += (C.goal - C.d) * Math.min(1, dt * 4);
-      if (C.visit) { const [vx, vz] = TOWNS[C.visit]; C.x = Math.max(vx - 12, Math.min(vx + 12, C.x)); C.z = Math.max(vz - 10, Math.min(vz + 12, C.z)); } // a visit stays in town
-      else { C.x = Math.max(-85, Math.min(80, C.x)); C.z = Math.max(-15, Math.min(100, C.z)); }
+      C.x = Math.max(-85, Math.min(80, C.x)); C.z = Math.max(-15, Math.min(100, C.z));
       camera.position.set(C.x, Math.sin(C.pitch) * C.d, C.z + Math.cos(C.pitch) * C.d); camera.lookAt(C.x, 0, C.z);
       (scene.fog as THREE.Fog).near = C.d * 1.1; (scene.fog as THREE.Fog).far = C.d * 3.2;
       // ripples, mills, ships, clouds and caravans
@@ -525,7 +509,7 @@ export default function RegionView() {
         const el = labels.current[id]; if (!el) continue;
         p.set(TOWNS[id][0], groundAt(TOWNS[id][0], TOWNS[id][1]) + LABEL_Y[id], TOWNS[id][1]).project(camera);
         const half = el.offsetWidth / 2 + 6, x = Math.max(half, Math.min(W - half, (p.x * 0.5 + 0.5) * W)), y = (-p.y * 0.5 + 0.5) * H; // kept on screen at the edges
-        el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px) translate(-50%, -100%)`; el.style.visibility = !C.visit && p.z < 1 && Math.abs((p.x * 0.5 + 0.5) * W - x) < half && y > 40 && y < H + 60 ? 'visible' : 'hidden';
+        el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px) translate(-50%, -100%)`; el.style.visibility = p.z < 1 && Math.abs((p.x * 0.5 + 0.5) * W - x) < half && y > 40 && y < H + 60 ? 'visible' : 'hidden';
       }
     };
     raf = requestAnimationFrame(frame);
@@ -560,7 +544,7 @@ export default function RegionView() {
   }, []);
 
   useEffect(() => {
-    const k = (e: KeyboardEvent) => { if (e.key === 'Escape' && page === 'farm' && !document.querySelector('.modal-bg')) { if (cam.current.visit) goVisit(null); else travel('farm'); } };
+    const k = (e: KeyboardEvent) => { if (e.key === 'Escape' && page === 'farm' && !document.querySelector('.modal-bg')) travel('farm'); };
     addEventListener('keydown', k); return () => removeEventListener('keydown', k);
   }, [page]);
 
@@ -579,34 +563,11 @@ export default function RegionView() {
             {r && <em>📜 {num(Math.max(0, r.qty - r.done))} {GOODS[r.good].name.toLowerCase()} wanted</em>}</span>
         </button>; })}
     </div>
-    {visit ? <Visit id={visit} onTrade={() => { focusNeighbour(visit); go('region'); }} /> : null}
     <div className="region-top">
-      {visit ? <button className="btn region-back" onClick={() => goVisit(null)}>← Region</button> : <button className="btn region-back" onClick={() => travel('farm')}>← Farm</button>}
-      {visit ? <div className="region-title"><b>Visiting {REGIONS[visit].name}</b><span>{NEIGHBOURS[visit].icon} {NEIGHBOURS[visit].leader}’s town</span></div> : <div className="region-title"><b>The Region</b><span>{v.active ? `${v.border === 'walls' ? '🧱 Walls & tolls' : '🕊 Open borders'} · ${escorts ? `${escorts} caravan${escorts > 1 ? 's' : ''} on the way` : 'no caravans out'}` : 'Four neighbours beyond your land'}</span></div>}
+      <button className="btn region-back" onClick={() => travel('farm')}>← Farm</button>
+      <div className="region-title"><b>The Region</b><span>{v.active ? `${v.border === 'walls' ? '🧱 Walls & tolls' : '🕊 Open borders'} · ${escorts ? `${escorts} caravan${escorts > 1 ? 's' : ''} on the way` : 'no caravans out'}` : 'Four neighbours beyond your land'}</span></div>
     </div>
     <div className="region-zoom tool-grid"><button className="icon-btn" aria-label="Zoom in" onClick={() => zoom(0.75)}>+</button><button className="icon-btn" aria-label="Zoom out" onClick={() => zoom(1.33)}>−</button></div>
   </div>;
 }
 
-const TOWN_LINE: Record<NeighbourId, string> = {
-  arid: 'A walled adobe town round its oasis, at the western end of the main road.',
-  coastal: 'The harbour where the main road meets the sea. Ships come in from everywhere.',
-  river: 'Mills and cottages downriver, on the plains the river waters.',
-  tropics: 'Stilt huts and terraced hills across the bay, where coffee and cane grow.',
-};
-/** What you see on a visit: who leads the town, how they feel about you, what they want. Nothing to do here yet. */
-function Visit({ id, onTrade }: { id: NeighbourId; onTrade: () => void }) {
-  const s = useGame(), v = regionOf(s), n = v.neighbours[id], who = NEIGHBOURS[id], r = n.request;
-  const out = s.shipments.filter((x) => x.caravan && x.to === id && s.tick < x.arrives).length;
-  return <aside className="visit-card" aria-label={`Visiting ${REGIONS[id].name}`}>
-    <div className="visit-head"><span className="rv-crest">{who.icon}</span><div><b>{REGIONS[id].name}</b><small>{who.leader}</small></div></div>
-    <p>{TOWN_LINE[id]}</p>
-    {v.active && <div className="visit-trust"><span>{attitude(n.trust)}</span><span className="visit-bar"><i style={{ width: `${Math.max(0, Math.min(100, n.trust))}%` }} /></span><b>{Math.round(n.trust)}</b></div>}
-    <ul className="visit-facts">
-      <li>💛 Wants <b>{GOODS[who.wants].name.toLowerCase()}</b></li>
-      {r && <li>📜 Order: <b>{num(Math.max(0, r.qty - r.done))} {GOODS[r.good].name.toLowerCase()}</b></li>}
-      {v.active && <li>🐫 {out ? `${out} caravan${out > 1 ? 's' : ''} on the way` : 'No caravans on the way'}</li>}
-    </ul>
-    <button className="btn primary" onClick={onTrade}>{v.active ? 'Trade & diplomacy' : 'Choose your border policy'}</button>
-  </aside>;
-}

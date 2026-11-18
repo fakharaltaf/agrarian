@@ -1,7 +1,10 @@
 // What stands where in a region's isometric world. Positions come from the saved map (simulation/world.ts);
 // this module only turns them into drawable lots and plots. Deterministic: same state, same picture.
 import { STAGE_IDS } from '../../simulation/stages/types';
-import { BUILDINGS, type BuildingType, type RegionId } from '../../simulation/config';
+import { BUILDINGS, CROPS, type BuildingType, type RegionId } from '../../simulation/config';
+import { newField } from '../../simulation/agriculture';
+import { isNeighbour } from '../../simulation/region-state';
+import { neighbourTown } from '../../simulation/neighbour-towns';
 import type { Building, CivicService, Field, GameState } from '../../simulation/types';
 import { svcSide } from '../../simulation/town-state';
 import { townOf } from '../../simulation/town-state';
@@ -15,7 +18,7 @@ export { FOOTPRINT, plotSide } from '../../simulation/world';
 
 /** `place` is the saved-map key this lot moves with (several home blocks share one). */
 /** w and d are as it stands on the map (already turned); rot is its quarter turns, the front facing +y at 0. */
-export interface Lot { /** a home's level (apartments grow upward) */ level?: number; key: string; place: string; type: BuildingType | 'house' | 'shed'; buildings: Building[]; service?: CivicService; x: number; y: number; w: number; d: number; rot: number }
+export interface Lot { /** a home's level (apartments grow upward) */ level?: number; /** a neighbour's, seen on a visit: not yours to work */ neighbour?: boolean; name?: string; key: string; place: string; type: BuildingType | 'house' | 'shed'; buildings: Building[]; service?: CivicService; x: number; y: number; w: number; d: number; rot: number }
 export interface Plot { field: Field; x: number; y: number; s: number }
 export interface Layout { lots: Lot[]; plots: Plot[]; roadY: number; buy: { x: number; y: number; s: number } | null; maxX: number; maxY: number; minX: number; minY: number }
 
@@ -49,6 +52,11 @@ export function layoutRegion(s: GameState, r: RegionId): Layout {
     for (const service of townOf(s).services) if (service.type !== 'road') add(`civic:${service.type}:${service.id}`, `svc:${service.id}`, 'house', [], { service, w: svcSide(service), d: svcSide(service) });
   }
   const plots: Plot[] = [];
+  if (isNeighbour(r)) { // the neighbour's own town on its map
+    const nt = neighbourTown(r);
+    for (const l of nt.lots) lots.push({ key: l.key, place: l.key, type: 'house', buildings: [], x: l.x, y: l.y, w: l.rot % 2 ? l.d : l.w, d: l.rot % 2 ? l.w : l.d, rot: l.rot, level: l.level, neighbour: true, name: l.name || undefined });
+    nt.fields.forEach((nf, i) => { const c = CROPS[nf.crop], ago = Math.round(nf.phase * c.growthTicks); plots.push({ field: { ...newField(s, r, 2, 0), id: -1000 - i, crop: nf.crop, plantedAt: c.perennial ? s.tick - 1e6 : s.tick - ago, cycleAt: s.tick - ago }, x: nf.x, y: nf.y, s: nf.s }); });
+  }
   for (const f of s.fields) {
     if (f.region !== r) continue;
     const p = at(`field:${f.id}`);

@@ -26,6 +26,7 @@ import { doorTiles, frontageAt, meets, pressureOf, reachTime, roadTile, travelFr
 import { bridgeAt, bridgePlan, isBridge } from '../../simulation/world';
 import { isNeighbour, regionActive, regionOf, ROUTE_SIDE, type NeighbourId } from '../../simulation/region-state';
 import { canStartRegion } from '../../simulation/stages/region';
+import { neighbourTown } from '../../simulation/neighbour-towns';
 import { wooded, beltRoute, wideRoadRoute, homesCentre, CHUNK, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, LAND_HA_PER_PATCH, MAP, hasAccess, riverTiles, riverX, tileId, roadStretch, roadPick, pipeRoute, pipeStretch, plotSide, fieldWater, wetTiers, linesOf, NET_TOP, UTILITY_NETS, netReach, doorstep, footprintOf, type NetKind, type UtilityNet, tileAt, forSaleAround,  ownedSet, ROAD_H, ROAD_Y, chunkAt, chunkOrigin, clearCost, clearedSet, isRoad, patchesAround, placeProblem, worldOf } from '../../simulation/world';
 import { animal, buildBridge, buildCivic, buildCommunityHome, buildLot, buildWorks, box, cached, cyl, farmhand, hauler, mat, mesh, PAL, person, tree, vehicle, type Model } from './models';
 import { haulOf, MARKET_X, marketRoute } from '../../simulation/hauling';
@@ -45,6 +46,16 @@ const reducedMotionQuery = typeof matchMedia === 'function' ? matchMedia('(prefe
 const SHIRTS = [0xc9553f, 0x3f6fc9, 0xe0b23a, 0x4c9a5a, 0x8a5ac9, 0xd07a2f];
 const ANIMAL_BUILDING: Record<AnimalId, Lot['type']> = { chickens: 'coop', pigs: 'pigsty', cows: 'cowshed', sheep: 'sheepfold' };
 const hash = (n: number) => { const x = Math.sin(n * 127.1) * 43758.5453; return x - Math.floor(x); };
+/** The map as drawn: on a neighbour's map, their town's streets and cleared ground are there with whatever is yours. */
+const views = new WeakMap<object, { k: string; w: ReturnType<typeof worldOf> }>();
+function viewWorld(s: GameState, r: RegionId) {
+  const w = worldOf(s, r);
+  if (!isNeighbour(r)) return w;
+  const k = `${w.cleared.length}:${Object.keys(w.roads).length}`, hit = views.get(w);
+  if (hit?.k === k) return hit.w;
+  const nt = neighbourTown(r), v = { ...w, roads: { ...nt.roads, ...w.roads }, cleared: [...new Set([...w.cleared, ...nt.cleared])] };
+  views.set(w, { k, w: v }); return v;
+}
 const lerpC = (a: number, b: number, k: number) => new THREE.Color(a).lerp(new THREE.Color(b), Math.max(0, Math.min(1, k)));
 
 type Shape = 'grain' | 'paddy' | 'stalk' | 'cane' | 'mound' | 'bush' | 'shrub' | 'cone' | 'trunk' | 'crown' | 'dot';
@@ -95,7 +106,7 @@ interface Rig {
 
 export type WorldAction = 'harvest' | 'plant' | 'inspect' | 'plan' | 'place' | 'fertilise' | 'irrigate' | 'pipes' | 'move' | 'movelot' | 'merge' | 'homeup' | 'layout' | 'placeok' | 'placecancel' | 'clear1' | 'clear9' | 'buy1' | 'buy9';
 
-export function Scene3D({ region, selected, onPick, plantLabel, onAction, selectedLot, placing, forestAt, placeCost, roading, prospect, zoning }: { region: RegionId; selected: number[]; onPick: (p: WorldPick) => void; plantLabel?: string; selectedLot?: string; onAction?: (kind: WorldAction, fieldId: number) => void; placing?: Placement | null; forestAt?: [number, number] | null; placeCost?: number; roading?: Roading | null; prospect?: { region: RegionId; hover?: [number, number] } | null; zoning?: Zoning | null }) {
+export function Scene3D({ region, visiting, selected, onPick, plantLabel, onAction, selectedLot, placing, forestAt, placeCost, roading, prospect, zoning }: { region: RegionId; /** looking round a neighbour's town: no tools */ visiting?: boolean; selected: number[]; onPick: (p: WorldPick) => void; plantLabel?: string; selectedLot?: string; onAction?: (kind: WorldAction, fieldId: number) => void; placing?: Placement | null; forestAt?: [number, number] | null; placeCost?: number; roading?: Roading | null; prospect?: { region: RegionId; hover?: [number, number] } | null; zoning?: Zoning | null }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const overlay = useRef<HTMLDivElement>(null);
   const rig = useRef<Rig | null>(null);
@@ -410,14 +421,14 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
       {hover && <div className="world-tip" style={{ left: hover.x + 14, top: hover.y + 14 }}>{hover.text.filter(Boolean).map((t, i) => <div key={i} className={i ? 'muted' : ''}>{t}</div>)}</div>}
       <div className="world-zoom">
         <div className="tool-grid" role="toolbar" aria-label="View">
-        {(regionActive(getGame()) || canStartRegion(getGame())) && <button className="region-go" title="Fly over to the map of the whole region" onClick={() => travel('region')}>🗺 Region</button>}
-        {(canUndo() || canRedo()) && <><button className="icon-btn" aria-label="Undo" title="Undo your last build, road, line, move or removal (Ctrl/⌘ Z)" disabled={!canUndo()} onClick={() => undo()}>↶</button><button className="icon-btn" aria-label="Redo" title="Redo (Ctrl/⌘ Shift Z)" disabled={!canRedo()} onClick={() => redo()}>↷</button></>}
+        {!visiting && (regionActive(getGame()) || canStartRegion(getGame())) && <button className="region-go" title="Fly over to the map of the whole region" onClick={() => travel('region')}>🗺 Region</button>}
+        {!visiting && (canUndo() || canRedo()) && <><button className="icon-btn" aria-label="Undo" title="Undo your last build, road, line, move or removal (Ctrl/⌘ Z)" disabled={!canUndo()} onClick={() => undo()}>↶</button><button className="icon-btn" aria-label="Redo" title="Redo (Ctrl/⌘ Shift Z)" disabled={!canRedo()} onClick={() => redo()}>↷</button></>}
         <button className="icon-btn" aria-label="Zoom in" onClick={() => ctl().zoom(1.25)}>+</button>
         <button className="icon-btn" aria-label="Zoom out" onClick={() => ctl().zoom(0.8)}>−</button>
         <button className="icon-btn" aria-label="Rotate left (Q)" title="Rotate (Q)" onClick={() => ctl().rotate(1)}>⟲</button>
         <button className="icon-btn" aria-label="Rotate right (E)" title="Rotate (E)" onClick={() => ctl().rotate(-1)}>⟳</button>
         </div>
-        <div className="tool-grid" role="toolbar" aria-label="Build and map tools">
+        {!visiting && <div className="tool-grid" role="toolbar" aria-label="Build and map tools">
         {featureEra(getGame(), 4) && <button data-coach="zones-btn" className={`icon-btn${zoning ? ' on' : ''}`} aria-label="Zones" title="Zones: residential and industrial land" onClick={() => zoning ? stopZoning() : startZoning(region)}>🏘</button>}
         {oilOpen(getGame()) && <button className={`icon-btn${prospect ? ' on' : ''}`} aria-label="Oil" title="Oil: survey and drill" onClick={() => prospect ? stopProspect() : startProspect(region)}>🛢</button>}
         <button className={`icon-btn${roading?.belt ? ' on' : ''}`} aria-label="Tree lines" title="Tree lines: plant rows of trees, like drawing a road" onClick={() => roading?.belt ? stopRoads() : startBelts(region)}>🌳</button>
@@ -426,7 +437,7 @@ export function Scene3D({ region, selected, onPick, plantLabel, onAction, select
         {townOf(getGame()).active && <button className={`icon-btn${trafficMap ? ' on' : ''}`} aria-label="Traffic map" aria-pressed={trafficMap} title="Traffic map: green streets flow freely, amber and red are slowed by traffic (a parking complex helps)" onClick={() => setTrafficMap(!trafficMap)}>🚦</button>}
         {cityActive(getGame()) && <button className={`icon-btn${crimeMap ? ' on' : ''}`} aria-label="Crime map" aria-pressed={crimeMap} title="Crime map: green streets are safe, red ones need a watchhouse or lights" onClick={() => setCrimeMap(!crimeMap)}>🛡</button>}
         {featureEra(getGame(), 2) && <button className={`icon-btn${roading?.pipe === 'irrigation' ? ' on' : ''}`} aria-label="Water lines" title="Water lines: dig ditches, upgrade them to pipes and bury them" onClick={() => roading?.pipe === 'irrigation' ? stopRoads() : startPipes(region)}>💧</button>}
-        </div>
+        </div>}
       </div>
 
     </div>
@@ -495,6 +506,8 @@ export function fertilisePlan(s: GameState, f: GameState['fields'][number]) {
 // ---------------------------------------------------------------- camera
 
 function frameCamera(R: Rig,L:Layout,selected:number[]=[],selectedLot?:string){
+  const theirs = L.lots.filter((l) => l.neighbour);
+  if (theirs.length) { const xs = theirs.flatMap((l) => [l.x, l.x + l.w]), ys = theirs.flatMap((l) => [l.y, l.y + l.d]); R.target.set((Math.min(...xs) + Math.max(...xs)) / 2, 0, (Math.min(...ys) + Math.max(...ys)) / 2); R.zoom = 0.32; return; } // a neighbour's town, whole
   const place = selectedLot && L.lots.find(l => l.key === selectedLot);
   if(place){R.target.set(place.x+place.w/2,0,place.y+place.d/2);R.zoom=selectedLot?.startsWith('community:')?0.65:1;return;}
   const field=L.plots.find(x=>selected.includes(x.field.id))??L.plots[0];
@@ -579,7 +592,7 @@ function nightWindows(model: Model) {
   for (const k of [-1, 1]) { face(size.x, c.z + k * (size.z / 2 + 0.012), false); face(size.z, c.x + k * (size.x / 2 + 0.012), true); } // on the face of every wall: the building may be turned any way
 }
 /** What a lot is called on the map and when moving it. */
-export const lotName = (lot: Lot) => lot.key.startsWith('civic:') ? (lot.key==='civic:hall'?'Town hall':lot.service?serviceName(lot.service):SERVICE_DEFS[lot.key.split(':')[1] as ServiceType].name) : lot.key.startsWith('community:') ? ({cottage:'Cottage',terrace:'Terrace',apartment:'Apartments'}[lot.key.split(':')[1]] ?? 'Neighbourhood') : lot.key === 'crew' ? 'Bunkhouse' : lot.key === 'office' ? 'Farm office' : lot.key === 'market' ? 'Village trader' : lot.type === 'house' ? 'Farmhouse' : lot.type === 'shed' ? 'Office' : ((lot.buildings[0]?.size ?? 1) > 1 ? mergedName(lot.type, BUILDINGS[lot.type].name, lot.buildings[0].size!) : BUILDINGS[lot.type].name);
+export const lotName = (lot: Lot) => lot.name ? lot.name : lot.key.startsWith('civic:') ? (lot.key==='civic:hall'?'Town hall':lot.service?serviceName(lot.service):SERVICE_DEFS[lot.key.split(':')[1] as ServiceType].name) : lot.key.startsWith('community:') ? ({cottage:'Cottage',terrace:'Terrace',apartment:'Apartments'}[lot.key.split(':')[1]] ?? 'Neighbourhood') : lot.key === 'crew' ? 'Bunkhouse' : lot.key === 'office' ? 'Farm office' : lot.key === 'market' ? 'Village trader' : lot.type === 'house' ? 'Farmhouse' : lot.type === 'shed' ? 'Office' : ((lot.buildings[0]?.size ?? 1) > 1 ? mergedName(lot.type, BUILDINGS[lot.type].name, lot.buildings[0].size!) : BUILDINGS[lot.type].name);
 /** A point in a lot's own (unturned) frame, carried round with the lot's turn; returns lot-relative map coordinates. */
 function turnPoint(l: Lot, x: number, z: number): [number, number] {
   const bw = l.rot % 2 ? l.d : l.w, bd = l.rot % 2 ? l.w : l.d, a = (l.rot * Math.PI) / 2, dx = x - bw / 2, dz = z - bd / 2;
@@ -599,7 +612,7 @@ function syncLots(R: Rig, L: Layout) {
     R.outlines.add(fill, edge);
     const bw = lot.rot % 2 ? lot.d : lot.w, bd = lot.rot % 2 ? lot.w : lot.d; // built unturned, then turned about its centre
     const merged = !lot.buildings[0] && (lot.service?.size ?? 1) > 1, lay = merged ? (lot.service?.layout ?? 0) % 4 : 0, /* a merged building's layout is its shape, set by its footprint */ [mw, md] = lay >= 2 ? [bd, bw] : [bw, bd]; // layouts 2 and 3 lay the yard in front or behind
-    const model = lot.key.startsWith('civic:') ? buildCivic(lot.service?.type === 'park' ? `park-${lot.service.park ?? 'garden'}` : lot.key.split(':')[1], mw, md, lot.service?.level ?? 1, lot.key) : lot.key.startsWith('community:') ? buildCommunityHome(lot.key.split(':')[1], bw, bd, lot.key, lot.level ?? 1) : (lot.buildings[0]?.size ?? 1) > 1 ? buildWorks(lot.type, lot.buildings[0].size === 4 ? 4 : 2, mw, md) : buildLot(lot.type, lot.key === 'house' ? 3 : bw, lot.key === 'house' ? 3 : bd, lot.key === 'crew' || lot.key === 'office' || lot.key === 'market' ? lot.key : '', lot.key === 'house' ? lot.level ?? 1 : Math.max(1, ...lot.buildings.map((b) => b.level)));
+    const model = lot.key.startsWith('civic:') ? buildCivic(lot.service?.type === 'park' ? `park-${lot.service.park ?? 'garden'}` : lot.key.split(':')[1], mw, md, lot.service?.level ?? lot.level ?? 1, lot.key) : lot.key.startsWith('community:') ? buildCommunityHome(lot.key.split(':')[1], bw, bd, lot.key, lot.level ?? 1) : (lot.buildings[0]?.size ?? 1) > 1 ? buildWorks(lot.type, lot.buildings[0].size === 4 ? 4 : 2, mw, md) : buildLot(lot.type, lot.key === 'house' ? 3 : bw, lot.key === 'house' ? 3 : bd, lot.key === 'crew' || lot.key === 'office' || lot.key === 'market' ? lot.key : '', lot.key === 'house' ? lot.level ?? 1 : Math.max(1, ...lot.buildings.map((b) => b.level)));
     const inner = new THREE.Group(); inner.add(...model.group.children); inner.position.set(-bw / 2, 0, -bd / 2); model.group.add(inner);
     if (lay === 1) { inner.scale.x = -1; inner.position.x = bw / 2; if (model.pen) model.pen = { ...model.pen, x0: bw - model.pen.x1, x1: bw - model.pen.x0 }; model.smoke = model.smoke.map((p) => new THREE.Vector3(bw - p.x, p.y, p.z)); } // the yard on the other side
     else if (lay === 2) { inner.rotation.y = -Math.PI / 2; inner.position.set(bw / 2, 0, -bd / 2); const P = model.pen; if (P) model.pen = { x0: bw - P.z1, x1: bw - P.z0, z0: P.x0, z1: P.x1 }; model.smoke = model.smoke.map((p) => new THREE.Vector3(bw - p.z, p.y, p.x)); } // halls along one end, the yard running out in front
@@ -971,7 +984,7 @@ const seasonOf = (s: GameState) => SEASONS[Math.floor((((Math.floor(s.tick / 24)
 
 /** Scenery: the road and the forest. Every patch not yet cleared is woodland, drawn with a few instanced meshes. */
 function syncDeco(R: Rig, L: Layout, s: GameState) {
-  const w = worldOf(s, R.region);
+  const w = viewWorld(s, R.region);
   // Only woods near the view are drawn; the set is rebuilt when the camera moves or zooms far enough.
   const reach = Math.min(150, 9 / R.zoom * 3 + 12), step = Math.max(6, reach / 4);
   const cx = Math.round(R.target.x / step) * step, cz = Math.round(R.target.z / step) * step, rb = Math.ceil(reach / 6) * 6;
@@ -1202,7 +1215,7 @@ class Decal {
 }
 /** Roads: the main road and every track, by grade (dirt, gravel, paved), as one soft-edged surface. */
 function syncRoads(R: Rig, s: GameState) {
-  const w = worldOf(s, R.region), ids = Object.keys(w.roads);
+  const w = viewWorld(s, R.region), ids = Object.keys(w.roads);
   const cids = Object.keys(w.canals), nsig = UTILITY_NETS.map((k) => { const o = w.nets?.[k] ?? {}; return Object.keys(o).reduce((a, id) => a + ((Number(id) * 13) % 100019) * o[Number(id)], 0); }).join(',');
   const sig = `${R.region}:${w.main}:${ids.length}:${ids.reduce((a, k) => a + ((Number(k) * 31) % 1000003) * w.roads[Number(k)], 0)}:${cids.length}:${cids.reduce((a, k) => a + ((Number(k) * 17) % 100003) * w.canals[Number(k)], 0)}:${s.fields.length}:${nsig}:${townOf(s).services.length}:${communityOf(s).homes.length}:b${Object.keys(w.belts ?? {}).length}`;
   if (sig === R.roadSig) return;
@@ -1850,7 +1863,7 @@ function bridgeFit(r: RegionId, z0: number, d: number, w?: ReturnType<typeof wor
 /** The river: a smooth channel with muddy, pebbly banks, flowing water, a timber bridge, and a waterfall where it leaves a gorge in the mountains along the top of the map. */
 function syncRiver(R: Rig, s: GameState) {
   // redrawn when roads or bridges by the river change, so no pebble, reed or boulder sits on them
-  const w = worldOf(s, R.region), paved = new Set<number>();
+  const w = viewWorld(s, R.region), paved = new Set<number>();
   for (const id of riverTiles(R.region)) { const [x, y] = tileAt(id); for (let dx = -3; dx <= 3; dx++) { const k = tileId(x + dx, y); if (w.roads[k] !== undefined) paved.add(k); } }
   const sig = `${R.region}:${[...paved].sort((a, b) => a - b).join(',')}`;
   if (R.riverSig === sig) return;
@@ -2259,13 +2272,13 @@ function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el
   if(store&&st.dry>=st.cap.dry*.99){const [x,y]=project(store.x+store.w/2,2,store.y);want.push({key:'full',x,y,html:'📦 FULL',cls:'wl-ready'});}
   const zoomed = R.zoom > 0.45;
   for (const p of L.plots) {
-    if (!isReady(s, p.field) || (selected.length === 1 && selected[0] === p.field.id && p.field.ha <= 1)) continue;
+    if (!isReady(s, p.field) || p.field.id < 0 || (selected.length === 1 && selected[0] === p.field.id && p.field.ha <= 1)) continue;
     const [x, y] = project(p.x + p.s / 2, 1.1 + Math.sin(t * 3) * 0.06, p.y + p.s / 2);
     if (x < -20 || y < -20 || x > W + 20 || y > H + 20) continue;
     want.push({ key: `r${p.field.id}`, x, y, html: '!', cls: 'wl-ready' });
   }
   for (const p of L.plots) {
-    if (isReady(s, p.field) || selected.includes(p.field.id)) continue;
+    if (isReady(s, p.field) || selected.includes(p.field.id) || p.field.id < 0) continue; // a neighbour's fields are theirs to tend
     const need = fieldNeeds(s, p.field);
     if (!need.fertilise && !need.irrigate && !need.water) continue;
     const [x, y] = project(p.x + p.s / 2, 1.1, p.y + p.s / 2);
@@ -2284,9 +2297,10 @@ function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el
     if (lot.key.startsWith('community:')) continue; // rows of homes read at a glance; a label on each is just clutter
     const [x, y] = project(lot.x + lot.w / 2, 0, lot.y + lot.d + 0.3);
     if (x < -60 || y < -20 || x > W + 60 || y > H + 20) continue;
+    if (lot.neighbour && lot.key.startsWith('community:')) continue; // a neighbour's homes go unlabelled, like yours in a crowd
     const name = lotName(lot);
     const lvl = lot.service?.size ? shownLevel(lot.service) : Math.max(1, ...lot.buildings.map(shownLevel));
-    const noRoad = !hasAccess(s, R.region, lot.place);
+    const noRoad = !lot.neighbour && !hasAccess(s, R.region, lot.place);
     const warn = noRoad || !!(lot.service?.active && !lot.service.funded) || lot.buildings.some((b) => b.active && /Not enough|full|Disease/.test(b.reason));
     want.push({ key: `l${lot.key}`, x, y, html: `${warn ? '⚠ ' : lot.service && !lot.service.active ? '○ ' : ''}${noRoad ? 'No road · ' : ''}${name}${lot.service && lot.service.count>1 && !lot.service.size?` ×${lot.service.count}`:''}${lot.buildings.length > 1 ? ` ×${lot.buildings.length}` : ''}${lvl > 1 ? ` · L${lvl}` : ''}`, cls: 'wl-name' });
   }

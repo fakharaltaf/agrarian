@@ -970,3 +970,4 @@ body:has(.modal-bg) .shell .coach { display: none !important; }
 .visit-facts { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 13px; }
 .visit-facts b { color: #f2c94c; }
 @media (max-width: 600px) { .visit-card { left: 12px; right: 12px; bottom: 64px; width: auto; gap: 8px; } .visit-card p { display: none; } .region-zoom { bottom: 16px; } }
+.hud .visit-top, .hud .visit-card { z-index: 6; }

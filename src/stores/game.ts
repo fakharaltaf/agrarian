@@ -1,3 +1,4 @@
+import type { NeighbourId } from '../simulation/region-state';
 // The bridge between the pure simulation and React. The GameState object is mutated in place by
 // the engine; subscribers re-render on a version counter at most ~5 times a second.
 import { planQuote } from '../simulation/engine';
@@ -46,6 +47,8 @@ interface Store {
   view: 'farm' | 'region';
   /** the clouds closing over the screen, or parting, while travelling between the two */
   veil: 'in' | 'out' | null;
+  /** a neighbour's town you are visiting: its own map, to look round */
+  visiting: NeighbourId | null;
 }
 /** Road mode: draw from the last tapped tile, or upgrade/remove the stretch tapped. */
 export type Roading = { tool: 'draw' | 'upgrade' | 'remove' | 'bridge'; region: RegionId; from?: [number, number]; hover?: [number, number]; /** the same tool lays line networks (irrigation, power, water, sewer): draw, upgrade, remove */ pipe?: NetKind; /** planting tree lines instead */ belt?: boolean };
@@ -59,7 +62,7 @@ export const placementNeed = (p: Pick<Placement, 'action' | 'kind'>) => p.kind =
 export const placementUse = (p: Pick<Placement, 'action' | 'key' | 'kind'>) => p.kind === 'move' ? undefined : p.action.type === 'buildHomes' ? 'home' as const : p.action.type === 'buyPlot' || p.action.type === 'buyParcel' ? 'field' as const : p.action.type === 'build' ? buildingUse(store.game, p.action.building) : p.action.type === 'buildService' && COMMERCIAL.test(p.action.service) ? 'shop' as const : undefined;
 export type Placement = { kind: 'new' | 'move'; action: Action; region: RegionId; w: number; d: number; label: string; key?: string; at: [number, number]; /** quarter turns; w and d are already turned */ rot?: number; /** placing one of several: how many are left, of how many */ left?: number; total?: number };
 
-let store: Store = { game: createGame(), v: 0, speed: 1, toasts: [], away: null, catchUp: null, page: 'farm', ready: false, placing: null, roading: null, hideBuildings: false, crimeMap: false, trafficMap: false, roadLanes: 1, prospect: null, zoning: null, view: 'farm', veil: null };
+let store: Store = { game: createGame(), v: 0, speed: 1, toasts: [], away: null, catchUp: null, page: 'farm', ready: false, placing: null, roading: null, hideBuildings: false, crimeMap: false, trafficMap: false, roadLanes: 1, prospect: null, zoning: null, view: 'farm', veil: null, visiting: null };
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((l) => l());
 const set = (patch: Partial<Store>) => {
@@ -401,8 +404,11 @@ let travelling = false;
 export function travel(view: 'farm' | 'region') {
   if (store.view === view) return;
   set({ placing: null, roading: null, prospect: null, zoning: null });
-  throughClouds(() => set({ view, page: 'farm' }));
+  throughClouds(() => set({ view, page: 'farm', visiting: null }));
 }
+/** Visit a neighbour's town: down through the clouds onto its own map, built like yours. Back up to the region map the same way. */
+export const visitTown = (id: NeighbourId) => throughClouds(() => set({ view: 'farm', visiting: id, page: 'farm' }));
+export const leaveTown = () => throughClouds(() => set({ view: 'region', visiting: null, page: 'farm' }));
 /** Close the clouds over the screen, make the change behind them, part them again. */
 export function throughClouds(change: () => void) {
   if (travelling) return;

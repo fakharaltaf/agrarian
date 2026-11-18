@@ -1,3 +1,4 @@
+import { VisitBar, VisitCard } from './VisitCard';
 import { MILITIA_ESCORT, sidesAt, TOWER_REACH, towerSides } from '../../simulation/stages/region';
 import { NEIGHBOUR_IDS, ROUTE_SIDE, SIDE_NAME } from '../../simulation/region-state';
 import { travel } from '../../stores/game';
@@ -168,7 +169,7 @@ export function Hud() {
   const [journal, setJournal] = useState(false);
   const dragStart = useRef<number | null>(null);
   const dragged = useRef(false);
-  const page = usePageState();
+  const page = usePageState(), visiting = useStore((x) => x.visiting);
   const oneField = sel.length === 1 ? s.fields.find((f) => f.id === sel[0]) : undefined;
   const crop = chosen ?? (oneField ? bestCrop(s, oneField) : 'wheat'); // best pay until the player picks
   const live = useRef({ s, sel, crop });
@@ -247,8 +248,8 @@ export function Hud() {
 
   return (
     <div className="hud">
-      <DiscoveryCard s={s} />
-      <Scene3D region={region} selected={lot ? [] : sel} onPick={onPick} plantLabel={plantLabel(s, crop, one)}
+      {!visiting && <DiscoveryCard s={s} />}
+      <Scene3D region={visiting ?? region} visiting={!!visiting} selected={lot || visiting ? [] : sel} onPick={visiting ? () => {} : onPick} plantLabel={plantLabel(s, crop, one)}
         placing={placing} forestAt={forest} placeCost={placing ? placementCost(s, placing) : 0} roading={roading} prospect={prospect} zoning={zoning}
         selectedLot={lot?.key} onAction={(kind, id) => {
           if(kind==='placeok'){ if(confirmPlacement()) { setSel([]); setLot(null); } }
@@ -276,6 +277,7 @@ export function Hud() {
             if(target && PAGES.find(p=>p.id===target)?.unlocked(s))go(target);else {setPanel(true);setJournal(false);}
           } else {setPanel(true);setJournal(false); if(kind==='plan') requestAnimationFrame(()=>document.querySelector('[data-coach=plan-picker]')?.scrollIntoView({block:'center'}));}
         }} />
+      {visiting ? <><VisitBar id={visiting} /><VisitCard id={visiting} /></> : <>
       {placing && <PlacementBar s={s} p={placing} />}
       {roading && (roading.belt ? <BeltBar s={s} r={roading} /> : roading.pipe === 'irrigation' ? <PipeBar s={s} r={roading} /> : roading.pipe ? <UtilityBar s={s} r={roading} /> : <RoadBar s={s} r={roading} />)}
       {prospect && <OilBar s={s} p={prospect} />}
@@ -313,6 +315,7 @@ export function Hud() {
           )}
         </aside>
       )}
+      </>}
     </div>
   );
 }
