@@ -982,3 +982,4 @@ body:has(.modal-bg) .shell .coach { display: none !important; }
 .ln-supply { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; padding: 6px 10px; font-size: 13px; color: var(--muted); }
 .ln-supply b { color: var(--text); }
 .ln-supply .down, .ln-supply .down b { color: var(--down); }
+.haul-sell { grid-column: 1 / -1; justify-self: end; }

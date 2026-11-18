@@ -87,12 +87,19 @@ it('A vertical farm grows the crop you choose, worth the same as greens, held fo
   const vf = s.buildings.find((b) => b.type === 'verticalFarm')!, mill = s.buildings.find((b) => b.type === 'flourMill')!;
   expect(vf.grows).toBe('wheat');
   expect(recipeOf(vf)!.outputs.wheat).toBe(27); // $80 a batch: 13 greens at $6, or 27 wheat at $3
+  advance(s, 3);
+  expect(mill.reserved).toBe(0); // not assigned: its wheat is for the market
+  expect(dispatch(s, { type: 'setGrows', buildingId: vf.id, grows: 'greens' }).ok).toBe(true);
+  expect(dispatch(s, { type: 'farmSupplies', farmId: vf.id, buildingId: mill.id }).ok).toBe(true);
+  expect(vf.grows).toBe('wheat'); // assigning it sets the crop the house takes
+  expect(vf.supplies).toBe(mill.id);
   const before = s.regions.heartland.inventory.wheat;
   advance(s, 3);
   expect(s.regions.heartland.inventory.wheat).toBeGreaterThan(before);
   expect(mill.reserved).toBeGreaterThan(0);
   expect(dispatch(s, { type: 'setGrows', buildingId: vf.id, grows: 'greens' }).ok).toBe(true);
   expect(vf.grows).toBeUndefined();
+  expect(vf.supplies).toBeUndefined(); // the mill doesn't take greens, so the link ends
   expect(throughput({ type: 'verticalFarm', level: 3 })).toBe(3);
   expect(BUILDINGS.verticalFarm.recipe!.kwh).toBeGreaterThan(0);
 });
@@ -129,4 +136,20 @@ it('A vertical farm climbs five levels, each twice the price of the last, to six
   expect(paid.map((p) => Math.round(p / price))).toEqual([1, 2, 4, 8]);
   expect(throughput(vf)).toBe(6);
   expect(dispatch(s, { type: 'upgradeBuilding', buildingId: vf.id }).ok).toBe(false);
+});
+
+it('A horse cart in the yard sells for half a new one; one on the road keeps its trip', async () => {
+  const { haulOf, horseCartValue } = await import('../simulation/hauling');
+  const s = ready();
+  s.legacyProgression = false; s.stageId = 'market-town' as typeof s.stageId;
+  expect(dispatch(s, { type: 'sellHorseCart' }).ok).toBe(false);
+  dispatch(s, { type: 'buyHorseCart' }); dispatch(s, { type: 'buyHorseCart' });
+  const H = haulOf(s);
+  H.trips.push({ vehicle: 'horse:1', kind: 'horse', items: [], depart: s.tick, arrive: s.tick + 2, back: s.tick + 4 });
+  const cash = s.cash;
+  expect(dispatch(s, { type: 'sellHorseCart' }).ok).toBe(true);
+  expect(s.cash - cash).toBeCloseTo(horseCartValue(s), 0);
+  expect(H.horses).toBe(1);
+  expect(H.trips[0].vehicle).toBe('horse:0'); // the cart on the road is still counted busy
+  expect(dispatch(s, { type: 'sellHorseCart' }).ok).toBe(false); // the last one is out on the road
 });

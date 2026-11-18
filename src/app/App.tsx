@@ -1,7 +1,8 @@
 import { Component, lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
 import { equity, sumBooks } from '../simulation/core';
-import { backlogHours, fleet, haulOf, marketCut, onTheWay, oneWay, usesCarts, VEHICLES } from '../simulation/hauling';
+import { backlogHours, fleet, haulOf, horseCartValue, marketCut, onTheWay, oneWay, usesCarts, VEHICLES } from '../simulation/hauling';
 import { ACHIEVEMENTS, PAGES } from '../simulation/engine';
+import { machineSaleValue } from '../simulation/operations';
 import {
   act, deleteSlot, getGame, offlineOn, rotatePlacement, undo, redo, dismissAway, toast, exportSave, go, importSave, loadFrom, newGame, saveTo, setSpeed, slotInfo, slotLabel, SLOTS, SPEEDS, useGame, useStore, type Slot, type Speed,
 } from '../stores/game';
@@ -9,7 +10,7 @@ import { Coach, resetTips, tipsOff, tipsOn } from './Coach';
 import { clock, money, stamp } from './format';
 import { Icon } from './icons';
 import { LogoMark, Wordmark } from './Logo';
-import { Bar, Modal, usePref } from './ui';
+import { Bar, Confirm, Modal, usePref } from './ui';
 import { FieldsPage } from './pages/Fields';
 import { Hud } from './world/Hud';
 import { setVolume, sfx, volumes } from './audio';
@@ -192,7 +193,10 @@ function HaulChip() {
       <div className="stack s">
         {cut && <div className="callout bad small">No road leads from your store to the main road, so nothing can leave. Draw one with 🛤 on the map.</div>}
         <p className="small muted">Market sales travel to the village market by road. You're paid when the goods arrive. Better roads and faster vehicles shorten every trip.</p>
-        <div className="haul-fleet">{fleet(s).map((v) => { const trip = H.trips.find((t) => t.vehicle === v.id); return <div key={v.id} className="haul-row"><span>{VEHICLES[v.kind].icon} {VEHICLES[v.kind].name}</span><span className="muted small">{VEHICLES[v.kind].cap} a trip · {oneWay(s, v.kind)}h each way</span><b className="small">{trip ? (trip.arrive > s.tick ? `to market · ${trip.arrive - s.tick}h` : `coming back · ${trip.back - s.tick}h`) : 'in the yard'}</b></div>; })}</div>
+        <div className="haul-fleet">{fleet(s).map((v) => { const trip = H.trips.find((t) => t.vehicle === v.id); return <div key={v.id} className="haul-row"><span>{VEHICLES[v.kind].icon} {VEHICLES[v.kind].name}</span><span className="muted small">{VEHICLES[v.kind].cap} a trip · {oneWay(s, v.kind)}h each way</span><b className="small">{trip ? (trip.arrive > s.tick ? `to market · ${trip.arrive - s.tick}h` : `coming back · ${trip.back - s.tick}h`) : 'in the yard'}</b>{v.kind !== 'cart' && (() => { const truck = v.kind === 'truck' ? s.machines.find((m) => `truck:${m.id}` === v.id) : undefined, value = truck ? machineSaleValue(truck) : horseCartValue(s);
+          return trip ? <span className="faint small haul-sell">Sell when back</span> : <span className="haul-sell"><Confirm className="btn ghost xs" label={`Sell · ${money(value)}`} title={`Sell this ${VEHICLES[v.kind].name.toLowerCase()}?`} confirmLabel={`Sell for ${money(value)}`}
+            body={truck ? <>A dealer pays {money(value)}. Fewer trips to market each day.</> : <>A dealer pays {money(value)}, half of a new one. The horse stops eating {money(12 * s.macro.cpi)} a day; goods wait longer at the gate.</>}
+            onConfirm={() => act(truck ? { type: 'sellMachine', machineId: truck.id } : { type: 'sellHorseCart' })} /></span>; })()}</div>; })}</div>
         <dl className="facts small"><dt>On the road</dt><dd>{money(Math.round(o.moving))}</dd><dt>Waiting at the gate</dt><dd className={slow ? 'down' : ''}>{money(Math.round(o.waiting))}{o.waitingQty ? ` · ${Math.round(o.waitingQty)} units` : ''}</dd>{wait > 0 && <><dt>Cleared in</dt><dd className={slow ? 'down' : ''}>about {wait < 48 ? `${Math.ceil(wait)} hours` : `${Math.ceil(wait / 24)} days`}</dd></>}</dl>
         <button className="btn primary" disabled={price > s.cash} onClick={() => act({ type: 'buyHorseCart' })}>🐴 Buy a horse cart · {money(price)}</button>
         <span className="small muted">Horses eat about {money(12 * s.macro.cpi)} a day each. Trucks (Equipment page) carry {VEHICLES.truck.cap} at a time.</span>

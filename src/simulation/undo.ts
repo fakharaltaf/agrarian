@@ -59,6 +59,7 @@ export function undoEdit(s: GameState, e: Edit) {
   for (const w of Object.values(s.world)) if (w) touch(w);
   // fields fed by a building that is gone stop pointing at it
   for (const f of s.fields) if (f.supplies != null && !s.buildings.some((b) => b.id === f.supplies)) (f.supplies = null), (f.planLocked = false);
+  for (const v of s.buildings) if (v.supplies !== undefined && !s.buildings.some((b) => b.id === v.supplies)) delete v.supplies;
   refund(s, e.before.lifetime, e.after.lifetime, 'company');
   refund(s, e.before.town, e.after.town, 'town');
 }

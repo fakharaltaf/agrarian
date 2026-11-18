@@ -17,7 +17,7 @@ import { coverOf } from '../../simulation/agriculture';
 import { fieldLevel, levelOfField } from '../../simulation/field-levels';
 import { spreadNeed } from '../../simulation/agriculture';
 import type { GameState } from '../../simulation/types';
-import { getGame, getSpeed, moveGhost, placementUse, startZoning, stopZoning, zoneHover, zoneTap, type Zoning, prospectHover, prospectTap, roadHover, roadTap, roadDragStart, buildingsHidden, crimeMapOn, setCrimeMap, trafficMapOn, setTrafficMap, roadLanes, placementNeed, useStore, undo, redo, canUndo, canRedo, startProspect, startRoads, startPipes, startBelts, stopProspect, stopRoads, type Placement, type Roading , getPage, travel } from '../../stores/game';
+import { getGame, getSpeed, moveGhost, placementUse, startZoning, stopZoning, zoneHover, zoneTap, zoneDragStart, zoneDragEnd, zoneRect, type Zoning, prospectHover, prospectTap, roadHover, roadTap, roadDragStart, buildingsHidden, crimeMapOn, setCrimeMap, trafficMapOn, setTrafficMap, roadLanes, placementNeed, useStore, undo, redo, canUndo, canRedo, startProspect, startRoads, startPipes, startBelts, stopProspect, stopRoads, type Placement, type Roading , getPage, travel } from '../../stores/game';
 import { featureEra, stageAtLeast } from '../../simulation/stages';
 import { preloadArt, artRevision, artModel, playClip } from './art';
 import { money, num, pct0 } from '../format';
@@ -291,7 +291,8 @@ export function Scene3D({ region, visiting, selected, onPick, plantLabel, onActi
         const r = c.getBoundingClientRect(), g = groundAt(e.clientX - r.left, e.clientY - r.top);
         if (g && worldOf(getGame(), Rd.region).roads[tileId(g[0], g[1])]) { dragging = true; roadDragStart(g); }
       }
-      if (pts.size === 2) { const [a, b] = [...pts.values()]; pinch = Math.hypot(a.x - b.x, a.y - b.y); }
+      if (pts.size === 1 && live.current.zoning?.drag) { const r = c.getBoundingClientRect(), g = groundAt(e.clientX - r.left, e.clientY - r.top); if (g) { dragging = true; zoneDragStart(g); } }
+      if (pts.size === 2) { if (dragging && live.current.zoning) { dragging = false; zoneDragEnd(null); } const [a, b] = [...pts.values()]; pinch = Math.hypot(a.x - b.x, a.y - b.y); }
     };
     const move = (e: PointerEvent) => {
       const r = c.getBoundingClientRect();
@@ -322,11 +323,12 @@ export function Scene3D({ region, visiting, selected, onPick, plantLabel, onActi
         return;
       }
       moved += Math.abs(dx) + Math.abs(dy);
-      if (dragging) { const r = c.getBoundingClientRect(); roadHover(groundAt(e.clientX - r.left, e.clientY - r.top)); return; } // along the road, not panning
+      if (dragging) { const r = c.getBoundingClientRect(), g = groundAt(e.clientX - r.left, e.clientY - r.top); if (live.current.zoning) zoneHover(g); else roadHover(g); return; } // sweeping zones or along the road, not panning
       if (moved > 4) { pan(dx, dy); setHover(null); }
     };
     const up = (e: PointerEvent) => {
       const r = c.getBoundingClientRect();
+      if (pts.size === 1 && dragging && live.current.zoning) { const g = groundAt(e.clientX - r.left, e.clientY - r.top); dragging = false; pts.delete(e.pointerId); zoneDragEnd(g ?? live.current.zoning.hover ?? null); return; }
       if (pts.size === 1 && moved <= 4 && live.current.zoning) { const g = groundAt(e.clientX - r.left, e.clientY - r.top); zoneHover(g); zoneTap(g); pts.delete(e.pointerId); return; }
       if (pts.size === 1 && moved <= 4 && live.current.prospect) { const g = groundAt(e.clientX - r.left, e.clientY - r.top); if (e.pointerType === 'mouse' || (live.current.prospect.hover?.[0] === g?.[0] && live.current.prospect.hover?.[1] === g?.[1])) prospectTap(g); else prospectHover(g); pts.delete(e.pointerId); return; } // on touch: first tap shows the odds, second drills
       if (pts.size === 1 && dragging) { const g = groundAt(e.clientX - r.left, e.clientY - r.top); dragging = false; pts.delete(e.pointerId); if (g) { roadHover(g); roadTap(g); } return; }
@@ -1745,7 +1747,7 @@ const ZONE_COL = { res: 0xf2c94c, ind: 0x8f86c9, com: 0x3fb3c4 } as const;
 /** Zoned land is tinted: residential gold, industrial violet; brighter in zone mode, with the patch under the cursor outlined. */
 function syncZones(R: Rig, s: GameState, Z: Zoning | null) {
   const w = worldOf(s, R.region), keys = Object.keys(w.zones);
-  const sig = `${R.region}:${keys.map((k) => k + w.zones[Number(k)]).join(',')}:${!!Z}:${Z?.zone}:${Z?.hover}`;
+  const sig = `${R.region}:${keys.map((k) => k + w.zones[Number(k)]).join(',')}:${!!Z}:${Z?.zone}:${Z?.hover}:${Z?.from}`;
   if (sig === R.zoneSig) return;
   R.zoneSig = sig;
   clear(R.zoneG);
@@ -1755,7 +1757,10 @@ function syncZones(R: Rig, s: GameState, Z: Zoning | null) {
     const im = new THREE.InstancedMesh(Z ? cached('zonetile', () => new THREE.BoxGeometry(CHUNK - 0.1, 0.01, CHUNK - 0.1)) : cached('zonearea', () => new THREE.PlaneGeometry(CHUNK, CHUNK).rotateX(-Math.PI / 2)), new THREE.MeshBasicMaterial({ color: ZONE_COL[z], transparent: true, opacity: Z ? 0.38 : 0.16, depthWrite: false }), list.length);
     list.forEach((m, i) => im.setMatrixAt(i, m)); im.frustumCulled = false; R.zoneG.add(im);
   }
-  if (Z?.hover) {
+  if (Z?.hover && Z.from) { // a sweep under way: every patch it covers, red where it isn't yours
+    const owned = ownedSet(w);
+    for (const c of zoneRect(Z.from, Z.hover)) { const [x, y] = chunkOrigin(c); R.zoneG.add(mesh(cached('zonehover', () => new THREE.BoxGeometry(CHUNK, 0.03, CHUNK)), new THREE.MeshBasicMaterial({ color: !owned.has(c) ? 0xd04a3a : Z.zone === 'farm' ? 0x7fb26a : ZONE_COL[Z.zone], transparent: true, opacity: 0.5, depthWrite: false }), x + CHUNK / 2, 0.03, y + CHUNK / 2, false)); }
+  } else if (Z?.hover) {
     const c = chunkAt(Z.hover[0], Z.hover[1]);
     if (c >= 0) { const [x, y] = chunkOrigin(c), mine = ownedSet(w).has(c); R.zoneG.add(mesh(cached('zonehover', () => new THREE.BoxGeometry(CHUNK, 0.03, CHUNK)), new THREE.MeshBasicMaterial({ color: !mine ? 0xd04a3a : Z.zone === 'farm' ? 0x7fb26a : ZONE_COL[Z.zone], transparent: true, opacity: 0.55, depthWrite: false }), x + CHUNK / 2, 0.03, y + CHUNK / 2, false)); }
   }

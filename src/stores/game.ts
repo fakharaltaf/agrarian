@@ -9,7 +9,7 @@ import { CONFIG } from '../simulation/config';
 import { advance, createGame } from '../simulation/engine';
 import { dispatchEdit, undoEdit, undoable, type Edit } from '../simulation/undo';
 import { BUILDINGS, type RegionId } from '../simulation/config';
-import { groundProblem, buildAs, beltRoute, FOOTPRINT, SERVICE_FOOTPRINT, findSpot, homesCentre, homeFootprint, plotSide, worldOf, chunkAt, roadRoute, pipeRoute, rotOf, buildingUse, COMMERCIAL, type NetKind } from '../simulation/world';
+import { groundProblem, buildAs, beltRoute, FOOTPRINT, SERVICE_FOOTPRINT, findSpot, homesCentre, homeFootprint, plotSide, worldOf, CHUNK, chunkAt, roadRoute, pipeRoute, rotOf, buildingUse, COMMERCIAL, type NetKind } from '../simulation/world';
 import { SERVICE_DEFS } from '../simulation/town-state';
 import { parseSave, SAVE_VERSION, type SaveFile } from '../simulation/persistence';
 export { parseSave, SAVE_VERSION } from '../simulation/persistence';
@@ -53,7 +53,7 @@ interface Store {
 /** Road mode: draw from the last tapped tile, or upgrade/remove the stretch tapped. */
 export type Roading = { tool: 'draw' | 'upgrade' | 'remove' | 'bridge'; region: RegionId; from?: [number, number]; hover?: [number, number]; /** the same tool lays line networks (irrigation, power, water, sewer): draw, upgrade, remove */ pipe?: NetKind; /** planting tree lines instead */ belt?: boolean };
 /** Zone mode: tap patches of your land to make them residential, industrial or farmland again. */
-export type Zoning = { region: RegionId; zone: 'res' | 'ind' | 'com' | 'farm'; hover?: [number, number] };
+export type Zoning = { region: RegionId; zone: 'res' | 'ind' | 'com' | 'farm'; hover?: [number, number]; /** drag mode: a press-and-drag sweeps a rectangle of patches */ drag?: boolean; /** where the current sweep started */ from?: [number, number] };
 /** What a placement is, for zoning checks in the preview. */
 /** The oil tool: drilling, or (survey) picking the area a survey reads. */
 export type Prospect = { region: RegionId; hover?: [number, number]; survey?: boolean };
@@ -315,6 +315,11 @@ export const startZoning = (region: RegionId, zone: Zoning['zone'] = 'res') => s
 export const stopZoning = () => set({ zoning: null });
 export const setZoneTool = (zone: Zoning['zone']) => store.zoning && set({ zoning: { ...store.zoning, zone } });
 export const zoneHover = (at: [number, number] | null) => { const Z = store.zoning; if (Z && at && (Z.hover?.[0] !== at[0] || Z.hover?.[1] !== at[1])) set({ zoning: { ...Z, hover: at } }); };
+export const setZoneDrag = (drag: boolean) => store.zoning && set({ zoning: { ...store.zoning, drag, from: undefined } });
+export const zoneDragStart = (at: [number, number] | null) => { const Z = store.zoning; if (Z && at) set({ zoning: { ...Z, from: at, hover: at } }); };
+/** The patches inside the rectangle between two ground points. */
+export const zoneRect = (a: [number, number], b: [number, number]) => { const out: number[] = []; for (let x = Math.min(a[0], b[0]); x <= Math.max(a[0], b[0]) + CHUNK - 1; x += CHUNK) for (let y = Math.min(a[1], b[1]); y <= Math.max(a[1], b[1]) + CHUNK - 1; y += CHUNK) { const c = chunkAt(Math.min(x, Math.max(a[0], b[0])), Math.min(y, Math.max(a[1], b[1]))); if (c >= 0 && !out.includes(c)) out.push(c); } return out; };
+export const zoneDragEnd = (at: [number, number] | null) => { const Z = store.zoning; if (!Z?.from) return; const from = Z.from; set({ zoning: { ...Z, from: undefined } }); if (at) act({ type: 'zoneLand', region: Z.region, chunks: zoneRect(from, at), zone: Z.zone }); };
 export const zoneTap = (at: [number, number] | null) => { const Z = store.zoning; if (Z && at) act({ type: 'zoneLand', region: Z.region, chunks: [chunkAt(at[0], at[1])], zone: Z.zone }); };
 export const prospectHover = (at: [number, number] | null) => { const P = store.prospect; if (P && at && (P.hover?.[0] !== at[0] || P.hover?.[1] !== at[1])) set({ prospect: { ...P, hover: at } }); };
 export const prospectTap = (at: [number, number] | null) => { const P = store.prospect; if (!P || !at) return; if (P.survey) { if (act({ type: 'surveyOil', region: P.region, at })) set({ prospect: { ...P, survey: false } }); } else act({ type: 'drillOil', region: P.region, at: [at[0] - 1, at[1] - 1] }); };

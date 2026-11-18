@@ -13,12 +13,12 @@ import { townOf, SERVICE_DEFS, UTILITY_OF, levelOf, serviceUpgradePrice, utility
 // Everything that floats over the world: objective, selection panel, market, land, region switcher.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ANIMALS, ANIMAL_IDS, BUILDINGS, CONFIG, COWS_PER_DAIRY_BATCH, ERAS, GOODS, REGIONS, type CropId, type RegionId } from '../../simulation/config';
-import { known, maxLevel, recipeOf, throughput, VERTICAL_CROPS } from '../../simulation/core';
+import { factoryCrop, known, maxLevel, recipeOf, throughput, VERTICAL_CROPS } from '../../simulation/core';
 import { buildingMargin } from '../../simulation/processing';
 import { planQuote } from '../../simulation/engine';
 import { anotherQuote, DISCOVERIES, ERA_UNLOCK_TEXT, dailyGoals, dailyPrize, forecast, herdOf, homePlotPrice, housing, isManual, isReady, objective, chapterGate, gateProgress, type GateRow, PAGES, seedShortfall, upgradeCost } from '../../simulation/engine';
 import type { CivicService, GameState } from '../../simulation/types';
-import { act, cancelPlacement, confirmPlacement, planPlacementHere, placementNeed, rotatePlacement, go, placementUse, setRoadTool, toggleHideBuildings, setNet, setRoadLanes, undo, redo, canUndo, canRedo, setSurveying, setZoneTool, startPipes, type Prospect, startPlacement, stopProspect, stopRoads, stopZoning, type Zoning, useGame, usePageState, useStore, type Placement, type Roading } from '../../stores/game';
+import { act, cancelPlacement, confirmPlacement, planPlacementHere, placementNeed, rotatePlacement, go, placementUse, setRoadTool, toggleHideBuildings, setNet, setRoadLanes, undo, redo, canUndo, canRedo, setSurveying, setZoneTool, setZoneDrag, startPipes, type Prospect, startPlacement, stopProspect, stopRoads, stopZoning, type Zoning, useGame, usePageState, useStore, type Placement, type Roading } from '../../stores/game';
 import { BRIDGE_COST, BRIDGE_GRADES, bridgeAt, bridgePlan } from '../../simulation/world';
 import { WATER_LEVEL, WATER_PRICE, WATER_TIERS, wetTiers, NET_PRICE, NET_TIERS, NET_TOP, NET_QUALITY, linesOf, tileId, groundProblem, wideRoadRoute, upgradeAllPlan, BELT_PRICE, beltRoute, beltStretch, buildAs, buildAsOpen, lineBuildPrice, roadBuildPrice, type LineKind, type UtilityNet, pipeRoute, pipeStretch, cutsOff, footprintOf, forSaleAround, isRoad, MAP, ROAD_GRADES, ROAD_H, roadPick, roadTilePrice, worldOf, patchesAround, placeProblem, plotSide, PROBLEM_TEXT } from '../../simulation/world';
 import { buildingPrice, moveFee, parcelPrice } from '../../simulation/engine';
@@ -324,10 +324,11 @@ export function Hud() {
 /** Fixed controls while placing: they never move with the ghost. With a mouse, clicking the map places it. */
 function ZoneBar({ z }: { z: Zoning }) {
   return <div className="placement-bar road-bar" role="dialog" aria-label="Zones">
-    <div className="placement-info"><b>🏘 Zones</b><span className="muted">{z.zone === 'res' ? 'Tap your land: homes for workers\' families go here (no fields)' : z.zone === 'ind' ? 'Tap your land: for industrial-scale plants' : z.zone === 'com' ? 'Tap your land: shops and offices go here' : 'Tap a zoned patch to make it farmland again'}</span></div>
+    <div className="placement-info"><b>🏘 Zones</b><span className="muted">{(z.drag ? (x: string) => x.replace('Tap your land', 'Drag across your land').replace('Tap a zoned patch', 'Drag across zoned land') : (x: string) => x)(z.zone === 'res' ? 'Tap your land: homes for workers\' families go here (no fields)' : z.zone === 'ind' ? 'Tap your land: for industrial-scale plants' : z.zone === 'com' ? 'Tap your land: shops and offices go here' : 'Tap a zoned patch to make it farmland again')}</span></div>
     <div className="seg" role="group" aria-label="Zone">
       {(townOf(useGame()).active ? ['res', 'com', 'ind', 'farm'] as const : ['res', 'ind', 'farm'] as const).map((t) => <button key={t} className={`btn ${z.zone === t ? 'primary' : 'ghost'}`} aria-pressed={z.zone === t} onClick={() => setZoneTool(t)}>{t === 'res' ? '🏠 Residential' : t === 'com' ? '🏪 Commercial' : t === 'ind' ? '🏭 Industrial' : '🌾 Farmland'}</button>)}
     </div>
+    <button className={`btn ${z.drag ? 'primary' : 'ghost'}`} aria-pressed={!!z.drag} title="Drag across the map to zone every patch in the rectangle; pan with two fingers or turn this off" onClick={() => setZoneDrag(!z.drag)}>▭ Drag</button>
     <button className="btn ghost" onClick={() => stopZoning()}>Done</button>
   </div>;
 }
@@ -415,7 +416,8 @@ function RoadBar({ s, r }: { s: GameState; r: Roading }) {
     else { const lost = cutsOff(s, r.region, st); hint = `Remove ${st.length} tiles${lost.length ? ` · cuts off ${lost.length} building${lost.length === 1 ? '' : 's'}` : ''}`; }
   }
   { const id = h ? tileId(h[0], h[1]) : -1, x = id >= 0 && w.roads[id] !== undefined ? pressureOf(s, w, id) : 0; if (x > 0.05) { const cars = townOf(s).flow?.[id] ?? 0; hint += ` · 🚦 ${cars} cars a lane, ${laneCapacity(w, id)} at ease (${Math.round(x * 100)}%)${x >= 1 ? ': upgrade or widen it' : ''}`; } }
-  return <LineDock label="Roads" head={<b className="dock-title">🛤 Roads</b>} hint={hint} tool={r.tool} draw="Draw" bridge all={{ region: r.region, nets: ['road'] }} as={{ what: 'road', names: ROAD_GRADES.slice(1) }} extra={(r.tool === 'draw' || r.tool === 'bridge') && <select className="dock-as" aria-label="Lanes" title="How many lanes wide new roads are" value={lanes} onChange={(e) => setRoadLanes(+e.target.value)}>{[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n} lane{n > 1 ? 's' : ''}</option>)}</select>} />;
+  return <LineDock label="Roads" head={<b className="dock-title">🛤 Roads</b>} hint={hint} tool={r.tool} draw="Draw" bridge all={{ region: r.region, nets: ['road'] }} as={{ what: 'road', names: ROAD_GRADES.slice(1) }} extra={<>{(r.tool === 'draw' || r.tool === 'bridge') && <select className="dock-as" aria-label="Lanes" title="How many lanes wide new roads are" value={lanes} onChange={(e) => setRoadLanes(+e.target.value)}>{[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n} lane{n > 1 ? 's' : ''}</option>)}</select>}
+    <button className={`dock-all${s.autoRoads === false ? '' : ' on'}`} aria-pressed={s.autoRoads !== false} title="When on, every new, moved or upgraded building gets a dirt track to the nearest road. Turn it off to lay every road yourself." onClick={() => act({ type: 'setAutoRoads', on: s.autoRoads === false })}>Auto tracks: {s.autoRoads === false ? 'off' : 'on'}</button></>} />;
 }
 
 /** The dock for roads and lines: what you're working on (with Hide and Done), what the next tap does, then the tools at thumb height. */
@@ -649,7 +651,15 @@ function LotPanel({ s, lot, region, onClose }: { s: GameState; lot: Lot; region:
             <dt>Staff</dt><dd>{money(d.staffPerHour * s.macro.cpi * bs.length)}/h</dd>
           </dl>
         )}
-        {picked?.type === 'verticalFarm' && <Select label="Grows" value={picked.grows ?? 'greens'} onChange={(g) => act({ type: 'setGrows', buildingId: picked.id, grows: g })} options={VERTICAL_CROPS.filter((g) => g === 'greens' || s.unlockedCrops.includes(g as CropId)).map((g) => ({ v: g, label: `Grows ${GOODS[g].name.toLowerCase()}` }))} />}
+        {picked?.type === 'verticalFarm' && <div className="row wrap">
+          <Select label="Grows" value={picked.grows ?? 'greens'} onChange={(g) => act({ type: 'setGrows', buildingId: picked.id, grows: g })} options={VERTICAL_CROPS.filter((g) => g === 'greens' || s.unlockedCrops.includes(g as CropId)).map((g) => ({ v: g, label: `Grows ${GOODS[g].name.toLowerCase()}` }))} />
+          {(() => { const houses = s.buildings.filter((b) => b.region === picked.region && factoryCrop(b) && VERTICAL_CROPS.includes(factoryCrop(b)!)); if (!houses.length) return null;
+            const name = (b: (typeof houses)[number]) => `${BUILDINGS[b.type].name}${houses.filter((x) => x.type === b.type).length > 1 ? ` #${houses.filter((x) => x.type === b.type).indexOf(b) + 1}` : ''} (${GOODS[factoryCrop(b)!].name.toLowerCase()})`;
+            return <select className="input" aria-label="Supplies" title="Its harvest is held for that production house: auto-selling, rules and the Sell buttons leave it alone, and the house uses it first." value={String(picked.supplies ?? '')} onChange={(e) => act({ type: 'farmSupplies', farmId: picked.id, buildingId: e.target.value ? Number(e.target.value) : null })}>
+              <option value="">For the market</option>
+              {houses.map((b) => <option key={b.id} value={b.id}>Supplies {name(b)}</option>)}
+            </select>; })()}
+        </div>}
         {picked?.type === 'oilWell' && <div className={`callout ${field && field.left > 0 ? '' : 'warn'}`}>{field ? `This well draws on field ${field.i + 1}: ${num(field.left)} of ${num(field.reserve)} bbl left · ${field.wells.length} well${field.wells.length === 1 ? '' : 's'} (${field.balanced} balanced)` : 'No oil under this well: it pumps nothing. Demolish it.'}</div>}
         {reason && reason !== 'Idle' && <div className={`callout ${/Not enough|full|Disease/.test(reason) ? 'warn' : ''}`}>{reason}</div>}
         {d.category === 'livestock' && <HerdInfo s={s} lot={lot} />}

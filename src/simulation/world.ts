@@ -434,6 +434,7 @@ function route(open: (x: number, y: number) => boolean, starts: [number, number]
 /** Lay a free dirt track from a building to the nearest road (placing a building does this). Returns false if no route exists. */
 export function connect(s: GameState, r: RegionId, key: string) {
   if (!TRACKED.test(key)) return true;
+  if (s.autoRoads === false) return false; // the player lays every road themselves
   const w = worldOf(s, r), p = w.pos[key], fp = footprintOf(s, key);
   if (!p || !fp) return false;
   const net = accessCache(s, w).net; // a stub that goes nowhere does not count

@@ -164,10 +164,10 @@ function produce(s: GameState, b: Building, staff: number, cows = 0) {
   return {cows:b.type === 'dairy'?batches*COWS_PER_DAIRY_BATCH:0,generated:Math.max(0,-kwh)};
 }
 
-/** A vertical farm's grain is held for your own mills that take it, as a dedicated field's harvest is, emptiest first. */
+/** A vertical farm assigned to a production house holds its harvest for it, as a dedicated field's is (only what fitted in storage). */
 function holdForMills(s: GameState, b: Building, g: GoodId, got: number) {
-  const mills = s.buildings.filter((m) => m.region === b.region && m.active && factoryCrop(m) === g).sort((x, y) => x.reserved / reserveCap(x) - y.reserved / reserveCap(y));
-  for (const m of mills) { if (got <= 0) break; const take = Math.min(got, reserveCap(m) - m.reserved); if (take > 0) { m.reserved += take; got -= take; } }
+  const m = b.supplies !== undefined ? s.buildings.find((x) => x.id === b.supplies) : undefined;
+  if (m && factoryCrop(m) === g && got > 0) m.reserved = Math.min(reserveCap(m), m.reserved + got);
 }
 
 /** Hourly operating margin at market prices (inputs valued at what you could have sold them for). */

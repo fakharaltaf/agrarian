@@ -108,6 +108,8 @@ export function haulTick(s: GameState) {
     H.trips.push({ vehicle: v.id, kind: v.kind, items, depart: s.tick, arrive: s.tick + hours, back: s.tick + hours * 2 });
   }
 }
+/** What a dealer pays for a horse cart: half of today's price for a new one. */
+export const horseCartValue = (s: GameState) => Math.round(VEHICLES.horse.price * s.macro.cpi * 0.5);
 /** Daily upkeep: horses eat. */
 export function haulDaily(s: GameState) {
   const H = haulOf(s);

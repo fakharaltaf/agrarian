@@ -99,6 +99,8 @@ export interface Building {
   layout?: number;
   /** a vertical farm's crop (missing = fresh greens) */
   grows?: GoodId;
+  /** a vertical farm's production house: its harvest is held for that building, as a dedicated field's is */
+  supplies?: number;
   /** a merged building's long shape, kept so it can switch back from square */
   longSpan?: [number, number];
   /** merged factories: 2 a Works (two level-3 factories), 4 a Plant (two Works) */
@@ -367,6 +369,8 @@ export interface TownState { /** share of families on jammed streets, or in buil
 }
 
 export interface GameState {
+  /** false: building, moving or upgrading lays no dirt track to the nearest road; you draw roads yourself (missing = on) */
+  autoRoads?: boolean;
   /** tiles a side the farmhouse stands on (3 to 6): it grows with the chapters */
   farmhouseSide?: number;
   /** what new roads, lines and town buildings are built as (1–3), once the City lets you choose: saves upgrading each one after */
@@ -504,6 +508,10 @@ export type Action =
   | { type: 'repayLoan'; loanId: number; amount: number }
   | { type: 'buyLand'; region: RegionId; chunks: number[] }
   | { type: 'buyHorseCart' }
+  | { type: 'sellHorseCart' }
+  | { type: 'setAutoRoads'; on: boolean }
+  /** a vertical farm grows for one of your production houses (null: for the market) */
+  | { type: 'farmSupplies'; farmId: number; buildingId: number | null }
   | { type: 'setSettlementPay'; payCut?: number; housingTax?: number; serviceFee?: number }
   | { type: 'zoneLand'; region: RegionId; chunks: number[]; zone: 'res' | 'ind' | 'com' | 'farm' }
   | { type: 'surveyOil'; region: RegionId; at: [number, number] }

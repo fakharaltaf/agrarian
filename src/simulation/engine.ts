@@ -4,7 +4,7 @@ import { FOOD_FACTORY , LIVESTOCK_HOUSE, mergedName , MERGEABLE, STORE_OR_POWER 
 import { energyMix, oilOpen, upgradeNeedsPower } from './stages/shared';
 import { bestRetailCentre } from './facility-levels';
 import { wellField, DRILL_PRICE, oilChance, oilOf, SURVEY_PRICE, SURVEY_R, surveyedAt, landCostOf } from './oil';
-import { haulDaily, haulOf, haulTick, usesCarts, VEHICLES } from './hauling';
+import { haulDaily, haulOf, haulTick, horseCartValue, usesCarts, VEHICLES } from './hauling';
 import { emptyProductionReport } from './production-report';
 import { canUpgradeService, levelOf, payHouseholds, svcSize, townOf } from './town-state';
 import { idleMachine, machineSaleValue } from './operations';
@@ -586,6 +586,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       if (!b || b.type !== 'verticalFarm') return fail('Only a vertical farm can change what it grows.');
       if (!growable(s, a.grows)) return fail('A vertical farm grows greens, grain, potatoes, soybeans or rice you have unlocked.');
       if (a.grows === 'greens') delete b.grows; else b.grows = a.grows;
+      if (b.supplies !== undefined) { const m = s.buildings.find((x) => x.id === b.supplies); if (!m || factoryCrop(m) !== a.grows) delete b.supplies; } // a new crop its house doesn't take ends the link
       return ok(`It now grows ${GOODS[a.grows].name.toLowerCase()}.`);
     }
     case 'addAnother': {
@@ -688,6 +689,36 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       post(s, 'machine', -price, 'Horse cart', 'heartland', 'logistics');
       haulOf(s).horses++;
       return ok(`A horse cart joins the dog cart: ${VEHICLES.horse.cap} units a trip, half again as fast.`);
+    }
+    case 'setAutoRoads': {
+      if (a.on) delete s.autoRoads; else s.autoRoads = false;
+      return ok(a.on ? 'New, moved and upgraded buildings get a dirt track to the nearest road.' : 'No more automatic tracks: draw a road to each new building yourself, or it stands idle.');
+    }
+    case 'sellHorseCart': {
+      const H = haulOf(s);
+      if (!H.horses) return fail('You have no horse carts.');
+      const busy = new Set(H.trips.filter((t) => t.back > s.tick).map((t) => t.vehicle));
+      let k = -1;
+      for (let i = H.horses - 1; i >= 0 && k < 0; i--) if (!busy.has(`horse:${i}`)) k = i;
+      if (k < 0) return fail('Every horse cart is on the road: sell one when it is back in the yard.');
+      const last = `horse:${H.horses - 1}`;
+      for (const t of H.trips) if (t.vehicle === last) t.vehicle = `horse:${k}`; // carts are numbered: the one still on the road takes the sold one's number
+      H.horses--;
+      const value = horseCartValue(s);
+      post(s, 'assetSale', value, 'Sold a horse cart', 'heartland', 'logistics');
+      return ok(`Sold a horse cart for $${value.toLocaleString()}. ${H.horses ? `${H.horses} left` : 'The dog cart carries on alone'}.`);
+    }
+    case 'farmSupplies': {
+      const v = s.buildings.find((x) => x.id === a.farmId);
+      if (!v || v.type !== 'verticalFarm') return fail('Only a vertical farm can supply a production house.');
+      if (a.buildingId === null) { delete v.supplies; return ok('It grows for the market again.'); }
+      const b = s.buildings.find((x) => x.id === a.buildingId), c = b ? factoryCrop(b) : null;
+      if (!b || !c) return fail('That building does not take a crop.');
+      if (b.region !== v.region) return fail('A vertical farm supplies production houses in its own region.');
+      if (!growable(s, c)) return fail(`A vertical farm can't grow ${GOODS[c].name.toLowerCase()}: greens, grain, potatoes, soybeans or rice only.`);
+      v.supplies = b.id;
+      v.grows = c; // it grows what the house takes
+      return ok(`It now grows ${GOODS[c].name.toLowerCase()} for the ${BUILDINGS[b.type].name.toLowerCase()}.`);
     }
     case 'buildRoad': {
       if (!s.regions[a.region]?.unlocked) return fail('You have no operations there.');
@@ -796,11 +827,13 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       const w = worldOf(s, a.region), owned = ownedSet(w), chunks = [...new Set(a.chunks)].filter((c) => Number.isInteger(c) && owned.has(c));
       if (!chunks.length) return fail('You can only zone land you own.');
       // nothing may be left standing in the wrong zone
-      const stuck = placedIn(s, a.region).find((p) => { const use = useOf(p.key, s); if (!use) return false; return chunksIn(p.x, p.y, p.w, p.d).some((c) => chunks.includes(c)) && !(a.zone === 'res' ? use === 'home' : a.zone === 'com' ? use === 'shop' : a.zone === 'ind' ? use === 'building' || use === 'industry' : use === 'field' || use === 'building'); });
-      if (stuck) return fail(a.zone === 'com' ? 'Homes, fields or farm buildings stand there: commercial land is for shops and offices.' : a.zone === 'res' ? 'Fields and farm buildings stand there: residential land is for homes only.' : a.zone === 'farm' ? 'Homes, shops or industrial plants stand there: move them before turning the land back to farmland.' : 'Fields or homes stand there: industrial land is for plants and stores.');
-      for (const c of chunks) { if (a.zone === 'farm') delete w.zones[c]; else w.zones[c] = a.zone; }
+      const blocked = new Set<number>();
+      for (const p of placedIn(s, a.region)) { const use = useOf(p.key, s); if (use && !(a.zone === 'res' ? use === 'home' : a.zone === 'com' ? use === 'shop' : a.zone === 'ind' ? use === 'building' || use === 'industry' : use === 'field' || use === 'building')) for (const c of chunksIn(p.x, p.y, p.w, p.d)) blocked.add(c); }
+      const free = chunks.filter((c) => !blocked.has(c)), skipped = chunks.length - free.length;
+      if (!free.length) return fail(a.zone === 'com' ? 'Homes, fields or farm buildings stand there: commercial land is for shops and offices.' : a.zone === 'res' ? 'Fields and farm buildings stand there: residential land is for homes only.' : a.zone === 'farm' ? 'Homes, shops or industrial plants stand there: move them before turning the land back to farmland.' : 'Fields or homes stand there: industrial land is for plants and stores.');
+      for (const c of free) { if (a.zone === 'farm') delete w.zones[c]; else w.zones[c] = a.zone; }
       touch(w);
-      return ok();
+      return ok(skipped ? `${free.length} patch${free.length === 1 ? '' : 'es'} zoned; ${skipped} skipped where something of the wrong kind stands.` : undefined);
     }
     case 'buyLand': {
       if (!s.regions[a.region]?.unlocked) return fail('You have no operations there.');
@@ -891,6 +924,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       post(s, 'building', -g.price, `${g.into} (two merged)`, b.region);
       s.buildings.splice(s.buildings.indexOf(mate), 1);
       for (const f of s.fields) if (f.supplies === mate.id) f.supplies = b.id;
+      for (const v of s.buildings) if (v.supplies === mate.id) v.supplies = b.id;
       b.size = (b.size ?? 1) * 2; b.span = g.span; b.layout = 0; b.longSpan = undefined; b.cost = b.cost + mate.cost + g.price; b.depreciated += mate.depreciated; b.reserved = (b.reserved ?? 0) + (mate.reserved ?? 0);
       w.pos[`b:${b.id}`] = g.origin!; touch(w); connect(s, b.region, `b:${b.id}`); for (const k of lifted) if (w.pos[k]) connect(s, b.region, k);
       log(s, 'opportunity', STORE_OR_POWER.has(b.type) ? `${g.into} opened: ${b.size === 4 ? 'six' : 'two and a half'} buildings' worth on fewer hands.` : LIVESTOCK_HOUSE.has(b.type) ? `${g.into} opened: room for ${b.size === 4 ? 'six' : 'two and a half'} houses' worth of animals, looked after by fewer hands.` : `${g.into} opened: it does the work of ${b.size === 4 ? 'six' : 'two and a half'} factories on fewer hands.`, 'farm');
@@ -921,6 +955,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       s.buildings.splice(s.buildings.indexOf(b), 1);
       forget(s, b.region, `b:${b.id}`);
       for (const f of s.fields) if (f.supplies === b.id) (f.supplies = null), (f.planLocked = false);
+      for (const v of s.buildings) if (v.supplies === b.id) delete v.supplies;
       post(s, 'assetSale', Math.round(Math.max(0, b.cost - b.depreciated) * 0.5), `Sold ${BUILDINGS[b.type].name}`, b.region);
       // contents that no longer fit are sold or lost through the normal overflow rule
       for (const g of GOOD_IDS) {
