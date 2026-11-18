@@ -125,9 +125,6 @@ export function townDaily(s: GameState) {
     if(!b.active) continue;
     const d=SERVICE_DEFS[b.type], needed=serviceJobs(s,b.type)*b.count, jobs=Math.min(adults,needed);
     if(needed>0 && jobs===0) continue;
-    // offices (and a mall's tower): outside firms take on residents and pay them; the farm only keeps the building running
-    const desks=Math.min(Math.max(0,adults-jobs),Math.floor(officeJobs(b)*(b.cramped?.5:1)));
-    if(desks>0){const pay=round2(desks*WORK_HOURS*marketWage(s,'heartland')*1.2);payHouseholds(s,pay);adults-=desks;t.publicJobs+=desks;t.officePay=round2((t.officePay??0)+pay);}
     const cost=round2(serviceDailyCost(s,b.type,jobs/b.count)*b.count);
     post(s,'civic',-cost,`${d.name} upkeep`,'heartland','corporate'); t.lastCost=round2(t.lastCost+cost);
     const wages=round2(jobs*WORK_HOURS*marketWage(s,'heartland'));
@@ -139,6 +136,12 @@ export function townDaily(s: GameState) {
     if(b.type==='well'||b.type==='waterworks') cover.water+=capacity;
     if(b.type==='clinic'||b.type==='hospital') cover.medical+=capacity;
     if(b.type==='road') cover.road=1;
+  }
+  // offices (and a mall's tower): outside firms take on the residents your own services have not, and pay them; the farm only keeps the building running
+  for(const b of t.services){
+    if(!b.active||!b.funded) continue;
+    const desks=Math.min(adults,Math.floor(officeJobs(b)*(b.cramped?.5:1)));
+    if(desks>0){const pay=round2(desks*WORK_HOURS*marketWage(s,'heartland')*1.2);payHouseholds(s,pay);adults-=desks;t.publicJobs+=desks;t.officePay=round2((t.officePay??0)+pay);}
   }
   // Coverage. School, clinic and well reach homes as a heat map round the building (full in its inner half, fading to its
   // edge; upgrades widen it). Power, water and sewage reach homes only along their lines, nearest homes first, up to the
