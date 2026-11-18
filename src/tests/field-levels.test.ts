@@ -183,3 +183,23 @@ it('An intensive field converts into a vertical farm on the same ground, worth o
   expect(throughput(vf)).toBe(10);
   expect(footprintOf(s, key)).toEqual({ w: q.side, d: q.side }); // taller, not bigger
 });
+
+it('An intensive orchard converts into a fruit house that keeps to fruit and can feed the winery', async () => {
+  const { buildingName } = await import('../simulation/core');
+  const s = ready();
+  research(s, 'verticalFarming');
+  s.unlockedCrops = [...new Set([...s.unlockedCrops, 'apples', 'grapes', 'wheat'])] as typeof s.unlockedCrops;
+  const f = s.fields[0]; f.level = 3; f.irrigated = true; f.crop = 'grapes'; f.plan = 'grapes';
+  expect(dispatch(s, { type: 'convertField', fieldId: f.id }).ok).toBe(true);
+  const fh = s.buildings[s.buildings.length - 1];
+  expect(fh.grows).toBe('grapes');
+  expect(buildingName(fh)).toBe('Fruit house');
+  expect(recipeOf(fh)!.outputs.grapes).toBeGreaterThan(0);
+  expect(dispatch(s, { type: 'setGrows', buildingId: fh.id, grows: 'wheat' }).ok).toBe(false); // fruit only
+  expect(dispatch(s, { type: 'setGrows', buildingId: fh.id, grows: 'apples' }).ok).toBe(true);
+  dispatch(s, { type: 'setGrows', buildingId: fh.id, grows: 'grapes' });
+  dispatch(s, { type: 'build', region: 'heartland', building: 'winery' });
+  const winery = s.buildings.find((b) => b.type === 'winery')!;
+  expect(dispatch(s, { type: 'farmSupplies', farmId: fh.id, buildingId: winery.id }).ok).toBe(true);
+  expect(fh.supplies).toBe(winery.id);
+});

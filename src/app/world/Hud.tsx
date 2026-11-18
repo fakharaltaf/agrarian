@@ -13,7 +13,7 @@ import { townOf, SERVICE_DEFS, UTILITY_OF, levelOf, serviceUpgradePrice, utility
 // Everything that floats over the world: objective, selection panel, market, land, region switcher.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ANIMALS, ANIMAL_IDS, BUILDINGS, CONFIG, COWS_PER_DAIRY_BATCH, ERAS, GOODS, REGIONS, type CropId, type RegionId } from '../../simulation/config';
-import { factoryCrop, known, maxLevel, recipeOf, throughput, VERTICAL_CROPS } from '../../simulation/core';
+import { buildingName, factoryCrop, FRUIT_CROPS, isFruitHouse, known, maxLevel, recipeOf, throughput, VERTICAL_CROPS } from '../../simulation/core';
 import { buildingMargin } from '../../simulation/processing';
 import { planQuote } from '../../simulation/engine';
 import { anotherQuote, DISCOVERIES, ERA_UNLOCK_TEXT, dailyGoals, dailyPrize, forecast, herdOf, homePlotPrice, housing, isManual, isReady, objective, chapterGate, gateProgress, type GateRow, PAGES, seedShortfall, upgradeCost } from '../../simulation/engine';
@@ -628,7 +628,7 @@ function LotPanel({ s, lot, region, onClose }: { s: GameState; lot: Lot; region:
   const picked = bs.find((b) => `b:${b.id}` === lot.key) ?? bs[bs.length - 1]; // the one tapped on the map
   const field = picked?.type === 'oilWell' ? wellField(s, picked) : undefined;
   return (
-    <Card title={<>{d.name}{bs.length > 1 && <span className="muted"> ×{bs.length}</span>}</>} actions={<button className="icon-btn" onClick={onClose} aria-label="Close">✕</button>}>
+    <Card title={<>{picked ? buildingName(picked) : d.name}{bs.length > 1 && <span className="muted"> ×{bs.length}</span>}</>} actions={<button className="icon-btn" onClick={onClose} aria-label="Close">✕</button>}>
       <div className="stack s">
         <p className="explain">{d.blurb}</p>
         {picked && <NuisanceLine s={s} b={picked} />}
@@ -652,8 +652,8 @@ function LotPanel({ s, lot, region, onClose }: { s: GameState; lot: Lot; region:
           </dl>
         )}
         {picked?.type === 'verticalFarm' && <div className="row wrap">
-          <Select label="Grows" value={picked.grows ?? 'greens'} onChange={(g) => act({ type: 'setGrows', buildingId: picked.id, grows: g })} options={VERTICAL_CROPS.filter((g) => g === 'greens' || s.unlockedCrops.includes(g as CropId)).map((g) => ({ v: g, label: `Grows ${GOODS[g].name.toLowerCase()}` }))} />
-          {(() => { const houses = s.buildings.filter((b) => b.region === picked.region && factoryCrop(b) && VERTICAL_CROPS.includes(factoryCrop(b)!)); if (!houses.length) return null;
+          <Select label="Grows" value={picked.grows ?? 'greens'} onChange={(g) => act({ type: 'setGrows', buildingId: picked.id, grows: g })} options={(isFruitHouse(picked) ? FRUIT_CROPS : VERTICAL_CROPS).filter((g) => g === 'greens' || s.unlockedCrops.includes(g as CropId)).map((g) => ({ v: g, label: `Grows ${GOODS[g].name.toLowerCase()}` }))} />
+          {(() => { const houses = s.buildings.filter((b) => b.region === picked.region && factoryCrop(b) && (isFruitHouse(picked) ? FRUIT_CROPS : VERTICAL_CROPS).includes(factoryCrop(b)!)); if (!houses.length) return null;
             const name = (b: (typeof houses)[number]) => `${BUILDINGS[b.type].name}${houses.filter((x) => x.type === b.type).length > 1 ? ` #${houses.filter((x) => x.type === b.type).indexOf(b) + 1}` : ''} (${GOODS[factoryCrop(b)!].name.toLowerCase()})`;
             return <select className="input" aria-label="Supplies" title="Its harvest is held for that production house: auto-selling, rules and the Sell buttons leave it alone, and the house uses it first." value={String(picked.supplies ?? '')} onChange={(e) => act({ type: 'farmSupplies', farmId: picked.id, buildingId: e.target.value ? Number(e.target.value) : null })}>
               <option value="">For the market</option>

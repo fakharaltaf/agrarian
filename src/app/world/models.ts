@@ -523,6 +523,24 @@ export function buildLot(type: Lot['type'], w: number, d: number, variant = '', 
       break;
     }
     case 'verticalFarm': { // a glass tower: steel frame, floors of its crop under violet grow lights, plant room on the roof
+      if (variant === 'apples' || variant === 'grapes') { // a fruit house: tiers of dwarf apple trees or trellised vines under glass, a tier more each level
+        pad();
+        const tiers = Math.max(1, Math.min(5, level)), th = 0.9, gw = w - 0.5, gd = d - 0.5, cx = w / 2, cz = d / 2, H = tiers * th + 0.2;
+        g.add(box(gw, H, gd, 0xcfe8ec, cx, 0.05, cz, { opacity: 0.28, rough: 0.1 }));
+        for (const [x, z] of [[cx - gw / 2, cz - gd / 2], [cx + gw / 2, cz - gd / 2], [cx - gw / 2, cz + gd / 2], [cx + gw / 2, cz + gd / 2]]) g.add(box(0.07, H, 0.07, PAL.white, x, 0.05, z));
+        for (let k = 0; k < tiers; k++) {
+          const y = 0.05 + k * th;
+          if (k) g.add(box(gw - 0.06, 0.05, gd - 0.06, PAL.white, cx, y, cz));
+          for (let rz = 0.5; rz < gd - 0.2; rz += 0.7) for (let rx = 0.45; rx < gw - 0.2; rx += variant === 'apples' ? 0.6 : 0.35) {
+            const x = cx - gw / 2 + rx, z = cz - gd / 2 + rz;
+            if (variant === 'apples') { g.add(cyl(0.03, 0.25, PAL.woodDark, x, y + 0.05, z, 5), sphere(0.2, 0x4f8f3a, x, y + 0.42, z)); if ((rx * 7 + rz * 3) % 1 < 0.5) g.add(sphere(0.05, 0xc0392b, x + 0.12, y + 0.4, z + 0.1)); }
+            else g.add(box(0.05, 0.5, 0.18, 0x5a7a2e, x, y + 0.05, z), sphere(0.06, 0x5b2a6b, x + 0.03, y + 0.3, z + 0.08));
+          }
+          if (variant === 'grapes') for (let rz = 0.5; rz < gd - 0.2; rz += 0.7) g.add(box(gw - 0.5, 0.02, 0.02, PAL.metal, cx, y + 0.55, cz - gd / 2 + rz)); // the trellis wires
+        }
+        g.add(box(gw + 0.1, 0.06, gd + 0.1, 0xd8eef2, cx, H + 0.05, cz, { opacity: 0.4, rough: 0.1 }), box(gw + 0.12, 0.04, 0.06, PAL.white, cx, H + 0.08, cz)); // glass roof and its ridge
+        break;
+      }
       const crop = variant && variant in GOODS ? parseInt(GOODS[variant as GoodId].color.slice(1), 16) : 0x5faf4a; // the floors show what it grows
       const floors = (Math.min(w, d) > 4 ? [3, 5, 7, 10, 14] : [6, 8, 10, 12, 14])[level - 1] ?? 6, fw = Math.max(1.6, Math.min(w, d) - 1.4), H = floors * 0.567, cx = w / 2, cz = d / 2; // more floors of greens each level
       pad(); // its yard: the whole plot it stands on

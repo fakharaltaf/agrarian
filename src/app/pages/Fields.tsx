@@ -17,6 +17,7 @@ import { Bar, Card, Confirm, Info, Seg, Select, Swatch, Tip, usePref } from '../
 import { unlockedRegions } from './shared';
 import { featureEra, stageAtLeast } from '../../simulation/stages';
 import { convertQuote } from '../../simulation/engine';
+import { FRUIT_CROPS as FRUIT } from '../../simulation/core';
 import { FIELD_LEVELS, fieldLevel, fieldResearchIncluded, fieldUpgradePrice, fieldUpgradeProblem, levelOfField } from '../../simulation/field-levels';
 import { fieldWater, WATER_LEVEL, WATER_TIERS } from '../../simulation/world';
 import { HOMESTEAD_PRICES, homesteadState } from '../../simulation/stages/homestead';
@@ -304,9 +305,9 @@ function FieldLevels({ s, fields }: { s: GameState; fields: Field[] }) {
     </div>
     {lv < 3 && <p className="small">{next.name}: {next.does}{why ? <> <span className="down">{why}</span></> : null}</p>}
     {one && lv === 3 && (() => { const q = convertQuote(s, one); return <div className="row between wrap">
-      <span className="small">🏢 A vertical farm on this {q.side}×{q.side} ground: about <b>{num(q.perDay)} {GOODS[q.grows].name.toLowerCase()}/day</b> at level 1, rising a floor at a time with upgrades.{q.why && <> <span className="down">{q.why}</span></>}</span>
-      {!q.why && <Confirm className="btn ghost sm" disabled={q.price > s.cash} label={`Convert · ${money(q.price)}`} title={`Turn field ${one.id} into a vertical farm?`} confirmLabel={`Pay ${money(q.price)}`}
-        body={<>The field becomes a vertical farm on the same {q.side}×{q.side} ground, growing {GOODS[q.grows].name.toLowerCase()}{one.supplies ? ' for the same production house' : ''}. It makes far more than the field, but pays staff and draws a great deal of electricity every hour it runs. {one.crop ? 'The crop growing on it now is lost. ' : ''}It can't be turned back into a field.</>}
+      <span className="small">{FRUIT.includes(q.grows) ? '🍎 A fruit house' : '🏢 A vertical farm'} on this {q.side}×{q.side} ground{FRUIT.includes(q.grows) ? ' (no frost, no winter rest, trees that never age)' : ''}: about <b>{num(q.perDay)} {GOODS[q.grows].name.toLowerCase()}/day</b> at level 1, rising a floor at a time with upgrades.{q.why && <> <span className="down">{q.why}</span></>}</span>
+      {!q.why && <Confirm className="btn ghost sm" disabled={q.price > s.cash} label={`Convert · ${money(q.price)}`} title={`Turn field ${one.id} into a ${FRUIT.includes(q.grows) ? 'fruit house' : 'vertical farm'}?`} confirmLabel={`Pay ${money(q.price)}`}
+        body={<>The {FRUIT.includes(q.grows) ? 'orchard becomes a fruit house' : 'field becomes a vertical farm'} on the same {q.side}×{q.side} ground, growing {GOODS[q.grows].name.toLowerCase()}{one.supplies ? ' for the same production house' : ''}. It makes far more than the field, but pays staff and draws a great deal of electricity every hour it runs. {one.crop ? `The ${FRUIT.includes(q.grows) ? 'trees on it now are' : 'crop growing on it now is'} lost. ` : ''}It can't be turned back into a field.</>}
         onConfirm={() => act({ type: 'convertField', fieldId: one.id })} />}
     </div>; })()}
     {included.length > 0 && <p className="small muted">Included: {included.join(' · ')}.</p>}

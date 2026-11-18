@@ -12,7 +12,7 @@ import { idleMachine, machineSaleValue } from './operations';
 import {
   BUILDINGS, CONFIG, CROPS, GOODS, GOOD_IDS, MACHINES, PERKS, REGIONS, REGION_IDS, TECH, TICKS_PER_DAY, type CropId, type GoodId, type RegionId,
 } from './config';
-import { VERTICAL_CROPS, maxLevel, recipeOf, vfArea, buildingDivision, clamp, debt, factoryCrop, equity, freeSpace, has, known, log, marketWage, nextId, post, random, round2, todayBook, lean } from './core';
+import { FRUIT_CROPS, isFruitHouse, VERTICAL_CROPS, maxLevel, recipeOf, vfArea, buildingDivision, clamp, debt, factoryCrop, equity, freeSpace, has, known, log, marketWage, nextId, post, random, round2, todayBook, lean } from './core';
 import { coverOf, coverPrice, COVERS } from './agriculture';
 import { FIELD_LEVELS, fieldLevel, fieldUpgradePrice, fieldUpgradeProblem, upgradeField } from './field-levels';
 import { addGoods, canGrow, clearField, fertilizeField, fieldsTick, frostNight, harvestField, isManual, isReady, newField, plantField, spoilageDaily } from './agriculture';
@@ -218,10 +218,12 @@ export function anotherQuote(s: GameState, key: string): { price: number; why?: 
 }
 /** A crop a vertical farm may grow: greens, or an annual crop the farm has unlocked. */
 const growable = (s: GameState, g: GoodId) => VERTICAL_CROPS.includes(g) && (g === 'greens' || s.unlockedCrops.includes(g as CropId));
+/** What this vertical farm may switch to: a fruit house keeps to fruit, a vertical farm to greens and annual crops. */
+const growsHere = (s: GameState, b: { type: Building['type']; grows?: GoodId }, g: GoodId) => (isFruitHouse(b) ? FRUIT_CROPS.includes(g) && s.unlockedCrops.includes(g as CropId) : growable(s, g));
 /** What turning a field into a vertical farm costs and grows: the field's ground, its crop (if a tower can grow it), the tower's price scaled to that ground. */
 export function convertQuote(s: GameState, f: Field): { price: number; side: number; area: number; grows: GoodId; perDay: number; why?: string } {
   const side = plotSide(f.ha), area = f.ha, c = f.crop ?? f.plan;
-  const grows: GoodId = c && growable(s, c) ? c : 'greens';
+  const grows: GoodId = c && (growable(s, c) || FRUIT_CROPS.includes(c)) ? c : 'greens'; // an orchard becomes a fruit house
   const why = fieldLevel(f) < 3 ? 'Only an intensive (level 3) field can become a vertical farm.' : !has(s, 'verticalFarming') ? 'Research Vertical farming first.' : !featureEra(s, BUILDINGS.verticalFarm.minEra) ? 'Vertical farms are not available yet.' : undefined;
   const rec = recipeOf({ type: 'verticalFarm', grows: grows === 'greens' ? undefined : grows })!, perDay = (rec.outputs[grows] ?? 0) * (has(s, 'processEfficiency') ? 1.1 : 1) * rec.batchesPerHour * area * 24;
   return { price: Math.round(buildingPrice(s, 'verticalFarm', f.region) * area), side, area, grows, perDay, why };
@@ -512,11 +514,11 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       if (!at) return fail('That field is not on the map.');
       const id = nextId(s), grows = q.grows === 'greens' ? undefined : q.grows;
       s.buildings.push({ id, type: 'verticalFarm', region: f.region, span: [q.side, q.side], ha: f.ha, ...(grows ? { grows } : {}), ...(f.supplies ? { supplies: f.supplies } : {}), active: true, level: 1, cost: q.price + f.cost, depreciated: 0, util: 0, reserved: 0, reason: '', productionReport: emptyProductionReport(), stats: { out: 0, inCost: 0, outValue: 0, opCost: 0 } });
-      post(s, 'building', -q.price, `Field ${f.id} → vertical farm`, f.region, 'processing');
+      post(s, 'building', -q.price, `Field ${f.id} → ${FRUIT_CROPS.includes(q.grows) ? 'fruit house' : 'vertical farm'}`, f.region, 'processing');
       s.fields.splice(s.fields.indexOf(f), 1);
       forget(s, f.region, `field:${f.id}`);
       w.pos[`b:${id}`] = [at[0], at[1]]; touch(w); connect(s, f.region, `b:${id}`);
-      return ok(`Field ${f.id} is now a vertical farm on the same ${q.side}×${q.side} ground, growing ${GOODS[q.grows].name.toLowerCase()}: ${q.area} ha of crops under lights. Upgrades add floors.`);
+      return ok(`Field ${f.id} is now a ${FRUIT_CROPS.includes(q.grows) ? 'fruit house' : 'vertical farm'} on the same ${q.side}×${q.side} ground, growing ${GOODS[q.grows].name.toLowerCase()}: ${q.area} ha of crops under lights. Upgrades add floors.`);
     }
     case 'sellField': {
       const f = field(s, a.fieldId);
@@ -617,7 +619,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
     case 'setGrows': {
       const b = s.buildings.find((x) => x.id === a.buildingId);
       if (!b || b.type !== 'verticalFarm') return fail('Only a vertical farm can change what it grows.');
-      if (!growable(s, a.grows)) return fail('A vertical farm grows greens, grain, potatoes, soybeans or rice you have unlocked.');
+      if (!growsHere(s, b, a.grows)) return fail(isFruitHouse(b) ? 'A fruit house grows apples or grapes.' : 'A vertical farm grows greens, grain, potatoes, soybeans or rice you have unlocked.');
       if (a.grows === 'greens') delete b.grows; else b.grows = a.grows;
       if (b.supplies !== undefined) { const m = s.buildings.find((x) => x.id === b.supplies); if (!m || factoryCrop(m) !== a.grows) delete b.supplies; } // a new crop its house doesn't take ends the link
       return ok(`It now grows ${GOODS[a.grows].name.toLowerCase()}.`);
@@ -748,7 +750,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       const b = s.buildings.find((x) => x.id === a.buildingId), c = b ? factoryCrop(b) : null;
       if (!b || !c) return fail('That building does not take a crop.');
       if (b.region !== v.region) return fail('A vertical farm supplies production houses in its own region.');
-      if (!growable(s, c)) return fail(`A vertical farm can't grow ${GOODS[c].name.toLowerCase()}: greens, grain, potatoes, soybeans or rice only.`);
+      if (!growsHere(s, v, c)) return fail(isFruitHouse(v) ? `A fruit house grows apples or grapes, not ${GOODS[c].name.toLowerCase()}.` : `A vertical farm can't grow ${GOODS[c].name.toLowerCase()}: greens, grain, potatoes, soybeans or rice only.`);
       v.supplies = b.id;
       v.grows = c; // it grows what the house takes
       return ok(`It now grows ${GOODS[c].name.toLowerCase()} for the ${BUILDINGS[b.type].name.toLowerCase()}.`);

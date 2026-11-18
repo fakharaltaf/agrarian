@@ -10,7 +10,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { ANIMALS, BUILDINGS, CROPS, GOODS, REGIONS, SEASONS, SUNRISE, SUNSET, type AnimalId, type CropId, type RegionId } from '../../simulation/config';
 import { anotherQuote, factoryMerge, hasShapes, isLong, longShape } from '../../simulation/engine';
-import { mergedName, shownLevel } from '../../simulation/core';
+import { buildingName, mergedName, shownLevel } from '../../simulation/core';
 import { fieldMovable, timingFactor, fertility, growth, isMature, isReady } from '../../simulation/engine';
 import { priceUsd, stored } from '../../simulation/core';
 import { coverOf } from '../../simulation/agriculture';
@@ -600,7 +600,7 @@ function nightWindows(model: Model) {
   for (const k of [-1, 1]) { face(size.x, c.z + k * (size.z / 2 + 0.012), false); face(size.z, c.x + k * (size.x / 2 + 0.012), true); } // on the face of every wall: the building may be turned any way
 }
 /** What a lot is called on the map and when moving it. */
-export const lotName = (lot: Lot) => lot.name ? lot.name : lot.key.startsWith('civic:') ? (lot.key==='civic:hall'?'Town hall':lot.service?serviceName(lot.service):SERVICE_DEFS[lot.key.split(':')[1] as ServiceType].name) : lot.key.startsWith('community:') ? ({cottage:'Cottage',terrace:'Terrace',apartment:'Apartments'}[lot.key.split(':')[1]] ?? 'Neighbourhood') : lot.key === 'crew' ? 'Bunkhouse' : lot.key === 'office' ? 'Farm office' : lot.key === 'market' ? 'Village trader' : lot.type === 'house' ? 'Farmhouse' : lot.type === 'shed' ? 'Office' : ((lot.buildings[0]?.size ?? 1) > 1 ? mergedName(lot.type, BUILDINGS[lot.type].name, lot.buildings[0].size!) : BUILDINGS[lot.type].name);
+export const lotName = (lot: Lot) => lot.name ? lot.name : lot.key.startsWith('civic:') ? (lot.key==='civic:hall'?'Town hall':lot.service?serviceName(lot.service):SERVICE_DEFS[lot.key.split(':')[1] as ServiceType].name) : lot.key.startsWith('community:') ? ({cottage:'Cottage',terrace:'Terrace',apartment:'Apartments'}[lot.key.split(':')[1]] ?? 'Neighbourhood') : lot.key === 'crew' ? 'Bunkhouse' : lot.key === 'office' ? 'Farm office' : lot.key === 'market' ? 'Village trader' : lot.type === 'house' ? 'Farmhouse' : lot.type === 'shed' ? 'Office' : ((lot.buildings[0]?.size ?? 1) > 1 ? mergedName(lot.type, BUILDINGS[lot.type].name, lot.buildings[0].size!) : lot.buildings[0] ? buildingName(lot.buildings[0]) : BUILDINGS[lot.type].name);
 /** A point in a lot's own (unturned) frame, carried round with the lot's turn; returns lot-relative map coordinates. */
 function turnPoint(l: Lot, x: number, z: number): [number, number] {
   const bw = l.rot % 2 ? l.d : l.w, bd = l.rot % 2 ? l.w : l.d, a = (l.rot * Math.PI) / 2, dx = x - bw / 2, dz = z - bd / 2;

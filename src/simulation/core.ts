@@ -236,6 +236,11 @@ export const GROWS_X2: ReadonlySet<string> = new Set(['flourMill', 'bakery', 'fe
 export const VERTICAL_LEVELS = [1, 2, 3, 4.5, 6];
 /** The highest level a building can reach. */
 export const maxLevel = (t: string) => (t === 'verticalFarm' ? 5 : 3);
+/** Fruit a fruit house grows: a vertical farm converted from an orchard keeps to fruit, and only an orchard becomes one. */
+export const FRUIT_CROPS: GoodId[] = ['apples', 'grapes'];
+export const isFruitHouse = (b: { type: string; grows?: GoodId }) => b.type === 'verticalFarm' && !!b.grows && FRUIT_CROPS.includes(b.grows);
+/** A building's name as the player knows it: a vertical farm growing fruit is a fruit house. */
+export const buildingName = (b: { type: Building['type']; grows?: GoodId }) => (isFruitHouse(b) ? 'Fruit house' : BUILDINGS[b.type].name);
 /** What a vertical farm can grow: greens, or an annual field crop. */
 export const VERTICAL_CROPS: GoodId[] = ['greens', 'wheat', 'corn', 'potatoes', 'soybeans', 'rice'];
 /** Any crop a vertical farm grows is worth the same per batch at base prices, so the choice is about what you need, not a hidden best answer. */
