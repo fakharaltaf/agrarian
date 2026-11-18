@@ -35,7 +35,7 @@ import { refreshHomestead } from './stages/homestead';
 import {releaseNeighbourJob} from './employment';
 import { availableResidents, recruitableResidents, communityOf, homeLevel } from './community-state';
 import { shipGoods, shipmentsTick } from './logistics';
-import type { Action, ActionResult, Field, GameState, RegionState } from './types';
+import type { Action, ActionResult, Building, Field, GameState, RegionState } from './types';
 import { SAVE_VERSION } from './persistence';
 
 export * from './agriculture';
@@ -266,6 +266,14 @@ export function planQuote(s: GameState, r: RegionId, at: [number, number], fw: n
 /** The factory beside this one that it could merge with: the same kind and size, both at level 3, a lane apart and squarely in line. */
 /** The square shape for a long merged building: about the same ground, as near square as whole tiles allow. */
 export function squareSpan([w, d]: [number, number]): [number, number] { const a = w * d, side = Math.ceil(Math.sqrt(a)); return [side, Math.ceil(a / side)]; }
+/** A merged building's long shape: a Works is its two side by side; a Plant is all four in one row (a 2×2 block counts as its square shape). */
+export function longShape(b: Pick<Building, 'type' | 'size' | 'span' | 'longSpan'>): [number, number] {
+  const cur = b.longSpan ?? b.span ?? [1, 1], [fw, fd] = FOOTPRINT[b.type];
+  if ((b.size ?? 1) < 4 || Math.min(cur[0], cur[1]) <= Math.max(fw, fd)) return cur; // already a single line
+  return [4 * fw + 3, fd];
+}
+/** Whether a merged building is laid out in its long shape now. */
+export const isLong = (b: Pick<Building, 'type' | 'size' | 'span' | 'longSpan'>) => { const l = longShape(b), s = b.span ?? l; return s[0] === l[0] && s[1] === l[1]; };
 /** Whether a merged building's long shape has a squarer one to switch to. */
 export const hasShapes = (long: [number, number]) => Math.abs(long[0] - long[1]) > 1;
 export function factoryMerge(s: GameState, id: number) {
@@ -888,10 +896,10 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       if (!b || (b.size ?? 1) < 2 || !b.span) return fail('Only merged buildings have a shape to switch.');
       const key = `b:${b.id}`, w = worldOf(s, b.region), p = w.pos[key];
       if (!p) return fail('It is not on the map.');
-      const long = b.longSpan ?? b.span;
+      const long = longShape(b);
       if (!hasShapes(long)) return fail('It is already square: there is no other shape to lay it out in.');
       const turn = rotOf(s, key) % 2 === 1, now = footprintOf(s, key)!, sq = squareSpan(long);
-      const square = b.layout === 1 && !!b.longSpan, shapes: [number, number][] = square ? [long] : [sq, [sq[1], sq[0]]];
+      const square = !isLong(b), shapes: [number, number][] = square ? [long, [long[1], long[0]]] : [sq, [sq[1], sq[0]]];
       const before = structuredClone({ roads: w.roads, links: w.links });
       // keep its corner if it can; else shift it as little as needed, within its old ground and a little beyond
       const ring: [number, number][] = [];
@@ -905,9 +913,9 @@ export function dispatch(s: GameState, a: Action): ActionResult {
           Object.assign(w, structuredClone(before)); touch(w);
         } }
       if (!spot) return fail(`No room for it ${square ? 'long' : 'square'} (${fp.w}×${fp.d} tiles): clear the ground around it first.`);
-      b.longSpan = long; b.span = next; b.layout = square ? 0 : 1;
+      b.longSpan = long; b.span = next; b.layout = isLong(b) ? 0 : 1;
       w.pos[key] = spot; touch(w); connect(s, b.region, key); for (const k of lifted) if (w.pos[k] && k !== key) connect(s, b.region, k);
-      return ok(b.layout === 1 ? `Laid out square: ${fp.w}×${fp.d} tiles.` : `Laid out long: ${fp.w}×${fp.d} tiles.`);
+      return ok(square ? `Laid out long: ${fp.w}×${fp.d} tiles.` : `Laid out square: ${fp.w}×${fp.d} tiles.`);
     }
     case 'mergeBuilding': {
       const g = factoryMerge(s, a.buildingId);

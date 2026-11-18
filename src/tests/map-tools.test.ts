@@ -36,3 +36,12 @@ it('With auto tracks off, a new building gets no road; turned back on, the next 
   const b = s.buildings[s.buildings.length - 1];
   expect(hasAccess(s, 'heartland', `b:${b.id}`)).toBe(true);
 });
+
+it('A Plant laid out as a 2×2 block counts as square; its long shape is all four in one row', async () => {
+  const { isLong, longShape } = await import('../simulation/engine');
+  const block = { type: 'solar' as const, size: 4, span: [11, 7] as [number, number] };
+  expect(isLong(block)).toBe(false);
+  expect(longShape(block)).toEqual([23, 3]); // four 5×3 arrays with a tile between each
+  expect(isLong({ ...block, span: [23, 3], longSpan: [23, 3] })).toBe(true);
+  expect(isLong({ type: 'solar' as const, size: 2, span: [11, 3] })).toBe(true); // a Works is its pair side by side
+});
