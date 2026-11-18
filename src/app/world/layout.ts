@@ -33,10 +33,13 @@ export function layoutRegion(s: GameState, r: RegionId): Layout {
     const [fw, fd] = FOOTPRINT[type], rot = w.rot?.[place] ?? 0, base = { w: fw, d: fd, ...extra };
     lots.push({ key, place, type, buildings: bs, x: p[0], y: p[1], ...extra, w: rot % 2 ? base.d : base.w, d: rot % 2 ? base.w : base.d, rot });
   };
-  add(r === 'heartland' ? 'house' : 'shed', r === 'heartland' ? 'farmhouse' : 'shed', r === 'heartland' ? 'house' : 'shed', [], r === 'heartland' ? { level: farmhouseTier(s), w: s.farmhouseSide ?? 3, d: s.farmhouseSide ?? 3 } : {});
-  add('market', 'market', 'shed', []);
-  add('crew', 'crew', 'house', []);
-  add('office', 'office', 'house', []);
+  const yours = !isNeighbour(r) || s.fields.some((f) => f.region === r) || s.buildings.some((b) => b.region === r); // a neighbour's map has your office and trader only once you farm there
+  if (yours) {
+    add(r === 'heartland' ? 'house' : 'shed', r === 'heartland' ? 'farmhouse' : 'shed', r === 'heartland' ? 'house' : 'shed', [], r === 'heartland' ? { level: farmhouseTier(s), w: s.farmhouseSide ?? 3, d: s.farmhouseSide ?? 3 } : {});
+    add('market', 'market', 'shed', []);
+    add('crew', 'crew', 'house', []);
+    add('office', 'office', 'house', []);
+  }
   for (const b of s.buildings) if (b.region === r && BUILDINGS[b.type]) add(`b:${b.id}`, `b:${b.id}`, b.type, [b], b.span ? { w: b.span[0], d: b.span[1] } : {});
   if (r === 'heartland' && communityOf(s).active) {
     for (const home of communityOf(s).homes) {

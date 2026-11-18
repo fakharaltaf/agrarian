@@ -27,8 +27,9 @@ import { bridgeAt, bridgePlan, isBridge } from '../../simulation/world';
 import { isNeighbour, regionActive, regionOf, ROUTE_SIDE, type NeighbourId } from '../../simulation/region-state';
 import { canStartRegion } from '../../simulation/stages/region';
 import { neighbourTown } from '../../simulation/neighbour-towns';
+import { SEA_X } from '../../simulation/world';
 import { wooded, beltRoute, wideRoadRoute, homesCentre, CHUNK, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, LAND_HA_PER_PATCH, MAP, hasAccess, riverTiles, riverX, tileId, roadStretch, roadPick, pipeRoute, pipeStretch, plotSide, fieldWater, wetTiers, linesOf, NET_TOP, UTILITY_NETS, netReach, doorstep, footprintOf, type NetKind, type UtilityNet, tileAt, forSaleAround,  ownedSet, ROAD_H, ROAD_Y, chunkAt, chunkOrigin, clearCost, clearedSet, isRoad, patchesAround, placeProblem, worldOf } from '../../simulation/world';
-import { animal, buildBridge, buildCivic, buildCommunityHome, buildLot, buildWorks, box, cached, cyl, farmhand, hauler, mat, mesh, PAL, person, tree, vehicle, type Model } from './models';
+import { animal, buildBridge, buildCivic, cone, sphere, buildCommunityHome, buildLot, buildWorks, box, cached, cyl, farmhand, hauler, mat, mesh, PAL, person, tree, vehicle, type Model } from './models';
 import { haulOf, MARKET_X, marketRoute } from '../../simulation/hauling';
 import { landCostOf, oilOf, oilPremium, oilReading, struckFields, SURVEY_R, surveyedAt } from '../../simulation/oil';
 
@@ -40,7 +41,9 @@ export const graphicsQuality = (): 'high' | 'low' => {
 export type WorldPick = { kind: 'field'; id: number; multi: boolean } | { kind: 'lot'; lot: Lot } | { kind: 'buy' } | { kind: 'forest'; x: number; y: number } | { kind: 'none' };
 
 const SEASON_GROUND: Record<string, number> = { Spring: 0x88ba5c, Summer: 0x93b14f, Autumn: 0xb3a253, Winter: 0xe4eaec };
-const REGION_GROUND: Partial<Record<RegionId, number>> = { arid: 0xd3bd86, tropics: 0x5ea849 };
+const REGION_GROUND: Partial<Record<RegionId, number>> = { arid: 0xd8c08a, tropics: 0x4f9c3f, coastal: 0x9cc068, river: 0x7cc052 };
+/** How each region's wild land looks: how thick the woods grow (share of trees kept), and what grows. */
+const WILD: Record<RegionId, { keep: number; look: 'woods' | 'desert' | 'jungle' | 'meadow' | 'coast' }> = { heartland: { keep: 1, look: 'woods' }, arid: { keep: 0.14, look: 'desert' }, tropics: { keep: 1, look: 'jungle' }, river: { keep: 0.5, look: 'meadow' }, coastal: { keep: 0.6, look: 'coast' } };
 const CROWN: Record<string, number> = { Spring: 0x5f9a45, Summer: 0x4f8a3c, Autumn: 0xd08a3a, Winter: 0xf0f3f4 };
 const reducedMotionQuery = typeof matchMedia === 'function' ? matchMedia('(prefers-reduced-motion: reduce)') : null;
 const SHIRTS = [0xc9553f, 0x3f6fc9, 0xe0b23a, 0x4c9a5a, 0x8a5ac9, 0xd07a2f];
@@ -100,7 +103,7 @@ interface Rig {
   haulers: Map<string, THREE.Group>; tickSeen: number; tickAt: number;
   riverG: THREE.Group; riverSig: string; foam?: { im: THREE.InstancedMesh; pts: [number, number][]; phase: number[] }; fall?: THREE.Texture;
   oilG: THREE.Group; oilSig: string; zoneG: THREE.Group; zoneSig: string;
-  /** the neighbours' towns past the map's edges, and the caravans on their way to them */ townsG: THREE.Group; townsSig: string; caravans: Map<number, THREE.Group>;
+  /** the neighbours' towns past the map's edges, and the caravans on their way to them */ townsG: THREE.Group; townsSig: string; sceneryG: THREE.Group; scenerySig: string; caravans: Map<number, THREE.Group>;
   felling?: { chunk: number; trees: THREE.Group[]; fallAt: number[]; extras: THREE.Group };
 }
 
@@ -164,7 +167,7 @@ export function Scene3D({ region, visiting, selected, onPick, plantLabel, onActi
       lots: g(), fields: g(), units: g(), deco: g(), fx: g(), sel: g(), ghost: g(), ghostSig: '', models: [], pick: [], crops: {}, sig: { lots: '', fields: '', crops: '', sel: '', deco: '' },
       storageProps: g(), outlines: g(), mergeG: g(), mergeSig: '', lastStockTick:-1, lastCash:getGame().cash, lastCoin:0,
       neighbours: [], people: new Map(), machines: new Map(), trucks: [], herds: new Map(), rain, smoke: [], pops: [], seenHarvest: new Map(), popsReady: false, crownMat: Object.assign(mat(CROWN.Spring).clone(), { flatShading: false }), lastHaul: -1, layout: null, region, dt: 0,
-      roadsG: g(), roadSig: '', roadPrev: g(), roadPrevSig: '', haulers: new Map(), tickSeen: -1, tickAt: 0, riverG: g(), riverSig: '', oilG: g(), oilSig: '', zoneG: g(), zoneSig: '', townsG: g(), townsSig: '', caravans: new Map(),
+      roadsG: g(), roadSig: '', roadPrev: g(), roadPrevSig: '', haulers: new Map(), tickSeen: -1, tickAt: 0, riverG: g(), riverSig: '', oilG: g(), oilSig: '', zoneG: g(), zoneSig: '', townsG: g(), townsSig: '', sceneryG: g(), scenerySig: '', caravans: new Map(),
     };
     rig.current = R;
     // ?at=x,z (and &zoom=) points the camera somewhere on the map: handy for screenshots and sharing a spot
@@ -221,6 +224,7 @@ export function Scene3D({ region, visiting, selected, onPick, plantLabel, onActi
       animateHaul(R, s, now / 1000);
       animateCars(R, s);
       syncRiver(R, s);
+      syncScenery(R);
       syncNeighbourTowns(R, s);
       animateCaravans(R, s, now / 1000);
       animateRiver(R, now / 1000);
@@ -996,6 +1000,7 @@ function syncDeco(R: Rig, L: Layout, s: GameState) {
   const cleared = clearedSet(w), felling = w.queue[0]?.chunk, waiting = new Set(w.queue.slice(1).map((j) => j.chunk));
   const trunks: THREE.Matrix4[] = [], trunkCol: THREE.Color[] = [], oaks: THREE.Matrix4[] = [], oakCol: THREE.Color[] = [], birches: THREE.Matrix4[] = [], birchCol: THREE.Color[] = [], pines: THREE.Matrix4[] = [], pineCol: THREE.Color[] = [], ribbons: THREE.Matrix4[] = [];
   const q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0);
+  const wild = WILD[R.region], look = wild.look, sea = SEA_X[R.region] ?? Infinity, cacti: THREE.Matrix4[] = [], rocks: THREE.Matrix4[] = [], palms: THREE.Matrix4[] = [];
   // the woods stay just as thick at every zoom; far out each tree is drawn with fewer faces instead (low graphics thins them)
   const sparse = graphicsQuality() === 'low', far = R.zoom < 0.5;
   const BARK = new THREE.Color(PAL.woodDark), BIRCH = new THREE.Color(0xe8e4da);
@@ -1011,11 +1016,17 @@ function syncDeco(R: Rig, L: Layout, s: GameState) {
     if (ox + CHUNK > MARKET_X - 6 && ox < MARKET_X + 4 && oy + CHUNK > ROAD_Y - 6 && oy < ROAD_Y) continue; // the village market's clearing
     const dense = hash(c * 0.37 + 5), n = Math.round(sparse ? 3 + dense * 3 : 6 + dense * 6);
     const river = riverTiles(R.region);
-    for (const p of patchTrees(c, ox, oy, n)) {
+    for (const p of patchTrees(c, ox, oy, look === 'jungle' ? n + 3 : n)) {
+      if (hash(p.x * 5.3 + p.z * 1.7) > wild.keep || p.x >= sea - 3) continue; // thinner woods out on the plains and the desert, none on the beach or in the sea
+      if (look === 'desert') { // scrub, cacti and rocks
+        const h = hash(p.x * 2.3 + p.z * 7.1);
+        if (h < 0.4) { cacti.push(new THREE.Matrix4().compose(new THREE.Vector3(p.x, 0, p.z), q.setFromAxisAngle(up, p.rot), new THREE.Vector3(p.k, p.k, p.k))); continue; }
+        if (h < 0.7) { rocks.push(new THREE.Matrix4().compose(new THREE.Vector3(p.x, 0, p.z), q.setFromAxisAngle(up, p.rot), new THREE.Vector3(p.k * 0.6, p.k * 0.4, p.k * 0.5))); continue; }
+      }
       if ([-2, -1, 0, 1, 2].some((d) => river.has(tileId(Math.floor(p.x) + d, Math.floor(p.z))))) continue; // no trees in the river or on its banks, owned land or not
-      if (p.z >= MAP.y0 + MAP.h && Math.abs(p.x - riverX(R.region, Math.floor(p.z)) - 1) < 3.5) continue; // and where it flows on past the map
+      if (river.size && p.z >= MAP.y0 + MAP.h && Math.abs(p.x - riverX(R.region, Math.floor(p.z)) - 1) < 3.5) continue; // and where it flows on past the map
       let ty = 0;
-      if (p.z < MAP.y0) { // on the mountains: trees thin out up the slopes, none on rock or in the gorge
+      if (p.z < MAP.y0 && river.size) { // on the mountains: trees thin out up the slopes, none on rock or in the gorge
         ty = mountainH(p.x, p.z, src);
         const slope = Math.abs(mountainH(p.x + 0.6, p.z, src) - ty) + Math.abs(mountainH(p.x, p.z - 0.6, src) - ty);
         if (ty > 6.5 || slope > 1.1 || hash(p.x * 1.7 + p.z) < ty / 8 || Math.abs(p.x - gorgeX(src, MAP.y0 - p.z)) < 2.5) continue;
@@ -1024,7 +1035,10 @@ function syncDeco(R: Rig, L: Layout, s: GameState) {
       const m = new THREE.Matrix4().compose(new THREE.Vector3(p.x, ty, p.z), q, new THREE.Vector3(p.k, p.ky, p.k));
       const shade = 0.82 + hash(p.x * 3.1 + p.z) * 0.3;
       trunks.push(p.kind === 2 ? m.clone().multiply(new THREE.Matrix4().makeScale(0.75, 1.5, 0.75)) : m); trunkCol.push(p.kind === 2 ? BIRCH : BARK);
-      if (p.kind === 1) { pines.push(m); pineCol.push(new THREE.Color().setScalar(shade)); }
+      if (look === 'jungle' && p.kind === 1) { palms.push(m); continue; }
+      if (look === 'desert') { oaks.push(m.clone().multiply(new THREE.Matrix4().makeScale(0.7, 0.55, 0.7))); oakCol.push(new THREE.Color(shade * 0.85, shade * 0.85, shade * 0.6)); continue; } // dusty olive scrub
+      if (look === 'jungle') { oaks.push(m.clone().multiply(new THREE.Matrix4().makeScale(1.25, 1.15, 1.25))); oakCol.push(new THREE.Color(shade * 0.7, shade * 0.95, shade * 0.7)); continue; }
+      if (p.kind === 1 || (look === 'coast' && p.kind === 0 && hash(p.x + p.z * 3) < 0.6)) { pines.push(m); pineCol.push(new THREE.Color().setScalar(shade)); }
       else if (p.kind === 2) { birches.push(m); birchCol.push(new THREE.Color(shade * 1.08, shade * 1.12, shade * 0.8)); }
       else { oaks.push(m); oakCol.push(new THREE.Color().setScalar(shade)); }
     }
@@ -1087,6 +1101,10 @@ function syncDeco(R: Rig, L: Layout, s: GameState) {
     inst(cached('forest-birch-soft', () => merged(blob(0.3, 0, 1.18, 0, 1.0, 1.45), blob(0.22, 0.13, 0.88, 0.05, 1.0, 1.35))), R.crownMat, birches, birchCol);
   }
   inst(far ? cached('forest-pine-far', () => merged(new THREE.ConeGeometry(0.42, 0.75, 6).translate(0, 0.62, 0), new THREE.ConeGeometry(0.26, 0.55, 6).translate(0, 1.05, 0))) : cached('forest-pine-soft', () => merged(new THREE.ConeGeometry(0.42, 0.55, 10).translate(0, 0.55, 0), new THREE.ConeGeometry(0.33, 0.48, 10).translate(0, 0.85, 0), new THREE.ConeGeometry(0.22, 0.4, 10).translate(0, 1.12, 0))), SOFT_PINE, pines, pineCol.map((c) => c.clone().multiply(new THREE.Color(0x3f6b45))));
+  inst(cached('cactus', () => merged(new THREE.CylinderGeometry(0.07, 0.08, 0.7, 6).translate(0, 0.35, 0), new THREE.CylinderGeometry(0.045, 0.045, 0.25, 5).translate(0.12, 0.45, 0), new THREE.CylinderGeometry(0.045, 0.045, 0.2, 5).translate(-0.11, 0.38, 0), new THREE.CylinderGeometry(0.045, 0.045, 0.12, 5).rotateZ(Math.PI / 2).translate(0.07, 0.33, 0), new THREE.CylinderGeometry(0.045, 0.045, 0.1, 5).rotateZ(Math.PI / 2).translate(-0.06, 0.28, 0))), mat(0x5f8a3a), cacti);
+  inst(cached('desert-rock', () => new THREE.DodecahedronGeometry(0.5, 0).translate(0, 0.2, 0)), mat(0xc49a6a), rocks);
+  inst(cached('palm-trunk', () => new THREE.CylinderGeometry(0.035, 0.06, 1.3, 5).translate(0, 0.65, 0).rotateZ(0.12)), mat(0x8a6a44), palms);
+  inst(cached('palm-crown', () => merged(...[0, 1, 2, 3, 4, 5].map((k) => new THREE.BoxGeometry(0.6, 0.03, 0.14).translate(0.3, 0, 0).rotateZ(-0.35).rotateY((k * Math.PI) / 3).translate(0.08, 1.3, 0)))), mat(0x4f9a3a), palms);
   inst(cached('bound-rail-1', () => new THREE.BoxGeometry(1, 0.04, 0.04)), mat(0xc9a46a), rails);
   inst(cached('bound-post', () => new THREE.BoxGeometry(0.07, 0.36, 0.07).translate(0, 0.18, 0)), mat(PAL.wood), posts);
   inst(cached('ribbon', () => merged(new THREE.CylinderGeometry(0.03, 0.03, 0.9, 5).translate(0, 0.45, 0), new THREE.BoxGeometry(0.28, 0.14, 0.02).translate(0.15, 0.8, 0))), mat(0xd23c2c), ribbons);
@@ -1236,7 +1254,7 @@ function syncRoads(R: Rig, s: GameState) {
   const rut = (g: number, o: number, wd: number): Band[] => { const c = C(RUT_COL[g]); return [[o - wd, c, 0], [o - wd * 0.3, c, 0.6], [o + wd * 0.3, c, 0.6], [o + wd, c, 0]]; };
   const RUTS: Wobble = { step: 0.3, meander: 0.03, fade: 0.55 };
   // the main road
-  const g = w.main, cz = ROAD_Y + ROAD_H / 2, x0 = MAP.x0 - 300, x1 = MAP.x0 + MAP.w + 300, M = road(g, ROAD_H / 2 - 0.1);
+  const g = w.main, cz = ROAD_Y + ROAD_H / 2, x0 = MAP.x0 - 300, x1 = Math.min(MAP.x0 + MAP.w + 300, (SEA_X[R.region] ?? Infinity) + 1), M = road(g, ROAD_H / 2 - 0.1); // on a coast it runs down onto the quay
   verge.seg(x0, cz, x1, cz, M.v, g === 3 ? PAVED : ROADSIDE); surface.seg(x0, cz, x1, cz, M.s, g === 3 ? PAVED : ROADSIDE);
   if (g < 3) for (const o of [-0.42, 0.42]) marks.seg(x0, cz, x1, cz, rut(g, o, 0.2), RUTS);
   else {
@@ -1638,6 +1656,7 @@ function animateCars(R: Rig, s: GameState) {
 
 /** Carts and trucks on their way to the village market and back, and the market itself. */
 function animateHaul(R: Rig, s: GameState, t: number) {
+  { const mk = R.units.getObjectByName('village-market'); if (mk) mk.visible = R.region === 'heartland'; } // the village trader is yours, on your map
   if (R.region !== 'heartland') return;
   if (s.tick !== R.tickSeen) { R.tickSeen = s.tick; R.tickAt = t; }
   const part = Math.min(0.999, (t - R.tickAt) * Math.max(0, getSpeed())); // smooth motion between game hours
@@ -1805,6 +1824,38 @@ function syncNeighbourTowns(R: Rig, s: GameState) {
     g.traverse((o) => { if ((o as THREE.Mesh).isMesh) o.castShadow = true; });
     R.townsG.add(g);
   }
+}
+/** What gives each region its own horizon: the sea, beach and harbour on the coast; red mesas round the desert. */
+function syncScenery(R: Rig) {
+  if (R.scenerySig === R.region) return;
+  R.scenerySig = R.region; clear(R.sceneryG);
+  const sea = SEA_X[R.region];
+  if (sea !== undefined) {
+    const water = new THREE.Mesh(cached('sea', () => new THREE.PlaneGeometry(600, 900).rotateX(-Math.PI / 2)), new THREE.MeshStandardMaterial({ color: 0x3f98c8, roughness: 0.25, metalness: 0.1 }));
+    water.position.set(sea + 300, 0.03, 100); water.receiveShadow = true;
+    const sand = new THREE.Mesh(cached('beach', () => new THREE.PlaneGeometry(4, 900).rotateX(-Math.PI / 2)), mat(0xe6d3a0, { rough: 1 }));
+    sand.position.set(sea - 1.5, 0.015, 100); sand.receiveShadow = true;
+    const shallow = new THREE.Mesh(cached('shallows', () => new THREE.PlaneGeometry(3, 900).rotateX(-Math.PI / 2)), new THREE.MeshStandardMaterial({ color: 0x7cc4cc, roughness: 0.4 }));
+    shallow.position.set(sea + 1.5, 0.035, 100);
+    R.sceneryG.add(water, sand, shallow);
+    const cz = ROAD_Y + ROAD_H / 2;
+    for (const z of [cz - 7, cz + 5, cz + 15]) R.sceneryG.add(box(9, 0.25, 1.6, PAL.wood, sea + 4.5, 0, z), ...[0, 3, 6, 9].map((dx) => box(0.25, 0.6, 0.25, PAL.woodDark, sea + dx, -0.4, z + 0.7))); // piers
+    R.sceneryG.add(box(4, 0.4, 14, PAL.stone, sea + 1, 0, cz + 3)); // the quay where the road ends
+    for (const [x, z, k] of [[sea + 6, cz - 5, 1.6], [sea + 7, cz + 7.2, 1.4], [sea + 4, cz + 17, 1.2], [sea + 22, cz - 20, 2], [sea + 30, cz + 30, 1.8]] as const) {
+      const ship = new THREE.Group(); ship.add(box(3, 0.6, 1, PAL.woodDark, 0, -0.2, 0), box(0.8, 0.5, 0.8, PAL.barnRed, -0.6, 0.4, 0), cyl(0.05, 2.6, PAL.wood, 0.5, 0.4, 0, 5), box(1.3, 1.7, 0.05, PAL.white, 0.2, 1, 0));
+      ship.position.set(x, 0, z); ship.scale.setScalar(k / 1.6); R.sceneryG.add(ship);
+    }
+    const lh = new THREE.Group(); for (let i = 0; i < 6; i++) lh.add(cyl(0.9 - i * 0.06, 0.9, i % 2 ? 0xc0392b : PAL.white, 0, i * 0.9, 0, 12)); lh.add(cone(0.8, 0.8, 0xc0392b, 0, 5.4, 0, 12), sphere(0.35, 0xfff2b0, 0, 5.2, 0, { emissive: 0xc0a040 }));
+    lh.position.set(sea + 2, 0, cz - 26); R.sceneryG.add(lh); // the lighthouse on the point
+  }
+  if (R.region === 'arid') { // mesas standing out of the desert beyond your land
+    for (let i = 0; i < 16; i++) {
+      const a = hash(i * 7.3) * Math.PI * 2, d = 140 + hash(i * 3.1) * 90, x = 16 + Math.cos(a) * d, z = 24 + Math.sin(a) * d * 0.8, r = 6 + hash(i * 1.7) * 10, h = 5 + hash(i * 5.9) * 9, m = new THREE.Group();
+      for (let k = 0; k < 4; k++) m.add(cyl(r * (1 - k * 0.05), h / 4, k % 2 ? 0xb5623a : 0xc97a48, 0, (k * h) / 4, 0, 7));
+      m.position.set(x, 0, z); R.sceneryG.add(m);
+    }
+  }
+  R.sceneryG.traverse((o) => { if ((o as THREE.Mesh).isMesh) { o.castShadow = true; o.receiveShadow = true; } });
 }
 /** Caravans under way: a truck along the main road to the west or east town, a barge down the river to the south ones, moving with the time left on the road. */
 function animateCaravans(R: Rig, s: GameState, t: number) {

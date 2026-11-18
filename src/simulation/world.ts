@@ -188,7 +188,7 @@ export function placeProblem(s: GameState, r: RegionId, x: number, y: number, fp
   if (x < MAP.x0 || y < MAP.y0 || x + fp.w > MAP.x0 + MAP.w || y + fp.d > MAP.y0 + MAP.h) return 'outside';
   const roads = worldOf(s, r).roads;
   const river = riverTiles(r), w = worldOf(s, r);
-  for (let yy = y; yy < y + fp.d; yy++) for (let xx = x; xx < x + fp.w; xx++) if (river.has(tileId(xx, yy)) || waterBlocks(w, tileId(xx, yy))) return 'water';
+  for (let yy = y; yy < y + fp.d; yy++) for (let xx = x; xx < x + fp.w; xx++) if (river.has(tileId(xx, yy)) || waterBlocks(w, tileId(xx, yy)) || xx >= (SEA_X[r] ?? Infinity)) return 'water';
   for (let yy = y; yy < y + fp.d; yy++) { if (isRoad(yy)) return 'road'; for (let xx = x; xx < x + fp.w; xx++) if (roads[tileId(xx, yy)]) return 'road'; }
   for (let yy = y; yy < y + fp.d; yy++) for (let xx = x; xx < x + fp.w; xx++) if (w.belts?.[tileId(xx, yy)]) return 'occupied'; // a tree line stands there
   const cleared = clearedSet(worldOf(s, r)), owned = ownedSet(worldOf(s, r));
@@ -598,6 +598,8 @@ export const roadPick = (w: RegionWorld, at: [number, number], to?: [number, num
 
 const rivers = new Map<RegionId, Set<number>>();
 /** The river's west tile at row y; it keeps going past the map edges, where it is only scenery. */
+/** Where the sea begins (the first tile column under water), on a coast. */
+export const SEA_X: Partial<Record<RegionId, number>> = { coastal: 74 };
 export function riverX(r: RegionId, y: number) {
   const k = [...r].reduce((a, ch) => a + ch.charCodeAt(0), 0), base = r === 'heartland' ? -27 : -27 + ((k * 37) % 21) - 10;
   return Math.round(base + 5 * Math.sin(y * 0.06 + k) + 2 * Math.sin(y * 0.17 + 1));
@@ -607,6 +609,7 @@ export function riverTiles(r: RegionId): Set<number> {
   const hit = rivers.get(r);
   if (hit) return hit;
   const set = new Set<number>();
+  if (r === 'arid') { rivers.set(r, set); return set; } // the desert has no river
   let prev: number | null = null;
   for (let y = MAP.y0; y < MAP.y0 + MAP.h; y++) {
     const x = riverX(r, y);
