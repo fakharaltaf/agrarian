@@ -14,7 +14,6 @@ import { FEEDS } from './livestock';
 import { buildingMargin } from './processing';
 import { exportGain, shipGoods } from './logistics';
 import type { GameState, Rule } from './types';
-import { FIELD_LEVELS, fieldLevel, fieldUpgradePrice, fieldsWorthUpgrading, upgradeField } from './field-levels';
 
 export const hasManager = (s: GameState, r: RegionId) => s.workers.some((w) => w.region === r && w.role === 'manager') || execOn(s, 'crops');
 const spendable = (s: GameState) => Math.max(0, s.cash - s.automation.policies.cashReserve);
@@ -299,12 +298,6 @@ export function policiesDaily(s: GameState) {
     s.loans = s.loans.filter((l) => l.balance > 0.01);
   }
   if (P.hedgeRatio > 0 && execOn(s, 'trading')) hedge(s, P.hedgeRatio);
-  if (P.upgradeFields) for (const f of fieldsWorthUpgrading(s)) { // cheapest first, while the reserve allows
-    if (!hasManager(s, f.region) || fieldUpgradePrice(s, f) > spendable(s)) continue;
-    const before = fieldLevel(f);
-    upgradeField(s, f);
-    log(s, 'info', `Your manager made field ${f.id} an ${FIELD_LEVELS[before].name.toLowerCase()}: its ${BUILDINGS[s.buildings.find((b) => b.id === f.supplies)!.type].name.toLowerCase()} was running short.`, 'farm');
-  }
 }
 
 /** Trading head keeps a rolling short hedge against expected crop output for the next 30 days. */
