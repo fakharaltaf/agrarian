@@ -76,7 +76,7 @@ it('Field upgrades are deterministic: the same seed and actions give the same fa
   expect(a.cash).toBe(b.cash);
 });
 
-it('A vertical farm grows the crop you choose, staples at half the value of greens, held for your mills', () => {
+it('A vertical farm grows the crop you choose, worth the same as greens, held for your mills', () => {
   const s = ready();
   research(s, 'verticalFarming', 'solar', 'robotics', 'mech2', 'farmSoftware');
   s.unlockedCrops = [...new Set([...s.unlockedCrops, 'wheat'])] as typeof s.unlockedCrops;
@@ -86,14 +86,14 @@ it('A vertical farm grows the crop you choose, staples at half the value of gree
   expect(dispatch(s, { type: 'build', region: 'heartland', building: 'verticalFarm', grows: 'wheat' }).ok).toBe(true);
   const vf = s.buildings.find((b) => b.type === 'verticalFarm')!, mill = s.buildings.find((b) => b.type === 'flourMill')!;
   expect(vf.grows).toBe('wheat');
-  expect(recipeOf(vf)!.outputs.wheat).toBe(20); // half of 20 greens at $6, in wheat at $3
+  expect(recipeOf(vf)!.outputs.wheat).toBe(40); // 20 greens at $6 = 40 wheat at $3
   const before = s.regions.heartland.inventory.wheat;
   advance(s, 3);
   expect(s.regions.heartland.inventory.wheat).toBeGreaterThan(before);
   expect(mill.reserved).toBeGreaterThan(0);
   expect(dispatch(s, { type: 'setGrows', buildingId: vf.id, grows: 'greens' }).ok).toBe(true);
   expect(vf.grows).toBeUndefined();
-  expect(throughput({ type: 'verticalFarm', level: 3 })).toBe(2.5); // levels grow like other energy-hungry plants, not doubling
+  expect(throughput({ type: 'verticalFarm', level: 3 })).toBe(4);
   expect(BUILDINGS.verticalFarm.recipe!.kwh).toBeGreaterThan(0);
 });
 
