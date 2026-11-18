@@ -979,3 +979,6 @@ body:has(.modal-bg) .shell .coach { display: none !important; }
 @media (max-width: 600px) { .visit-card { bottom: calc(60px + env(safe-area-inset-bottom)); } .visit-card p { display: block; } }
 .stepper { gap: 4px; align-items: center; flex-wrap: nowrap; }
 @media (max-width: 600px) { .world-overlay > .wl-radial { flex-wrap: wrap; justify-content: center; max-width: calc(100vw - 116px); border-radius: 22px; z-index: 2; } }
+.ln-supply { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; padding: 6px 10px; font-size: 13px; color: var(--muted); }
+.ln-supply b { color: var(--text); }
+.ln-supply .down, .ln-supply .down b { color: var(--down); }

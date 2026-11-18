@@ -15,7 +15,8 @@ import { bestCrop, cropReturn, rankCrops } from '../crops';
 import { duration, money, num, pct, pct0, price, stamp } from '../format';
 import { Bar, Card, Confirm, Info, Seg, Select, Swatch, Tip, usePref } from '../ui';
 import { unlockedRegions } from './shared';
-import { stageAtLeast } from '../../simulation/stages';
+import { featureEra, stageAtLeast } from '../../simulation/stages';
+import { FIELD_LEVELS, fieldLevel, fieldResearchIncluded, fieldUpgradePrice, fieldUpgradeProblem, levelOfField } from '../../simulation/field-levels';
 import { fieldWater, WATER_LEVEL, WATER_TIERS } from '../../simulation/world';
 import { HOMESTEAD_PRICES, homesteadState } from '../../simulation/stages/homestead';
 
@@ -147,6 +148,7 @@ export function FieldPanel({ s, f, crop, setCrop }: { s: GameState; f: Field; cr
     ['× Season/temp', tempFactor(s, f, forecastCrop).toFixed(2)],
     ['× Pests', (1 - 0.6 * f.pest).toFixed(2)],
     ['× Technology', techFactor(s).toFixed(2)],
+    ['× Field level', levelOfField(f).yield.toFixed(2)],
     ['× Region fit', (REGIONS[f.region].suitability[forecastCrop] ?? 0).toFixed(2)],
   ];
   return (
@@ -192,10 +194,11 @@ export function FieldPanel({ s, f, crop, setCrop }: { s: GameState; f: Field; cr
         )}
         {stageAtLeast(s, 'farm-business') && <PlanPicker s={s} fields={[f]} />}
         <SupplyPicker s={s} fields={[f]} />
+        <FieldLevels s={s} fields={[f]} />
         {stageAtLeast(s, 'farm-business') && <SoilPanel s={s} f={f} />}
         {f.lastHarvest && (
           <Tip text="Why this harvest came out as it did — every factor is from the simulation."
-            breakdown={[['Base', num(f.lastHarvest.base)], ['Soil', f.lastHarvest.soil.toFixed(2)], ['Water', f.lastHarvest.water.toFixed(2)], ['Season/temp', f.lastHarvest.weather.toFixed(2)], ['Pests', f.lastHarvest.pest.toFixed(2)], ['Technology', f.lastHarvest.tech.toFixed(2)], ['Region fit', f.lastHarvest.suitability.toFixed(2)], ['Timing', f.lastHarvest.timing.toFixed(2)]]}>
+            breakdown={[['Base', num(f.lastHarvest.base)], ['Soil', f.lastHarvest.soil.toFixed(2)], ['Water', f.lastHarvest.water.toFixed(2)], ['Season/temp', f.lastHarvest.weather.toFixed(2)], ['Pests', f.lastHarvest.pest.toFixed(2)], ['Technology', f.lastHarvest.tech.toFixed(2)], ['Field level', (f.lastHarvest.level ?? 1).toFixed(2)], ['Region fit', f.lastHarvest.suitability.toFixed(2)], ['Timing', f.lastHarvest.timing.toFixed(2)]]}>
             <p className="explain">Last harvest: <b style={{ color: 'var(--text)' }}>{num(f.lastHarvest.units)} {GOODS[f.lastHarvest.crop].name.toLowerCase()}</b> ({pct0(f.lastHarvest.units / Math.max(1, f.lastHarvest.base))} of potential){known(s, 'quality') && f.lastHarvest.quality !== undefined && <> · grade <GradePill q={f.lastHarvest.quality} /></>} — hover for why.</p>
           </Tip>
         )}
@@ -285,6 +288,24 @@ function PlanPicker({ s, fields }: { s: GameState; fields: Field[] }) {
   );
 }
 
+/** Field upgrades, as a factory's levels: what level the field is, what the next does, and the research already lifting every harvest. */
+function FieldLevels({ s, fields }: { s: GameState; fields: Field[] }) {
+  if (!featureEra(s, 4) && !fields.some((f) => fieldLevel(f) > 1)) return null; // they arrive with Industry, alongside factory upgrades
+  const one = fields.length === 1 ? fields[0] : null, lv = Math.min(...fields.map(fieldLevel)), next = FIELD_LEVELS[lv];
+  const can = fields.filter((f) => !fieldUpgradeProblem(s, f)), cost = can.reduce((n, f) => n + fieldUpgradePrice(s, f), 0);
+  const why = can.length ? (cost > s.cash ? `Needs ${money(cost)}` : null) : fieldUpgradeProblem(s, fields.find((f) => fieldLevel(f) < 3) ?? fields[0]);
+  const included = fieldResearchIncluded(s);
+  return <div className="stack s" style={{ borderTop: '1px solid var(--line)', paddingTop: 10 }}>
+    <div className="row between wrap">
+      <h3>{one ? levelOfField(one).name : 'Field levels'} <span className="muted small">{one ? `level ${lv} · ×${levelOfField(one).yield} yield` : `from level ${lv}`}</span></h3>
+      {lv < 3 && (can.length ? <Confirm className="btn ghost sm" disabled={cost > s.cash} label={`⬆ ${one ? next.name : `${can.length} fields`} · ${money(cost)}`} title={one ? `Make field ${one.id} an ${next.name.toLowerCase()}?` : `Upgrade ${can.length} fields one level?`} confirmLabel={`Pay ${money(cost)}`}
+        body={<>{one ? next.does : 'Each goes up one level.'} With its research, a level-{lv + 1} field grows enough for a level-{lv + 1} factory from the same land.</>} onConfirm={() => act({ type: 'upgradeField', fieldIds: can.map((f) => f.id) })} /> : null)}
+    </div>
+    {lv < 3 && <p className="small">{next.name}: {next.does}{why ? <> <span className="down">{why}</span></> : null}</p>}
+    {included.length > 0 && <p className="small muted">Included: {included.join(' · ')}.</p>}
+  </div>;
+}
+
 function SoilPanel({ s, f }: { s: GameState; f: Field }) {
   const fert = fertility(f);
   const tested = has(s, 'soilTesting');
@@ -347,6 +368,7 @@ export function BatchPanel({ s, fields }: { s: GameState; fields: Field[] }) {
         </div>
         <PlanPicker s={s} fields={fields} />
         <SupplyPicker s={s} fields={fields} />
+        <FieldLevels s={s} fields={fields} />
         <div className="row wrap">
           {(['fertilizer', 'manure'] as const).map((src) => {
             // poorest soil first, so a short supply goes where it matters most

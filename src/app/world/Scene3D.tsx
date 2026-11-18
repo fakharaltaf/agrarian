@@ -14,6 +14,7 @@ import { mergedName, shownLevel } from '../../simulation/core';
 import { fieldMovable, timingFactor, fertility, growth, isMature, isReady } from '../../simulation/engine';
 import { priceUsd, stored } from '../../simulation/core';
 import { coverOf } from '../../simulation/agriculture';
+import { fieldLevel, levelOfField } from '../../simulation/field-levels';
 import { spreadNeed } from '../../simulation/agriculture';
 import type { GameState } from '../../simulation/types';
 import { getGame, getSpeed, moveGhost, placementUse, startZoning, stopZoning, zoneHover, zoneTap, type Zoning, prospectHover, prospectTap, roadHover, roadTap, roadDragStart, buildingsHidden, crimeMapOn, setCrimeMap, trafficMapOn, setTrafficMap, roadLanes, placementNeed, useStore, undo, redo, canUndo, canRedo, startProspect, startRoads, startPipes, startBelts, stopProspect, stopRoads, type Placement, type Roading , getPage, travel } from '../../stores/game';
@@ -648,7 +649,7 @@ function syncLots(R: Rig, L: Layout) {
 }
 
 function syncFields(R: Rig, L: Layout) {
-  const sig = L.plots.map((p) => `${p.field.id}@${p.x},${p.y},${p.s}:${p.field.greenhouse ? 'g' : ''}c${coverOf(p.field)}${p.field.irrigated ? 'i' : ''}${fertility(p.field) < 0.45 ? 'p' : ''}`).join('|') + (L.buy ? `|buy${L.buy.x},${L.buy.y}` : '');
+  const sig = L.plots.map((p) => `${p.field.id}@${p.x},${p.y},${p.s}:${p.field.greenhouse ? 'g' : ''}c${coverOf(p.field)}${p.field.irrigated ? 'i' : ''}l${fieldLevel(p.field)}${fertility(p.field) < 0.45 ? 'p' : ''}`).join('|') + (L.buy ? `|buy${L.buy.x},${L.buy.y}` : '');
   if (sig === R.sig.fields) return;
   R.sig.fields = sig;
   clear(R.fields);
@@ -696,10 +697,20 @@ function syncFields(R: Rig, L: Layout) {
         rails.push(new THREE.Matrix4().compose(new THREE.Vector3(p.x + p.s, y, p.y + p.s / 2), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2), new THREE.Vector3(p.s, 1, 1)));
       }
     }
-    if (f.irrigated && !f.greenhouse) for (let k = 1; k < p.s; k += 2) {
+    const lv = fieldLevel(f);
+    // an improved field has a drip line down every row on raised beds; an intensive one adds sensor masts with little solar panels
+    if (f.irrigated && !f.greenhouse) for (let k = 1; k < p.s; k += lv > 1 ? 1 : 2) {
       const pipe = mesh(cached(`pipe${p.s}`, () => new THREE.CylinderGeometry(0.025, 0.025, p.s - 0.3, 6)), mat(0x5aa3c8), p.x + p.s / 2, 0.14, p.y + k, false);
       pipe.rotation.z = Math.PI / 2;
       R.fields.add(pipe);
+      if (lv > 1) R.fields.add(mesh(cached(`bed${p.s}`, () => new THREE.BoxGeometry(p.s - 0.3, 0.05, 0.12)), mat(PAL.woodDark), p.x + p.s / 2, 0.12, p.y + k - 0.5, false));
+    }
+    if (lv === 3 && !f.greenhouse) for (let i = 0; i < Math.max(1, Math.floor(p.s / 4)); i++) {
+      const x = p.x + p.s * (i + 0.5) / Math.max(1, Math.floor(p.s / 4)), z = p.y + p.s / 2;
+      R.fields.add(mesh(cached('mast', () => new THREE.CylinderGeometry(0.03, 0.03, 0.9, 6)), mat(PAL.metal), x, 0.45, z, false));
+      const panel = mesh(cached('mastpanel', () => new THREE.BoxGeometry(0.3, 0.02, 0.22)), mat(0x2c4a6b, { rough: 0.3 }), x, 0.92, z, false);
+      panel.rotation.x = -0.5;
+      R.fields.add(panel);
     }
   }
   const post = new THREE.InstancedMesh(cached('post', () => new THREE.BoxGeometry(0.07, 0.34, 0.07)), mat(PAL.woodDark), Math.max(1, posts.length));
@@ -2445,7 +2456,7 @@ function overlayLabels(R: Rig, L: Layout, s: GameState, W: number, H: number, el
 
 function plotText(s: GameState, p: Plot) {
   const f = p.field;
-  const lines = [`Field ${f.id} · ${num(f.ha)} ha${f.greenhouse ? ' · greenhouse' : ''}`];
+  const lines = [`Field ${f.id} · ${num(f.ha)} ha${f.greenhouse ? ' · greenhouse' : ''}${fieldLevel(f) > 1 ? ` · ${levelOfField(f).name.toLowerCase()}` : ''}`];
   if (f.crop) {
     const c = CROPS[f.crop];
     if (c.perennial && !isMature(s, f)) lines.push(`${GOODS[f.crop].name} — young trees, ${Math.floor(growth(s, f) * 100)}% to first fruit`);

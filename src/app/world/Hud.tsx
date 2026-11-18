@@ -13,7 +13,7 @@ import { townOf, SERVICE_DEFS, UTILITY_OF, levelOf, serviceUpgradePrice, utility
 // Everything that floats over the world: objective, selection panel, market, land, region switcher.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ANIMALS, ANIMAL_IDS, BUILDINGS, CONFIG, COWS_PER_DAIRY_BATCH, ERAS, GOODS, REGIONS, type CropId, type RegionId } from '../../simulation/config';
-import { known, throughput } from '../../simulation/core';
+import { known, recipeOf, throughput, VERTICAL_CROPS } from '../../simulation/core';
 import { buildingMargin } from '../../simulation/processing';
 import { planQuote } from '../../simulation/engine';
 import { anotherQuote, DISCOVERIES, ERA_UNLOCK_TEXT, dailyGoals, dailyPrize, forecast, herdOf, homePlotPrice, housing, isManual, isReady, objective, chapterGate, gateProgress, type GateRow, PAGES, seedShortfall, upgradeCost } from '../../simulation/engine';
@@ -640,7 +640,7 @@ function LotPanel({ s, lot, region, onClose }: { s: GameState; lot: Lot; region:
               return <><dt>Cows</dt><dd className={herd < can ? 'down' : undefined}>{num(herd)} of {num(can)} the dairies can milk</dd></>;
             })()}
             <dt>Margin</dt><dd className={margin < 0 ? 'down' : 'up'}>{money(margin)}/h</dd>
-            <dt>Recipe</dt><dd>{Object.entries(d.recipe.inputs).map(([g, q]) => `${q} ${GOODS[g as keyof typeof GOODS].name.toLowerCase()}`).join(' + ') || 'electricity'} → {Object.entries(d.recipe.outputs).map(([g, q]) => `${q} ${GOODS[g as keyof typeof GOODS].name.toLowerCase()}`).join(' + ') || `${-d.recipe.kwh} kWh`}</dd>
+            <dt>Recipe</dt><dd>{Object.entries(d.recipe.inputs).map(([g, q]) => `${q} ${GOODS[g as keyof typeof GOODS].name.toLowerCase()}`).join(' + ') || 'electricity'} → {Object.entries(recipeOf(picked ?? bs[0])!.outputs).map(([g, q]) => `${q} ${GOODS[g as keyof typeof GOODS].name.toLowerCase()}`).join(' + ') || `${-d.recipe.kwh} kWh`}</dd>
           </dl>
         ) : (
           <dl className="facts">
@@ -649,6 +649,7 @@ function LotPanel({ s, lot, region, onClose }: { s: GameState; lot: Lot; region:
             <dt>Staff</dt><dd>{money(d.staffPerHour * s.macro.cpi * bs.length)}/h</dd>
           </dl>
         )}
+        {picked?.type === 'verticalFarm' && <Select label="Grows" value={picked.grows ?? 'greens'} onChange={(g) => act({ type: 'setGrows', buildingId: picked.id, grows: g })} options={VERTICAL_CROPS.filter((g) => g === 'greens' || s.unlockedCrops.includes(g as CropId)).map((g) => ({ v: g, label: `Grows ${GOODS[g].name.toLowerCase()}` }))} />}
         {picked?.type === 'oilWell' && <div className={`callout ${field && field.left > 0 ? '' : 'warn'}`}>{field ? `This well draws on field ${field.i + 1}: ${num(field.left)} of ${num(field.reserve)} bbl left · ${field.wells.length} well${field.wells.length === 1 ? '' : 's'} (${field.balanced} balanced)` : 'No oil under this well: it pumps nothing. Demolish it.'}</div>}
         {reason && reason !== 'Idle' && <div className={`callout ${/Not enough|full|Disease/.test(reason) ? 'warn' : ''}`}>{reason}</div>}
         {d.category === 'livestock' && <HerdInfo s={s} lot={lot} />}
