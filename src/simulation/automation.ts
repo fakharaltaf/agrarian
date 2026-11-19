@@ -1,10 +1,13 @@
+import { townIndustryFactor } from './town-state';
+import { larderReserve } from './stages/settlement';
+import { caravanReserve } from './region-state';
 // Levels 3–5 of automation: managers run field cycles, rules react to conditions,
 // policies steer everything toward strategic objectives. Automation spends real money
 // through the same primitives as the player, and never below the cash reserve.
 import { ANIMALS, BUILDINGS, CONFIG, CROPS, DAYS_PER_YEAR, GOODS, GOOD_IDS, MACHINES, REGIONS, REGION_IDS, TICKS_PER_DAY, WORK_END, WORK_START, type CropId, type GoodId, type RegionId } from './config';
-import { canGrow, expectedYield, fertility, fertilizeField, soilAdequacy } from './agriculture';
-import { buildingsIn, clamp, levelMult, reservedStock, debt, execOn, has, hour, log, nextId, post, priceUsd, seasonOf, seedCost, stored, totalAssets } from './core';
-import { avg30, closedPort, executeBuy, executeSell, forecast, marketDepth, quoteBuy } from './markets';
+import { canGrow, expectedYield, readyAt, fertility, fertilizeField, soilAdequacy, spreadingCost, spreadNeed, warnOnce } from './agriculture';
+import { buildingsIn, clamp, freeSpace, throughput, reservedStock, debt, execOn, has, hour, log, nextId, post, priceUsd, seasonOf, seedCost, stored, totalAssets, tankCap } from './core';
+import { affordableBuy, avg30, closedPort, executeBuy, executeSell, forecast, marketDepth } from './markets';
 import { CONTRACT_SIZE, FUTURES_GOODS, openFutures, futuresPrice, closeFutures } from './finance';
 import { autoBudget, machineRate, serviceCost, service } from './operations';
 import { FEEDS } from './livestock';
@@ -48,28 +51,30 @@ const fmt = (v: number) => (Math.abs(v) >= 100 ? Math.round(v).toLocaleString() 
 export const metricLabel = (r: Pick<Rule, 'metric' | 'good' | 'region'>) =>
   ({ price: `${GOODS[r.good].name} price`, inventory: `${GOODS[r.good].name} stock`, cash: 'Cash', storageUtil: 'Dry storage %', minFertility: 'Lowest fertility %', minCondition: 'Lowest machine condition %', facilityMargin: 'Factory margin $/h' })[r.metric];
 
+const disposableStock=(s:GameState,r:RegionId,g:GoodId)=>Math.max(0,s.regions[r].inventory[g]-reservedStock(s,r,g)-(r==='heartland'?larderReserve(s,g)+caravanReserve(s,g):0));
+
 function runRule(s: GameState, r: Rule): string | null {
-  const inv = s.regions[r.region].inventory;
   const budget = Math.min(spendable(s), r.maxSpend || Infinity);
   switch (r.action) {
     case 'sell': {
-      const q = Math.floor((inv[r.actionGood] - reservedStock(s, r.region, r.actionGood)) * (r.amountPct / 100));
+      const q = Math.floor(disposableStock(s,r.region,r.actionGood) * (r.amountPct / 100));
       if (q <= 0 || !s.markets[r.region][r.actionGood]) return null;
       const done = executeSell(s, r.region, r.actionGood, q);
       return done.qty ? `sold ${Math.round(done.qty)} ${GOODS[r.actionGood].name} for $${Math.round(done.net)}` : null;
     }
     case 'buy': {
       if (GOODS[r.actionGood].kind !== 'input' && s.era < 5) return null; // exchange opens in Era 5
-      let q = Math.floor(r.amountPct);
-      const quote = quoteBuy(s, r.region, r.actionGood, q);
-      if (quote.net > budget) q = Math.floor(q * (budget / quote.net));
-      if (q <= 0) return null;
-      const done = executeBuy(s, r.region, r.actionGood, q);
+      const quote=affordableBuy(s,r.region,r.actionGood,Math.floor(r.amountPct),budget);
+      if (quote.qty <= 0) return null;
+      const done = executeBuy(s, r.region, r.actionGood, quote.qty);
       return done.qty ? `bought ${Math.round(done.qty)} ${GOODS[r.actionGood].name} for $${Math.round(done.net)}` : null;
     }
     case 'fertilizeLow': {
-      let n = 0;
-      for (const f of s.fields) if (f.region === r.region && !f.crop && !f.spreading && fertility(f) < 0.6 && !fertilizeField(s, f, 'fertilizer')) n++;
+      let n = 0,left=budget;
+      for (const f of s.fields) {
+        const fee=spreadingCost(s,f);
+        if(f.region===r.region&&!f.crop&&!f.spreading&&fertility(f)<.6&&fee<=left&&!fertilizeField(s,f,'fertilizer')){n++;left-=fee;}
+      }
       return n ? `fertilised ${n} field(s)` : null;
     }
     case 'repairAll': {
@@ -92,7 +97,7 @@ function runRule(s: GameState, r: Rule): string | null {
       return bs.length ? `${want ? 'resumed' : 'paused'} ${bs.length} facilit${bs.length === 1 ? 'y' : 'ies'}` : null;
     }
     case 'ship': {
-      const q = Math.floor(inv[r.actionGood] * (r.amountPct / 100));
+      const q = Math.floor(disposableStock(s,r.region,r.actionGood) * (r.amountPct / 100));
       if (q <= 0 || r.actionRegion === r.region) return null;
       const err = shipGoods(s, r.actionGood, q, r.region, r.actionRegion, budget);
       return err ? null : `shipped ${q} ${GOODS[r.actionGood].name} to ${REGIONS[r.actionRegion].name}`;
@@ -141,10 +146,10 @@ export function millValue(s: GameState, r: RegionId, c: CropId) {
     const rec = BUILDINGS[b.type].recipe;
     const per = rec?.inputs[c];
     if (!b.active || !rec || !per) continue;
-    const perHour = per * rec.batchesPerHour * levelMult(b.level);
+    const perHour = per * rec.batchesPerHour * throughput(b) * townIndustryFactor(s,b.region);
     if (s.regions[r].inventory[c] > perHour * 48) continue; // two days of stock already waiting
     const out = Object.entries(rec.outputs).reduce((a, [g, q]) => a + (s.markets[r][g as GoodId]?.price ?? 0) * q!, 0);
-    best = Math.max(best, (out - BUILDINGS[b.type].staffPerHour * s.macro.cpi / rec.batchesPerHour) / per);
+    best = Math.max(best, (out - BUILDINGS[b.type].staffPerHour * s.macro.cpi / (rec.batchesPerHour * townIndustryFactor(s,b.region))) / per);
   }
   return best;
 }
@@ -193,22 +198,24 @@ export function policiesTick(s: GameState) {
     // manure is free fertiliser: managers spread it on empty fields that would benefit instead of letting it pile up
     for (const f of s.fields) {
       if (f.region !== r || f.crop || f.spreading || f.soil.organic >= 0.7 || Math.max(f.soil.n, f.soil.p, f.soil.k) > 1.1) continue;
-      if (s.regions[r].inventory.manure >= f.ha * CONFIG.manurePerHa) fertilizeField(s, f, 'manure');
+      if (s.regions[r].inventory.manure >= spreadNeed(s,f,'manure') && spreadingCost(s,f)<=spendable(s)) fertilizeField(s, f, 'manure');
     }
     if (P.autoFertilize) {
       for (const f of s.fields) {
         if (f.region !== r || f.crop || f.spreading || fertility(f) >= P.soilTarget) continue;
         // a competent manager never overdoses: skip if any nutrient would exceed the runoff threshold
         if (Math.max(f.soil.n, f.soil.p, f.soil.k) + CONFIG.fertilizerDose > 1.2 && !has(s, 'precisionFert')) {
-          if (f.soil.organic < 0.7 && s.regions[r].inventory.manure >= f.ha * CONFIG.manurePerHa) fertilizeField(s, f, 'manure');
+          if (f.soil.organic < 0.7 && s.regions[r].inventory.manure >= spreadNeed(s,f,'manure') && spreadingCost(s,f)<=spendable(s)) fertilizeField(s, f, 'manure');
           continue;
         }
-        const need = f.ha * CONFIG.fertilizerPerHa;
+        const need = spreadNeed(s,f,'fertilizer'),fee=spreadingCost(s,f);
+        if(fee>spendable(s))continue;
         const inv = s.regions[r].inventory;
         if (inv.fertilizer < need) {
-          const q = quoteBuy(s, r, 'fertilizer', need - inv.fertilizer);
-          if (q.net > spendable(s)) continue;
-          executeBuy(s, r, 'fertilizer', need - inv.fertilizer, 'Manager bought fertiliser');
+          if(need>inv.fertilizer+freeSpace(s,r,'fertilizer'))warnOnce(s,`fert-space-${r}`,'warning',`Field ${f.id} needs ${Math.ceil(need)} fertiliser per dose. Free space or expand storage before filling it.`,'storage',168);
+          const q = affordableBuy(s, r, 'fertilizer', need - inv.fertilizer, spendable(s)-fee);
+          if (!q.qty) continue;
+          executeBuy(s, r, 'fertilizer', q.qty, 'Manager bought fertiliser');
         }
         fertilizeField(s, f, 'fertilizer');
       }
@@ -216,34 +223,60 @@ export function policiesTick(s: GameState) {
   }
 }
 
-/** Manager selling: storage over the cap → sell 25% of each good now; perishables are sold every hour as they are made
+/** Manager selling: storage over the cap → sell only excess in depth-limited slices; perishables are sold every hour as they are made
  *  (one daily dump crashed the price); at midday export surplus and sell anything priced well. Keeps contract stock and 3 days of animal feed. */
 function sellRound(s: GameState, r: RegionId, midday: boolean) {
   const P = s.automation.policies;
   const st = stored(s, r);
-  const full = st.cap.dry > 0 && st.dry / st.cap.dry > P.sellStorageCap;
+  // Make room before a harvest: what ripe or nearly ripe fields will bring in over the next day, against free space.
+  // Without this, a big field lands in a full barn and the overflow is dumped on the market at once.
+  let incomingDry = 0, incomingCold = 0;
+  for (const f of s.fields) {
+    if (f.region !== r || !f.crop || readyAt(f) - s.tick > 24) continue;
+    const units = expectedYield(s, f, f.crop);
+    if (GOODS[f.crop].storage === 'cold') incomingCold += units; else incomingDry += units;
+  }
+  const coldShort = Math.max(0, incomingCold - Math.max(0, st.cap.cold - st.cold));
+  let excess = Math.max(0, st.dry - st.cap.dry * P.sellStorageCap, incomingDry + coldShort - Math.max(0, st.cap.dry - st.dry));
+  let coldPrep = coldShort;
   const coldSpill = st.coldOverflow > 1; // chilled goods out of the cold store rot fast: sell them every hour until they fit
   const feedKeep = s.herds.reduce((a, h) => a + (h.region === r ? h.count * ANIMALS[h.animal].feedPerDay * 3 : 0), 0);
-  for (const g of GOOD_IDS) {
-    const q = s.regions[r].inventory[g] - contractsNeed(s, r, g) - reservedStock(s, r, g) - (FEEDS.includes(g) ? feedKeep : 0);
-    if (q < 1 || !s.markets[r][g] || GOODS[g].kind === 'input') continue;
+  const refining = s.buildings.some((b) => b.region === r && b.type === 'refinery'); // diesel is the farm's to sell once it makes its own
+  const sells = (g: GoodId) => GOODS[g].kind !== 'input' || (g === 'fuel' && refining);
+  const ordered = GOOD_IDS.filter(g => s.markets[r][g] && sells(g))
+    .map(g => ({ g, score: s.markets[r][g]!.price / Math.max(0.01, avg30(s, r, g)) }))
+    .sort((a, b) => b.score - a.score).map(x => x.g);
+  for (const g of ordered) {
+    const q = s.regions[r].inventory[g] - (g === 'fuel' ? 5000 : 0) - contractsNeed(s, r, g) - reservedStock(s, r, g) - (r === 'heartland' ? larderReserve(s, g) + caravanReserve(s, g) : 0) - (FEEDS.includes(g) ? feedKeep : 0);
+    if (q < 1 || !s.markets[r][g] || !sells(g)) continue;
     const perishable = GOODS[g].spoilProper > 0.02;
     // midday: send surplus to whichever region pays at least 10% more after freight and tariff, sold there on arrival
-    if (midday && P.autoExport && s.era >= 6) {
+    if ((midday || perishable) && P.autoExport && s.era >= 6) {
       const home = priceUsd(s, r, g);
       const to = REGION_IDS.filter((x) => x !== r && s.regions[x].unlocked && s.markets[x][g] && !closedPort(s, r, x))
         .sort((a, b) => exportGain(s, g, r, b) - exportGain(s, g, r, a))[0];
       if (to && home > 0 && exportGain(s, g, r, to) > home * 0.1) {
         const moving = s.shipments.filter((x) => x.to === to && x.good === g).reduce((a, x) => a + x.qty, 0);
         const amount = Math.floor(Math.min(q * 0.5, marketDepth(s, to, g) * 3 - moving));
-        if (amount >= 50 && !shipGoods(s, g, amount, r, to, autoBudget(s), true)) {
-          log(s, 'info', `Manager exported ${amount.toLocaleString('en-US')} ${GOODS[g].name.toLowerCase()} to ${REGIONS[to].name}: it pays about ${Math.round((exportGain(s, g, r, to) / home) * 100)}% more there after freight.`, 'logistics');
+        const existingLoad = s.shipments.some(x => x.batchDay === Math.floor(s.tick / 24) && x.from === r && x.to === to && x.good === g && x.sell);
+        if (amount >= 50 && !shipGoods(s, g, amount, r, to, autoBudget(s), true, perishable)) {
+          if (!existingLoad) log(s, 'info', `Manager exported ${amount.toLocaleString('en-US')} ${GOODS[g].name.toLowerCase()} to ${REGIONS[to].name}: it pays about ${Math.round((exportGain(s, g, r, to) / home) * 100)}% more there after freight.`, 'logistics');
           continue;
         }
       }
     }
     const good = s.markets[r][g]!.price >= P.sellDiscipline * avg30(s, r, g);
-    if (perishable || full || (coldSpill && GOODS[g].storage === 'cold') || (midday && good)) executeSell(s, r, g, q * (perishable ? 1 : 0.25), undefined);
+    const cold = GOODS[g].storage === 'cold';
+    const overflow = cold ? stored(s, r).coldOverflow : Infinity;
+    const tank = GOODS[g].storage === 'tank'; // crude and diesel: keep the tanks under half full, so wells and the refinery never stop
+    const relief = Math.min(q, tank ? Math.max(0, s.regions[r].inventory[g] - tankCap(s, r, g) * 0.5) : excess, overflow, marketDepth(s, r, g) * 0.15);
+    const prep = cold && coldPrep > 0 ? Math.min(q, coldPrep, marketDepth(s, r, g) * 0.15) : 0;
+    const planned = Math.max(perishable ? q : (coldSpill && cold) || (midday && good) ? q * 0.25 : relief, prep);
+    if (planned >= 1) {
+      const sold = executeSell(s, r, g, planned, `Manager sales: ${GOODS[g].name}`).qty;
+      if (!tank) excess = Math.max(0, excess - Math.min(sold, overflow));
+      if (cold) coldPrep = Math.max(0, coldPrep - sold);
+    }
   }
 }
 

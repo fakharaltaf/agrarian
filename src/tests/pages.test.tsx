@@ -4,12 +4,18 @@ import { renderToString } from 'react-dom/server';
 import { BUILDINGS, REGION_IDS, type BuildingType } from '../simulation/config';
 import { createGame, step } from '../simulation/engine';
 import type { GameState } from '../simulation/types';
+import { emptyProductionReport } from '../simulation/production-report';
+import { communityOf } from '../simulation/community-state';
+import { townOf } from '../simulation/town-state';
+import { cityOf } from '../simulation/city-state';
+import { regionOf } from '../simulation/region-state';
+import { nationOf } from '../simulation/nation-state';
 
 let game: GameState;
-vi.mock('../stores/game', () => ({ act: () => null, go: () => {}, useGame: () => game, getGame: () => game, getSpeed: () => 1, usePageState: () => 'farm', useStore: (f: (s: unknown) => unknown) => f({ game, v: 0, speed: 1, page: 'farm', toasts: [] }) }));
+vi.mock('../stores/game', () => ({ act: () => null, go: () => {}, useGame: () => game, getGame: () => game, getSpeed: () => 1, takeNeighbourFocus: () => null, usePageState: () => 'farm', useStore: (f: (s: unknown) => unknown) => f({ game, v: 0, speed: 1, page: 'farm', toasts: [] }) }));
 vi.mock('../app/world/portrait', () => ({ portrait: () => '' }));
 
-const PAGES = ['Analytics', 'Automation', 'Competitors', 'Corporation', 'Equipment', 'Fields', 'Finance', 'Livestock', 'Logistics', 'Markets', 'Overview', 'Policy', 'Production', 'Research', 'Storage', 'Workers', 'World'];
+const PAGES = ['Analytics', 'Automation', 'Competitors', 'Corporation', 'Equipment', 'Fields', 'Finance', 'Livestock', 'Logistics', 'Markets', 'Overview', 'Policy', 'Production', 'Research', 'Storage', 'Workers', 'World', 'Community', 'Town', 'City', 'Region', 'Nation'];
 
 describe('pages', () => {
   it('every page renders in a late game with every building type, running and paused, in every region', async () => {
@@ -19,13 +25,30 @@ describe('pages', () => {
     const tpl = { level: 1, active: true, util: 0, reason: '', stats: { out: 0, inCost: 0, outValue: 0, opCost: 0 } };
     let id = 1e6;
     for (const t of Object.keys(BUILDINGS) as BuildingType[])
-      for (const r of REGION_IDS) for (const active of [true, false]) game.buildings.push({ ...structuredClone(tpl), id: id++, type: t, region: r, active } as never);
+      for (const r of REGION_IDS) for (const active of [true, false]) game.buildings.push({ ...structuredClone(tpl), productionReport: emptyProductionReport(), id: id++, type: t, region: r, active } as never);
+    const c = communityOf(game); c.active = true; c.charter = 'free'; c.cohorts = [{ id: 9e6, name: 'Families', households: 100, adults: 200, children: 200 }]; c.homes = [{ id: 9e6 + 1, tier: 'cottage', count: 100, cost: 3e5 }];
+    const t = townOf(game); t.active = true; t.charter = 'public'; t.cash = 1e6;
+    const v = cityOf(game); v.active = true; v.charter = 'watch';
+    const g = regionOf(game); g.active = true; g.border = 'walls'; g.neighbours.river.route = { good: 'wheat', qty: 100 };
+    const n = nationOf(game); n.active = true; n.path = 'army';
+    for (const service of ['school', 'sanitation', 'police', 'watchtower', 'barracks'] as const) t.services.push({ id: 9e6 + 2 + t.services.length, type: service, district: 'farmgate', count: 1, cost: 1e4, active: true, staffed: 0, funded: false });
     for (let i = 0; i < 30; i++) step(game);
+    g.raid = { id: 1, to: 'arid', good: 'wheat', lost: 50, opened: game.tick, deadline: game.tick + 72 };
+    g.demand = { from: 'tropics', amount: 1e5, opened: game.tick, deadline: game.tick + 336 };
+    n.campaign = { id: 1, target: 'arid', stance: 'siege', started: game.tick, ends: game.tick + 336, odds: .4, soldiers: 20 };
+    n.history = [{ day: 1, target: 'river', stance: 'raid', won: true, lost: 2, spoils: 5000 }];
+    n.vassal = { from: 'coastal', until: game.tick + 999, daily: 100 };
     const failed: string[] = [];
     for (const name of PAGES) {
       const mod = await import(`../app/pages/${name}.tsx`);
       const Page = mod.default ?? mod[`${name}Page`];
       try { renderToString(<Page />); } catch (e) { failed.push(`${name}: ${(e as Error).stack?.split("\n").slice(0, 3).join(" / ")}`); }
+    }
+    const NationPage = (await import('../app/pages/Nation')).default;
+    for (const path of ['alliance', 'neutrality'] as const) {
+      const n = nationOf(game); n.path = path; n.league.members = ['river']; n.league.request = { from: 'river', kind: 'grain', amount: 500, deadline: game.tick + 99 }; n.league.vote = { target: 'arid', deadline: game.tick + 99 };
+      n.neutral.dispute = { a: 'river', b: 'arid', deadline: game.tick + 99 }; n.neutral.embargo = { target: 'tropics', since: game.tick };
+      try { renderToString(<NationPage />); } catch (e) { failed.push(`Nation/${path}: ${(e as Error).message}`); }
     }
     expect(failed).toEqual([]);
     const { default: Production } = await import('../app/pages/Production');

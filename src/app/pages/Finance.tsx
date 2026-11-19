@@ -1,3 +1,4 @@
+import { townOf } from '../../simulation/town-state';
 // Finance: the books, statements, banking and insurance. Every figure is read from the ledger,
 // the daily books or live state; this is where players learn how a business's money works.
 import { useMemo, useState, type ReactNode } from 'react';
@@ -92,7 +93,7 @@ function Overview({ s }: { s: GameState }) {
             breakdown={[['Cash', money(s.cash)], ['Futures margin held', money(s.marginAccount)], ['Overdraft limit', money(overdraftLimit(s))]]} />
           <Kpi label="Debt" value={money(debt(s))} info="Loan balances plus any overdraft." breakdown={[['Loans', money(loans)], ['Overdraft', money(Math.max(0, -s.cash))]]} />
           <Kpi label="Net worth" value={money(equity(s))} tone={equity(s) < 0 ? 'down' : undefined} info="Everything you own minus everything you owe. Inventory is valued at today's market prices; machines and buildings at cost less depreciation."
-            breakdown={[['Cash & margin', money(Math.max(0, s.cash) + s.marginAccount)], ['Inventory', money(inventoryValue(s))], ['Land', money(fa.land)], ['Machinery', money(fa.machines)], ['Buildings', money(fa.buildings)], ['− Debt', money(-debt(s))], ['Net worth', money(totalAssets(s) - debt(s))]]} />
+            breakdown={[['Cash & margin', money(Math.max(0, s.cash) + s.marginAccount)], ['Inventory', money(inventoryValue(s))], ['Land', money(fa.land)], ['Machinery', money(fa.machines)], ['Buildings', money(fa.buildings)], ['Town advance receivable', money(townOf(s).companyAdvance)], ['− Debt', money(-debt(s))], ['Net worth', money(totalAssets(s) - debt(s))]]} />
         </div>
       </Card>
 
@@ -224,6 +225,7 @@ function Statements({ s }: { s: GameState }) {
             <div className="stack s" style={{ gap: 0 }}>
               <Line label="Cash" value={bs.cash} indent />
               <Line label="Futures margin" value={bs.margin} indent />
+              {bs.townAdvance>0&&<Line label="Town advance receivable" value={bs.townAdvance} indent info="Public money owed to your company. Repayment is capped by the treasury’s actual cash."/>}
               <Line label="Inventory (market value)" value={bs.inventory} indent />
               <Line label="Land" value={bs.land} indent info="At what you paid, including irrigation installed." />
               <Line label="Machinery" value={bs.machines} indent info="Cost less depreciation." />
@@ -240,7 +242,7 @@ function Statements({ s }: { s: GameState }) {
           <Card title={<>Cash flow <span className="muted">{period}</span></>} info="Profit and cash are different. This shows where cash actually came from and went.">
             <div className="stack s" style={{ gap: 0 }}>
               <Line label="Operating" value={cf.operating} info="Cash from running the business: sales minus costs, interest and tax." />
-              <Line label="Investing" value={cf.investing} info="Cash spent on land, machines, buildings and acquisitions (and futures margin), minus asset sales." />
+              <Line label="Investing" value={cf.investing} info="Cash spent on land, machines, buildings, acquisitions, town advances and futures margin, minus asset sales." />
               <Line label="Financing" value={cf.financing} info="Loans drawn minus repaid, shares issued, dividends and buybacks." />
               <Line label="Net change in cash" value={cf.total} strong />
             </div>

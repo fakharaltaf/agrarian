@@ -1,3 +1,5 @@
+import { DEALER_SPREAD } from '../../simulation/markets';
+import { RetailQuote } from '../RetailQuote';
 // Markets: a simplified commodity trading terminal, revealed as the business grows.
 // Era 1–4: prices, selling, buying inputs. Era 5+: the full exchange, supply contracts and futures.
 import { useState } from 'react';
@@ -11,6 +13,8 @@ import { LineChart, Sparkline, type Series } from '../Chart';
 import { duration, money, num, pct, pct0, price, stamp } from '../format';
 import { Bar, Card, Confirm, Info, NumberInput, PageHead, Seg, Select, Table, type Col } from '../ui';
 import { GoodName, unlockedRegions } from './shared';
+import { stageAtLeast } from '../../simulation/stages';
+import { HomesteadTraderCard } from './Fields';
 
 const DAY_POINTS = TICKS_PER_DAY / CONFIG.priceHistoryEvery; // history samples per day
 
@@ -27,6 +31,7 @@ function seedCostPerUnit(s: GameState, r: RegionId, c: CropId) {
 
 export default function MarketsPage() {
   const s = useGame();
+  if (!s.legacyProgression && !stageAtLeast(s, 'market-town')) return <div className="stack l"><PageHead title="Village trader" sub="A small daily board keeps your first harvest moving." /><HomesteadTraderCard s={s} /></div>;
   const regions = unlockedRegions(s);
   const [region, setRegion] = useState<RegionId>('heartland');
   const r = regions.includes(region) ? region : 'heartland';
@@ -43,8 +48,10 @@ export default function MarketsPage() {
 
   return (
     <div className="stack l">
-      <PageHead title="Markets" sub="Every price here is set by stock and demand in that region's market. Your own sales move it."
+      <PageHead title="Markets" sub={`Stock sets prices · bid/ask ±${(DEALER_SPREAD*100).toFixed(1)}% · orders move the market.`}
         actions={regions.length > 1 && <Select label="Market region" value={r} onChange={setRegion} options={regions.map((x) => ({ v: x, label: REGIONS[x].name }))} />} />
+
+      {!s.legacyProgression && <HomesteadTraderCard s={s} />}
 
       <div className="grid2" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 420px), 1fr))' }}>
         <Board s={s} r={r} goods={goods} sel={g} onSel={setSel} scope={scope} setScope={setScope} />
@@ -90,7 +97,7 @@ function Board({ s, r, goods, sel, onSel, scope, setScope }: { s: GameState; r: 
     <Card title={<>Market board <span className="muted">{REGIONS[r].name}</span></>} coach="market-sell"
       info={<>Spot prices in this region. Click a row to trade it and see its chart. {ai ? 'The outlook projects the price 10 days ahead from current supply and demand (Market intelligence). It is a model, not a promise.' : ''}</>}
       actions={s.era >= 5 && <Seg label="Goods shown" value={scope} onChange={setScope} options={[{ v: 'mine', label: 'My goods' }, { v: 'all', label: 'Whole exchange' }]} />}>
-      <Table rows={goods} cols={cols} rowKey={(g) => g} onRow={(g) => onSel(g)} selected={(g) => g === sel} initialSort={{ key: 'val', dir: -1 }}
+      <Table rows={goods} cols={cols} rowKey={(g) => g} onRow={(g) => onSel(g)} selected={(g) => g === sel} initialSort={{ key: 'good', dir: 1 }}
         empty="Harvest something and it will appear here." />
     </Card>
   );
@@ -129,6 +136,7 @@ function SellPanel({ s, r, g }: { s: GameState; r: RegionId; g: GoodId }) {
             <dt><b>You receive</b></dt><dd><b>{money(q.net)}</b></dd>
           </dl>
         ) : <p className="muted small">{held ? 'Choose how much to sell.' : `No ${GOODS[g].name.toLowerCase()} in storage here.`}</p>}
+        <RetailQuote s={s} region={r} good={g} qty={q.qty} retailQty={q.retailQty}/>
         {q.limitedBy && <div className="callout warn">{q.limitedBy}</div>}
         {impact < -0.08 && <div className="callout warn">This order knocks the price down {pct0(-impact)}. Selling half now and half later would likely earn more.</div>}
         <button className="btn primary" disabled={!q.qty} onClick={() => act({ type: 'sell', region: r, good: g, qty: q.qty }, `Sold ${num(q.qty)} ${GOODS[g].name.toLowerCase()}.`)}>
@@ -214,8 +222,7 @@ function BuyCard({ s, r }: { s: GameState; r: RegionId }) {
   const space = Math.floor(freeSpace(s, r, g));
   const want = Math.min(qty, space);
   const q = quoteBuy(s, r, g, want);
-  const precheck = m.price * want * 1.2; // the engine asks for this much cash headroom before filling
-  const afford = precheck <= s.cash;
+  const afford = q.net <= s.cash;
   return (
     <Card title="Buy" info={<>Buying takes stock out of the market, so the price rises as your order fills — the mirror image of selling. Purchases go into your storage here and are limited by free space. {s.era < 5 ? 'Fertiliser and diesel are available now; the full commodity exchange opens in Era 5.' : ''}</>}>
       <div className="stack">
@@ -226,7 +233,7 @@ function BuyCard({ s, r }: { s: GameState; r: RegionId }) {
         </div>
         <div className="row wrap small muted" style={{ gap: 14 }}>
           <span>Held here <b className="mono">{num(s.regions[r].inventory[g])}</b></span>
-          <span>Free {GOODS[g].storage === 'cold' ? 'cold + dry' : 'dry'} space <b className="mono">{num(space)}</b></span>
+          <span>Free {GOODS[g].storage === 'cold' ? 'cold + dry' : GOODS[g].storage === 'tank' ? 'tank' : 'dry'} space <b className="mono">{num(space)}</b></span>
         </div>
         {q.qty > 0 && (
           <dl className="facts">
@@ -238,7 +245,7 @@ function BuyCard({ s, r }: { s: GameState; r: RegionId }) {
         )}
         {qty > space && <div className="callout warn">{space > 0 ? `Only ${num(space)} units fit in storage here.` : 'No free storage for this good here. Sell something or build storage.'}</div>}
         {q.limitedBy && <div className="callout warn">{q.limitedBy}</div>}
-        {q.qty > 0 && !afford && <p className="small down">You need about {money(precheck)} in cash to place this order.</p>}
+        {q.qty > 0 && !afford && <p className="small down">This order needs {money(q.net)} in cash, including haulage.</p>}
         <button className="btn primary" disabled={!q.qty || !afford} onClick={() => act({ type: 'buy', region: r, good: g, qty: q.qty }, `Bought ${num(q.qty)} ${GOODS[g].name.toLowerCase()}.`)}>
           {q.qty ? `Buy ${num(q.qty)} for ${money(q.net)}` : 'Buy'}
         </button>

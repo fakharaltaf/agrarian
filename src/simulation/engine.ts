@@ -1,12 +1,25 @@
+import { STAGE_IDS } from './stages/types';
+import { trafficRoom } from './access';
+import { FOOD_FACTORY , LIVESTOCK_HOUSE, mergedName , MERGEABLE, STORE_OR_POWER } from './core';
+import { energyMix, oilOpen, upgradeNeedsPower } from './stages/shared';
+import { bestRetailCentre } from './facility-levels';
+import { wellField, DRILL_PRICE, oilChance, oilOf, SURVEY_PRICE, SURVEY_R, surveyedAt, landCostOf } from './oil';
+import { haulDaily, haulOf, haulTick, horseCartValue, usesCarts, VEHICLES } from './hauling';
+import { emptyProductionReport } from './production-report';
+import { canUpgradeService, isShop, levelOf, payHouseholds, SERVICE_DEFS, servicePrice, serviceUpgradePrice, svcSize, townOf } from './town-state';
+import { idleMachine, machineSaleValue } from './operations';
 // Orchestrates every system. Pure: no React, no DOM. Functions mutate the GameState passed in.
 import {
   BUILDINGS, CONFIG, CROPS, GOODS, GOOD_IDS, MACHINES, PERKS, REGIONS, REGION_IDS, TECH, TICKS_PER_DAY, type CropId, type GoodId, type RegionId,
 } from './config';
-import { clamp, debt, factoryCrop, equity, freeSpace, has, known, log, marketWage, nextId, post, round2, todayBook } from './core';
+import { FRUIT_CROPS, isFruitHouse, VERTICAL_CROPS, maxLevel, recipeOf, vfArea, buildingDivision, clamp, debt, factoryCrop, equity, freeSpace, has, known, log, marketWage, nextId, post, random, round2, todayBook, lean } from './core';
+import { coverOf, coverPrice, COVERS } from './agriculture';
+import { FIELD_LEVELS, fieldLevel, fieldUpgradePrice, fieldUpgradeProblem, upgradeField } from './field-levels';
 import { addGoods, canGrow, clearField, fertilizeField, fieldsTick, frostNight, harvestField, isManual, isReady, newField, plantField, spoilageDaily } from './agriculture';
+import { findSpot, homeFootprint, SERVICE_FOOTPRINT, BRIDGE_COST, BRIDGE_GRADES, bridgeAt, bridgePlan, clearOpenPatches, growFarmhouse, groundProblem, wideRoadRoute, BELT_PRICE, beltRoute, beltStretch, buildAs, buildAsOpen, lineBuildPrice, lineBuildTier, roadBuildPrice, liftTracks, riverTiles, chunkAt, COMMERCIAL, type Use, type Zone, reconcileWorld, unlink, accessNote, cutsOff, buyable, chunksIn, connect, placedIn, touch, useOf, buildingUse, INDUSTRY_TO_GROW, WATER_LEVEL, NET_PRICE, NET_TIERS, NET_TOP, linesOf, lineTiles, lineTop, upgradeAllPlan, pipeRoute, pipeStretch, hasWater, isRoad, MAP, ROAD_GRADES, ROAD_H, roadPick, roadTilePrice, tileId, canPlaceNew, LAND_HA_PER_PATCH,  own, ownedSet, CHUNKS_X, CHUNKS_Y, CLEAR_HOURS, clearCost, clearedSet, FOOTPRINT, footprintOf, forget, rotOf, turned, MOVE_DOWNTIME, placeNew, placeProblem, plotSide, PROBLEM_TEXT, seedWorld, TIMBER_PER_PATCH, worldOf } from './world';
 import { buyAnimals, livestockDaily, sellAnimals } from './livestock';
 import { claimDaily, startDay } from './daily';
-import { createMarkets, drawWeather, executeBuy, executeSell, macroDaily, marketsDaily, marketsTick, priceFromInv } from './markets';
+import { createMarkets, drawWeather, executeBuy, executeSell, quoteBuy, macroDaily, marketsDaily, marketsTick, priceFromInv } from './markets';
 import { hire, laborTick, service, serviceCost, wageOf, workforceDaily } from './operations';
 import { buildingsDaily, buildingsTick } from './processing';
 import { closeFutures, creditLimit, deliver, financeDaily, openFutures, restructure, takeLoan, insurancePremium } from './finance';
@@ -16,12 +29,18 @@ import { acquire, acquisitionPrice, askingPrice, competitorsDaily, createCompeti
 import { antitrustCheck, chooseEvent, eventsDaily, expireChoices } from './events';
 import { buyback, execTick, issueShares, marketShare, payDividend } from './corporate';
 import { advanceEra, discover, milestonesDaily, progressionTick } from './progression';
+import { featureEra, handleActiveStageAction, stageAtLeast, stageIdForEra, STAGES } from './stages';
+import { prepareLarder } from './stages/settlement';
+import { refreshHomestead } from './stages/homestead';
+import {releaseNeighbourJob} from './employment';
+import { availableResidents, recruitableResidents, communityOf, homeLevel } from './community-state';
 import { shipGoods, shipmentsTick } from './logistics';
-import type { Action, ActionResult, GameState, RegionState } from './types';
+import type { Action, ActionResult, Building, Field, GameState, RegionState } from './types';
+import { SAVE_VERSION } from './persistence';
 
 export * from './agriculture';
 export { quoteSell, quoteBuy, avgPrice, avg30, outlook } from './markets';
-export { objective, PAGES, MILESTONES, lifetimeSales, totalHa, canAdvance, DISCOVERIES, ERA_UNLOCK_TEXT, ERA_SALES } from './progression';
+export { objective, chapterGate, gateProgress, type GateRow, PAGES, MILESTONES, lifetimeSales, totalHa, canAdvance, DISCOVERIES, ERA_UNLOCK_TEXT, ERA_SALES } from './progression';
 export { forecast } from './markets';
 export { dailyGoals, dailyPrize } from './daily';
 export { ACHIEVEMENTS } from './progression';
@@ -32,19 +51,20 @@ const zeroGoods = () => Object.fromEntries(GOOD_IDS.map((g) => [g, 0])) as Recor
 export function createGame(seed = (Date.now() % 2147483646) + 1): GameState {
   const regions = Object.fromEntries(REGION_IDS.map((r): [RegionId, RegionState] => [r, {
     id: r, unlocked: r === 'heartland', inventory: zeroGoods(), fx: REGIONS[r].fx0, cpi: 1, rainToday: REGIONS[r].rain, temp: REGIONS[r].temp, rain30: REGIONS[r].rain,
-    haulToday: 0, truckToday: 0, portToday: 0, insured: false, insuredFrom: 0, forecast: [], frostTonight: false, quality: {}, homePlotsBought: 1, parcelsBought: 0, waterToday: 0, powerGen: 0, powerUse: 0, backlog: 0,
+    retailToday: {}, haulToday: 0, truckToday: 0, portToday: 0, insured: false, insuredFrom: 0, forecast: [], frostTonight: false, quality: {}, homePlotsBought: 1, parcelsBought: 0, waterToday: 0, powerGen: 0, powerUse: 0, backlog: 0,
   }])) as Record<RegionId, RegionState>;
   const s: GameState = {
-    version: 2, seed, rng: seed, tick: 0, cash: CONFIG.startingCash, marginAccount: 0,
+    version: SAVE_VERSION, seed, rng: seed, tick: 0, cash: CONFIG.startingCash, marginAccount: 0,
     fields: [], workers: [], machines: [], buildings: [], regions, markets: createMarkets(),
     seeds: Object.fromEntries(Object.keys(CROPS).map((c) => [c, c === 'wheat' ? 10 : 0])) as Record<CropId, number>,
     macro: { cpi: 1, inflation: 0.025, baseRate: 0.045, energy: 1, income: 1, climate: 0, crunch: 0, emissions: 0 },
     bench: {}, loans: [], futures: [], contracts: [], shipments: [], research: { done: [], active: null, licensed: [] },
     automation: { rules: [], policies: { ...DEFAULT_POLICIES } }, competitors: [], events: [],
     corp: { incorporated: false, shares: CONFIG.sharesOutstanding, playerShares: CONFIG.sharesOutstanding, execs: [], reputation: 50, dividends: 0, runoff: 0 },
-    ledger: [], lifetime: {}, books: [], overdraftDays: 0, bankrupt: null, era: 1,
+    ledger: [], lifetime: {}, books: [], overdraftDays: 0, bankrupt: null, era: 1, stageId: stageIdForEra(1), stageState: { homestead: STAGES.homestead.createState(), settlement: STAGES.settlement.createState(), town: STAGES.town.createState(), city: STAGES.city.createState(), region: STAGES.region.createState(), nation: STAGES.nation.createState() }, legacyProgression: false,
+    charters: { trader: null }, values: { prosperityFairness: 50, orderFreedom: 50, peaceStrength: 50, traditionProgress: 50, cleanIndustrial: 50 },
     stats: { harvests: 0, sales: 0, plantings: 0, produced: {}, spoiled: 0, peopleFed: 0, forcedSales: 0, overflowLost: 0, maxEquity: 0, crisisSurvived: false },
-    unlockedCrops: ['wheat'], milestones: [], seenTips: [], discovered: [], achievements: [], rewarded: [], daily: null, eraReady: false, herds: [], advisor: false, warned: {}, log: [], nextId: 1,
+    unlockedCrops: ['wheat'], milestones: [], seenTips: [], discovered: [], achievements: [], rewarded: ['fix:orchardPests'], daily: null, eraReady: false, herds: [], advisor: false, warned: {}, log: [], nextId: 1,
   };
   const f = newField(s, 'heartland', 1, 0);
   f.soil = { n: 1, p: 1, k: 1, organic: 0.8 };
@@ -74,8 +94,10 @@ export function createGame(seed = (Date.now() % 2147483646) + 1): GameState {
     m.daily = [round2(m.price)];
   }
   s.tick = 6; // the first morning: the farm opens at sunrise
+  refreshHomestead(s);
   for (const r of REGION_IDS) while (s.regions[r].forecast.length < 4) s.regions[r].forecast.push(drawWeather(s));
   todayBook(s);
+  seedWorld(s, 'heartland');
   log(s, 'info', 'You have $250, one hectare, ten wheat seeds and a hoe. Plant your first crop.', 'fields');
   return s;
 }
@@ -86,12 +108,16 @@ export function step(s: GameState) {
   if (s.bankrupt) return;
   s.tick++;
   if (s.tick % TICKS_PER_DAY === 0) daily(s);
+  worldTick(s);
   fieldsTick(s);
   laborTick(s);
+  prepareLarder(s);
   buildingsTick(s);
   execTick(s);
   marketsTick(s);
   shipmentsTick(s);
+  haulTick(s);
+  prepareLarder(s);
   rulesTick(s);
   policiesTick(s);
   progressionTick(s);
@@ -109,6 +135,7 @@ function daily(s: GameState) {
   spoilageDaily(s);
   buildingsDaily(s);
   financeDaily(s);
+  haulDaily(s);
   researchDaily(s);
   eventsDaily(s);
   expireChoices(s);
@@ -143,8 +170,8 @@ const finite = (n: number) => Number.isFinite(n);
 
 export const homePlotPrice = (s: GameState) => Math.round(CONFIG.homePlotBase * CONFIG.homePlotGrowth ** (s.regions.heartland.homePlotsBought - 1) * s.macro.cpi);
 export const parcelPrice = (s: GameState, r: RegionId, ha: number) => {
-  const per = (REGIONS[r].landPrice / REGIONS[r].fx0) * s.regions[r].cpi * s.regions[r].fx * (1 + 0.02 * s.regions[r].parcelsBought);
-  return Math.round(per * ha);
+  const per = (REGIONS[r].landPrice / REGIONS[r].fx0) * s.regions[r].cpi * s.regions[r].fx; // land itself already gets dearer by the patch
+  return Math.round(per * ha * 0.3); // fencing, ploughing and drainage: the land itself is bought by the patch
 };
 export const hireCost = (s: GameState, r: RegionId) => Math.round(marketWage(s, r) * 8); // recruiting: one day's pay
 export const trainCost = (s: GameState) => Math.round(300 * s.macro.cpi);
@@ -152,14 +179,202 @@ export const buildingPrice = (s: GameState, t: keyof typeof BUILDINGS, r: Region
 export const machinePrice = (s: GameState, t: keyof typeof MACHINES) => Math.round(MACHINES[t].price * s.macro.cpi);
 export const irrigationPrice = (s: GameState, ha: number) => Math.round(ha * (CONFIG.irrigationCostPerHa + (has(s, 'dripIrrigation') ? 200 : 0)) * s.macro.cpi);
 export const regionEntryCost = (s: GameState) => Math.round(25000 * s.macro.cpi);
-export const upgradeCost = (s: GameState, b: { type: keyof typeof BUILDINGS; level: number; region: RegionId }) => Math.round(buildingPrice(s, b.type, b.region) * (b.level === 1 ? 0.8 : 1.4));
+/** How to build one more like `key`: the build, then the upgrades that bring it to the same level. Null for what cannot be copied (oil wells, merged shops). */
+export function anotherOf(s: GameState, key: string): { first: Action; /** the ground a new one needs, and the land use it stands on */ region: RegionId; fp: { w: number; d: number }; use?: Use; /** a merged one is placed whole, its parts and merging paid in one go */ direct?: (c: GameState, at?: [number, number], rot?: number) => ActionResult; up: (id: number) => Action; target: number; level: (c: GameState, id: number) => number; newest: (c: GameState) => number } | null {
+  const [k, raw] = key.split(':'), id = +raw;
+  if (k === 'b') {
+    const b = s.buildings.find((x) => x.id === id);
+    if (!b || b.type === 'oilWell' || b.type === 'verticalFarm') return null; // vertical farms come from fields: convert another field instead
+    if ((b.size ?? 1) > 1 && b.span) { // a Works or a Plant: its level-3 units and both merges' 25% fees, placed whole
+      let unit = buildingPrice(s, b.type, b.region);
+      for (let l = 1; l < (b.level || 1); l++) unit += upgradeCost(s, { type: b.type, level: l, region: b.region });
+      const price = Math.round(unit * (b.size === 4 ? 6.25 : 2.5)), span: [number, number] = [b.span[0], b.span[1]];
+      return { region: b.region, fp: { w: span[0], d: span[1] }, use: buildingUse(s, b.type, 3), first: { type: 'build', region: b.region, building: b.type, count: 1 }, up: () => ({ type: 'seeTip', tip: '' }), target: 1, level: () => 1, newest: (c) => c.buildings[c.buildings.length - 1].id,
+        direct: (c, at, rot) => {
+          if (price > c.cash) return fail(`Another ${mergedName(b.type, BUILDINGS[b.type].name, b.size!).toLowerCase()} costs $${price.toLocaleString()}.`);
+          const nid = nextId(c);
+          c.buildings.push({ id: nid, type: b.type, region: b.region, size: b.size, span, ...(b.longSpan ? { longSpan: [b.longSpan[0], b.longSpan[1]] as [number, number] } : {}), layout: b.layout, active: true, level: b.level, cost: price, depreciated: 0, util: 0, reserved: 0, reason: '', productionReport: emptyProductionReport(), stats: { out: 0, inCost: 0, outValue: 0, opCost: 0 } });
+          const placed = placeNew(c, b.region, `b:${nid}`, at, rot);
+          if (placed) { c.buildings.pop(); return fail(placed); }
+          post(c, 'building', -price, `${mergedName(b.type, BUILDINGS[b.type].name, b.size!)} built`, b.region, buildingDivision(b.type));
+          return ok(accessNote(c, b.region, `b:${nid}`));
+        } };
+    }
+    return { region: b.region, fp: { w: FOOTPRINT[b.type][0], d: FOOTPRINT[b.type][1] }, use: buildingUse(s, b.type), first: { type: 'build', region: b.region, building: b.type, count: 1 }, up: (n) => ({ type: 'upgradeBuilding', buildingId: n }), target: b.level || 1, level: (c, n) => c.buildings.find((x) => x.id === n)?.level ?? 1, newest: (c) => c.buildings[c.buildings.length - 1].id };
+  }
+  if (k === 'svc') {
+    const v = townOf(s).services.find((x) => x.id === id);
+    if (!v || v.type === 'barracks' || v.type === 'mall') return null;
+    if (svcSize(v) > 1) { // four merged (a market, a big power station or works): four at its level and the 25% merging fee, placed whole
+      let unit = servicePrice(s, v.type);
+      for (let l = 1; l < levelOf(v); l++) unit += serviceUpgradePrice(s, { type: v.type, level: l, count: 1 });
+      const price = Math.round(unit * 4 * 1.25), side = svcSize(v) >= 4 ? 15 : 7;
+      return { region: 'heartland', fp: { w: side, d: side }, use: isShop(v.type) ? 'shop' : undefined, first: { type: 'buildService', service: v.type, district: v.district, count: 1 }, up: () => ({ type: 'seeTip', tip: '' }), target: 1, level: () => 1, newest: (c) => { const l = townOf(c).services; return l[l.length - 1].id; },
+        direct: (c, at, rot) => {
+          if (price > c.cash) return fail(`Another costs $${price.toLocaleString()}.`);
+          const nid = nextId(c), t = townOf(c);
+          t.services.push({ id: nid, type: v.type, district: v.district, size: v.size, count: v.count, cost: price, active: true, staffed: 0, funded: false, ...(v.level ? { level: v.level } : {}), ...(v.kinds ? { kinds: [...v.kinds] } : {}), ...(v.layout !== undefined ? { layout: v.layout } : {}) });
+          const placed = placeNew(c, 'heartland', `svc:${nid}`, at, rot);
+          if (placed) { t.services.pop(); return fail(placed); }
+          post(c, 'building', -price, `${SERVICE_DEFS[v.type].name} (four merged) built`, 'heartland', 'corporate');
+          return ok(accessNote(c, 'heartland', `svc:${nid}`));
+        } };
+    }
+    return { region: 'heartland', fp: SERVICE_FOOTPRINT, use: isShop(v.type) ? 'shop' : undefined, first: { type: 'buildService', service: v.type, district: v.district, count: 1 }, up: (n) => ({ type: 'upgradeService', serviceId: n }), target: canUpgradeService(v.type) ? levelOf(v) : 1, level: (c, n) => { const x = townOf(c).services.find((y) => y.id === n); return x ? levelOf(x) : 1; }, newest: (c) => { const l = townOf(c).services; return l[l.length - 1].id; } };
+  }
+  if (k === 'home') {
+    const h = communityOf(s).homes.find((x) => x.id === id);
+    if (!h) return null;
+    return { region: 'heartland', fp: homeFootprint({ ...h, count: 1 }), use: 'home', first: { type: 'buildHomes', tier: h.tier, count: 1 }, up: (n) => ({ type: 'upgradeHome', homeId: n }), target: homeLevel(h), level: (c, n) => { const x = communityOf(c).homes.find((y) => y.id === n); return x ? homeLevel(x) : 1; }, newest: (c) => { const l = communityOf(c).homes; return l[l.length - 1].id; } };
+  }
+  return null;
+}
+function runAnother(c: GameState, plan: NonNullable<ReturnType<typeof anotherOf>>, at?: [number, number], rot?: number): ActionResult {
+  at ??= findSpot(c, plan.region, plan.fp, false, plan.use) ?? undefined; // a spot of its own: without one a town service would just join the existing one
+  if (plan.direct) return plan.direct(c, at, rot);
+  const r = dispatch(c, { ...plan.first, ...(at ? { at } : {}), ...(rot !== undefined ? { rot } : {}) } as Action);
+  if (!r.ok) return r;
+  const id = plan.newest(c);
+  while (plan.level(c, id) < plan.target) { const u = dispatch(c, plan.up(id)); if (!u.ok) return u; } // new ones may start above level 1 (Build as)
+  return r;
+}
+/** What one more like `key` costs, and why it can't be built now (cash aside). Rehearsed on a copy with deep pockets. */
+export function anotherQuote(s: GameState, key: string): { price: number; why?: string } | null {
+  const plan = anotherOf(s, key);
+  if (!plan) return null;
+  const c = structuredClone(s), rich = 1e15;
+  c.cash = rich;
+  const r = runAnother(c, plan);
+  return { price: Math.round(rich - c.cash), why: r.ok ? undefined : r.error };
+}
+/** A crop a vertical farm may grow: greens, or an annual crop the farm has unlocked. */
+const growable = (s: GameState, g: GoodId) => VERTICAL_CROPS.includes(g) && (g === 'greens' || s.unlockedCrops.includes(g as CropId));
+/** What this vertical farm may switch to: a fruit house keeps to fruit, a vertical farm to greens and annual crops. */
+const growsHere = (s: GameState, b: { type: Building['type']; grows?: GoodId }, g: GoodId) => (isFruitHouse(b) ? FRUIT_CROPS.includes(g) && s.unlockedCrops.includes(g as CropId) : growable(s, g));
+/** What turning a field into a vertical farm costs and grows: the field's ground, its crop (if a tower can grow it), the tower's price scaled to that ground. */
+export function convertQuote(s: GameState, f: Field): { price: number; side: number; area: number; grows: GoodId; perDay: number; why?: string } {
+  const side = plotSide(f.ha), area = f.ha, c = f.crop ?? f.plan;
+  const grows: GoodId = c && (growable(s, c) || FRUIT_CROPS.includes(c)) ? c : 'greens'; // an orchard becomes a fruit house
+  const why = fieldLevel(f) < 3 ? 'Only an intensive (level 3) field can become a vertical farm.' : !has(s, 'verticalFarming') ? 'Research Vertical farming first.' : !featureEra(s, BUILDINGS.verticalFarm.minEra) ? 'Vertical farms are not available yet.' : undefined;
+  const rec = recipeOf({ type: 'verticalFarm', grows: grows === 'greens' ? undefined : grows })!, perDay = (rec.outputs[grows] ?? 0) * (has(s, 'processEfficiency') ? 1.1 : 1) * rec.batchesPerHour * area * 24;
+  return { price: Math.round(buildingPrice(s, 'verticalFarm', f.region) * area), side, area, grows, perDay, why };
+}
+/** How many of a building the farm's free land holds, up to n: the build itself, run on a copy with deep pockets. */
+export function landFits(s: GameState, t: keyof typeof BUILDINGS, r: RegionId, n: number): number {
+  const c = structuredClone(s);
+  c.cash = 1e15;
+  const before = c.buildings.length;
+  dispatch(c, { type: 'build', region: r, building: t, count: n });
+  return c.buildings.length - before;
+}
+export const upgradeCost = (s: GameState, b: { type: keyof typeof BUILDINGS; level: number; region: RegionId; ha?: number }) => Math.round(buildingPrice(s, b.type, b.region) * vfArea(b) * (b.type === 'verticalFarm' ? [1, 2, 4, 8][Math.max(0, Math.min(3, (b.level || 1) - 1))] : b.level === 1 ? 0.8 : 1.4)); // a vertical farm's levels double in price each step
 export const machineUpgradeCost = (s: GameState, m: { type: keyof typeof MACHINES; tier: number }) => Math.round(machinePrice(s, m.type) * 0.5 * m.tier);
+/** Moving fee: a tenth of a building's price; fields by area; homes, services and landmarks a flat amount. */
+const orchard = (f: Field) => !!f.crop && !!CROPS[f.crop].perennial;
+/** Orchards, vineyards and greenhouse fields move with what stands on them; other fields must be harvested first. */
+/** Any field can move, planted or not: a growing crop is lifted and moved with it (at a fee). */
+export const fieldMovable = (_f: Field) => true;
+export function moveFee(s: GameState, r: RegionId, key: string) {
+  const [kind, id] = key.split(':');
+  if (kind === 'b') { const b = s.buildings.find((x) => x.id === +id); return b ? Math.round(buildingPrice(s, b.type, r) * 0.1) : 0; }
+  // trees and vines, or a greenhouse, are lifted and moved with the field: $200/ha each on top of the plain $20/ha; a growing crop $80/ha
+  if (kind === 'field') { const f = s.fields.find((x) => x.id === +id); return f ? Math.round((20 + (orchard(f) ? 200 : f.crop ? 80 : 0) + (f.greenhouse ? 200 : 0)) * f.ha * s.macro.cpi) : 0; }
+  // the farmhouse, trader, bunkhouse, office and hall: a small fee; homes and public buildings cost more to move
+  if (['farmhouse', 'shed', 'market', 'crew', 'office'].includes(key)) return Math.round(25 * s.macro.cpi);
+  return Math.round(500 * s.macro.cpi);
+}
+/** What it takes to make the ground under a placement yours and clear: the patches to buy and to clear, the price, and how long the crew needs. */
+export function planQuote(s: GameState, r: RegionId, at: [number, number], fw: number, fd: number, action: Action) {
+  const bad = (error: string) => ({ ok: false as const, error, cost: 0, hours: 0, buy: [] as number[], clear: [] as number[], roads: [] as number[], chunks: [] as number[], zone: undefined as Zone | undefined });
+  if (!['build', 'buildService', 'buildHomes', 'buyPlot', 'buyParcel'].includes(action.type)) return bad('That cannot be planned ahead.');
+  if (![at[0], at[1], fw, fd].every(Number.isInteger) || fw < 1 || fd < 1 || fw > 40 || fd > 40) return bad('Choose a spot on the map.');
+  const w = worldOf(s, r), set = new Set<number>();
+  for (let y = at[1]; y < at[1] + fd; y++) for (let x = at[0]; x < at[0] + fw; x++) { const c = chunkAt(x, y); if (c < 0) return bad(PROBLEM_TEXT.outside); set.add(c); }
+  const chunks = [...set], owned = ownedSet(w), cleared = clearedSet(w), queued = new Set(w.queue.map((j) => j.chunk));
+  const need = chunks.filter((c) => !owned.has(c)), buy = buyable(w, need), clear = chunks.filter((c) => !cleared.has(c) && !queued.has(c));
+  if (buy.length !== need.length) return bad('That land does not join land you own or the main road.');
+  // anything else in the way (water, a road, another building) cannot be bought or cleared away
+  const use: Use | undefined = action.type === 'buildHomes' ? 'home' : action.type === 'buyPlot' || action.type === 'buyParcel' ? 'field' : action.type === 'build' ? buildingUse(s, action.building) : action.type === 'buildService' && COMMERCIAL.test(action.service) ? 'shop' : undefined;
+  const zone: Zone | undefined = use === 'home' ? 'res' : use === 'shop' ? 'com' : use === 'industry' ? 'ind' : undefined;
+  const river = riverTiles(r);
+  const roads: number[] = []; // your own roads in the way are taken up (the main road stays)
+  for (let y = at[1]; y < at[1] + fd; y++) for (let x = at[0]; x < at[0] + fw; x++) { if (river.has(tileId(x, y))) return bad(PROBLEM_TEXT.water); if (isRoad(y)) return bad('The main road stays: choose a spot off it.'); if (w.roads[tileId(x, y)] !== undefined) roads.push(tileId(x, y)); }
+  if (!buy.length && !chunks.some((c) => !cleared.has(c)) && !roads.length) return bad('That land is already yours and clear.');
+  if (placedIn(s, r).some((p) => p.x - 1 < at[0] + fw && p.x + p.w + 1 > at[0] && p.y - 1 < at[1] + fd && p.y + p.d + 1 > at[1])) return bad(PROBLEM_TEXT.occupied);
+  for (const c of chunks) if (owned.has(c) && cleared.has(c) && (zone ? w.zones[c] !== zone : use === 'field' ? !!w.zones[c] : w.zones[c] === 'res' || w.zones[c] === 'com')) return bad(PROBLEM_TEXT.zone);
+  const cost = Math.round((landCostOf(s, r, buy) + clearCost(s) * clear.length) * 100) / 100;
+  return { ok: true as const, error: '', cost, hours: clear.length ? (w.queue.length + clear.length) * CLEAR_HOURS : 0, buy, clear, roads, chunks, zone };
+}
+/** The factory beside this one that it could merge with: the same kind and size, both at level 3, a lane apart and squarely in line. */
+/** The square shape for a long merged building: about the same ground, as near square as whole tiles allow. */
+export function squareSpan([w, d]: [number, number]): [number, number] { const a = w * d, side = Math.ceil(Math.sqrt(a)); return [side, Math.ceil(a / side)]; }
+/** A merged building's long shape: a Works is its two side by side; a Plant is all four in one row (a 2×2 block counts as its square shape). */
+export function longShape(b: Pick<Building, 'type' | 'size' | 'span' | 'longSpan'>): [number, number] {
+  const cur = b.longSpan ?? b.span ?? [1, 1], [fw, fd] = FOOTPRINT[b.type];
+  if ((b.size ?? 1) < 4 || Math.min(cur[0], cur[1]) <= Math.max(fw, fd)) return cur; // already a single line
+  return [4 * fw + 3, fd];
+}
+/** Whether a merged building is laid out in its long shape now. */
+export const isLong = (b: Pick<Building, 'type' | 'size' | 'span' | 'longSpan'>) => { const l = longShape(b), s = b.span ?? l; return s[0] === l[0] && s[1] === l[1]; };
+/** Whether a merged building's long shape has a squarer one to switch to. */
+export const hasShapes = (long: [number, number]) => Math.abs(long[0] - long[1]) > 1;
+export function factoryMerge(s: GameState, id: number) {
+  const b = s.buildings.find((x) => x.id === id);
+  if (!b || !MERGEABLE(b.type) || (b.size ?? 1) >= 4) return null;
+  const w = worldOf(s, b.region), p = w.pos[`b:${b.id}`], fp = footprintOf(s, `b:${b.id}`);
+  if (!p || !fp) return null;
+  const into = mergedName(b.type, BUILDINGS[b.type].name, (b.size ?? 1) * 2);
+  // the nearest partner of the same kind and size close by: the merged building takes the ground of both, side by side or one behind the other
+  const near = (x: typeof b) => { if (x === b || x.type !== b.type || x.region !== b.region || (x.size ?? 1) !== (b.size ?? 1)) return Infinity; const q = w.pos[`b:${x.id}`], fq = footprintOf(s, `b:${x.id}`); if (!q || !fq) return Infinity; // the same kind and size, whichever way round or shape
+    const dx = Math.abs(q[0] - p[0]), dy = Math.abs(q[1] - p[1]); return dx <= fp.w * 2 + 4 && dy <= fp.d * 2 + 4 ? dx + dy : Infinity; };
+  const mate = s.buildings.map((x) => ({ x, d: near(x) })).filter((m) => m.d < Infinity).sort((a, c) => a.d - c.d)[0]?.x;
+  const name = BUILDINGS[b.type].name.toLowerCase();
+  if (!mate) return { b, mate: null, into, ready: false, price: 0, spots: [], why: b.level < 3 ? `upgrade it to level 3 first (now level ${b.level}), then build another close beside it` : `build another level-3 ${name} close beside it` };
+  const q = w.pos[`b:${mate.id}`]!, wide: [number, number] = [fp.w * 2 + 1, fp.d], tall: [number, number] = [fp.w, fp.d * 2 + 1], lx = Math.min(p[0], q[0]), ty = Math.min(p[1], q[1]);
+  // where the merged building may stand: along the line between them first, then across it, starting from either one
+  const across = Math.abs(q[0] - p[0]) >= Math.abs(q[1] - p[1]);
+  const spots: { origin: [number, number]; span: [number, number] }[] = (across ? [[lx, p[1], wide], [lx, q[1], wide], [p[0], ty, tall], [q[0], ty, tall]] : [[p[0], ty, tall], [q[0], ty, tall], [lx, p[1], wide], [lx, q[1], wide]]).map(([x, y, sp]) => ({ origin: [x as number, y as number], span: sp as [number, number] }));
+  // failing that, the merged building may grow out from either one's own ground (the other's is freed)
+  for (const [x, y] of [p, q]) spots.push({ origin: [x, y], span: wide }, { origin: [x - fp.w - 1, y], span: wide }, { origin: [x, y], span: tall }, { origin: [x, y - fp.d - 1], span: tall });
+  const { origin, span } = spots[0];
+  const ready = b.level >= 3 && mate.level >= 3 && b.active && mate.active;
+  return { b, mate, into, ready, origin, span, spots, price: Math.round((b.cost + mate.cost) * 0.25), why: ready ? '' : b.level < 3 || mate.level < 3 ? `upgrade both to level 3 first (now level ${b.level} and ${mate.level})` : 'both must be running' };
+}
+/** One crew clears forest patch by patch; each finished patch adds timber to storage. */
+function worldTick(s: GameState) {
+  if (s.tick % 24 === 2 && growFarmhouse(s, Math.max(1, Math.min(7, (STAGE_IDS as readonly string[]).indexOf(s.stageId) + 1)))) log(s, 'opportunity', 'Your farmhouse has grown with the farm: a bigger house for a bigger concern.', 'farm');
+  if (s.tick % 24 === 3) for (const r of REGION_IDS) { const w0 = s.world?.[r]; if (w0) clearOpenPatches(r, w0); }
+  if (s.tick % 6 === 1) reconcileWorld(s, { farmMarket: s.stats.harvests > 0, crew: stageAtLeast(s, 'farm-business'), office: s.legacyProgression ? s.era >= 3 : stageAtLeast(s, 'industry'), hall: !!s.stageState.town?.active });
+  for (const r of REGION_IDS) {
+    const w = s.world?.[r];
+    if (!w?.queue.length) continue;
+    const job = w.queue[0];
+    job.hours--;
+    if (job.hours > 0) continue;
+    w.queue.shift();
+    if (!clearedSet(w).has(job.chunk)) { clearedSet(w).add(job.chunk); w.cleared.push(job.chunk); }
+    // The crew sells the felled timber straight to the local market, so it never crowds storage.
+    s.regions[r].inventory.timber += TIMBER_PER_PATCH;
+    const sold = executeSell(s, r, 'timber', TIMBER_PER_PATCH, 'Timber from forest clearing', 'sale', true);
+    s.regions[r].inventory.timber -= TIMBER_PER_PATCH - sold.qty;
+    if (!w.queue.length) log(s, 'info', `Forest cleared in ${REGIONS[r].name}. The crew sold the timber at the local market.`, 'farm');
+    // anything waiting for this land goes up as soon as its last patch is clear
+    for (const plan of [...(w.plans ?? [])]) {
+      if (!plan.chunks.every((c) => clearedSet(w).has(c))) continue;
+      w.plans!.splice(w.plans!.indexOf(plan), 1);
+      const res = dispatch(s, plan.action);
+      log(s, res.ok ? 'opportunity' : 'warning', res.ok ? `${plan.label} placed on the newly cleared land.` : `Your ${plan.label} could not be placed: ${res.error} The land is cleared and ready.`, 'farm');
+    }
+  }
+}
 export const greenhousePrice = (s: GameState, ha: number) => Math.round(2000 * ha * s.macro.cpi);
 const BUILDING_GATE: Partial<Record<keyof typeof BUILDINGS, string>> = { coop: 'chickens', pigsty: 'livestock', sheepfold: 'livestock', cowshed: 'livestock' };
 
 export function dispatch(s: GameState, a: Action): ActionResult {
   if (s.bankrupt && a.type !== 'restructure' && a.type !== 'seeTip') return fail('The business is insolvent. Restructure or start over.');
   for (const v of Object.values(a)) if (typeof v === 'number' && !finite(v)) return fail('Invalid number.');
+  const staged = handleActiveStageAction(s, a);
+  if (staged) return staged;
   switch (a.type) {
     case 'plant': {
       const f = field(s, a.fieldId);
@@ -181,7 +396,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       return ok(`Barn full! ${Math.round(sold)} ${GOODS[g].name.toLowerCase()} had to be sold straight off the field for $${(s.cash - cash0).toFixed(2)}. Sell some stock or build more storage to keep your harvest.`);
     }
     case 'setPlan': {
-      if (s.era < 2) return fail('Crop plans arrive with your first workers.');
+      if (!featureEra(s, 2)) return fail('Crop plans arrive with your first workers.');
       if (a.fieldIds.some((id) => field(s, id)?.supplies)) return fail('A field supplying a factory grows that factory\'s crop. Stop supplying it first.');
       if (a.crop && !s.unlockedCrops.includes(a.crop)) return fail('That crop is not available.');
       let n = 0;
@@ -192,6 +407,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       return n ? ok() : fail('That crop cannot grow on the selected fields.');
     }
     case 'lockPlan': {
+      if (!featureEra(s, 2)) return fail('Crop plans arrive with your first farm hands.');
       for (const id of a.fieldIds) { const f = field(s, id); if (f && !f.supplies) f.planLocked = a.locked; }
       return ok();
     }
@@ -227,7 +443,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       return n ? ok() : fail(b ? `Those fields can't grow ${GOODS[c!].name.toLowerCase()} for this factory (same region only).` : 'No dedicated fields selected.');
     }
     case 'fertilize': {
-      if (s.era < 2) return fail('Fertiliser is not available yet.');
+      if (!featureEra(s, 2)) return fail('Fertiliser is not available yet.');
       const errs: string[] = [];
       for (const id of a.fieldIds) {
         const f = field(s, id);
@@ -237,8 +453,18 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       }
       return errs.length === a.fieldIds.length ? fail(errs[0] ?? 'Nothing fertilised.') : ok(errs.length ? `${errs.length} field(s) skipped: ${errs[0]}` : undefined);
     }
+    case 'upgradeField': {
+      const fs = a.fieldIds.map((id) => field(s, id)).filter(Boolean) as Field[];
+      const can = fs.filter((f) => !fieldUpgradeProblem(s, f));
+      if (!can.length) return fail(fs.length ? fieldUpgradeProblem(s, fs[0])! : 'No such field.');
+      const cost = can.reduce((n, f) => n + fieldUpgradePrice(s, f), 0);
+      if (cost > s.cash) return fail(`Upgrading ${can.length === 1 ? 'the field' : `${can.length} fields`} costs $${cost.toLocaleString()}.`);
+      for (const f of can) upgradeField(s, f);
+      const skipped = fs.length - can.length;
+      return ok(`${can.length === 1 ? `Field ${can[0].id} is now an ${FIELD_LEVELS[fieldLevel(can[0]) - 1].name.toLowerCase()}` : `${can.length} fields upgraded`}.${skipped ? ` ${skipped} could not be: ${fieldUpgradeProblem(s, fs.find((f) => !can.includes(f))!)}` : ''}`);
+    }
     case 'irrigate': {
-      if (s.era < 2) return fail('Irrigation is not available yet.');
+      if (!featureEra(s, 2)) return fail('Irrigation is not available yet.');
       const fs = a.fieldIds.map((id) => field(s, id)).filter((f) => f && !f.irrigated) as NonNullable<ReturnType<typeof field>>[];
       const ha = fs.reduce((x, f) => x + f.ha, 0);
       if (!ha) return fail('Those fields are already irrigated.');
@@ -248,9 +474,12 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       fs.forEach((f) => (f.irrigated = true));
       // equipment is part of the land's book value
       fs.forEach((f) => (f.cost += cost * (f.ha / ha)));
-      return ok();
+      // from the new game on, water comes from the river along a ditch or pipe you lay to each field
+      const dry = s.legacyProgression ? 0 : fs.filter((f) => !hasWater(s, f.region, `field:${f.id}`)).length;
+      return ok(dry ? `Irrigation installed. Dig a ditch from the river to ${dry === 1 ? 'the field' : `the ${dry} fields`} with the 💧 tool to bring water.` : undefined);
     }
     case 'sell': {
+      if (!s.legacyProgression && s.stageId === 'homestead') return fail('Meet the village trader first; the open market arrives with your first market day.');
       const qty = Math.floor(a.qty);
       if (qty <= 0) return fail('Nothing to sell.');
       if (!s.regions[a.region].unlocked) return fail('You have no operations in that region.');
@@ -263,16 +492,16 @@ export function dispatch(s: GameState, a: Action): ActionResult {
     case 'buy': {
       const qty = Math.floor(a.qty);
       if (qty <= 0) return fail('Enter a quantity.');
-      if (s.era < 2 && a.good !== 'fertilizer') return fail('Not available yet.');
+      if (!(s.legacyProgression ? s.era >= 2 : stageAtLeast(s, 'market-town')) && a.good !== 'fertilizer') return fail('The market opens after your first market day.');
       if (!s.regions[a.region].unlocked) return fail('You have no operations in that region.');
-      if (GOODS[a.good].kind !== 'input' && a.good !== 'feed' && s.era < 5) return fail('The commodity exchange opens in Era 5.');
+      if (GOODS[a.good].kind !== 'input' && a.good !== 'feed' && !(s.legacyProgression ? s.era >= 5 : stageAtLeast(s, 'industry'))) return fail('The commodity exchange opens in the Industry chapter.');
       const space = Math.floor(spaceFor(s, a.region, a.good));
       if (space <= 0) return fail('No storage space for that.');
       const want = Math.min(qty, space);
-      const pre = (s.markets[a.region][a.good]!.price * want) * 1.2;
-      if (pre > s.cash) return fail(`That costs about $${Math.round(pre).toLocaleString()}.`);
-      const q = executeBuy(s, a.region, a.good, want);
-      if (!q.qty) return fail(q.limitedBy ?? 'Could not buy.');
+      const quote=quoteBuy(s,a.region,a.good,want);
+      if (!quote.qty) return fail(quote.limitedBy ?? 'Could not buy.');
+      if (quote.net > s.cash) return fail(`This order costs $${quote.net.toFixed(2)}, including haulage.`);
+      const q = executeBuy(s, a.region, a.good, quote.qty);
       return ok(want < qty ? 'Limited by storage space.' : q.limitedBy);
     }
     case 'buyPlot': {
@@ -280,25 +509,47 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       if (n >= CONFIG.homePlots) return fail('No more small plots for sale — buy larger parcels instead.');
       const price = homePlotPrice(s);
       if (price > s.cash) return fail(`Need $${price.toLocaleString()} to buy another hectare.`);
+      const room = canPlaceNew(s, 'heartland', { w: plotSide(1), d: plotSide(1) }, a.at, 'field');
+      if (room) return fail(room);
       post(s, 'land', -price, `Field plot (1 ha)`);
       const f = newField(s, 'heartland', 1, price);
       s.fields.push(f);
+      placeNew(s, 'heartland', `field:${f.id}`, a.at);
       s.regions.heartland.homePlotsBought++;
       log(s, 'info', `Bought field ${f.id} for $${price.toLocaleString()}.`, 'fields');
       return ok();
     }
     case 'buyParcel': {
-      if (s.era < 3) return fail('Parcels become available in the Mechanization era.');
+      if (!(s.legacyProgression ? s.era >= 3 : stageAtLeast(s, 'farm-business'))) return fail('Larger parcels arrive with your farm workforce.');
       if (!s.regions[a.region].unlocked) return fail('Expand into this region first.');
       if (!CONFIG.parcelSizes.includes(a.ha)) return fail('Invalid parcel size.');
       const price = parcelPrice(s, a.region, a.ha);
       if (price > s.cash) return fail(`A ${a.ha} ha parcel costs $${price.toLocaleString()}.`);
+      const room = canPlaceNew(s, a.region, { w: plotSide(a.ha), d: plotSide(a.ha) }, a.at, 'field');
+      if (room) return fail(room);
       post(s, 'land', -price, `${a.ha} ha parcel`, a.region);
       const f = newField(s, a.region, a.ha, price);
       s.fields.push(f);
+      placeNew(s, a.region, `field:${f.id}`, a.at);
       s.regions[a.region].parcelsBought++;
       log(s, 'info', `Bought a ${a.ha} ha parcel in ${REGIONS[a.region].name} (field ${f.id}).`, 'fields');
       return ok();
+    }
+    case 'convertField': {
+      const f = field(s, a.fieldId);
+      if (!f) return fail('No such field.');
+      const q = convertQuote(s, f);
+      if (q.why) return fail(q.why);
+      if (q.price > s.cash) return fail(`Converting it costs $${q.price.toLocaleString()}.`);
+      const w = worldOf(s, f.region), at = w.pos[`field:${f.id}`];
+      if (!at) return fail('That field is not on the map.');
+      const id = nextId(s), grows = q.grows === 'greens' ? undefined : q.grows;
+      s.buildings.push({ id, type: 'verticalFarm', region: f.region, span: [q.side, q.side], ha: f.ha, ...(grows ? { grows } : {}), ...(f.supplies ? { supplies: f.supplies } : {}), active: true, level: 1, cost: q.price + f.cost, depreciated: 0, util: 0, reserved: 0, reason: '', productionReport: emptyProductionReport(), stats: { out: 0, inCost: 0, outValue: 0, opCost: 0 } });
+      post(s, 'building', -q.price, `Field ${f.id} → ${FRUIT_CROPS.includes(q.grows) ? 'fruit house' : 'vertical farm'}`, f.region, 'processing');
+      s.fields.splice(s.fields.indexOf(f), 1);
+      forget(s, f.region, `field:${f.id}`);
+      w.pos[`b:${id}`] = [at[0], at[1]]; touch(w); connect(s, f.region, `b:${id}`);
+      return ok(`Field ${f.id} is now a ${FRUIT_CROPS.includes(q.grows) ? 'fruit house' : 'vertical farm'} on the same ${q.side}×${q.side} ground, growing ${GOODS[q.grows].name.toLowerCase()}: ${q.area} ha of crops under lights. Upgrades add floors.`);
     }
     case 'sellField': {
       const f = field(s, a.fieldId);
@@ -307,30 +558,38 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       const value = Math.round(f.cost * 0.85);
       post(s, 'assetSale', value, `Sold field ${f.id}`, f.region);
       s.fields.splice(s.fields.indexOf(f), 1);
+      forget(s, f.region, `field:${f.id}`);
+      // A sold 1 ha home plot goes back on the market (re-buying costs at least what was paid; sales return 85%).
+      if (f.region === 'heartland' && f.ha === 1) s.regions.heartland.homePlotsBought = Math.max(1, s.regions.heartland.homePlotsBought - 1);
       return ok(`Sold for $${value.toLocaleString()}.`);
     }
     case 'hire': {
-      if (s.era < 2) return fail('Workers arrive in Era 2.');
+      if (!featureEra(s, 2)) return fail('Workers arrive when you start the Farm Business chapter.');
       if (!s.regions[a.region].unlocked) return fail('Expand into this region first.');
-      if (a.role === 'manager' && s.era < 3) return fail('Managers become available in Era 3.');
+      if (a.region === 'heartland' && communityOf(s).active && recruitableResidents(s,a.wageFactor) < 1) return fail('No unemployed adults are available. Offer 1.1× pay to attract an employed neighbour, or make room for more families.');
+      if (a.role === 'manager' && !(s.legacyProgression ? s.era >= 3 : stageAtLeast(s, 'farm-business'))) return fail('Managers arrive with the Farm Business chapter.');
       const c = hireCost(s, a.region);
       if (c > s.cash) return fail(`Recruiting costs $${c}.`);
+      if(a.region==='heartland'&&communityOf(s).active&&availableResidents(s)<1&&!releaseNeighbourJob(s))return fail('No employed resident can move into this job.');
       post(s, 'training', -c, 'Recruitment', a.region);
       const w = hire(s, a.region, a.role, a.wageFactor);
+      w.resident = a.region === 'heartland' && communityOf(s).active;
       log(s, 'info', `Hired ${w.name} as a ${a.role === 'hand' ? 'farm hand' : 'farm manager'} in ${REGIONS[a.region].name}.`, 'workers');
       return ok();
     }
     case 'fire': {
       const w = s.workers.find((x) => x.id === a.workerId);
       if (!w) return fail('No such worker.');
-      post(s, w.role === 'manager' ? 'salaries' : 'wages', -wageOf(s, w) * 12, `Severance: ${w.name}`, w.region);
+      const severance = round2(wageOf(s, w) * 12);
+      post(s, w.role === 'manager' ? 'salaries' : 'wages', -severance, `Severance: ${w.name}`, w.region);
+      if (w.resident) payHouseholds(s, severance);
       s.workers.splice(s.workers.indexOf(w), 1);
       for (const m of s.machines) if (m.driver === w.id) m.driver = null;
       for (const o of s.workers) if (o.region === w.region) o.morale = clamp(o.morale - 0.05, 0, 1);
       return ok();
     }
     case 'setAdvisor': {
-      if (a.on && s.era < 2) return fail('A farm advisor is available from Era 2.');
+      if (a.on && !featureEra(s, 2)) return fail('A farm advisor is available from the Farm Business chapter.');
       s.advisor = a.on;
       log(s, 'info', a.on ? 'Hired a farm advisor. They will read your books and point out what costs you money.' : 'Let the farm advisor go.', 'workers');
       return ok();
@@ -356,7 +615,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
     case 'buyMachine': {
       const d = MACHINES[a.machine];
       if (!d) return fail('Unknown machine.');
-      if (s.era < d.minEra) return fail('Not available yet.');
+      if (!featureEra(s, d.minEra)) return fail('Not available yet.');
       if (d.research && !has(s, d.research)) return fail(`Requires research: ${TECH[d.research].name}.`);
       if (d.crops && !d.crops.some((c) => s.unlockedCrops.includes(c))) return fail(`Grow ${d.crops.map((c) => GOODS[c].name.toLowerCase()).join(' or ')} first.`);
       if (!s.regions[a.region].unlocked) return fail('Expand into this region first.');
@@ -366,10 +625,18 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       s.machines.push({ id: nextId(s), type: a.machine, region: a.region, condition: 1, hours: 0, util: 0, task: 0, tier: 1, broken: false, leased: a.lease, cost: a.lease ? 0 : price, depreciated: 0, usedThisTick: false, driver: null });
       return ok();
     }
+    case 'sellIdleMachines': {
+      const ids = new Set(a.machineIds);
+      const candidates = s.machines.filter(m => ids.has(m.id));
+      if (!ids.size || candidates.length !== ids.size || candidates.some(m => !idleMachine(m))) return fail('The fleet changed. Review idle machines again.');
+      for (const m of candidates) post(s, 'assetSale', machineSaleValue(m), `Sold idle ${MACHINES[m.type].name}`, m.region);
+      s.machines = s.machines.filter(m => !ids.has(m.id));
+      return ok();
+    }
     case 'sellMachine': {
       const m = s.machines.find((x) => x.id === a.machineId);
       if (!m) return fail('No such machine.');
-      if (!m.leased) post(s, 'assetSale', Math.round(Math.max(0, m.cost - m.depreciated) * 0.8 * (m.broken ? 0.5 : 1)), `Sold ${MACHINES[m.type].name}`, m.region);
+      if (!m.leased) post(s, 'assetSale', machineSaleValue(m), `Sold ${MACHINES[m.type].name}`, m.region);
       s.machines.splice(s.machines.indexOf(m), 1);
       return ok(m.leased ? 'Lease returned.' : undefined);
     }
@@ -380,31 +647,381 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       service(s, m);
       return ok();
     }
+    case 'setGrows': {
+      const b = s.buildings.find((x) => x.id === a.buildingId);
+      if (!b || b.type !== 'verticalFarm') return fail('Only a vertical farm can change what it grows.');
+      if (!growsHere(s, b, a.grows)) return fail(isFruitHouse(b) ? 'A fruit house grows apples or grapes.' : 'A vertical farm grows greens, grain, potatoes, soybeans or rice you have unlocked.');
+      if (a.grows === 'greens') delete b.grows; else b.grows = a.grows;
+      if (b.supplies !== undefined) { const m = s.buildings.find((x) => x.id === b.supplies); if (!m || factoryCrop(m) !== a.grows) delete b.supplies; } // a new crop its house doesn't take ends the link
+      return ok(`It now grows ${GOODS[a.grows].name.toLowerCase()}.`);
+    }
+    case 'addAnother': {
+      const plan = anotherOf(s, a.key);
+      if (!plan) return fail('This one cannot be copied.');
+      const trial = runAnother(structuredClone(s), plan, a.at, a.rot); // all or nothing: rehearse on a copy first
+      return trial.ok ? runAnother(s, plan, a.at, a.rot) : trial;
+    }
     case 'build': {
       const d = BUILDINGS[a.building];
       if (!d) return fail('Unknown building.');
-      if (s.era < d.minEra) return fail('Not available yet.');
+      if (!featureEra(s, d.minEra)) return fail('Not available yet.');
       if (d.research && !has(s, d.research)) return fail(`Requires research: ${TECH[d.research].name}.`);
       if (!s.regions[a.region].unlocked) return fail('Expand into this region first.');
+      if (a.building === 'oilWell') return fail('Oil wells are found by drilling: use the oil survey on the map.');
+      if (a.building === 'verticalFarm') return fail('Vertical farms are made from fields: convert an intensive (level 3) field from its card.');
+      if (a.building === 'oilTank' && !oilOpen(s)) return fail('Oil tanks open with oil: get two production houses working first.');
+      const greenBuild = a.building === 'solar' || a.building === 'windTurbine' || a.building === 'biogas';
       const gate = BUILDING_GATE[a.building];
       if (gate && !known(s, gate)) return fail('Not available yet.');
-      if (a.building === 'cowshed' && s.era < 3) return fail('Cowsheds arrive with mechanisation (Era 3).');
+      if (a.building === 'cowshed' && !(s.legacyProgression ? s.era >= 3 : stageAtLeast(s, 'farm-business'))) return fail('Cowsheds arrive with the Farm Business chapter.');
       const n = a.count ?? 1;
       if (!Number.isInteger(n) || n < 1 || n > 50) return fail('Build between 1 and 50 at a time.');
       const price = buildingPrice(s, a.building, a.region);
       if (price * n > s.cash) return fail(`Costs $${(price * n).toLocaleString()}.`);
+      if (a.at && n > 1) return fail('Place buildings one at a time.');
+      const [fw, fd] = FOOTPRINT[a.building];
+      const room = canPlaceNew(s, a.region, { w: fw, d: fd }, a.at, buildingUse(s, a.building), a.rot);
+      if (room) return fail(room);
+      let built = 0;
       for (let i = 0; i < n; i++) {
+        const id = nextId(s);
+        s.buildings.push({ id, type: a.building, region: a.region, active: true, level: 1, cost: price, depreciated: 0, util: 0, reserved: 0, reason: '', productionReport: emptyProductionReport(), stats: { out: 0, inCost: 0, outValue: 0, opCost: 0 } });
+        const placed = placeNew(s, a.region, `b:${id}`, a.at, a.rot);
+        if (placed) { s.buildings.pop(); if (!i) return fail(placed); log(s, 'warning', `Only ${i} ${d.name.toLowerCase()}s fitted. Clear forest to make room for more.`, 'farm'); break; }
         post(s, 'building', -price, d.name, a.region);
-        s.buildings.push({ id: nextId(s), type: a.building, region: a.region, active: true, level: 1, cost: price, depreciated: 0, util: 0, reserved: 0, reason: '', stats: { out: 0, inCost: 0, outValue: 0, opCost: 0 } });
+        built++;
       }
-      log(s, 'info', `Built ${n > 1 ? `${n} ${d.name.toLowerCase()}s` : `a ${d.name.toLowerCase()}`} in ${REGIONS[a.region].name}.`, BUILDINGS[a.building].category === 'storage' ? 'storage' : 'production');
+      log(s, 'info', `Built ${built > 1 ? `${built} ${d.name.toLowerCase()}s` : `a ${d.name.toLowerCase()}`} in ${REGIONS[a.region].name}.`, BUILDINGS[a.building].category === 'storage' ? 'storage' : 'production');
+      if (greenBuild) lean(s, 'cleanIndustrial', -6 * built); // clean energy pulls the farm's character green
+      if (a.building === 'refinery') lean(s, 'cleanIndustrial', 15 * built); // and a refinery pulls it hard the other way
+      return ok(s.buildings.slice(-built).map((b) => accessNote(s, a.region, `b:${b.id}`)).find(Boolean));
+    }
+    case 'moveObject': {
+      if (!s.regions[a.region]?.unlocked) return fail('You have no operations there.');
+      const w = worldOf(s, a.region);
+      if (!w.pos[a.key]) return fail('Nothing to move.');
+      const was = a.key.startsWith('field:') ? 0 : rotOf(s, a.key), rot = a.key.startsWith('field:') ? 0 : (((a.rot ?? was) % 4) + 4) % 4;
+      const now = footprintOf(s, a.key), fp = now && turned(now, (rot - was + 4) % 4); // the footprint it will have, turned as asked
+      if (!fp || !Array.isArray(a.at) || a.at.length !== 2) return fail('Choose where to move it.');
+      const [kind, id] = a.key.split(':');
+      if (kind === 'b' && s.buildings.find((x) => x.id === +id)?.type === 'oilWell') return fail('An oil well stays where it was drilled: demolish it and drill a new one instead.');
+      const problem = placeProblem(s, a.region, a.at[0], a.at[1], fp, a.key);
+      if (problem) return fail(PROBLEM_TEXT[problem]);
+      const fee = moveFee(s, a.region, a.key);
+      if (fee > s.cash) return fail(`Moving costs $${fee.toLocaleString()}.`);
+      post(s, 'maintenance', -fee, 'Moving on the farm', a.region);
+      w.pos[a.key] = [a.at[0], a.at[1]];
+      if (rot) (w.rot ??= {})[a.key] = rot; else if (w.rot) delete w.rot[a.key];
+      unlink(s, a.region, a.key); // the old track goes, a new one comes
+      connect(s, a.region, a.key);
+      const b = kind === 'b' ? s.buildings.find((x) => x.id === +id) : undefined;
+      if (b) b.movedUntil = s.tick + MOVE_DOWNTIME;
+      return ok(accessNote(s, a.region, a.key) ?? (b ? `Moved. It restarts in ${MOVE_DOWNTIME} hours.` : 'Moved.'));
+    }
+    case 'surveyOil': {
+      if (!oilOpen(s)) return fail(s.legacyProgression || !stageAtLeast(s, 'industry') ? 'Oil exploration opens with Industry.' : 'Oil comes after your production houses: get two of them working first.');
+      if (!s.regions[a.region]?.unlocked) return fail('You have no operations there.');
+      if (!Array.isArray(a.at) || a.at.length !== 2) return fail('Choose where to survey.');
+      if (surveyedAt(s, a.region, a.at[0], a.at[1])) return fail('That ground is already surveyed: pick an area outside the last survey.');
+      const cost = Math.round(SURVEY_PRICE * s.macro.cpi);
+      if (cost > s.cash) return fail(`A geological survey costs $${cost.toLocaleString()}.`);
+      post(s, 'research', -cost, `Geological survey: ${REGIONS[a.region].name}`, a.region, 'energy');
+      ((oilOf(s).surveys[a.region] ??= [])).push([Math.round(a.at[0]), Math.round(a.at[1])]);
+      return ok(`The survey is in for ${SURVEY_R * 2} tiles around that spot. Readings are rough: warmer ground is likelier, but not certain.`);
+    }
+    case 'drillOil': {
+      if (!oilOpen(s)) return fail(s.legacyProgression || !stageAtLeast(s, 'industry') ? 'Oil exploration opens with Industry.' : 'Oil comes after your production houses: get two of them working first.');
+      const at = a.at, problem = placeProblem(s, a.region, at[0], at[1], { w: 2, d: 2 }, undefined, s.legacyProgression ? 'building' : 'industry');
+      if (problem) return fail(PROBLEM_TEXT[problem]);
+      const cost = Math.round(DRILL_PRICE * s.macro.cpi);
+      if (cost > s.cash) return fail(`Drilling costs $${cost.toLocaleString()}.`);
+      post(s, 'building', -cost, 'Exploration well', a.region, 'energy');
+      if (random(s) < oilChance(a.region, at[0] + 1, at[1] + 1)) {
+        const id = nextId(s);
+        s.buildings.push({ id, type: 'oilWell', region: a.region, active: true, level: 1, cost, depreciated: 0, util: 0, reserved: 0, reason: '', productionReport: emptyProductionReport(), stats: { out: 0, inCost: 0, outValue: 0, opCost: 0 } });
+        placeNew(s, a.region, `b:${id}`, at);
+        { const f = wellField(s, s.buildings.at(-1)!); if (f) oilOf(s).struck![`${a.region}:${f.i}`] = s.tick; } // land near it is in demand again
+        log(s, 'opportunity', 'Oil! The exploration well struck crude. It now pumps oil you can sell at the market.', 'production');
+        lean(s, 'cleanIndustrial', 10); // an oil town now
+        return ok('🛢 Strike! The well is pumping crude oil.');
+      }
+      ((oilOf(s).dry[a.region] ??= [])).push([at[0], at[1]]);
+      return ok('Dry hole: no oil here. Survey readings are rough; strong ground is the better bet.');
+    }
+    case 'buyHorseCart': {
+      if (!usesCarts(s, 'heartland')) return fail('Carts carry goods to the market from Market Town on.');
+      const price = Math.round(VEHICLES.horse.price * s.macro.cpi);
+      if (price > s.cash) return fail(`A horse cart costs $${price.toLocaleString()}.`);
+      post(s, 'machine', -price, 'Horse cart', 'heartland', 'logistics');
+      haulOf(s).horses++;
+      return ok(`A horse cart joins the dog cart: ${VEHICLES.horse.cap} units a trip, half again as fast.`);
+    }
+    case 'setAutoRoads': {
+      if (a.on) delete s.autoRoads; else s.autoRoads = false;
+      return ok(a.on ? 'New, moved and upgraded buildings get a dirt track to the nearest road.' : 'No more automatic tracks: draw a road to each new building yourself, or it stands idle.');
+    }
+    case 'sellHorseCart': {
+      const H = haulOf(s);
+      if (!H.horses) return fail('You have no horse carts.');
+      const busy = new Set(H.trips.filter((t) => t.back > s.tick).map((t) => t.vehicle));
+      let k = -1;
+      for (let i = H.horses - 1; i >= 0 && k < 0; i--) if (!busy.has(`horse:${i}`)) k = i;
+      if (k < 0) return fail('Every horse cart is on the road: sell one when it is back in the yard.');
+      const last = `horse:${H.horses - 1}`;
+      for (const t of H.trips) if (t.vehicle === last) t.vehicle = `horse:${k}`; // carts are numbered: the one still on the road takes the sold one's number
+      H.horses--;
+      const value = horseCartValue(s);
+      post(s, 'assetSale', value, 'Sold a horse cart', 'heartland', 'logistics');
+      return ok(`Sold a horse cart for $${value.toLocaleString()}. ${H.horses ? `${H.horses} left` : 'The dog cart carries on alone'}.`);
+    }
+    case 'farmSupplies': {
+      const v = s.buildings.find((x) => x.id === a.farmId);
+      if (!v || v.type !== 'verticalFarm') return fail('Only a vertical farm can supply a production house.');
+      if (a.buildingId === null) { delete v.supplies; return ok('It grows for the market again.'); }
+      const b = s.buildings.find((x) => x.id === a.buildingId), c = b ? factoryCrop(b) : null;
+      if (!b || !c) return fail('That building does not take a crop.');
+      if (b.region !== v.region) return fail('A vertical farm supplies production houses in its own region.');
+      if (!growsHere(s, v, c)) return fail(isFruitHouse(v) ? `A fruit house grows apples or grapes, not ${GOODS[c].name.toLowerCase()}.` : `A vertical farm can't grow ${GOODS[c].name.toLowerCase()}: greens, grain, potatoes, soybeans or rice only.`);
+      v.supplies = b.id;
+      v.grows = c; // it grows what the house takes
+      return ok(`It now grows ${GOODS[c].name.toLowerCase()} for the ${BUILDINGS[b.type].name.toLowerCase()}.`);
+    }
+    case 'buildRoad': {
+      if (!s.regions[a.region]?.unlocked) return fail('You have no operations there.');
+      const lanes = Math.max(1, Math.min(5, Math.round(a.lanes ?? 1))), tiles = wideRoadRoute(s, a.region, a.from, a.to, lanes);
+      if (!tiles) return fail(groundProblem(s, a.region, a.to[0], a.to[1], 'road') ?? (lanes > 1 ? `A ${lanes}-lane road cannot fit there: it needs open cleared land of yours ${lanes} tiles wide all the way.` : 'No way through: buildings, fields, water or trees block every path. Try a point in between. A bridge must cross the river straight, from bank to bank.'));
+      if (!tiles.length) return fail('There is already a road all the way.');
+      const grade = buildAs(s, 'road'), cost = Math.round(roadBuildPrice(s, grade) * tiles.length * 100) / 100;
+      if (cost > s.cash) return fail(`That road costs $${cost.toLocaleString()}.`);
+      post(s, 'building', -cost, `${ROAD_GRADES[grade]} (${tiles.length} tiles)`, a.region);
+      const w = worldOf(s, a.region);
+      for (const [x, y] of tiles) w.roads[tileId(x, y)] = grade;
+      touch(w);
       return ok();
+    }
+    case 'buildBridge': {
+      if (!s.regions[a.region]?.unlocked) return fail('You have no operations there.');
+      const plan = bridgePlan(s, a.region, a.at, Math.max(1, Math.min(5, Math.round(a.lanes ?? 1))));
+      if ('error' in plan) return fail(plan.error);
+      const grade = 1, cost = Math.round(roadBuildPrice(s, grade) * BRIDGE_COST * plan.tiles.length); // every bridge starts as timber, like the main road's; upgrade it to stone or concrete
+      if (cost > s.cash) return fail(`A ${BRIDGE_GRADES[grade].toLowerCase()} here costs $${cost.toLocaleString()}.`);
+      post(s, 'building', -cost, `${BRIDGE_GRADES[grade]} (${plan.tiles.length} tiles)`, a.region);
+      const w = worldOf(s, a.region);
+      for (const id of plan.tiles) w.roads[id] = grade;
+      touch(w);
+      return ok(`${BRIDGE_GRADES[grade]} built: draw a road to each end.`);
+    }
+    case 'buildPipe': {
+      if (!s.regions[a.region]?.unlocked) return fail('You have no operations there.');
+      const net = a.net ?? 'irrigation', name = NET_TIERS[net][1].toLowerCase(), tiles = pipeRoute(s, a.region, a.from, a.to, net);
+      if (!tiles) return fail(`A ${name} cannot get there: keep to your own cleared land and go around buildings.`);
+      if (!tiles.length) return fail('There is already a line all the way.');
+      const tier = lineBuildTier(s, net), cost = lineBuildPrice(s, net, tier) * tiles.length;
+      if (cost > s.cash) return fail(`That ${name} costs $${cost.toLocaleString()}.`);
+      post(s, net === 'irrigation' ? 'irrigation' : 'building', -cost, `${NET_TIERS[net][tier]} (${tiles.length} tiles)`, a.region);
+      const w = worldOf(s, a.region), own = linesOf(w, net);
+      for (const [x, y] of tiles) own[tileId(x, y)] = tier;
+      touch(w);
+      return ok();
+    }
+    case 'upgradePipe': {
+      const net = a.net ?? 'irrigation', top = NET_TOP[net], w = worldOf(s, a.region), own = linesOf(w, net), run = pipeStretch(w, a.at[0], a.at[1], net);
+      if (!run.length) return fail('There is no line there.');
+      const tier = Math.min(top, Math.min(...run.map((id) => own[id])) + 1), todo = run.filter((id) => own[id] < tier);
+      if (!todo.length) return fail(`This line is already ${NET_TIERS[net][top].toLowerCase()}.`);
+      const cost = Math.round(NET_PRICE[net][tier] * s.macro.cpi * todo.length);
+      if (cost > s.cash) return fail(`Upgrading it costs $${cost.toLocaleString()}.`);
+      post(s, net === 'irrigation' ? 'irrigation' : 'building', -cost, `${NET_TIERS[net][tier]} (${todo.length} tiles)`, a.region);
+      for (const id of todo) own[id] = tier;
+      touch(w);
+      if (net !== 'irrigation') return ok(`${todo.length} tiles are now ${NET_TIERS[net][tier].toLowerCase()}${tier === top ? ': the land is free to build on' : ''}.`);
+      return ok(`${todo.length} tiles are now ${tier === 3 ? 'buried pipe: the land is free to build on' : 'pipe'}, and fields fed only through it are kept at ${Math.round(WATER_LEVEL[tier] * 100)}% moisture.`);
+    }
+    case 'upgradeAllLines': {
+      const w = worldOf(s, a.region), nets = a.nets.filter((n) => n === 'road' || n in NET_TOP), { cost, tiles } = upgradeAllPlan(s, w, nets, a.region);
+      if (!tiles) return fail(nets.includes('road') ? 'Every road is already paved.' : 'Every line is already at its best.');
+      if (cost > s.cash) return fail(`Upgrading every line costs $${cost.toLocaleString()}.`);
+      post(s, nets.includes('irrigation') ? 'irrigation' : 'building', -cost, `Upgraded ${tiles} line tiles`, a.region);
+      for (const net of nets) { const own = lineTiles(w, net); for (const id in own) if (own[id] < lineTop(net)) own[id]++; }
+      touch(w);
+      return ok(`${tiles} tiles upgraded one step.`);
+    }
+    case 'removePipe': {
+      const net = a.net ?? 'irrigation', w = worldOf(s, a.region), run = pipeStretch(w, a.at[0], a.at[1], net);
+      if (!run.length) return fail('There is no line there.');
+      if (net !== 'irrigation') { const own = linesOf(w, net); for (const id of run) Reflect.deleteProperty(own, id); touch(w); return ok(`Removed ${run.length} tiles of ${NET_TIERS[net][1].toLowerCase()}. Homes beyond it lose the service.`); }
+      const wet = (f: { id: number; region: RegionId; irrigated: boolean }) => f.region === a.region && f.irrigated && hasWater(s, a.region, `field:${f.id}`);
+      const before = s.fields.filter(wet).map((f) => f.id);
+      for (const id of run) Reflect.deleteProperty(w.canals, id);
+      touch(w);
+      const dry = before.filter((id) => !wet(s.fields.find((f) => f.id === id)!));
+      return ok(`Removed ${run.length} tiles of water line.${dry.length ? ` ${dry.length === 1 ? `Field ${dry[0]} has` : `${dry.length} fields have`} no water now: dig a new ditch to the river.` : ''}`);
+    }
+    case 'removeRoad': {
+      const w = worldOf(s, a.region), stretch = roadPick(w, a.at, a.to);
+      if (!stretch.length) return fail(isRoad(a.at[1]) ? 'The main road stays.' : a.to ? 'Drag along one road, from one point of it to another.' : 'There is no road there.');
+      const lost = cutsOff(s, a.region, stretch);
+      for (const id of stretch) delete w.roads[id];
+      const gone = new Set(stretch);
+      for (const k in w.links) w.links[k] = w.links[k].filter((id) => !gone.has(id)); // the player's removal wins; never lift a later road in its place
+      touch(w);
+      return ok(`Removed ${stretch.length} tiles of road.${lost.length ? ` ${lost.length} building${lost.length === 1 ? '' : 's'} now ha${lost.length === 1 ? 's' : 've'} no road and will stop working.` : ''}`);
+    }
+    case 'upgradeRoad': {
+      const w = worldOf(s, a.region);
+      if (isRoad(a.at[1])) {
+        if (w.main >= 3) return fail('The main road is already paved.');
+        const cost = roadTilePrice(s, w.main + 1) * MAP.w * ROAD_H;
+        if (cost > s.cash) return fail(`Upgrading the main road costs $${cost.toLocaleString()}.`);
+        post(s, 'building', -cost, `Main road: ${ROAD_GRADES[w.main + 1].toLowerCase()}`, a.region);
+        w.main++;
+        return ok(`The main road is now a ${ROAD_GRADES[w.main].toLowerCase()}.`);
+      }
+      const span = bridgeAt(s, a.region, a.at), stretch = span.length ? span : roadPick(w, a.at, a.to);
+      if (!stretch.length) return fail(a.to ? 'Drag along one road, from one point of it to another.' : 'There is no road there.');
+      const grade = Math.min(3, Math.min(...stretch.map((id) => w.roads[id])) + 1), todo = stretch.filter((id) => w.roads[id] < grade), names = span.length ? BRIDGE_GRADES : ROAD_GRADES;
+      if (!todo.length) return fail(span.length ? 'This bridge is already concrete.' : 'This road is already paved.');
+      const cost = Math.round(roadTilePrice(s, grade) * (span.length ? BRIDGE_COST : 1) * todo.length);
+      if (cost > s.cash) return fail(`Upgrading costs $${cost.toLocaleString()}.`);
+      post(s, 'building', -cost, `${names[grade]} (${todo.length} tiles)`, a.region);
+      for (const id of todo) w.roads[id] = grade;
+      touch(w);
+      return ok(span.length ? `Now a ${names[grade].toLowerCase()}: it carries ${grade === 3 ? 'the heaviest traffic' : 'more traffic'}.` : `Upgraded ${todo.length} tiles to ${names[grade].toLowerCase()}.`);
+    }
+    case 'zoneLand': {
+      if (!s.regions[a.region]?.unlocked) return fail('You have no operations there.');
+      const w = worldOf(s, a.region), owned = ownedSet(w), chunks = [...new Set(a.chunks)].filter((c) => Number.isInteger(c) && owned.has(c));
+      if (!chunks.length) return fail('You can only zone land you own.');
+      // nothing may be left standing in the wrong zone
+      const blocked = new Set<number>();
+      for (const p of placedIn(s, a.region)) { const use = useOf(p.key, s); if (use && !(a.zone === 'res' ? use === 'home' : a.zone === 'com' ? use === 'shop' : a.zone === 'ind' ? use === 'building' || use === 'industry' : use === 'field' || use === 'building')) for (const c of chunksIn(p.x, p.y, p.w, p.d)) blocked.add(c); }
+      const free = chunks.filter((c) => !blocked.has(c)), skipped = chunks.length - free.length;
+      if (!free.length) return fail(a.zone === 'com' ? 'Homes, fields or farm buildings stand there: commercial land is for shops and offices.' : a.zone === 'res' ? 'Fields and farm buildings stand there: residential land is for homes only.' : a.zone === 'farm' ? 'Homes, shops or industrial plants stand there: move them before turning the land back to farmland.' : 'Fields or homes stand there: industrial land is for plants and stores.');
+      for (const c of free) { if (a.zone === 'farm') delete w.zones[c]; else w.zones[c] = a.zone; }
+      touch(w);
+      return ok(skipped ? `${free.length} patch${free.length === 1 ? '' : 'es'} zoned; ${skipped} skipped where something of the wrong kind stands.` : undefined);
+    }
+    case 'buyLand': {
+      if (!s.regions[a.region]?.unlocked) return fail('You have no operations there.');
+      if (!Array.isArray(a.chunks) || a.chunks.length > 25) return fail('Buy at most 25 patches at a time.');
+      const w = worldOf(s, a.region), chunks = buyable(w, [...new Set(a.chunks)].filter(Number.isInteger));
+      if (!chunks.length) return fail('Land you buy must join land you already own or the main road.');
+      const cost = landCostOf(s, a.region, chunks); // land near struck oil costs more
+      if (cost > s.cash) return fail(`That land costs $${cost.toLocaleString()}.`);
+      post(s, 'land', -cost, `Land: ${chunks.length} patch${chunks.length === 1 ? '' : 'es'} (${chunks.length * LAND_HA_PER_PATCH} ha)`, a.region);
+      own(w, chunks);
+      return ok(`Bought ${chunks.length * LAND_HA_PER_PATCH} ha. Clear the forest on it to farm or build.`);
+    }
+    case 'clearForest': {
+      if (!s.regions[a.region]?.unlocked) return fail('You have no operations there.');
+      const w = worldOf(s, a.region), set = clearedSet(w), queued = new Set(w.queue.map((j) => j.chunk));
+      const owned = ownedSet(w), chunks = [...new Set(a.chunks)].filter((c) => Number.isInteger(c) && c >= 0 && c < CHUNKS_X * CHUNKS_Y && !set.has(c) && !queued.has(c) && owned.has(c));
+      if (!chunks.length) return fail(a.chunks.some((c) => !owned.has(c)) ? 'You can only clear forest on land you own.' : 'That forest is already cleared or being cleared.');
+      if (chunks.length > 25) return fail('Clear at most 25 patches at a time.');
+      const cost = clearCost(s) * chunks.length;
+      if (cost > s.cash) return fail(`Clearing costs $${cost.toLocaleString()}.`);
+      post(s, 'maintenance', -cost, `Forest clearing (${chunks.length} patch${chunks.length === 1 ? '' : 'es'})`, a.region);
+      for (const c of chunks) w.queue.push({ chunk: c, hours: CLEAR_HOURS });
+      return ok(`The crew will clear ${chunks.length} patch${chunks.length === 1 ? '' : 'es'} over about ${chunks.length * CLEAR_HOURS} hours and sell the timber.`);
+    }
+    case 'buildBelt': {
+      const tiles = beltRoute(s, a.region, a.from, a.to);
+      if (!tiles) return fail(groundProblem(s, a.region, a.to[0], a.to[1], 'belt') ?? groundProblem(s, a.region, a.from[0], a.from[1], 'belt') ?? 'No way through for a row of trees: roads, buildings or water cross the way. Plant it in shorter runs.');
+      if (!tiles.length) return fail('There are trees all the way already.');
+      const cost = Math.round(BELT_PRICE * s.macro.cpi * tiles.length);
+      if (cost > s.cash) return fail(`That tree line costs $${cost.toLocaleString()}.`);
+      post(s, 'building', -cost, `Tree line (${tiles.length} tiles)`, a.region);
+      const w = worldOf(s, a.region); w.belts ??= {};
+      for (const [x, y] of tiles) w.belts[tileId(x, y)] = 1;
+      touch(w);
+      return ok();
+    }
+    case 'removeBelt': {
+      const w = worldOf(s, a.region), run = beltStretch(w, a.at[0], a.at[1]);
+      if (!run.length) return fail('There is no tree line there.');
+      for (const id of run) delete w.belts![id];
+      touch(w);
+      return ok(`Felled ${run.length} tile${run.length === 1 ? '' : 's'} of trees.`);
+    }
+    case 'setBuildAs': {
+      if (!buildAsOpen(s)) return fail('Choosing what to build as comes with the City.');
+      if (!['road', 'line', 'service'].includes(a.what) || ![1, 2, 3].includes(a.level)) return fail('Choose level 1, 2 or 3.');
+      (s.buildAs ??= {})[a.what] = a.level;
+      return ok();
+    }
+    case 'setLayout': { // a merged building's shape: long (the two side by side) or square (the same ground, gathered up)
+      const b = s.buildings.find((x) => x.id === a.buildingId);
+      if (!b || (b.size ?? 1) < 2 || !b.span) return fail('Only merged buildings have a shape to switch.');
+      const key = `b:${b.id}`, w = worldOf(s, b.region), p = w.pos[key];
+      if (!p) return fail('It is not on the map.');
+      const long = longShape(b);
+      if (!hasShapes(long)) return fail('It is already square: there is no other shape to lay it out in.');
+      const turn = rotOf(s, key) % 2 === 1, now = footprintOf(s, key)!, sq = squareSpan(long);
+      const square = !isLong(b), shapes: [number, number][] = square ? [long, [long[1], long[0]]] : [sq, [sq[1], sq[0]]];
+      const before = structuredClone({ roads: w.roads, links: w.links });
+      // keep its corner if it can; else shift it as little as needed, within its old ground and a little beyond
+      const ring: [number, number][] = [];
+      for (let r = 0; r <= 3; r++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) if (Math.max(Math.abs(dx), Math.abs(dy)) === r) ring.push([dx, dy]);
+      let spot: [number, number] | null = null, lifted: string[] = [], next = shapes[0], fp = { w: 0, d: 0 };
+      find: for (const sh of shapes) { next = sh; fp = { w: turn ? sh[1] : sh[0], d: turn ? sh[0] : sh[1] };
+        const tries: [number, number][] = [[p[0], p[1]], [p[0] + now.w - fp.w, p[1]], [p[0], p[1] + now.d - fp.d], [p[0] + now.w - fp.w, p[1] + now.d - fp.d], ...ring.map(([dx, dy]) => [p[0] + dx, p[1] + dy] as [number, number])]; // a corner kept, then shifted a little
+        for (const [x, y] of tries) {
+          lifted = liftTracks(s, b.region, x, y, fp.w, fp.d);
+          if (!placeProblem(s, b.region, x, y, fp, key)) { spot = [x, y]; break find; }
+          Object.assign(w, structuredClone(before)); touch(w);
+        } }
+      if (!spot) return fail(`No room for it ${square ? 'long' : 'square'} (${fp.w}×${fp.d} tiles): clear the ground around it first.`);
+      b.longSpan = long; b.span = next; b.layout = isLong(b) ? 0 : 1;
+      w.pos[key] = spot; touch(w); connect(s, b.region, key); for (const k of lifted) if (w.pos[k] && k !== key) connect(s, b.region, k);
+      return ok(square ? `Laid out long: ${fp.w}×${fp.d} tiles.` : `Laid out square: ${fp.w}×${fp.d} tiles.`);
+    }
+    case 'mergeBuilding': {
+      const g = factoryMerge(s, a.buildingId);
+      if (!g) return fail('Only factories, animal houses, stores and power plants merge.');
+      if (!g.mate || !g.ready) return fail(`To merge, ${g.why}.`);
+      for (const x of [g.b, g.mate]) { const room = trafficRoom(s, x.region, `b:${x.id}`, 3); if (!room.ok) return fail(room.why); }
+      if (g.price > s.cash) return fail(`Merging costs $${g.price.toLocaleString()}.`);
+      const { b, mate } = g, w = worldOf(s, b.region), before = structuredClone({ pos: w.pos, rot: w.rot, roads: w.roads, links: w.links });
+      forget(s, b.region, `b:${b.id}`); forget(s, b.region, `b:${mate.id}`);
+      // the first spot that is clear once both are gone (tracks lifted), else the reason the first one is not
+      let lifted: string[] = [], blocked: ReturnType<typeof placeProblem> = 'occupied';
+      for (const sp of g.spots) { const snap = structuredClone({ roads: w.roads, links: w.links }); lifted = liftTracks(s, b.region, sp.origin[0], sp.origin[1], sp.span[0], sp.span[1]); const why = placeProblem(s, b.region, sp.origin[0], sp.origin[1], { w: sp.span[0], d: sp.span[1] }, undefined, buildingUse(s, b.type, 3)); if (!why) { g.origin = sp.origin; g.span = sp.span; blocked = null; break; } if (blocked === 'occupied') blocked = why; Object.assign(w, snap); touch(w); }
+      if (blocked) { Object.assign(w, before); touch(w); return fail(`No room for the ${g.into.toLowerCase()} (${g.span![0]}×${g.span![1]} tiles): ${blocked === 'road' ? 'a road' : blocked === 'zone' ? 'land of the wrong zone' : 'another building or field'} is in the way beside them. Clear the space between them, or beside one of them.`); }
+      post(s, 'building', -g.price, `${g.into} (two merged)`, b.region);
+      s.buildings.splice(s.buildings.indexOf(mate), 1);
+      for (const f of s.fields) if (f.supplies === mate.id) f.supplies = b.id;
+      for (const v of s.buildings) if (v.supplies === mate.id) v.supplies = b.id;
+      b.size = (b.size ?? 1) * 2; b.span = g.span; b.layout = 0; b.longSpan = undefined; b.cost = b.cost + mate.cost + g.price; b.depreciated += mate.depreciated; b.reserved = (b.reserved ?? 0) + (mate.reserved ?? 0);
+      w.pos[`b:${b.id}`] = g.origin!; touch(w); connect(s, b.region, `b:${b.id}`); for (const k of lifted) if (w.pos[k]) connect(s, b.region, k);
+      log(s, 'opportunity', STORE_OR_POWER.has(b.type) ? `${g.into} opened: ${b.size === 4 ? 'six' : 'two and a half'} buildings' worth on fewer hands.` : LIVESTOCK_HOUSE.has(b.type) ? `${g.into} opened: room for ${b.size === 4 ? 'six' : 'two and a half'} houses' worth of animals, looked after by fewer hands.` : `${g.into} opened: it does the work of ${b.size === 4 ? 'six' : 'two and a half'} factories on fewer hands.`, 'farm');
+      return ok(`🎉 ${g.into} opened!`);
+    }
+    case 'planPlacement': {
+      const q = planQuote(s, a.region, a.at, a.w, a.d, a.action);
+      if (!q.ok) return fail(q.error);
+      if (q.cost > s.cash) return fail(`Buying and clearing that land costs $${q.cost.toLocaleString()}.`);
+      const w = worldOf(s, a.region);
+      if (q.buy.length) { post(s, 'land', -landCostOf(s, a.region, q.buy), `Land: ${q.buy.length} patch${q.buy.length === 1 ? '' : 'es'} (${q.buy.length * LAND_HA_PER_PATCH} ha)`, a.region); own(w, q.buy); }
+      if (q.clear.length) { post(s, 'maintenance', -clearCost(s) * q.clear.length, `Forest clearing (${q.clear.length} patch${q.clear.length === 1 ? '' : 'es'})`, a.region); for (const c of q.clear) w.queue.push({ chunk: c, hours: CLEAR_HOURS }); }
+      if (q.zone) for (const c of q.chunks) if (!clearedSet(w).has(c) && !w.zones[c]) w.zones[c] = q.zone; // fresh land is zoned for what will stand on it
+      if (q.roads.length) { // take up the roads in the way, and lay fresh tracks for anything that used them
+        const gone = new Set(q.roads), hit = Object.keys(w.links).filter((k) => w.links[k].some((id) => gone.has(id)));
+        for (const id of q.roads) delete w.roads[id];
+        for (const k of hit) w.links[k] = w.links[k].filter((id) => !gone.has(id));
+        touch(w); for (const k of hit) if (w.pos[k]) connect(s, a.region, k);
+      }
+      if (!q.buy.length && !q.clear.length) { const res = dispatch(s, { ...a.action, at: a.at, ...(a.rot ? { rot: a.rot } : {}) } as Action); return res.ok ? ok(`Road taken up; ${a.label} placed.`) : res; } // nothing to wait for: place it now
+      (w.plans ??= []).push({ action: { ...a.action, at: a.at, ...(a.rot ? { rot: a.rot } : {}) } as Action, chunks: q.chunks, at: a.at, w: a.w, d: a.d, label: a.label });
+      touch(w);
+      return ok(`Land bought. Your ${a.label} goes up when the crew has cleared it, in about ${q.hours} hours.`);
     }
     case 'demolish': {
       const b = s.buildings.find((x) => x.id === a.buildingId);
       if (!b) return fail('No such building.');
       s.buildings.splice(s.buildings.indexOf(b), 1);
+      forget(s, b.region, `b:${b.id}`);
       for (const f of s.fields) if (f.supplies === b.id) (f.supplies = null), (f.planLocked = false);
+      for (const v of s.buildings) if (v.supplies === b.id) delete v.supplies;
       post(s, 'assetSale', Math.round(Math.max(0, b.cost - b.depreciated) * 0.5), `Sold ${BUILDINGS[b.type].name}`, b.region);
       // contents that no longer fit are sold or lost through the normal overflow rule
       for (const g of GOOD_IDS) {
@@ -422,12 +1039,12 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       return ok();
     }
     case 'ship': {
-      if (s.era < 6) return fail('Shipping opens with regional expansion.');
+      if (!featureEra(s, 6)) return fail('Shipping opens with regional expansion.');
       const e = shipGoods(s, a.good, Math.floor(a.qty), a.from, a.to, s.cash, !!a.sell);
       return e ? fail(e) : ok();
     }
     case 'takeLoan': {
-      if (s.era < 3) return fail('Banks lend from the Mechanization era.');
+      if (!featureEra(s, 3)) return fail('Banks lend from the Industry chapter.');
       if (![30, 120, 360].includes(a.termDays)) return fail('Invalid term.');
       if (a.amount <= 0) return fail('Enter an amount.');
       if (a.amount > creditLimit(s)) return fail(`Your credit limit is $${Math.floor(creditLimit(s)).toLocaleString()}.`);
@@ -445,7 +1062,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       return ok();
     }
     case 'openFutures': {
-      if (s.era < 5) return fail('Futures open in Era 5.');
+      if (!featureEra(s, 5)) return fail('Futures open in the Industry chapter.');
       if (!Number.isInteger(a.contracts) || a.contracts === 0) return fail('Enter a whole number of contracts.');
       if (![30, 60, 120].includes(a.days)) return fail('Invalid expiry.');
       const e = openFutures(s, a.good, a.contracts, a.days);
@@ -477,7 +1094,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       return ok(`Delivered ${Math.round(q)}.`);
     }
     case 'setInsurance': {
-      if (s.era < 5) return fail('Insurance arrives in Era 5.');
+      if (!featureEra(s, 5)) return fail('Insurance arrives in the Industry chapter.');
       const reg = s.regions[a.region];
       if (a.on && !reg.insured) reg.insuredFrom = s.tick + 10 * TICKS_PER_DAY;
       reg.insured = a.on;
@@ -490,12 +1107,13 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       return ok();
     }
     case 'unlockRegion': {
-      if (s.era < 6) return fail('Regional expansion opens in Era 6.');
+      if (!featureEra(s, 6)) return fail('Regional expansion opens in the Region chapter.');
       if (s.regions[a.region].unlocked) return fail('Already operating there.');
       const c = regionEntryCost(s);
       if (c > s.cash) return fail(`Setting up costs $${c.toLocaleString()} (permits, office, local bank).`);
       post(s, 'legal', -c, `Entry: ${REGIONS[a.region].name}`, a.region, 'corporate');
       s.regions[a.region].unlocked = true;
+      seedWorld(s, a.region);
       log(s, 'opportunity', `You now operate in ${REGIONS[a.region].name}. Buy land, hire locally and build storage there.`, 'world');
       return ok();
     }
@@ -529,7 +1147,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       return ok();
     }
     case 'incorporate': {
-      if (s.era < 7) return fail('Incorporation opens in Era 7.');
+      if (!featureEra(s, 7)) return fail('Incorporation opens in the City chapter.');
       if (s.corp.incorporated) return fail('Already incorporated.');
       const c = CONFIG.incorporateCost * s.macro.cpi;
       if (c > s.cash) return fail(`Legal costs are $${Math.round(c).toLocaleString()}.`);
@@ -570,7 +1188,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
     case 'diligence': {
       const c = s.competitors.find((x) => x.id === a.competitorId);
       if (!c || c.status === 'acquired') return fail('Not available.');
-      if (s.era < 7) return fail('Acquisitions open in Era 7.');
+      if (!featureEra(s, 7)) return fail('Acquisitions open in the City chapter.');
       if (c.diligence !== 'none') return fail('Due diligence already done.');
       const cost = diligenceCost(s, c);
       if (cost > s.cash) return fail(`Due diligence costs $${Math.round(cost).toLocaleString()}.`);
@@ -610,7 +1228,7 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       return e ? fail(e) : ok();
     }
     case 'buyAnimals': {
-      if (!known(s, a.animal === 'chickens' ? 'chickens' : 'livestock') || (a.animal === 'cows' && s.era < 3)) return fail('Not available yet.');
+      if (!known(s, a.animal === 'chickens' ? 'chickens' : 'livestock') || (a.animal === 'cows' && !(s.legacyProgression ? s.era >= 3 : stageAtLeast(s, 'farm-business')))) return fail('Not available yet.');
       if (!Number.isInteger(a.count) || a.count <= 0) return fail('Enter a number of animals.');
       const e = buyAnimals(s, a.region, a.animal, a.count);
       return e ? fail(e) : ok();
@@ -619,16 +1237,36 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       const e = sellAnimals(s, a.region, a.animal, Math.floor(a.count));
       return e ? fail(e) : ok();
     }
+    case 'consolidateRetail': {
+      if (!s.regions[a.region]?.unlocked) return fail('This region is not available.');
+      const centres=s.buildings.filter(b=>b.region===a.region&&b.type==='distribution'&&b.active);
+      const best=bestRetailCentre(centres);
+      if (!best || centres.length<2) return fail('There are no redundant running retail centres here.');
+      for(const centre of centres)if(centre!==best)centre.active=false;
+      return ok('The strongest retail channel stays open; redundant centres are paused.');
+    }
     case 'upgradeBuilding': {
       const b = s.buildings.find((x) => x.id === a.buildingId);
       if (!b) return fail('No such building.');
       if (!known(s, 'upgrades')) return fail('Upgrades are not available yet.');
-      if (b.level >= 3) return fail('Already at the highest level.');
+      if (b.level >= maxLevel(b.type)) return fail('Already at the highest level.');
+      { const room = trafficRoom(s, b.region, `b:${b.id}`, b.level + 1); if (!room.ok) return fail(room.why); }
+      if (buildingUse(s, b.type, b.level + 1) === 'industry' && placeProblem(s, b.region, ...(worldOf(s, b.region).pos[`b:${b.id}`] ?? [NaN, NaN]), footprintOf(s, `b:${b.id}`) ?? { w: 1, d: 1 }, `b:${b.id}`, 'industry') === 'zone')
+        return fail(`${BUILDINGS[b.type].name}s grow into ${INDUSTRY_TO_GROW.has(b.type) ? 'industrial plants' : 'bigger plants'} only on industrial land: zone the land under it industrial (🏘 Zones), or move it there.`);
       const cost = upgradeCost(s, b);
+      const power = upgradeNeedsPower(s, b);
+      if (power) return fail(`${BUILDINGS[b.type].name}s grow only on the farm's own power. ${power}`);
       if (cost > s.cash) return fail(`Upgrading costs $${Math.round(cost).toLocaleString()}.`);
-      post(s, 'building', -cost, `Upgrade ${BUILDINGS[b.type].name} to level ${b.level + 1}`, b.region);
-      b.level++;
+      const next = b.level + 1;
+      post(s, 'building', -cost, `Upgrade ${BUILDINGS[b.type].name} to level ${next}`, b.region, buildingDivision(b.type));
+      b.level = next;
       b.cost += cost;
+      // a bigger factory runs on whatever powers the farm, and that shapes its character
+      if (!s.legacyProgression && FOOD_FACTORY.has(b.type)) {
+        const m = energyMix(s), side = m.oil > m.clean ? 1 : m.clean > m.oil ? -1 : 0;
+        if (side) lean(s, 'cleanIndustrial', 4 * side);
+        return ok(`${BUILDINGS[b.type].name} is now level ${b.level}.${side > 0 ? ' It runs on your oil: the farm leans industrial.' : side < 0 ? ' It runs on clean power: the farm leans green.' : ''}`);
+      }
       return ok(`${BUILDINGS[b.type].name} is now level ${b.level}.`);
     }
     case 'upgradeMachine': {
@@ -661,8 +1299,21 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       const cost = greenhousePrice(s, ha);
       if (cost > s.cash) return fail(`Greenhouses for ${ha} ha cost $${Math.round(cost).toLocaleString()}.`);
       post(s, 'irrigation', -cost, `Greenhouse over ${ha} ha`, fs[0].region);
-      fs.forEach((f) => ((f.greenhouse = true), (f.cost += cost * (f.ha / ha))));
+      fs.forEach((f) => ((f.greenhouse = true), (f.cover = 2), (f.cost += cost * (f.ha / ha))));
       return ok();
+    }
+    case 'coverField': { // the next step up: tunnels, then glass, then hydroponics
+      const f = field(s, a.fieldId), next = f ? coverOf(f) + 1 : 9, def = COVERS[next];
+      if (!f) return fail('No such field.');
+      if (!known(s, 'frost')) return fail('Not available yet.');
+      if (!def) return fail('This field is already a hydroponic house.');
+      if (f.ha > def.maxHa) return fail(`${def.name} can only cover fields of ${def.maxHa} ha or less.`);
+      if (next === 3 && !known(s, 'upgrades')) return fail('Hydroponics comes once you can upgrade buildings.');
+      const cost = coverPrice(s, f);
+      if (cost > s.cash) return fail(`${def.name} for ${f.ha} ha costs $${cost.toLocaleString()}.`);
+      post(s, 'irrigation', -cost, `${def.name} over ${f.ha} ha`, f.region);
+      f.cover = next; f.greenhouse = next >= 2; f.cost += cost;
+      return ok(`Field ${f.id}: ${def.name.toLowerCase()} built.`);
     }
     case 'clearField': {
       const f = field(s, a.fieldId);
@@ -676,6 +1327,14 @@ export function dispatch(s: GameState, a: Action): ActionResult {
       else if (!s.seenTips.includes(a.tip)) s.seenTips.push(a.tip);
       return ok();
     }
+    case 'sellToMill': case 'barter': case 'haggle': case 'chooseCharter':
+      return fail('The village trader is not available in this chapter.');
+    case 'startNation': case 'launchCampaign': case 'trainArmy': case 'inviteAlly': case 'answerAid': case 'castVote': case 'setEmbargo': case 'hireSpies': case 'hireMercenaries': case 'mediate':
+    case 'startRegion': case 'setBorder': case 'setRoute': case 'giftNeighbour': case 'signTreaty': case 'resolveRaid': case 'answerDemand':
+    case 'startCity': case 'changePolice': case 'trainPolice': case 'setJustice': case 'resolveCityCase': case 'setGst': case 'mergeService': case 'demolishService': case 'setPark':
+    case 'startTown': case 'fundTown': case 'setTownTax': case 'buildService': case 'upgradeService': case 'toggleService': case 'changeSchools': case 'answerPetition':
+    case 'startSettlement': case 'buildHomes': case 'setLarder': case 'settleWorker': case 'setSettlementPay': case 'upgradeHome':
+      return fail('Community actions are not available here.');
   }
 }
 

@@ -1,14 +1,17 @@
+import { bestRetailCentre, retailChannel, retailRate, solarCapacity } from './facility-levels';
+import { cowshedAlternative } from './production-report';
+import { townIndustryFactor } from './town-state';
 // Production-line economics for the UI: one source of truth for what a group of same-type
 // facilities in a region earns per day, what pausing it really saves, the prices it needs
 // to break even, and whether upgrading would pay. Everything is valued at today's prices.
-import { ANIMALS, BUILDINGS, CONFIG, COWS_PER_DAIRY_BATCH, type BuildingType, type GoodId, type RegionId } from './config';
-import { buildingDivision, electricityPrice, execOn, has, levelMult, priceUsd } from './core';
+import { CROPS, BUILDINGS, CONFIG, COWS_PER_DAIRY_BATCH, REGIONS, SUNRISE, SUNSET, type BuildingType, type GoodId, type RegionId } from './config';
+import { buildingDivision, electricityPrice, execOn, has, levelMult, maxLevel, priceUsd, recipeOf, sizeStaff, throughput } from './core';
+import { expectedYield } from './agriculture';
 import { upgradeCost } from './engine';
-import { MANURE } from './livestock';
 import type { Building, GameState } from './types';
 
 /** One facility as the economics see it: its level and how many batches an hour it runs. */
-interface Unit { level: number; bph: number }
+interface Unit { level: number; bph: number; /** staff as a multiple of one plain building's (merged, or a big vertical farm) */ k?: number }
 
 export interface LineEcon {
   earn: number; inputs: number; staff: number; power: number;
@@ -22,7 +25,7 @@ export interface LineEcon {
   qty: Partial<Record<GoodId, number>>;
 }
 
-/** Average price over the last 24 hours: the cards value lines on it so one sale's dip doesn't flip them red. */
+/** Last24-hour prices for expansion forecasts; completed-day card reports are separate. */
 export function dayPrice(s: GameState, r: RegionId, g: GoodId) {
   const h = s.markets[r][g]?.history.slice(-24 / CONFIG.priceHistoryEvery);
   return h?.length ? h.reduce((a, x) => a + x, 0) / h.length : priceUsd(s, r, g);
@@ -38,8 +41,7 @@ function cowsheds(s: GameState, r: RegionId) {
   return { count: h?.count ?? 0, yieldK: h ? h.health * h.fed : 1 };
 }
 
-function econOf(s: GameState, t: BuildingType, r: RegionId, units: Unit[]): LineEcon {
-  const rec = BUILDINGS[t].recipe!;
+function econOf(s: GameState, t: BuildingType, r: RegionId, units: Unit[], rec = BUILDINGS[t].recipe!): LineEcon {
   const p = (g: GoodId) => dayPrice(s, r, g);
   const elec = electricityPrice(s, r);
   const batches = units.reduce((a, u) => a + u.bph, 0) * 24; // per day
@@ -51,24 +53,21 @@ function econOf(s: GameState, t: BuildingType, r: RegionId, units: Unit[]): Line
   const kwh = rec.kwh * kwhMult(s, rec.kwh) * batches;
   if (kwh < 0) earn += -kwh * elec;
   const power = Math.max(0, kwh) * elec;
-  const staff = units.reduce((a, u) => a + staffDay(s, t, u.level), 0);
+  const staff = units.reduce((a, u) => a + staffDay(s, t, u.level) * (u.k ?? 1), 0);
   const profit = earn - inputs - staff - power;
   let alt = 0;
   if (t === 'dairy') {
     // paused, these cows live in the cowshed: they eat the same feed and give milk at the cowshed rate
-    const c = ANIMALS.cows;
     const cows = Math.min(cowsheds(s, r).count, (batches / 24) * COWS_PER_DAIRY_BATCH);
-    const k = cowsheds(s, r).yieldK;
-    alt = cows * (c.perDay * k * p('milk') + MANURE.cows * p('manure') - c.feedPerDay * p('feed'));
-    add('milk', -cows * c.perDay * k);
-    add('manure', -cows * MANURE.cows);
-    add('feed', cows * c.feedPerDay);
+    const alternative=cowshedAlternative(s,r,cows,p);
+    alt=alternative.value;
+    for(const[g,q]of Object.entries(alternative.qty))add(g as GoodId,-q!);
   }
   return { earn, inputs, staff, power, profit, alt, worth: profit - alt, qty };
 }
 
-const units = (list: Building[], full = false): Unit[] =>
-  list.filter((b) => b.active || full).map((b) => ({ level: b.level || 1, bph: full ? BUILDINGS[b.type].recipe!.batchesPerHour * levelMult(b.level) : b.stats.out }));
+const units = (s: GameState, list: Building[], full = false): Unit[] =>
+  list.filter((b) => b.active || full).map((b) => ({ level: b.level || 1, k: sizeStaff(b), bph: full ? BUILDINGS[b.type].recipe!.batchesPerHour * throughput(b) * townIndustryFactor(s, b.region) : b.stats.out }));
 
 /** A dairy can only run as many batches as there are cows to milk. */
 function capByCows(s: GameState, t: BuildingType, r: RegionId, us: Unit[]): Unit[] {
@@ -80,7 +79,7 @@ function capByCows(s: GameState, t: BuildingType, r: RegionId, us: Unit[]): Unit
 /** The line at its current pace (smoothed batches), or, if `full`, flat out with every unit running. */
 export function lineEcon(s: GameState, list: Building[], full = false): LineEcon {
   const t = list[0].type, r = list[0].region;
-  return econOf(s, t, r, full ? capByCows(s, t, r, units(list, true)) : units(list));
+  return econOf(s, t, r, full ? capByCows(s, t, r, units(s, list, true)) : units(s, list), recipeOf(list[0]));
 }
 
 export interface Target { good: GoodId; side: 'sell' | 'buy'; now: number; need: number; change: number }
@@ -104,7 +103,7 @@ export interface Upgrade { cost: number; worthAfter: number; gain: number; level
 /** One level up for every unit below the top level, at the current pace scaled by capacity. Null when maxed. */
 export function upgradeOutlook(s: GameState, list: Building[]): Upgrade | null {
   const t = list[0].type, r = list[0].region;
-  const up = list.filter((b) => b.active && (b.level || 1) < 3);
+  const up = list.filter((b) => b.active && (b.level || 1) < maxLevel(t));
   if (!up.length || !BUILDINGS[t].recipe) return null;
   const level = Math.min(...up.map((b) => b.level || 1)) + 1;
   const cost = up.reduce((a, b) => a + upgradeCost(s, b), 0);
@@ -113,11 +112,52 @@ export function upgradeOutlook(s: GameState, list: Building[]): Upgrade | null {
   if (short) return { cost, worthAfter: now, gain: 0, level, blocked: 'It already runs short of inputs, so more capacity would sit idle.' };
   // capacity grows with the level multiplier; staff by 30% a level
   const after = capByCows(s, t, r, list.filter((b) => b.active).map((b) => {
-    const L = (b.level || 1) < 3 ? (b.level || 1) + 1 : b.level || 1;
-    return { level: L, bph: b.stats.out * (levelMult(L) / levelMult(b.level)) };
+    const L = (b.level || 1) < maxLevel(t) ? (b.level || 1) + 1 : b.level || 1;
+    return { level: L, bph: b.stats.out * (throughput({ ...b, level: L }) / throughput(b)) };
   }));
-  const worthAfter = econOf(s, t, r, after).worth;
+  const worthAfter = econOf(s, t, r, after, recipeOf(list[0])).worth;
   const blocked = t === 'dairy' && after.reduce((a, u) => a + u.bph, 0) < list.filter((b) => b.active).reduce((a, b) => a + b.stats.out * levelMult(Math.min(3, (b.level || 1) + 1)) / levelMult(b.level), 0) - 1e-6
     ? 'You would need more cows to fill the bigger dairy.' : undefined;
   return { cost, worthAfter, gain: worthAfter - now, level, blocked };
+}
+
+export interface FacilityUpgrade {
+  cost: number; ids: number[]; level: number; extraStaff: number;
+  extraKwh: number; conservativeGain: number | null;
+  rateBefore: number; rateAfter: number; extraBaseSales: number | null;
+}
+/** Exact capacity/staff change; retail gives a sales threshold rather than invented future demand. */
+export function facilityUpgrade(s: GameState, list: Building[]): FacilityUpgrade | null {
+  if (!list.length) return null;
+  const type=list[0].type,r=list[0].region;
+  if (type!=='solar'&&type!=='distribution') return null;
+  const best=bestRetailCentre(list);
+  const candidates=type==='distribution'?(best&&best.level<3?[best]:[]):list.filter(b=>b.active&&b.level<3);
+  if(!candidates.length)return null;
+  const extraStaff=candidates.reduce((n,b)=>n+staffDay(s,type,b.level+1)-staffDay(s,type,b.level),0);
+  const cost=candidates.reduce((n,b)=>n+upgradeCost(s,b),0),level=Math.min(...candidates.map(b=>b.level+1));
+  const sunHours=Array.from({length:SUNSET-SUNRISE},(_,h)=>Math.sin((h+.5)/(SUNSET-SUNRISE)*Math.PI)).reduce((n,x)=>n+x,0);
+  const extraKwh=candidates.reduce((n,b)=>n+solarCapacity({...b,level:b.level+1})-solarCapacity(b),0)*sunHours*REGIONS[r].solar*(1-.3*Math.min(1,s.regions[r].rainToday));
+  const rateBefore=type==='distribution'?retailChannel(s,r):0;
+  const rateAfter=type==='distribution'?Math.max(rateBefore,retailRate(best!.level+1)):0;
+  return {cost,ids:candidates.map(b=>b.id),level,extraStaff,extraKwh,
+    conservativeGain:type==='solar'?extraKwh*electricityPrice(s,r)*.5-extraStaff:null,
+    rateBefore,rateAfter,extraBaseSales:rateAfter>rateBefore?extraStaff/(rateAfter-rateBefore):null};
+}
+
+/** A good's daily supply and demand in a region at full pace: what fields growing or planned for it and your
+ *  buildings make, and what your running buildings use flat out (plus `extra` new ones at level 1). Fields count at today's conditions. */
+export function goodBalance(s: GameState, r: RegionId, g: GoodId, extra?: { type: BuildingType; n: number }) {
+  let grown = 0, used = 0, fields = 0;
+  if (g in CROPS) for (const f of s.fields) if (f.region === r && (f.crop ?? f.plan) === g) { grown += (expectedYield(s, f, g as keyof typeof CROPS) * 24) / CROPS[g as keyof typeof CROPS].growthTicks; fields++; }
+  const pace = (b: { type: BuildingType; level: number; size?: number }) => BUILDINGS[b.type].recipe!.batchesPerHour * throughput(b) * townIndustryFactor(s, r) * 24;
+  for (const b of s.buildings) {
+    if (b.region !== r || !b.active) continue;
+    const rec = recipeOf(b);
+    if (!rec) continue;
+    grown += (rec.outputs[g] ?? 0) * outMult(s) * pace(b);
+    used += (rec.inputs[g] ?? 0) * pace(b);
+  }
+  if (extra) used += (BUILDINGS[extra.type].recipe?.inputs[g] ?? 0) * pace({ type: extra.type, level: 1 }) * extra.n;
+  return { grown, used, fields };
 }

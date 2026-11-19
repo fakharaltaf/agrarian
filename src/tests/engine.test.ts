@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { CONFIG, CROPS, GOOD_IDS, REGION_IDS, TICKS_PER_DAY } from '../simulation/config';
 import { advance, createGame, dispatch, harvestField, quoteSell, step } from '../simulation/engine';
 import { capacity, debt, equity, has, post, reserveCap, reservedStock, stored, sumBooks } from '../simulation/core';
+import { chunksIn, clearRect, own, worldOf } from '../simulation/world';
 import { breakEven, dayPrice, lineEcon, upgradeOutlook } from '../simulation/lines';
 import { frostNight, isReady } from '../simulation/agriculture';
 const frostNightForTest = (s: GameState) => frostNight(s, 'heartland');
@@ -21,8 +22,10 @@ const fresh = (seed = 1) => createGame(seed);
 /** Funds a test through the ledger (as share capital) so reconciliation still holds. */
 const give = (s: GameState, cash: number) => post(s, 'sharesIssued', cash - s.cash, 'Test capital');
 const toEra = (s: GameState, era: number) => {
+  s.legacyProgression = true;
   s.era = era;
   for (const c of Object.keys(CROPS) as (keyof typeof CROPS)[]) if (CROPS[c].minEra <= era && !s.unlockedCrops.includes(c)) s.unlockedCrops.push(c);
+  if (era >= 3) { const w = worldOf(s, 'heartland'); own(w, chunksIn(-48, -40, 96, 96)); clearRect(w, -48, -40, 96, 96); } // these tests are not about land: give big farms room
 };
 
 describe('homestead loop', () => {
@@ -62,6 +65,7 @@ describe('homestead loop', () => {
 
   it('selling deducts inventory, pays the quote and depresses the price', () => {
     const s = fresh();
+    s.legacyProgression = true;
     s.regions.heartland.inventory.wheat = 500;
     const p0 = s.markets.heartland.wheat!.price;
     const q = quoteSell(s, 'heartland', 'wheat', 500);
@@ -406,6 +410,7 @@ describe('exploit guards', () => {
 describe('new mechanics', () => {
   it('eras only advance when the player chooses', () => {
     const s = fresh();
+    s.legacyProgression = true;
     for (let i = 0; i < 3; i++) dispatch(s, { type: 'buyPlot' });
     post(s, 'sale', 13000, 'test');
     give(s, s.cash + 2000);
@@ -547,6 +552,12 @@ describe('farm advisor', () => {
     expect(d.profit).toBeLessThan(0);
     expect(d.advice[0].id).toBe('managers');
     expect(d.advice[0].title).toContain('2 managers');
+    expect(d.advice[0].act?.action.type).toBe('fire');
+    expect(d.after).toBeGreaterThan(d.profit);
+    // whole finished days only: the figures hold steady through the day
+    advance(s, 5);
+    expect(diagnose(s).profit).toBe(diagnose(s).profit);
+    const morning = diagnose(s).revenue; advance(s, 6); expect(diagnose(s).revenue).toBe(morning);
   });
 });
 
@@ -607,6 +618,7 @@ describe('orchard pests', () => {
     expect(dispatch(s, { type: 'plant', fieldId: f.id, crop: 'grapes' }).ok).toBe(true);
     let max = 0;
     for (let t = 0; t < TICKS_PER_DAY * 120; t++) {
+      s.events = s.events.filter((e) => e.kind !== 'pests'); // the everyday build-up, not a random outbreak (those are meant to hurt)
       step(s);
       if (isReady(s, f)) dispatch(s, { type: 'harvest', fieldId: f.id });
       max = Math.max(max, f.pest);
@@ -626,8 +638,8 @@ describe('manager selling policy', () => {
     s.automation.policies.sellDiscipline = 1.3;
     s.automation.policies.sellStorageCap = 0.5;
     const cap = stored(s, 'heartland').cap.dry;
-    s.regions.heartland.inventory.wheat = cap * 0.9;
     while (s.tick % 24 !== 8) step(s); // well before the midday round
+    s.regions.heartland.inventory.wheat = cap * 0.9;
     const before = s.regions.heartland.inventory.wheat;
     step(s);
     expect(s.regions.heartland.inventory.wheat).toBeLessThan(before);
@@ -1044,5 +1056,20 @@ describe('connected mechanics', () => {
     s.tick = (60 + 2) * 24 + 12; // early autumn, little to sow
     f.ha = 1;
     expect(frostRisk(s, f, 'corn')).toBe(false);
+  });
+});
+
+describe('full barn and a mill', () => {
+  it('a mill keeps grinding when the barn is full, because a batch frees more space than it fills', () => {
+    const s = fresh(7);
+    toEra(s, 4);
+    give(s, 100000);
+    expect(dispatch(s, { type: 'build', region: 'heartland', building: 'flourMill' }).ok).toBe(true);
+    const mill = s.buildings.find((b) => b.type === 'flourMill')!;
+    const st = stored(s, 'heartland');
+    s.regions.heartland.inventory.wheat += st.cap.dry - st.dry; // barn exactly full of wheat
+    advance(s, 12);
+    expect(s.regions.heartland.inventory.flour ?? 0).toBeGreaterThan(0);
+    expect(mill.reason).not.toBe('Output storage full');
   });
 });

@@ -1,8 +1,8 @@
 import { useMemo } from 'react';
 import { BUILDINGS, CROP_IDS, ERAS, GOODS, REGIONS, REVENUE_KINDS, type CropId, type LedgerKind } from '../../simulation/config';
-import { debt, equity, inventoryValue, stored, sumBooks } from '../../simulation/core';
+import { debt, equity, inventoryValue, leaning, stored, sumBooks } from '../../simulation/core';
 import { companyValue, globalShare } from '../../simulation/corporate';
-import { lifetimeSales, objective, totalHa } from '../../simulation/engine';
+import { chapterGate, gateProgress, type GateRow, lifetimeSales, objective, totalHa } from '../../simulation/engine';
 import { ratios, incomeStatement } from '../../simulation/statements';
 import type { DayBook, GameState } from '../../simulation/types';
 import { go, useGame } from '../../stores/game';
@@ -11,6 +11,9 @@ import { LineChart } from '../Chart';
 import { duration, money, num, pct0, stamp } from '../format';
 import { Bar, Card, Kpi, PageHead, usePref } from '../ui';
 import { unlockedRegions } from './shared';
+import { STAGES } from '../../simulation/stages';
+import { communityOf } from '../../simulation/community-state';
+import { atFrontier, frontierGoals } from '../../simulation/stages/frontier';
 
 // Kinds that move cash but are not profit or loss (same exclusions as corporate.netIncome).
 const NON_PL: LedgerKind[] = ['loanIn', 'loanRepay', 'sharesIssued', 'dividends', 'buyback', 'land', 'machine', 'building', 'acquisition', 'irrigation', 'margin', 'assetSale'];
@@ -38,7 +41,7 @@ export default function OverviewPage() {
 
   return (
     <div className="stack l">
-      <PageHead title="Overview" sub={`Era ${s.era} · ${ERAS[s.era - 1].name}. ${ERAS[s.era - 1].theme}`}
+      <PageHead title="Overview" sub={s.legacyProgression && !communityOf(s).active ? `Era ${s.era} · ${ERAS[s.era - 1].name}. ${ERAS[s.era - 1].theme}` : `Chapter · ${STAGES[s.stageId].title}`}
         actions={custom && <button className={`btn ${editing ? 'primary' : 'ghost'} sm`} aria-pressed={editing} onClick={() => setEditing(!editing)}>{editing ? 'Done' : 'Customise'}</button>} />
       {custom && editing && (
         <Card title="Dashboard widgets" info="Choose what this page shows. Your choice is remembered in this browser.">
@@ -53,6 +56,8 @@ export default function OverviewPage() {
       )}
       {show('kpis') && <Kpis s={s} />}
       <AdvisorCard s={s} />
+      <ValuesCard s={s} />
+      <FrontierCard s={s} />
       <div className="grid2">
         {show('era') && <EraCard s={s} />}
         {show('alerts') && <Alerts s={s} />}
@@ -61,6 +66,45 @@ export default function OverviewPage() {
       {(show('pl') || show('worth')) && <Charts s={s} pl={show('pl')} worth={show('worth')} />}
     </div>
   );
+}
+
+function FrontierCard({ s }: { s: GameState }) {
+  if (!atFrontier(s)) return null;
+  const marks = s.milestones.filter(id => id.startsWith('frontier:')).length;
+  return <Card title={<>🌄 Frontier <span className="muted">· {marks} marks</span></>} info="Optional goals continue indefinitely. Marks recognize achievements; they do not grant money or production bonuses.">
+    <div className="frontier-goals">
+      {frontierGoals(s).map(goal => <div className="frontier-goal" key={goal.id}>
+        <div className="row between"><b>{goal.icon} {goal.name}</b><span className="mono">{goal.unit === 'usd' ? money(goal.value) : `${num(goal.value)} ${goal.unit}`} / {goal.unit === 'usd' ? money(goal.target) : `${num(goal.target)} ${goal.unit}`}</span></div>
+        <Bar value={Math.min(1, goal.progress)} label={goal.detail} />
+        <span className="small muted">{goal.progress >= 1 ? 'Complete · marks recorded at midnight' : goal.name === 'Stewardship' ? '80% average fertility required' : 'Each mark opens a larger horizon'}</span>
+      </div>)}
+      <div className="frontier-coming"><span>🏘️</span><div><b>Next chapter coming</b><p>{s.legacyProgression && !communityOf(s).active ? 'Community chapters will be offered in your existing save.' : s.stageId==='city'?'Region · neighbours, trade routes and safe passage':'City · districts, utilities and keeping your streets safe'}</p></div></div>
+    </div>
+  </Card>;
+}
+
+function ValuesCard({ s }: { s: GameState }) {
+  if ((s.legacyProgression && !communityOf(s).active) || s.stageId === 'homestead') return null;
+  const axes = [
+    ['🌾', 'Prosperity', 'Fairness', s.values.prosperityFairness],
+    ['⚖️', 'Order', 'Freedom', s.values.orderFreedom],
+    ['🕊️', 'Peace', 'Strength', s.values.peaceStrength],
+    ['🛠️', 'Tradition', 'Progress', s.values.traditionProgress],
+    ['🌱', 'Clean', 'Industrial', s.values.cleanIndustrial ?? 50],
+  ] as const;
+  const L = leaning(s);
+  const charter = communityOf(s).active ? (communityOf(s).charter === 'company' ? '🏘️ Company town' : '🌳 Free settlement') : s.charters.trader === 'fair' ? '🤝 Fair trader' : s.charters.trader === 'shrewd' ? '🪙 Shrewd trader' : 'Trader charter pending';
+  return <Card title="Character of your farm" info="Every decision nudges these, a little at a time. Past a point, a leaning starts to pay off.">
+    <div className="town-values">
+      <div className="town-charter">{charter}</div>
+      {axes.map(([icon, left, right, value]) => <div className="town-axis" key={left}>
+        <div className="town-axis-labels"><span>{icon} {left}</span><span>{right}</span></div>
+        <div className="town-axis-track" aria-label={`${left} to ${right}: ${Math.round(value)}% ${right}`}><i style={{ left: `${Math.max(0, Math.min(100, value))}%` }} /></div>
+      </div>)}
+      {(L.clean || L.industrial) && <p className="small">{L.clean ? '🌱 Clean name: market buyers pay 5% more for your produce.' : '🏭 Industrial: your power costs 15% less.'}</p>}
+      <p className="small muted">Your choices move these: solar, wind and biogas pull clean; striking oil pulls industrial.</p>
+    </div>
+  </Card>;
 }
 
 // ---------------------------------------------------------------- KPIs by era
@@ -145,6 +189,21 @@ function eraProgress(s: GameState): { value: number; parts: [string, string][] }
 }
 
 function EraCard({ s }: { s: GameState }) {
+  if (!s.legacyProgression || communityOf(s).active) {
+    if (atFrontier(s)) return <Card title={`Chapter · ${STAGES[s.stageId].title}`}><p className="muted">Keep your operation growing. The next chapter will be offered here when it arrives.</p></Card>;
+    const o = objective(s);
+    const rows = chapterGate(s) ?? [], progress = rows.length ? gateProgress(rows) : 1;
+    const fmt = (r: GateRow, x: number) => r.fmt === 'pct' ? pct0(x) : r.fmt === 'money' ? money(x) : num(x);
+    const requirement = rows.length ? rows.map((r) => `${r.label} ${r.atMost ? '≤ ' : ''}${fmt(r, r.target)}`).join(rows.some((r) => r.either) ? ' or ' : ' · ') : 'The newest playable chapter is ready when you are.';
+    return <Card title={<>Chapter · {STAGES[s.stageId].title}</>} info="Chapters open when your business reaches clear milestones. You choose when to advance.">
+      <div className="stack s">
+        <div className="row between small"><b>{o.title}</b><span className="mono">{pct0(progress)}</span></div>
+        <Bar value={progress} color="var(--gold)" label="Chapter progress" />
+        <div className="row between small"><span className="muted">Next chapter</span><span>{requirement}</span></div>
+        {s.eraReady && <p className="small muted">Ready to preview · advancing is your choice.</p>}
+      </div>
+    </Card>;
+  }
   const next = ERAS[s.era];
   const p = eraProgress(s);
   const o = objective(s);

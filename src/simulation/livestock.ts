@@ -1,20 +1,36 @@
+import { townIndustryFactor } from './town-state';
+import { larderReserve } from './stages/settlement';
 // Farm animals. Herds live in their buildings, eat every day, produce in proportion to their
 // health, breed when they have space, and suffer when hungry or crowded.
-import { ANIMALS, BUILDINGS, COWS_PER_DAIRY_BATCH, GOODS, REGIONS, type AnimalId, type GoodId, type RegionId } from './config';
+import { ANIMALS, BUILDINGS, COWS_PER_DAIRY_BATCH, GOODS, MANURE, REGIONS, type AnimalId, type GoodId, type RegionId } from './config';
 import { addGoods } from './agriculture';
-import { buildingsIn, clamp, levelMult, post, reservedStock, severity } from './core';
+import { buildingsIn, clamp, levelMult, post, reservedStock, severity , sizeOutput } from './core';
 import { avg30, executeBuy, executeSell, quoteBuy } from './markets';
 import { essentialBudget } from './operations';
 import { warnOnce } from './agriculture';
 import type { GameState, Herd } from './types';
 
 export const FEEDS: GoodId[] = ['feed', 'corn', 'soymeal', 'wheat']; // eaten in this order, 1:1
-export const MANURE: Record<AnimalId, number> = { chickens: 0.02, pigs: 0.6, cows: 1.5, sheep: 0.2 };
+export { MANURE } from './config';
 
 export const herdOf = (s: GameState, r: RegionId, a: AnimalId) => s.herds.find((h) => h.region === r && h.animal === a);
 export const housing = (s: GameState, r: RegionId, a: AnimalId) =>
-  buildingsIn(s, r, ANIMALS[a].building).reduce((n, b) => n + ANIMALS[a].perBuilding * levelMult(b.level), 0);
+  buildingsIn(s, r, ANIMALS[a].building).reduce((n, b) => n + ANIMALS[a].perBuilding * levelMult(b.level) * sizeOutput(b), 0);
 export const animalPrice = (s: GameState, a: AnimalId) => ANIMALS[a].price * s.macro.cpi;
+/** The share of a herd an outbreak reaches: one house's animals (the biggest, a merged barn counting as one), since it cannot pass between houses. */
+export function outbreakShare(s: GameState, r: RegionId, a: AnimalId) {
+  const caps = buildingsIn(s, r, ANIMALS[a].building).map((b) => ANIMALS[a].perBuilding * levelMult(b.level) * sizeOutput(b)), total = caps.reduce((n, c) => n + c, 0);
+  return total > 0 ? Math.max(...caps) / total : 1;
+}
+/** Health gained a day when nothing is wrong, and what each trouble takes away: shown on the herd's card. */
+export const HEALTH_GAIN = 0.05;
+export function healthFactors(s: GameState, h: Herd) {
+  const cap = housing(s, h.region, h.animal), crowd = cap > 0 ? Math.max(0, h.count / cap - 1) : 1;
+  const herder = s.workers.some((w) => w.region === h.region && w.perk === 'herder') ? 0.03 : 0;
+  const disease = 0.12 * severity(s, 'livestockDisease', h.region) * outbreakShare(s, h.region, h.animal);
+  const hunger = h.fed >= 0.99 ? 0 : (1 - h.fed) * 0.25;
+  return { gain: h.fed >= 0.99 ? HEALTH_GAIN : 0, hunger, crowd: crowd * 0.2, disease, herder, net: (h.fed >= 0.99 ? HEALTH_GAIN : -hunger) - crowd * 0.2 + herder - disease };
+}
 
 export function livestockDaily(s: GameState) {
   for (const h of s.herds) {
@@ -29,8 +45,8 @@ export function livestockDaily(s: GameState) {
     let got = 0;
     for (const g of FEEDS) {
       // stock your factories need comes first: reserved input and a day of what running mills use
-      const millDay = s.buildings.reduce((a, b) => a + (b.region === h.region && b.active && BUILDINGS[b.type].recipe?.inputs[g] ? BUILDINGS[b.type].recipe!.inputs[g]! * BUILDINGS[b.type].recipe!.batchesPerHour * levelMult(b.level) * 24 : 0), 0);
-      const take = Math.max(0, Math.min(inv[g] - reservedStock(s, h.region, g) - millDay, need - got));
+      const millDay = s.buildings.reduce((a, b) => a + (b.region === h.region && b.active && BUILDINGS[b.type].recipe?.inputs[g] ? BUILDINGS[b.type].recipe!.inputs[g]! * BUILDINGS[b.type].recipe!.batchesPerHour * levelMult(b.level) * townIndustryFactor(s,b.region) * 24 : 0), 0);
+      const take = Math.max(0, Math.min(inv[g] - reservedStock(s, h.region, g) - (h.region === 'heartland' ? larderReserve(s, g) : 0) - millDay, need - got));
       inv[g] -= take;
       got += take;
       if (got >= need) break;
@@ -49,10 +65,8 @@ export function livestockDaily(s: GameState) {
     }
     h.fed = need > 0 ? Math.min(1, got / need) : 1;
     // health
-    const cap = housing(s, h.region, h.animal);
-    const crowd = cap > 0 ? Math.max(0, h.count / cap - 1) : 1;
-    const herder = s.workers.some((w) => w.region === h.region && w.perk === 'herder') ? 0.03 : 0;
-    h.health = clamp(h.health + (h.fed >= 0.99 ? 0.05 : -(1 - h.fed) * 0.25) - crowd * 0.2 + herder - 0.12 * severity(s, 'livestockDisease', h.region), 0, 1);
+    const cap = housing(s, h.region, h.animal), crowd = cap > 0 ? Math.max(0, h.count / cap - 1) : 1;
+    h.health = clamp(h.health + healthFactors(s, h).net, 0, 1); // an outbreak reaches one house's share of the herd
     if (h.fed < 0.99) warnOnce(s, `hungry-${h.region}-${h.animal}`, 'warning', `Your ${def.name.toLowerCase()} in ${REGIONS[h.region].name} are going hungry. Keep feed or corn in storage (a feed mill on your own corn is cheapest), turn on automatic feed buying, or keep fewer animals — the market can only supply so much feed a day at a fair price.`, 'livestock', 48);
     if (crowd > 0) warnOnce(s, `crowd-${h.region}-${h.animal}`, 'warning', `Your ${def.name.toLowerCase()} are overcrowded. Build or upgrade housing, or sell some.`, 'livestock', 72);
     if (h.health < 0.35) h.count *= 0.96; // sick, hungry animals die

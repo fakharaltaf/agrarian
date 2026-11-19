@@ -1,19 +1,20 @@
 import { Component, lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
-import { ERAS } from '../simulation/config';
-import { equity } from '../simulation/core';
+import { equity, sumBooks } from '../simulation/core';
+import { backlogHours, fleet, haulOf, horseCartValue, marketCut, onTheWay, oneWay, usesCarts, VEHICLES } from '../simulation/hauling';
 import { ACHIEVEMENTS, PAGES } from '../simulation/engine';
+import { machineSaleValue } from '../simulation/operations';
 import {
-  act, deleteSlot, getGame, offlineOn, dismissAway, toast, exportSave, go, importSave, loadFrom, newGame, saveTo, setSpeed, slotInfo, slotLabel, SLOTS, SPEEDS, useGame, useStore, type Slot, type Speed,
+  act, brokenSave, downloadBroken, deleteSlot, getGame, offlineOn, rotatePlacement, undo, redo, dismissAway, toast, exportSave, go, importSave, loadFrom, newGame, saveTo, setSpeed, slotInfo, slotLabel, SLOTS, SPEEDS, useGame, useStore, type Slot, type Speed,
 } from '../stores/game';
 import { Coach, resetTips, tipsOff, tipsOn } from './Coach';
 import { clock, money, stamp } from './format';
 import { Icon } from './icons';
 import { LogoMark, Wordmark } from './Logo';
-import { Modal, usePref } from './ui';
+import { Bar, Confirm, Modal, usePref } from './ui';
 import { FieldsPage } from './pages/Fields';
 import { Hud } from './world/Hud';
 import { setVolume, sfx, volumes } from './audio';
-import { graphicsQuality } from './world/Scene3D';
+import { FarmPhotoModal, graphicsQuality, takeFarmPhoto } from './world/Scene3D';
 import { restructurePreview } from './pages/shared';
 
 const PAGE_COMPONENTS: Record<string, React.ComponentType> = {
@@ -34,16 +35,25 @@ const PAGE_COMPONENTS: Record<string, React.ComponentType> = {
   world: lazy(() => import('./pages/World')),
   corporation: lazy(() => import('./pages/Corporation')),
   policy: lazy(() => import('./pages/Policy')),
+  city: lazy(() => import('./pages/City')),
+  region: lazy(() => import('./pages/Region')),
+  nation: lazy(() => import('./pages/Nation')),
+  town: lazy(() => import('./pages/Town')),
+  community: lazy(() => import('./pages/Community')),
 };
+const RegionView = lazy(() => import('./world/RegionView'));
 
 export function App() {
   const s = useGame();
   const page = useStore((x) => x.page);
   const ready = useStore((x) => x.ready);
+  const view = useStore((x) => x.view);
   const [theme, setTheme] = usePref<'auto' | 'light' | 'dark'>('theme', 'auto');
   const [drawer, setDrawer] = useState(false);
   const [settings, setSettings] = useState(false);
   const [help, setHelp] = useState(false);
+  const [ledger, setLedger] = useState(false);
+  const [photo, setPhoto] = useState<{ url: string; blob: Blob } | null>(null);
   const [title, setTitle] = useState(true);
   const unlocked = PAGES.filter((p) => p.unlocked(s));
   const current = unlocked.some((p) => p.id === page) ? page : 'farm';
@@ -70,13 +80,16 @@ export function App() {
 
   return (
     <div className={`shell${bare ? ' bare' : ''}`}>
-      {!bare && <Sidebar current={current} />}
+
       <div className="main">
-        <TopBar onLog={() => setDrawer(true)} onSettings={() => setSettings(true)} onHelp={() => setHelp(true)} warnings={warnings} bare={bare} />
-        <div className="stage">
+        <TopBar onLedger={() => setLedger(true)} onLog={() => setDrawer(true)} onSettings={() => setSettings(true)} onHelp={() => setHelp(true)} warnings={warnings} bare={bare} />
+        <div className={`stage${view === 'region' ? ' in-region' : ''}`}>
           <Hud />
+          {view === 'region' && <Suspense fallback={null}><RegionView /></Suspense>}
+          <DatePill />
           {Page && (
             <section className="page-drawer" role="dialog" aria-label={PAGES.find((p) => p.id === current)?.label}>
+              {(current === 'community' || current === 'town' || current === 'city' || current === 'region' || current === 'nation') && <SheetGrip />}
               <button className="icon-btn page-close" onClick={() => go('farm')} aria-label="Back to the farm (Esc)" title="Back to the farm (Esc)">✕</button>
               <PageGuard key={current}>
                 <Suspense fallback={<div className="empty">Loading…</div>}>
@@ -87,15 +100,18 @@ export function App() {
           )}
         </div>
       </div>
-      {!bare && (
-        <nav className="mobile-nav" aria-label="Pages">
-          <button className={current === 'farm' ? 'on' : ''} onClick={() => go('farm')}>Farm</button>
-          {unlocked.map((p) => <button key={p.id} className={p.id === current ? 'on' : ''} onClick={() => go(p.id)}>{p.label}</button>)}
-        </nav>
-      )}
+      {ledger && <Modal title="Ledger" wide onClose={() => setLedger(false)}><div className="ledger" data-coach="nav">
+        {LEDGER_GROUPS.map(([name, ids]) => { const pages = [...ids.map((id) => unlocked.find((p) => p.id === id)), ...(name === 'People & world' ? unlocked.filter((p) => !LEDGER_GROUPS.some(([, g]) => g.includes(p.id))) : [])].filter((p) => !!p);
+          return pages.length > 0 && <section key={name}><h3>{name}</h3><div className="ledger-grid">
+            {name === 'Farm' && <button className="ledger-tile" onClick={() => {go('farm');setLedger(false);}} title="Back to the map"><span className="ledger-ico"><Icon name="map"/></span>Map</button>}
+            {pages.map((p) => <button key={p.id} className={`ledger-tile${p.id === current ? ' on' : ''}`} data-coach={`nav-${p.id}`} title={p.purpose} onClick={()=>{go(p.id);setLedger(false);}}><span className="ledger-ico"><Icon name={p.id}/></span>{p.label}</button>)}
+          </div></section>; })}
+      </div></Modal>}
       {drawer && <LogDrawer onClose={() => setDrawer(false)} />}
-      {settings && <Settings onClose={() => setSettings(false)} theme={theme} setTheme={setTheme} />}
+      {settings && <Settings onClose={() => setSettings(false)} theme={theme} setTheme={setTheme} onPhoto={() => { setSettings(false); go('farm'); setTimeout(() => void takeFarmPhoto().then((p) => (p ? setPhoto(p) : toast('Could not take the photo. Try again from the map.'))), 150); }} />}
+      {photo && <FarmPhotoModal photo={photo} onClose={() => { URL.revokeObjectURL(photo.url); setPhoto(null); }} />}
       {help && <Help onClose={() => setHelp(false)} />}
+      <CloudVeil />
       <Decisions />
       <Bankrupt />
       <Away />
@@ -115,8 +131,7 @@ function TitleScreen({ onPlay, onHelp }: { onPlay: () => void; onHelp: () => voi
   return (
     <div className="title-screen" role="dialog" aria-modal="true" aria-label="Welcome to Agrarian">
       <div className="title-card">
-        <LogoMark size={104} />
-        <h1 className="title-name">Agrarian</h1>
+        <h1 className="title-name"><Wordmark layout="stacked" size={58} /></h1>
         <p className="title-tag">Grow a little farm into a farming empire.</p>
         <ul className="title-points">
           <li><span>🌱</span>Plant, harvest and sell — one field at a time</li>
@@ -135,33 +150,6 @@ function TitleScreen({ onPlay, onHelp }: { onPlay: () => void; onHelp: () => voi
 }
 
 // ---------------------------------------------------------------- sidebar & top bar
-
-function Sidebar({ current }: { current: string }) {
-  const s = useGame();
-  const era = ERAS[s.era - 1];
-  const next = ERAS[s.era];
-  const decisions = s.events.filter((e) => e.choice && !e.choice.chosen && s.tick >= e.start).length;
-  return (
-    <aside className="side" aria-label="Navigation">
-      <div className="brand" title="Agrarian"><LogoMark size={40} title="Agrarian" /></div>
-      <nav className="nav" data-coach="nav">
-        <button className={current === 'farm' ? 'on' : ''} onClick={() => go('farm')} aria-current={current === 'farm' ? 'page' : undefined} title="Your farm">
-          <Icon name="fields" className="ico" />Farm
-        </button>
-        {PAGES.filter((p) => p.unlocked(s) && p.id !== 'fields').map((p) => (
-          <button key={p.id} className={p.id === current ? 'on' : ''} onClick={() => go(p.id)} data-coach={`nav-${p.id}`} aria-current={p.id === current ? 'page' : undefined} title={p.purpose}>
-            <Icon name={p.id} className="ico" />
-            {p.label}
-            {p.id === 'world' && decisions > 0 ? <span className="count">{decisions}</span> : !s.seenTips.includes(`page:${p.id}`) && <span className="new" aria-label="new" />}
-          </button>
-        ))}
-      </nav>
-      <div className="side-foot" title={`${era.name}: ${era.theme}${next ? ` · Next: ${next.name} — ${next.requirement}` : ''}`}>
-        <div className="era-chip"><span>Era</span><b>{s.era}</b></div>
-      </div>
-    </aside>
-  );
-}
 
 function Trophies() {
   const s = useGame();
@@ -190,6 +178,33 @@ function Trophies() {
 }
 
 /** Cash with a little celebration: it pulses and shows "+$X" whenever sales come in. */
+/** Goods on their way to the village market: a chip by the cash that opens the fleet. */
+function HaulChip() {
+  const s = useGame(), [open, setOpen] = useState(false);
+  if (!usesCarts(s, 'heartland')) return null;
+  const o = onTheWay(s), H = haulOf(s), wait = backlogHours(s), price = Math.round(VEHICLES.horse.price * s.macro.cpi);
+  if (!H.trips.length && !H.pending.length && !open) return null;
+  const total = o.waiting + o.moving, cut = marketCut(s), slow = cut || wait > 24;
+  return <>
+    <button type="button" data-coach="haul-chip" className={`haul-chip${slow ? ' slow' : ''}`} onClick={() => setOpen(true)} title="Goods on their way to the village market">
+      🛒<span className="haul-word"> {money(Math.round(total))}</span>{cut ? ' · no road!' : Number.isFinite(o.next) ? ` · ${o.next}h` : ''}
+    </button>
+    {open && <Modal title="Carts to market" onClose={() => setOpen(false)} actions={<button className="btn primary" onClick={() => setOpen(false)}>Close</button>}>
+      <div className="stack s">
+        {cut && <div className="callout bad small">No road leads from your store to the main road, so nothing can leave. Draw one with 🛤 on the map.</div>}
+        <p className="small muted">Market sales travel to the village market by road. You're paid when the goods arrive. Better roads and faster vehicles shorten every trip.</p>
+        <div className="haul-fleet">{fleet(s).map((v) => { const trip = H.trips.find((t) => t.vehicle === v.id); return <div key={v.id} className="haul-row"><span>{VEHICLES[v.kind].icon} {VEHICLES[v.kind].name}</span><span className="muted small">{VEHICLES[v.kind].cap} a trip · {oneWay(s, v.kind)}h each way</span><b className="small">{trip ? (trip.arrive > s.tick ? `to market · ${trip.arrive - s.tick}h` : `coming back · ${trip.back - s.tick}h`) : 'in the yard'}</b>{v.kind !== 'cart' && (() => { const truck = v.kind === 'truck' ? s.machines.find((m) => `truck:${m.id}` === v.id) : undefined, value = truck ? machineSaleValue(truck) : horseCartValue(s);
+          return trip ? <span className="faint small haul-sell">Sell when back</span> : <span className="haul-sell"><Confirm className="btn ghost xs" label={`Sell · ${money(value)}`} title={`Sell this ${VEHICLES[v.kind].name.toLowerCase()}?`} confirmLabel={`Sell for ${money(value)}`}
+            body={truck ? <>A dealer pays {money(value)}. Fewer trips to market each day.</> : <>A dealer pays {money(value)}, half of a new one. The horse stops eating {money(12 * s.macro.cpi)} a day; goods wait longer at the gate.</>}
+            onConfirm={() => act(truck ? { type: 'sellMachine', machineId: truck.id } : { type: 'sellHorseCart' })} /></span>; })()}</div>; })}</div>
+        <dl className="facts small"><dt>On the road</dt><dd>{money(Math.round(o.moving))}</dd><dt>Waiting at the gate</dt><dd className={slow ? 'down' : ''}>{money(Math.round(o.waiting))}{o.waitingQty ? ` · ${Math.round(o.waitingQty)} units` : ''}</dd>{wait > 0 && <><dt>Cleared in</dt><dd className={slow ? 'down' : ''}>about {wait < 48 ? `${Math.ceil(wait)} hours` : `${Math.ceil(wait / 24)} days`}</dd></>}</dl>
+        <button className="btn primary" disabled={price > s.cash} onClick={() => act({ type: 'buyHorseCart' })}>🐴 Buy a horse cart · {money(price)}</button>
+        <span className="small muted">Horses eat about {money(12 * s.macro.cpi)} a day each. Trucks (Equipment page) carry {VEHICLES.truck.cap} at a time.</span>
+      </div>
+    </Modal>}
+  </>;
+}
+
 function CashCounter() {
   const s = useGame();
   const earned = (s.lifetime.sale ?? 0) + (s.lifetime.contract ?? 0) + (s.lifetime.prize ?? 0);
@@ -249,38 +264,44 @@ function Confetti() {
   );
 }
 
-function TopBar({ onLog, onSettings, onHelp, warnings, bare }: { onLog: () => void; onSettings: () => void; onHelp: () => void; warnings: number; bare: boolean }) {
+/** The ledger's pages, grouped the way a player looks for them. Pages not listed here fall into the last group. */
+const LEDGER_GROUPS: [string, string[]][] = [
+  ['Farm', ['fields', 'livestock', 'storage', 'equipment']],
+  ['Business', ['overview', 'markets', 'finance', 'workers', 'automation', 'analytics']],
+  ['Industry', ['production', 'research', 'logistics', 'competitors', 'corporation', 'policy']],
+  ['People & world', ['community', 'town', 'city', 'region', 'nation', 'world']],
+];
+
+/** The date, always in view at the bottom of the map, so a sped-up game keeps a sense of time. */
+function DatePill() {
+  const s = useGame(), c = clock(s.tick);
+  return <div className="date-pill" aria-live="off"><b>{c.season} {c.day}</b><span>Year {c.year}</span><span className="date-hour">{c.hour}</span></div>;
+}
+
+function TopBar({ onLog, onSettings, onHelp, onLedger, warnings, bare }: { onLog: () => void; onSettings: () => void; onHelp: () => void; onLedger: () => void; warnings: number; bare: boolean }) {
   const s = useGame();
-  const speed = useStore((x) => x.speed);
+  const speed = useStore(x => x.speed);
+  const [time, setTime] = useState(false);
+  const [menu, setMenu] = useState(false);
   const c = clock(s.tick);
-  return (
-    <header className="topbar">
-      {bare && <Wordmark size={19} />}
-      <div className="clock" data-coach="clock" aria-label="Game date">
-        <span className="mono">{c.hour}</span>
-        <span>{c.season} {c.day}</span>
-        <span className="muted">Year {c.year}</span>
-      </div>
-      {s.stats.sales > 0 && (
-        <div className="seg" role="radiogroup" aria-label="Simulation speed" data-coach="speed">
-          {SPEEDS.map((sp, i) => (
-            <button key={sp} role="radio" aria-checked={speed === sp} className={speed === sp ? 'on' : ''} onClick={() => setSpeed(sp)} title={`Key ${i + 1}${sp === 0 ? ' or Space' : ''}`}>{sp === 0 ? '❚❚' : `${sp}×`}</button>
-          ))}
-        </div>
-      )}
-      <div className="top-stats">
-        {s.era >= 2 && <div className="top-stat" title="Assets minus debt, with stock at market value"><span>Net worth</span><strong className="mono">{money(equity(s))}</strong></div>}
-        <CashCounter />
-        <button className="icon-btn" onClick={onLog} aria-label="Notifications" title="Notifications (N)">
-          <Icon name="bell" />
-          {warnings > 0 && <span className="dot">{warnings}</span>}
-        </button>
-        <Trophies />
-        <button className="icon-btn" onClick={onHelp} aria-label="Help" title="Help (?)"><Icon name="help" /></button>
-        <button className="icon-btn" onClick={onSettings} aria-label="Game menu" title="Save, load and settings"><Icon name="settings" /></button>
-      </div>
-    </header>
-  );
+  return <header className="topbar game-strip">
+    <LogoMark size={28} title="Agrarian"/><div className="cash-wrap"><CashCounter /><HaulChip /></div>
+    <button className="icon-btn" aria-label={speed ? 'Pause simulation' : 'Resume simulation'} onClick={()=>setSpeed(speed?0:1)}>{speed?'❚❚':'▶'}</button>
+    <button className="btn time-toggle" data-coach="speed" aria-label="Time controls" aria-expanded={time} onClick={()=>{setTime(!time);setMenu(false);}}>{speed || 0}× ▾</button>
+    {!bare && <button className="btn ledger-btn" aria-label="Ledger" data-coach="ledger" onClick={onLedger} title="All pages: fields, markets, finance and more">📚 Ledger</button>}
+    <button className="icon-btn" aria-label="Farm menu" aria-expanded={menu} onClick={()=>{setMenu(!menu);setTime(false);}}>☰{warnings>0&&<span className="dot">{warnings}</span>}</button>
+    {time && <div className="strip-popover">
+      <div data-coach="clock">{c.season} {c.day} · Year {c.year} · {c.hour}</div>
+      <div className="seg" role="radiogroup" aria-label="Simulation speed">{SPEEDS.filter(sp=>s.stats.sales>0||sp<=5).map(sp=><button key={sp} role="radio" aria-checked={speed===sp} className={speed===sp?'on':''} onClick={()=>{setSpeed(sp);setTime(false);}}>{sp===0?'❚❚':`${sp}×`}</button>)}</div>
+    </div>}
+    {menu && <div className="strip-popover menu-popover">
+      {s.era>=2 && <span>Net worth {money(equity(s))}</span>}
+      {s.log.length>0 && <button className="btn" onClick={()=>{setMenu(false);onLog();}}>Notifications {warnings>0?`(${warnings})`:''}</button>}
+      {s.achievements.length>0 && <Trophies/>}
+      <button className="btn" onClick={()=>{setMenu(false);onHelp();}}>Help</button>
+      <button className="btn" onClick={()=>{setMenu(false);onSettings();}}>Save & settings</button>
+    </div>}
+  </header>;
 }
 
 // ---------------------------------------------------------------- notifications
@@ -328,11 +349,18 @@ function LogDrawer({ onClose }: { onClose: () => void }) {
 
 function Decisions() {
   const s = useGame();
+  const speed = useStore(x => x.speed);
   const e = s.events.find((x) => x.choice && !x.choice.chosen && s.tick >= x.start);
   if (!e?.choice) return null;
   return (
     <Modal title={e.title}>
       <p>{e.text}</p>
+      {e.kind === 'antitrust' && <div className="stack s">
+        <strong className="mono">{money(Math.max(10000, sumBooks(s,120,['sale'])*0.03))} · {Math.max(0,Math.ceil((e.choice.deadline-s.tick)/24))} days to auto-settle</strong>
+        <Bar value={Math.max(0,(e.choice.deadline-s.tick)/(e.choice.deadline-e.start))} label="Time remaining to decide" />
+        <span className="muted">Keep regional crop market share below 35% to reduce probes.</span>
+        <button className="btn primary" disabled={speed===0} onClick={()=>setSpeed(0)}>{speed===0?'Paused · take your time':'Pause to decide'}</button>
+      </div>}
       <p className="muted small">Decide by {stamp(e.choice.deadline)} — otherwise the cautious option is taken for you.</p>
       <div className="stack s">
         {e.choice.options.map((o) => (
@@ -403,11 +431,12 @@ function Toasts() {
   );
 }
 
-function Settings({ onClose, theme, setTheme }: { onClose: () => void; theme: string; setTheme: (t: 'auto' | 'light' | 'dark') => void }) {
+function Settings({ onClose, theme, setTheme, onPhoto }: { onClose: () => void; theme: string; setTheme: (t: 'auto' | 'light' | 'dark') => void; onPhoto: () => void }) {
   const s = useGame();
   const file = useRef<HTMLInputElement>(null);
   const [slots, setSlots] = useState<Awaited<ReturnType<typeof slotInfo>> | null>(null);
-  const refresh = () => void slotInfo().then(setSlots);
+  const [broken, setBroken] = useState(false);
+  const refresh = () => { void slotInfo().then(setSlots); void brokenSave().then((x) => setBroken(!!x)); };
   useEffect(refresh, []);
   const row = (slot: Slot): ReactNode => {
     const i = slots?.[slot];
@@ -417,9 +446,9 @@ function Settings({ onClose, theme, setTheme }: { onClose: () => void; theme: st
         <td className="muted small">{i ? `Year ${Math.ceil(i.day / 120)} · day ${((i.day - 1) % 120) + 1} · Era ${i.era} · ${money(i.cash)} · ${new Date(i.savedAt).toLocaleString()}` : 'Empty'}</td>
         <td className="r">
           <div className="row end">
-            {slot !== 'auto' && <button className="btn ghost sm" onClick={() => void saveTo(slot).then(refresh)}>Save here</button>}
+            {slot !== 'auto' && slot !== 'backup' && <button className="btn ghost sm" onClick={() => void saveTo(slot).then(refresh)}>Save here</button>}
             <button className="btn ghost sm" disabled={!i} onClick={() => confirm('Load this save? Unsaved progress in the current game is lost.') && void loadFrom(slot).then(onClose)}>Load</button>
-            {slot !== 'auto' && <button className="btn ghost sm" disabled={!i} onClick={() => confirm('Delete this save?') && void deleteSlot(slot).then(refresh)}>Delete</button>}
+            {slot !== 'auto' && slot !== 'backup' && <button className="btn ghost sm" disabled={!i} onClick={() => confirm('Delete this save?') && void deleteSlot(slot).then(refresh)}>Delete</button>}
           </div>
         </td>
       </tr>
@@ -428,11 +457,16 @@ function Settings({ onClose, theme, setTheme }: { onClose: () => void; theme: st
   return (
     <Modal title="Game menu" onClose={onClose} wide actions={<button className="btn primary" onClick={onClose}>Done</button>}>
       <section className="stack s">
+        <h3>Share your farm</h3>
+        <div className="row wrap"><button className="btn ghost sm" onClick={onPhoto}>📷 Take a photo of your farm</button><span className="muted small">The whole farm in one picture, with the Agrarian logo, to save or share.</span></div>
+      </section>
+      <section className="stack s">
         <h3>Saves</h3>
         <p className="muted small">The game autosaves every 15 seconds and whenever you leave the page. Saves live in this browser — export a file to back up or move your farm.</p>
         <div className="table-wrap"><table className="t"><tbody>{SLOTS.map(row)}</tbody></table></div>
         <div className="row wrap">
           <button className="btn ghost sm" onClick={exportSave}>Export save file</button>
+          {broken && <button className="btn ghost sm" onClick={() => void downloadBroken()} title="An autosave that could not be loaded was kept here">Download the save that failed</button>}
           <button className="btn ghost sm" onClick={() => file.current?.click()}>Import save file</button>
           <input ref={file} type="file" accept="application/json,.json" hidden onChange={(e) => e.target.files?.[0] && void importSave(e.target.files[0]).then(onClose)} />
           <button className="btn danger sm" onClick={() => confirm('Start a new game? Your autosave will be replaced. Save to a slot or export first to keep this farm.') && (newGame(), onClose())}>New game</button>
@@ -542,16 +576,23 @@ function useShortcuts(h: { help: () => void; log: () => void }) {
     // Space always means pause — even with a popup open — so it must never "press" the focused button (that fires on keyup).
     const onSpaceUp = (e: KeyboardEvent) => { if (e.key === ' ' && !typing(e)) e.preventDefault(); };
     const onKey = (e: KeyboardEvent) => {
+      // Ctrl/⌘ Z undoes the last map edit, Shift (or Y) redoes it, wherever focus is outside a text field
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && /^[zy]$/i.test(e.key) && !(e.target as HTMLElement).closest('input, select, textarea')) {
+        e.preventDefault(); e.stopPropagation();
+        if (e.shiftKey || /y/i.test(e.key)) redo(); else undo();
+        return;
+      }
       if (typing(e)) return;
       const L = live.current;
       if (e.key === ' ') {
         e.preventDefault();
         e.stopPropagation();
-        if (e.repeat || L.sales === 0) return;
+        if (e.repeat) return;
         if (L.speed === 0) setSpeed(prev.current);
         else (prev.current = L.speed), setSpeed(0);
       } else if ((e.target as HTMLElement).closest('[role=dialog]')) return;
-      else if (/^[1-6]$/.test(e.key) && L.sales > 0) setSpeed(SPEEDS[+e.key - 1]);
+      else if (/^[1-6]$/.test(e.key) && (L.sales > 0 || SPEEDS[+e.key - 1] <= 5)) setSpeed(SPEEDS[+e.key - 1]);
+      else if ((e.key === 'r' || e.key === 'R') && rotatePlacement()) e.preventDefault();
       else if (e.key === '?') L.help();
       else if (e.key === 'n') L.log();
     };
@@ -559,6 +600,16 @@ function useShortcuts(h: { help: () => void; log: () => void }) {
     addEventListener('keyup', onSpaceUp, true);
     return () => (removeEventListener('keydown', onKey, true), removeEventListener('keyup', onSpaceUp, true));
   }, []);
+}
+
+function SheetGrip() {
+  const start=useRef<number|null>(null),dragged=useRef(false);
+  const reset=(button:HTMLButtonElement)=>{const panel=button.closest<HTMLElement>('.page-drawer');if(panel)panel.style.transform='';};
+  return <button className="sheet-grip" aria-label="Close panel" onClick={()=>{if(!dragged.current)go('farm');}}
+    onPointerDown={e=>{start.current=e.clientY;dragged.current=false;e.currentTarget.setPointerCapture(e.pointerId);}}
+    onPointerMove={e=>{if(start.current===null)return;const y=Math.max(0,e.clientY-start.current);const panel=e.currentTarget.closest<HTMLElement>('.page-drawer');if(panel)panel.style.transform=`translateY(${Math.min(160,y)}px)`;}}
+    onPointerUp={e=>{dragged.current=start.current!==null&&e.clientY-start.current>50;start.current=null;reset(e.currentTarget);if(dragged.current)go('farm');}}
+    onPointerCancel={e=>{start.current=null;reset(e.currentTarget);}}><span /></button>;
 }
 
 /** A crash inside one page shows a notice in the drawer instead of blanking the whole game. */
@@ -576,4 +627,14 @@ class PageGuard extends Component<{ children: ReactNode }, { error: Error | null
       </div>
     );
   }
+}
+
+// The clouds that close over the screen and part again when travelling between the farm and the Region view: left-hand clouds drift in from the left, right-hand ones from the right.
+const CLOUDS: [number, number, number][] = [[-12, -8, 62], [30, -14, 58], [70, -6, 64], [-18, 22, 60], [22, 18, 66], [64, 26, 58], [-8, 52, 64], [36, 48, 60], [74, 58, 62], [8, 78, 58], [52, 84, 66], [-20, 86, 54]];
+function CloudVeil() {
+  const veil = useStore((x) => x.veil);
+  if (!veil) return null;
+  return <div className={`cloud-veil ${veil}`} aria-hidden>
+    {CLOUDS.map(([x, y, w], i) => <span key={i} className="cloud" style={{ left: `${x}%`, top: `${y}%`, width: `max(${w}vw, ${w * 7}px)`, '--from': x + w / 2 < 50 ? '-120vw' : '120vw', '--delay': `${(i % 4) * 40}ms` } as React.CSSProperties} />)}
+  </div>;
 }

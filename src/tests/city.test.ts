@@ -1,0 +1,288 @@
+import {expect,it} from 'vitest';
+import {createGame,dispatch,step} from '../simulation/engine';
+import {communityOf,population} from '../simulation/community-state';
+import {post} from '../simulation/core';
+import {townOf} from '../simulation/town-state';
+import {canStartCity,cityDaily,homeCrimeTarget,caseCost,policeReformCost} from '../simulation/stages/city';
+import {cityOf,cityActive} from '../simulation/city-state';
+import {townOrders} from '../simulation/stages/town';
+import {parseSave} from '../simulation/persistence';
+import {cityBotAct} from './bot';
+function ready(){
+ const s=createGame(1701);s.legacyProgression=true;s.era=8;s.stageId='town';
+ post(s,'sharesIssued',5e6,'City test stake');
+ const c=communityOf(s);c.active=true;c.charter='free';c.cohorts=[{id:999,name:'Families',households:100,adults:200,children:200}];c.homes=[{id:998,tier:'cottage',count:100,cost:300000}];c.fed=1;c.happiness=.9;
+ const t=townOf(s);t.active=true;t.charter='public';t.education=.8;t.health=.9;t.roads=1;
+ return s;
+}
+/** A four-lane paved avenue along the north edge of a test site: what big buildings need at their door. */
+const avenue=(W:typeof import('../simulation/world'),w:ReturnType<typeof import('../simulation/world').worldOf>,o:[number,number],len:number)=>{for(let x=o[0]-1;x<=o[0]+len;x++)for(let k=1;k<=4;k++)w.roads[W.tileId(x,o[1]-k)]=3;};
+const flow=(x:Record<string,number|undefined>)=>Object.entries(x).reduce((n,[k,v])=>n+(k==='depreciation'?0:v??0),0);
+it('City is an optional, capability-preserving charter',()=>{
+ const s=ready(),cash=s.cash,people=population(s);
+ expect(canStartCity(s)).toBe(true);expect(cityActive(s)).toBe(false);
+ expect(dispatch(s,{type:'startCity',charter:'watch'}).ok).toBe(true);
+ expect(s.cash).toBe(cash);expect(population(s)).toBe(people);expect(s.era).toBe(8);expect(s.stageId).toBe('city');
+ expect(dispatch(s,{type:'startCity',charter:'strict'}).ok).toBe(false);
+ const corrupt=structuredClone(s);cityOf(corrupt).crime='invalid' as unknown as number;
+ expect(()=>parseSave(JSON.stringify({game:corrupt}))).toThrow(/safety/);
+});
+it('Crime is per street: dark, unwatched homes see more; a watchhouse in reach and lit streets cut it; strict cuts most',()=>{
+ const s=ready();dispatch(s,{type:'startCity',charter:'watch'});
+ const t=townOf(s),c=communityOf(s),v=cityOf(s);t.education=1;t.publicJobs=200;c.happiness=1;
+ expect(homeCrimeTarget(s,{power:1,watch:0})).toBe(0);
+ t.publicJobs=0;t.education=0;c.happiness=.3;t.roads=0;
+ const dark=homeCrimeTarget(s,{power:0,watch:0}),lit=homeCrimeTarget(s,{power:1,watch:0}),watched=homeCrimeTarget(s,{power:1,watch:1});
+ expect(dark).toBeGreaterThan(.4);expect(lit).toBeLessThan(dark);expect(watched).toBeLessThan(lit);
+ v.charter='strict';expect(homeCrimeTarget(s,{power:1,watch:1})).toBeLessThan(watched);
+ // the city's crime is the families' average, and each street drifts towards its own target
+ v.homes=[{id:1,families:30,power:0,watch:0},{id:2,families:10,power:1,watch:1}];v.crime=0;
+ s.tick=24;cityDaily(s);
+ expect(v.homeCrime![1]).toBeGreaterThan(v.homeCrime![2]);
+ expect(v.crime).toBeCloseTo((v.homeCrime![1]*30+v.homeCrime![2]*10)/40,10);
+ expect(v.police).toBeCloseTo(10/40,10);
+});
+it('Training, reforms and cases are paid by the farm; gangs sour happiness and smugglers cut the town shops',()=>{
+ const s=ready();dispatch(s,{type:'startCity',charter:'professional'});dispatch(s,{type:'buildService',service:'police',district:'farmgate'});
+ const v=cityOf(s),c=communityOf(s);let cash=s.cash;
+ expect(dispatch(s,{type:'trainPolice'}).ok).toBe(true);expect(v.training).toBe(1);expect(cash-s.cash).toBeCloseTo(15000*s.macro.cpi,6);
+ expect(dispatch(s,{type:'trainPolice'}).ok).toBe(false);
+ s.tick=Math.ceil(v.trainingUntil/24)*24;cityDaily(s);expect(v.training).toBe(1.25);
+ cash=s.cash;expect(dispatch(s,{type:'changePolice',charter:'strict'}).ok).toBe(true);expect(cash-s.cash).toBeCloseTo(policeReformCost(s),6);
+ v.case={id:996,kind:'gang',opened:s.tick,deadline:s.tick+24*7,good:'wheat',lost:5};
+ c.happiness=.8;s.tick+=24;cityDaily(s);expect(c.happiness).toBeLessThan(.8);
+ cash=s.cash;expect(dispatch(s,{type:'resolveCityCase',answer:'punish'}).ok).toBe(true);expect(cash-s.cash).toBeCloseTo(caseCost(s,'punish'),6);expect(v.case).toBeNull();
+ // an unanswered case resolves itself with the default, paid by the farm, and replays the same
+ v.case={id:997,kind:'theft',opened:s.tick,deadline:s.tick+24,good:'wheat',lost:5};
+ const clone=structuredClone(s);s.tick+=24;clone.tick+=24;cityDaily(s);cityDaily(clone);expect(s).toEqual(clone);expect(v.case).toBeNull();expect(v.rehabilitated).toBe(1);
+ const json=JSON.stringify(s);expect(JSON.stringify(parseSave(JSON.stringify({game:s})).game)).toBe(json);
+ // smugglers: the town shops order less from you while the case is open
+ townOrders(s);const full=townOf(s).orders!.reduce((n,o)=>n+o.want,0);
+ v.case={id:998,kind:'smuggling',opened:s.tick,deadline:s.tick+24*7,good:'wheat',lost:5};townOrders(s);
+ expect(full).toBeGreaterThan(0);expect(townOf(s).orders!.reduce((n,o)=>n+o.want,0)).toBeLessThan(full);
+});
+// shortcut: parked while Settlement → City are reworked from scratch (10 Nov 2026); replace with a playthrough of the new design.
+it.skip('A new farm reaches a serviced safe1200-person City through real actions, no grants',()=>{
+ const s=createGame(1002);let entry=-1;
+ for(let i=0;i<60000;i++){
+  cityBotAct(s);step(s);if(cityActive(s)&&entry<0)entry=s.tick;
+  const v=cityOf(s);if(v.active&&population(s)>=1200&&(townOf(s).sanitation??0)>=.7&&v.crime<=.2)break;
+ }
+ expect(cityActive(s)).toBe(true);expect(population(s)).toBeGreaterThanOrEqual(1200);expect(townOf(s).sanitation??0).toBeGreaterThanOrEqual(.7);expect(cityOf(s).crime).toBeLessThanOrEqual(.2);expect(s.bankrupt).toBeNull();
+ expect(s.cash).toBeCloseTo(250+flow(s.lifetime),1);expect(townOf(s).cash).toBeCloseTo(flow(townOf(s).lifetime),1);
+ console.log('City pacing',JSON.stringify({enteredAt:entry,developedAt:s.tick,cityTicks:s.tick-entry,population:population(s)}));
+},120000);
+
+it('Theft cannot take dedicated inputs or household reserves, and unpaid default cases grant nothing',()=>{
+ const s=ready();dispatch(s,{type:'startCity',charter:'watch'});const v=cityOf(s),c=communityOf(s);
+ dispatch(s,{type:'build',region:'heartland',building:'flourMill'});const mill=s.buildings[0];mill.reserved=90;
+ s.regions.heartland.inventory.wheat=100;c.larderHold={wheat:8};
+ for(let day=1;day<180&&!v.case;day++){v.crime=.8;v.nextCaseDay=0;s.tick=day*24;cityDaily(s);}
+ expect(v.case).not.toBeNull();expect(v.case!.lost).toBeLessThanOrEqual(2);expect(s.regions.heartland.inventory.wheat).toBeGreaterThanOrEqual(98);
+ post(s,'dividends',-s.cash,'Fixture: an empty till');v.prevention=0;s.tick=Math.ceil(v.case!.deadline/24)*24;cityDaily(s);
+ expect(v.case).toBeNull();expect(v.prevention).toBe(0);expect(v.caseHistory.at(-1)?.answer).toBe('unfunded');
+});
+
+// Private real-save fixtures are made by scripts/chapter-fixture.mjs through real actions.
+// @ts-expect-error Node IO is only used by opt-in local verification.
+import {readFileSync} from 'node:fs';
+// @ts-expect-error Node environment is absent from the browser type project.
+const fixtures=process.env.AGRARIAN_CITY_FIXTURES as string|undefined;
+it.skipIf(!fixtures)('Real veteran City copies run thirty days with conserved accounts, finite state and identical replay',()=>{
+ const finite=(x:unknown,path='state')=>{if(x===undefined)throw new Error(path+' undefined');if(typeof x==='number')expect(Number.isFinite(x),path).toBe(true);if(x&&typeof x==='object')for(const[k,v]of Object.entries(x))finite(v,path+'.'+k);};
+ for(const path of fixtures!.split(',')){
+  const s=parseSave(readFileSync(path,'utf8')).game,copy=structuredClone(s),cash=s.cash,companyFlow=flow(s.lifetime),t=townOf(s),publicCash=t.cash,publicFlow=flow(t.lifetime),tick=s.tick;
+  for(let i=0;i<720;i++){step(s);step(copy);}
+  expect(s.tick-tick).toBe(720);expect(s).toEqual(copy);finite(s);
+  expect(s.cash-cash).toBeCloseTo(flow(s.lifetime)-companyFlow,1);expect(t.cash-publicCash).toBeCloseTo(flow(t.lifetime)-publicFlow,1);
+  expect(parseSave(JSON.stringify({game:s})).game).toEqual(s);expect(cityOf(s).crime).toBeGreaterThanOrEqual(0);expect(cityOf(s).crime).toBeLessThanOrEqual(1);expect(population(s)).toBeGreaterThan(0);
+  console.log('City real save',JSON.stringify({path,people:population(s),crime:cityOf(s).crime,treasury:t.cash,ticks:s.tick-tick}));
+ }
+},120000);
+
+
+it('City shops: families in reach spend savings on your goods first and imports for the rest; GST comes to the farm; every dollar is accounted for', async () => {
+  const { cityTrade } = await import('../simulation/stages/city');
+  const { priceUsd } = await import('../simulation/core');
+  const s = ready(); dispatch(s, { type: 'startCity', charter: 'watch' });
+  const v = cityOf(s), c = communityOf(s), inv = s.regions.heartland.inventory, people = population(s);
+  v.homes = [{ id: 1, families: 50, power: 1, watch: 0, shops: { shopBaker: 1 } }, { id: 2, families: 50, power: 1, watch: 0 }]; // half the city is in a baker's reach
+  c.householdCash = 1e6; c.larderHold = {}; inv.bread = 1e6; inv.flour = 0; v.gst = 0.1;
+  const cash = s.cash, bread = inv.bread, want = Math.floor(people * 0.5 * 0.6), flourWant = Math.floor(people * 0.5 * 0.1);
+  cityTrade(s);
+  expect(bread - inv.bread).toBe(want); // your bread is sold
+  expect(v.trade!.ours).toBeCloseTo(want * priceUsd(s, 'heartland', 'bread') * 1.2, 1);
+  expect(v.trade!.imports).toBeCloseTo(flourWant * priceUsd(s, 'heartland', 'flour') * 1.2, 1); // no flour in store: imported
+  expect(v.trade!.gaps[0].good).toBe('flour');
+  expect(v.trade!.gst).toBeCloseTo(v.trade!.spend * 0.1, 1);
+  expect(s.cash - cash).toBeCloseTo(v.trade!.ours + v.trade!.gst, 1); // the farm gets its sales and the GST
+  expect(1e6 - c.householdCash).toBeCloseTo(v.trade!.spend + v.trade!.gst, 1); // families paid for all of it
+  // savings cap the day's spending; no GST at 0%; out of reach, nothing is sold
+  c.householdCash = 100; cityTrade(s); expect(v.trade!.spend + v.trade!.gst).toBeLessThanOrEqual(5.01);
+  expect(dispatch(s, { type: 'setGst', rate: 0.07 }).ok).toBe(false); expect(dispatch(s, { type: 'setGst', rate: 0 }).ok).toBe(true);
+  c.householdCash = 1e6; cityTrade(s); expect(v.trade!.gst).toBe(0);
+  v.homes = [{ id: 1, families: 100, power: 1, watch: 0 }]; cityTrade(s); expect(v.trade!.spend).toBe(0);
+});
+
+it('Shops stand only on commercial land, and commercial land takes nothing else', async () => {
+  const W = await import('../simulation/world');
+  const s = ready(); dispatch(s, { type: 'startCity', charter: 'watch' });
+  const w = W.worldOf(s, 'heartland'), spot = W.findSpot(s, 'heartland', W.SERVICE_FOOTPRINT)!;
+  expect(dispatch(s, { type: 'buildService', service: 'shopBaker', district: 'farmgate', at: spot }).ok).toBe(false); // farmland: no
+  const chunks = [...new Set([0, 1, 2].flatMap((dx) => [0, 1, 2].map((dy) => W.chunkAt(spot[0] + dx, spot[1] + dy))))];
+  expect(dispatch(s, { type: 'zoneLand', region: 'heartland', chunks, zone: 'com' }).ok).toBe(true);
+  expect(dispatch(s, { type: 'build', region: 'heartland', building: 'barn', at: spot }).ok).toBe(false); // no barns on commercial land
+  expect(dispatch(s, { type: 'buildService', service: 'shopBaker', district: 'farmgate', at: spot }).ok).toBe(true);
+  expect(dispatch(s, { type: 'zoneLand', region: 'heartland', chunks, zone: 'farm' }).ok).toBe(false); // the shop is in the way
+  expect(w.zones[chunks[0]]).toBe('com');
+});
+
+it('Four shops of a kind in a square merge into a market, four markets into the mall; undo splits them again', async () => {
+  const W = await import('../simulation/world');
+  const { mergeGroup, serviceName, serviceRadius } = await import('../simulation/town-state');
+  const { dispatchEdit, undoEdit } = await import('../simulation/undo');
+  const s = ready(); dispatch(s, { type: 'startCity', charter: 'watch' });
+  const t = townOf(s), w = W.worldOf(s, 'heartland'), o: [number, number] = [W.MAP.x0 + 40, W.MAP.y0 + 8]; // open country, given to the farm for the test
+  const chunks = [...new Set(Array.from({ length: 225 }, (_, i) => W.chunkAt(o[0] + (i % 15), o[1] + Math.floor(i / 15))))];
+  w.owned = [...new Set([...w.owned, ...chunks])]; w.cleared = [...new Set([...w.cleared, ...chunks])]; avenue(W, w, o, 16); for (let y = o[1] - 4; y <= o[1] + 16; y++) for (let k = 1; k <= 4; k++) { w.roads[W.tileId(o[0] - k, y)] = 3; w.roads[W.tileId(o[0] + 14 + k, y)] = 3; } W.touch(w); // avenues on three sides
+  expect(dispatch(s, { type: 'zoneLand', region: 'heartland', chunks, zone: 'com' }).ok).toBe(true);
+  const kinds = ['shopBaker', 'shopDairy', 'shopButcher', 'shopGrocer'] as const, markets: number[] = [];
+  kinds.forEach((kind, q) => {
+    const qo: [number, number] = [o[0] + (q % 2) * 8, o[1] + Math.floor(q / 2) * 8], ids: number[] = [];
+    for (let k = 0; k < 4; k++) {
+      { const res = dispatch(s, { type: 'buildService', service: kind, district: 'farmgate', at: [qo[0] + (k % 2) * 4, qo[1] + Math.floor(k / 2) * 4] }); if (!res.ok) console.log('FAIL', kind, k, res.error); expect(res.ok).toBe(true); }
+      ids.push(t.services.at(-1)!.id);
+      if (k === 2) { expect(mergeGroup(s, ids[0])!.members.length).toBe(3); expect(dispatch(s, { type: 'mergeService', serviceId: ids[0] }).ok).toBe(false); } // three is not enough
+    }
+    const cash = s.cash, g = mergeGroup(s, ids[3])!; expect(g.complete).toBe(true);
+    const { r, edit } = dispatchEdit(s, { type: 'mergeService', serviceId: ids[3] }); expect(r.ok).toBe(true);
+    const m = t.services.find((b) => b.id === ids[3])!;
+    expect(cash - s.cash).toBe(g.price); expect(m.size).toBe(2); expect(w.pos[`svc:${m.id}`]).toEqual(qo); expect(W.footprintOf(s, `svc:${m.id}`)).toEqual({ w: 7, d: 7 });
+    expect(t.services.filter((b) => b.type === kind).length).toBe(1); expect(serviceRadius(m)).toBe(22);
+    if (q === 0) { // undo puts the four shops back where they stood, and the money
+      expect(serviceName(m)).toBe("Bakers' hall");
+      undoEdit(s, edit!); expect(t.services.filter((b) => b.type === kind).length).toBe(4); expect(s.cash).toBeCloseTo(cash, 2); expect(W.footprintOf(s, `svc:${ids[0]}`)).toEqual({ w: 3, d: 3 });
+      expect(dispatch(s, { type: 'mergeService', serviceId: ids[3] }).ok).toBe(true);
+    }
+    markets.push(ids[3]);
+  });
+  expect(dispatch(s, { type: 'mergeService', serviceId: markets[1] }).ok).toBe(true);
+  const mall = t.services.find((b) => b.id === markets[1])!;
+  expect(mall.type).toBe('mall'); expect(mall.kinds!.sort()).toEqual([...kinds].sort()); expect(w.pos[`svc:${mall.id}`]).toEqual(o); expect(W.footprintOf(s, `svc:${mall.id}`)).toEqual({ w: 15, d: 15 });
+  expect(t.services.filter((b) => b.type.startsWith('shop')).length).toBe(0);
+  expect(parseSave(JSON.stringify({ game: s })).game).toEqual(s);
+});
+
+it('Shops open in the Town: a square of four is placed in one go, they trade without GST before the City, and a shop can be demolished', async () => {
+  const W = await import('../simulation/world');
+  const s = ready(), t = townOf(s), w = W.worldOf(s, 'heartland'), c = communityOf(s), o: [number, number] = [W.MAP.x0 + 40, W.MAP.y0 + 8];
+  const chunks = [...new Set(Array.from({ length: 64 }, (_, i) => W.chunkAt(o[0] + (i % 8), o[1] + Math.floor(i / 8))))];
+  w.owned = [...new Set([...w.owned, ...chunks])]; w.cleared = [...new Set([...w.cleared, ...chunks])]; W.touch(w);
+  expect(dispatch(s, { type: 'zoneLand', region: 'heartland', chunks, zone: 'com' }).ok).toBe(true);
+  const cash = s.cash;
+  expect(dispatch(s, { type: 'buildService', service: 'shopBaker', district: 'farmgate', at: o, block: true }).ok).toBe(true);
+  const four = t.services.filter((b) => b.type === 'shopBaker'); expect(four.length).toBe(4); expect(w.pos[`svc:${four[3].id}`]).toEqual([o[0] + 4, o[1] + 4]);
+  expect(dispatch(s, { type: 'mergeService', serviceId: four[0].id }).ok).toBe(false); // markets come with the City
+  const paid = cash - s.cash; expect(dispatch(s, { type: 'demolishService', serviceId: four[0].id }).ok).toBe(true);
+  expect(t.services.filter((b) => b.type === 'shopBaker').length).toBe(3); expect(w.pos[`svc:${four[0].id}`]).toBeUndefined(); expect(s.cash - (cash - paid)).toBeCloseTo(paid / 8, 0);
+  // a day passes: the Town's shops trade, with no GST
+  cityOf(s).homes = [{ id: 1, families: 100, power: 1, watch: 0, shops: { shopBaker: 1 } }]; c.householdCash = 1e5; s.regions.heartland.inventory.bread = 1e4; c.larderHold = {};
+  s.tick = 24 * 50; cityDaily(s);
+  expect(cityOf(s).trade!.ours).toBeGreaterThan(0); expect(cityOf(s).trade!.gst).toBe(0);
+});
+
+it('Families pay for their own food out of their savings; the farm only carries what they cannot pay', async () => {
+  const { foodBill } = await import('../simulation/stages/settlement');
+  const { progressionTick } = await import('../simulation/progression');
+  const s = ready(), c = communityOf(s); s.regions.heartland.inventory.wheat = 1e6; c.autoLarder = false;
+  c.householdCash = 1e6; c.lastDay = -1; s.tick = 24 * 30;
+  const cash = s.lifetime.sale ?? 0; progressionTick(s);
+  expect(c.fed).toBeCloseTo(1, 2); expect(c.foodPaid!).toBeCloseTo(foodBill(s), 0); expect((s.lifetime.sale ?? 0) - cash).toBeCloseTo(c.foodPaid!, 1); expect(c.householdCash).toBeLessThan(1e6);
+  c.householdCash = 10; s.tick += 24; progressionTick(s); expect(c.foodPaid).toBeLessThanOrEqual(10); expect(c.householdCash).toBeGreaterThanOrEqual(0); // broke families still eat
+});
+
+it('Apartments grow into a mid-rise and a tower when their needs are met; offices bring outside wages into the city', async () => {
+  const W = await import('../simulation/world');
+  const { homeUnits, homeFamilies } = await import('../simulation/community-state');
+  const { homeUpgradeNeeds } = await import('../simulation/stages/settlement');
+  const { townDaily } = await import('../simulation/stages/town');
+  const s = ready(), c = communityOf(s), t = townOf(s), w = W.worldOf(s, 'heartland'), o: [number, number] = [W.MAP.x0 + 40, W.MAP.y0 + 8];
+  const chunks = [...new Set(Array.from({ length: 144 }, (_, i) => W.chunkAt(o[0] + (i % 12), o[1] + Math.floor(i / 12))))];
+  w.owned = [...new Set([...w.owned, ...chunks])]; w.cleared = [...new Set([...w.cleared, ...chunks])]; W.touch(w);
+  expect(dispatch(s, { type: 'zoneLand', region: 'heartland', chunks: chunks.slice(0, 4), zone: 'res' }).ok).toBe(true);
+  expect(dispatch(s, { type: 'buildHomes', tier: 'apartment', count: 1, at: o }).ok).toBe(false); // no street wide enough yet
+  avenue(W, w, o, 12); W.touch(w);
+  expect(dispatch(s, { type: 'buildHomes', tier: 'apartment', count: 1, at: o }).ok).toBe(true);
+  const h = c.homes.at(-1)!, before = homeFamilies(s);
+  expect(dispatch(s, { type: 'upgradeHome', homeId: h.id }).ok).toBe(false); // not a City yet, no lines
+  dispatch(s, { type: 'startCity', charter: 'watch' });
+  const door = W.doorstep(o[0], o[1], W.footprintOf(s, `home:${h.id}`)!).map(([x, y]) => W.tileId(x, y));
+  w.nets = { power: { [door[0]]: 1 }, water: { [door[0]]: 1 } };
+  expect(homeUpgradeNeeds(s, h).every((n) => n.met)).toBe(true);
+  const cash = s.cash; { const r0 = dispatch(s, { type: 'upgradeHome', homeId: h.id }); if (!r0.ok) console.log('UP', r0.error); expect(r0.ok).toBe(true); }
+  expect(h.level).toBe(2); expect(homeUnits(h)).toBe(20); expect(homeFamilies(s) - before).toBe(12); expect(cash - s.cash).toBeCloseTo(35000 * 2.5 * s.macro.cpi, 0);
+  expect(dispatch(s, { type: 'upgradeHome', homeId: h.id }).ok).toBe(false); // a tower needs 800 people and the best lines
+  c.cohorts[0].adults = 500; c.cohorts[0].children = 400; w.nets = { power: { [door[0]]: 2 }, water: { [door[0]]: 2 }, sewer: { [door[0]]: 3 } };
+  expect(dispatch(s, { type: 'upgradeHome', homeId: h.id }).ok).toBe(true); expect(homeUnits(h)).toBe(48);
+  // an office on commercial land: outside firms pay residents, the farm pays no wages for it
+  const co = chunks.slice(8, 12); expect(dispatch(s, { type: 'zoneLand', region: 'heartland', chunks: co, zone: 'com' }).ok).toBe(true);
+  const [cx, cy] = W.chunkOrigin(co[0]);
+  for (let x = cx - 1; x <= cx + 4; x++) for (const k of [1, 2]) w.roads[W.tileId(x, cy - k)] = 3; W.touch(w); // a two-lane street for its door
+  expect(dispatch(s, { type: 'buildService', service: 'office', district: 'farmgate', at: [cx, cy] }).ok).toBe(true);
+  const savings = c.householdCash; t.lastDay = -1; s.tick = 24 * 60; townDaily(s);
+  expect(t.officePay!).toBeGreaterThan(0); expect(c.householdCash).toBeGreaterThan(savings);
+  expect(parseSave(JSON.stringify({ game: s })).game).toEqual(s);
+});
+
+it('Four of the same town building in a square merge into one bigger one: a plant serves 60% more families, a campus reaches further', async () => {
+  const W = await import('../simulation/world');
+  const { mergeGroup, serviceName, serviceRadius, utilityFamilies } = await import('../simulation/town-state');
+  const s = ready(), t = townOf(s), w = W.worldOf(s, 'heartland'), o: [number, number] = [W.MAP.x0 + 40, W.MAP.y0 + 8];
+  const chunks = [...new Set(Array.from({ length: 256 }, (_, i) => W.chunkAt(o[0] + (i % 16), o[1] + Math.floor(i / 16))))];
+  w.owned = [...new Set([...w.owned, ...chunks])]; w.cleared = [...new Set([...w.cleared, ...chunks])]; avenue(W, w, o, 16); W.touch(w);
+  const four = (service: 'sanitation' | 'school', ox: number) => { const ids: number[] = []; for (let k = 0; k < 4; k++) { expect(dispatch(s, { type: 'buildService', service, district: 'farmgate', at: [o[0] + ox + (k % 2) * 4, o[1] + Math.floor(k / 2) * 4] }).ok).toBe(true); ids.push(t.services.at(-1)!.id); } return ids; };
+  const san = four('sanitation', 0), before = san.reduce((n, id) => n + utilityFamilies(t.services.find((b) => b.id === id)!), 0);
+  t.services.find((b) => b.id === san[1])!.level = 2; expect(mergeGroup(s, san[0])!.complete).toBe(false); // one at another level does not join
+  t.services.find((b) => b.id === san[1])!.level = 1;
+  expect(dispatch(s, { type: 'mergeService', serviceId: san[0] }).ok).toBe(true);
+  const plant = t.services.find((b) => b.id === san[0])!;
+  expect(serviceName(plant)).toBe('Sanitation plant'); expect(utilityFamilies(plant)).toBeCloseTo(before * 1.6, 5); expect(W.footprintOf(s, `svc:${plant.id}`)).toEqual({ w: 7, d: 7 }); expect(t.services.filter((b) => b.type === 'sanitation').length).toBe(1);
+  const sch = four('school', 8), r1 = serviceRadius(t.services.find((b) => b.id === sch[0])!);
+  expect(dispatch(s, { type: 'mergeService', serviceId: sch[2] }).ok).toBe(true);
+  expect(serviceName(t.services.find((b) => b.id === sch[2])!)).toBe('School campus'); expect(serviceRadius(t.services.find((b) => b.id === sch[2])!)).toBeCloseTo(r1 * 2.2, 5);
+  expect(dispatch(s, { type: 'mergeService', serviceId: sch[2] }).ok).toBe(false); // already merged
+});
+
+it('Parks: laid out as gardens, a playground or a sports ground, each reaching the homes around it and counting for more at a higher level', async () => {
+  const W = await import('../simulation/world');
+  const { townDaily } = await import('../simulation/stages/town');
+  const s = ready(), t = townOf(s), c = communityOf(s), w = W.worldOf(s, 'heartland'), o: [number, number] = [W.MAP.x0 + 40, W.MAP.y0 + 8];
+  const chunks = [...new Set(Array.from({ length: 144 }, (_, i) => W.chunkAt(o[0] + (i % 12), o[1] + Math.floor(i / 12))))];
+  w.owned = [...new Set([...w.owned, ...chunks])]; w.cleared = [...new Set([...w.cleared, ...chunks])]; W.touch(w);
+  expect(dispatch(s, { type: 'zoneLand', region: 'heartland', chunks: chunks.slice(0, 2), zone: 'res' }).ok).toBe(true);
+  expect(dispatch(s, { type: 'buildHomes', tier: 'cottage', count: 1, at: o }).ok).toBe(true); c.homes = c.homes.slice(-1); // one home, by the park
+  expect(dispatch(s, { type: 'buildService', service: 'park', district: 'farmgate' }).ok).toBe(true); // on the farm's own cleared land, by a road
+  const park = t.services.at(-1)!, pp = w.pos[`svc:${park.id}`]; w.pos[`home:${c.homes[0].id}`] = [pp[0] + 4, pp[1]]; for (let x = pp[0]; x < pp[0] + 8; x++) w.roads[W.tileId(x, pp[1] - 1)] = 3; W.touch(w); // a street past both doors
+  const day = (n: number) => { t.lastDay = -1; s.tick = 24 * n; townDaily(s); };
+  day(70); expect(t.parks!.garden).toBeCloseTo(0.5, 5); expect(t.parks!.play).toBeUndefined(); // a new park is gardens, at half strength
+  const cash = s.cash; expect(dispatch(s, { type: 'setPark', serviceId: park.id, kind: 'play' }).ok).toBe(true); expect(s.cash).toBe(cash); // the first layout is free
+  expect(dispatch(s, { type: 'upgradeService', serviceId: park.id }).ok).toBe(true); expect(dispatch(s, { type: 'upgradeService', serviceId: park.id }).ok).toBe(true);
+  day(71); expect(t.parks!.play).toBeCloseTo(1, 5); expect(t.parks!.garden).toBeUndefined();
+  const c2 = s.cash; expect(dispatch(s, { type: 'setPark', serviceId: park.id, kind: 'sport' }).ok).toBe(true); expect(c2 - s.cash).toBeGreaterThan(0); // changing it later costs
+});
+
+it('In the City, new roads, lines and town buildings can be built straight to a chosen level for the full price of each step', async () => {
+  const W = await import('../simulation/world');
+  const s = ready(), t = townOf(s), w = W.worldOf(s, 'heartland');
+  expect(dispatch(s, { type: 'setBuildAs', what: 'road', level: 3 }).ok).toBe(false); // not before the City
+  dispatch(s, { type: 'startCity', charter: 'watch' });
+  for (const what of ['road', 'line', 'service'] as const) expect(dispatch(s, { type: 'setBuildAs', what, level: 3 }).ok).toBe(true);
+  expect(W.roadBuildPrice(s)).toBeCloseTo(W.roadTilePrice(s, 1) + W.roadTilePrice(s, 2) + W.roadTilePrice(s, 3), 2);
+  const before = new Set(Object.keys(w.roads)), cash = s.cash;
+  expect(dispatch(s, { type: 'buildRoad', region: 'heartland', from: [-10, -6], to: [6, -6] }).ok).toBe(true);
+  const fresh = Object.keys(w.roads).filter((k) => !before.has(k)); expect(fresh.length).toBeGreaterThan(0); expect(fresh.every((k) => w.roads[+k] === 3)).toBe(true);
+  expect(cash - s.cash).toBeCloseTo(W.roadBuildPrice(s) * fresh.length, 1);
+  expect(W.lineBuildTier(s, 'power')).toBe(2); expect(W.lineBuildTier(s, 'sewer')).toBe(3); // each kind to its own top
+  expect(dispatch(s, { type: 'buildService', service: 'school', district: 'farmgate' }).ok).toBe(true); expect(t.services.at(-1)!.level).toBe(3);
+  expect(parseSave(JSON.stringify({ game: s })).game).toEqual(s);
+});

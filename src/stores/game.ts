@@ -1,16 +1,24 @@
+import type { NeighbourId } from '../simulation/region-state';
 // The bridge between the pure simulation and React. The GameState object is mutated in place by
 // the engine; subscribers re-render on a version counter at most ~5 times a second.
+import { anotherOf, planQuote } from '../simulation/engine';
+import { APARTMENT_NEED } from '../simulation/access';
+import { serviceNeed } from '../simulation/town-state';
 import { useSyncExternalStore } from 'react';
-import { CONFIG, CROPS, CROP_IDS, GOOD_IDS, REGION_IDS } from '../simulation/config';
-import { advance, createGame, dispatch as engineDispatch } from '../simulation/engine';
-import { createMarkets } from '../simulation/markets';
+import { CONFIG } from '../simulation/config';
+import { advance, createGame } from '../simulation/engine';
+import { dispatchEdit, undoEdit, undoable, type Edit } from '../simulation/undo';
+import { BUILDINGS, type RegionId } from '../simulation/config';
+import { groundProblem, buildAs, beltRoute, FOOTPRINT, SERVICE_FOOTPRINT, findSpot, homesCentre, homeFootprint, plotSide, worldOf, CHUNK, chunkAt, roadRoute, pipeRoute, rotOf, buildingUse, COMMERCIAL, type NetKind } from '../simulation/world';
+import { SERVICE_DEFS } from '../simulation/town-state';
+import { parseSave, SAVE_VERSION, type SaveFile } from '../simulation/persistence';
+export { parseSave, SAVE_VERSION } from '../simulation/persistence';
 import type { Action, GameState } from '../simulation/types';
 import { sfx, type Sfx } from '../app/audio';
 
 export const SPEEDS = [0, 1, 2, 5, 10, 50] as const;
 export type Speed = (typeof SPEEDS)[number];
-export const SAVE_VERSION = 2;
-export const SLOTS = ['auto', 'slot1', 'slot2', 'slot3'] as const;
+export const SLOTS = ['auto', 'backup', 'slot1', 'slot2', 'slot3'] as const;
 export type Slot = (typeof SLOTS)[number];
 
 export interface Toast { id: number; text: string; kind: 'error' | 'ok' }
@@ -23,9 +31,38 @@ interface Store {
   catchUp: { done: number; total: number } | null;
   page: string;
   ready: boolean;
+  /** Placing something new or moving something: a ghost footprint the player positions on the map. */
+  placing: Placement | null;
+  roading: Roading | null;
+  /** while on the road and line tools: buildings hidden, so roads and lines are easy to see and work on */
+  hideBuildings: boolean;
+  /** the City's crime map: a marker over each home, coloured by crime on its street */
+  crimeMap: boolean;
+  trafficMap: boolean;
+  /** how many lanes wide new roads are drawn */
+  roadLanes: number;
+  prospect: Prospect | null;
+  zoning: Zoning | null;
+  /** the farm map, or the Region view of the whole region */
+  view: 'farm' | 'region';
+  /** the clouds closing over the screen, or parting, while travelling between the two */
+  veil: 'in' | 'out' | null;
+  /** a neighbour's town you are visiting: its own map, to look round */
+  visiting: NeighbourId | null;
 }
+/** Road mode: draw from the last tapped tile, or upgrade/remove the stretch tapped. */
+export type Roading = { tool: 'draw' | 'upgrade' | 'remove' | 'bridge'; region: RegionId; from?: [number, number]; hover?: [number, number]; /** the same tool lays line networks (irrigation, power, water, sewer): draw, upgrade, remove */ pipe?: NetKind; /** planting tree lines instead */ belt?: boolean };
+/** Zone mode: tap patches of your land to make them residential, industrial or farmland again. */
+export type Zoning = { region: RegionId; zone: 'res' | 'ind' | 'com' | 'farm'; hover?: [number, number]; /** drag mode: a press-and-drag sweeps a rectangle of patches */ drag?: boolean; /** where the current sweep started */ from?: [number, number] };
+/** What a placement is, for zoning checks in the preview. */
+/** The oil tool: drilling, or (survey) picking the area a survey reads. */
+export type Prospect = { region: RegionId; hover?: [number, number]; survey?: boolean };
+/** The street a new placement needs at its door, if more than a track. */
+export const placementNeed = (p: Pick<Placement, 'action' | 'kind'>) => p.kind === 'move' ? null : p.action.type === 'buildHomes' && p.action.tier === 'apartment' ? APARTMENT_NEED[0] : p.action.type === 'buildService' ? serviceNeed({ type: p.action.service, level: buildAs(store.game, 'service') }) : null;
+export const placementUse = (p: Pick<Placement, 'action' | 'key' | 'kind'>) => p.kind === 'move' ? undefined : p.action.type === 'buildHomes' ? 'home' as const : p.action.type === 'buyPlot' || p.action.type === 'buyParcel' ? 'field' as const : p.action.type === 'build' ? buildingUse(store.game, p.action.building) : p.action.type === 'buildService' && COMMERCIAL.test(p.action.service) ? 'shop' as const : undefined;
+export type Placement = { kind: 'new' | 'move'; action: Action; region: RegionId; w: number; d: number; label: string; key?: string; at: [number, number]; /** quarter turns; w and d are already turned */ rot?: number; /** placing one of several: how many are left, of how many */ left?: number; total?: number };
 
-let store: Store = { game: createGame(), v: 0, speed: 1, toasts: [], away: null, catchUp: null, page: 'farm', ready: false };
+let store: Store = { game: createGame(), v: 0, speed: 1, toasts: [], away: null, catchUp: null, page: 'farm', ready: false, placing: null, roading: null, hideBuildings: false, crimeMap: false, trafficMap: false, roadLanes: 1, prospect: null, zoning: null, view: 'farm', veil: null, visiting: null };
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((l) => l());
 const set = (patch: Partial<Store>) => {
@@ -36,6 +73,32 @@ const bump = () => set({ v: store.v + 1 });
 
 export const getGame = () => store.game;
 export const getSpeed = () => store.speed;
+export const getPage = () => store.page;
+export const buildingsHidden = () => !!store.roading && store.hideBuildings;
+export const toggleHideBuildings = () => set({ hideBuildings: !store.hideBuildings });
+export const setCrimeMap = (on: boolean) => set({ crimeMap: on });
+export const crimeMapOn = () => store.crimeMap;
+export const setTrafficMap = (on: boolean) => set({ trafficMap: on, ...(on ? { crimeMap: false } : {}) });
+export const trafficMapOn = () => store.trafficMap;
+export const setRoadLanes = (n: number) => set({ roadLanes: n, ...(store.roading ? { roading: { ...store.roading, from: undefined } } : {}) });
+export const roadLanes = () => store.roadLanes;
+
+// ---------------------------------------------------------------- undo: map edits can be taken back for a game day
+let undos: Edit[] = [], redos: Edit[] = [];
+const engineDispatch = (s: GameState, a: Action) => { const { r, edit } = dispatchEdit(s, a); if (edit) { undos = [...undos, edit].slice(-30); redos = []; } if (r.ok) saveSoon(); return r; };
+const fresh = () => { undos = undos.filter((e) => undoable(store.game, e)); redos = redos.filter((e) => undoable(store.game, e)); };
+export const canUndo = () => (fresh(), undos.length > 0);
+export const canRedo = () => (fresh(), redos.length > 0);
+export function undo() {
+  fresh(); const e = undos.pop(); if (!e) return false;
+  undoEdit(store.game, e); redos.push(e); sfx('click'); toast('Undone', 'ok'); saveSoon(); bump(); return true;
+}
+export function redo() {
+  fresh(); const e = redos.pop(); if (!e) return false;
+  const { r, edit } = dispatchEdit(store.game, e.action); saveSoon();
+  if (!r.ok) { toast(r.error); redos = []; } else if (edit) undos.push(edit);
+  sfx(r.ok ? 'click' : 'error'); bump(); return r.ok;
+}
 
 // ---------------------------------------------------------------- persistence (IndexedDB, localStorage fallback)
 
@@ -61,17 +124,15 @@ async function put(key: string, value: string) {
     localStorage.setItem(`${DB}.${key}`, value);
   }
 }
+/** A stored save, or null when there is none. Throws when the browser has the save but cannot read it, so that is never mistaken for "no save". */
 async function get(key: string): Promise<string | null> {
-  try {
-    const db = await idb();
-    return await new Promise((res, rej) => {
-      const r = db.transaction('saves').objectStore('saves').get(key);
-      r.onsuccess = () => res((r.result as string) ?? localStorage.getItem(`${DB}.${key}`));
-      r.onerror = () => rej(r.error);
-    });
-  } catch {
-    return localStorage.getItem(`${DB}.${key}`);
-  }
+  let db: IDBDatabase;
+  try { db = await idb(); } catch { return localStorage.getItem(`${DB}.${key}`); } // no database in this browser: the local-storage fallback
+  return await new Promise((res, rej) => {
+    const r = db.transaction('saves').objectStore('saves').get(key);
+    r.onsuccess = () => res((r.result as string) ?? localStorage.getItem(`${DB}.${key}`));
+    r.onerror = () => rej(r.error ?? new Error('the browser could not read it'));
+  });
 }
 async function del(key: string) {
   try {
@@ -82,90 +143,39 @@ async function del(key: string) {
   }
 }
 
-interface SaveFile { version: number; savedAt: number; paused?: boolean; game: GameState }
-
-/** Trust boundary: stored or imported JSON may be stale, hand-edited or corrupt. */
-export function parseSave(text: string): SaveFile {
-  let raw: unknown;
-  try {
-    raw = JSON.parse(text);
-  } catch {
-    throw new Error('That file is not a valid save.');
-  }
-  const f = raw as Partial<SaveFile> & { game?: { version?: number } };
-  if (!f || typeof f !== 'object' || !f.game) throw new Error('That file is not an Agrarian save.');
-  const g = migrate(f.game as unknown as Omit<GameState, 'version'> & { version: number });
-  const finite = (n: unknown) => typeof n === 'number' && Number.isFinite(n);
-  if (![g.tick, g.cash, g.rng, g.seed, g.era].every(finite)) throw new Error('Save file is corrupt.');
-  if (!Array.isArray(g.fields) || !g.fields.length || !g.regions || !g.markets) throw new Error('Save file is incomplete.');
-  for (const r of REGION_IDS) {
-    if (!g.regions[r]) throw new Error('Save file is missing a region.');
-    for (const gd of GOOD_IDS) if (!finite(g.regions[r].inventory[gd]) || g.regions[r].inventory[gd] < -1e-6) throw new Error('Save file inventory is corrupt.');
-  }
-  for (const c of CROP_IDS) if (!finite(g.seeds[c]) || g.seeds[c] < 0) throw new Error('Save file seed stock is corrupt.');
-  return { version: SAVE_VERSION, savedAt: finite(f.savedAt) ? f.savedAt! : Date.now(), paused: f.paused === true, game: g };
-}
-
-/** Upgrades older saves in place. Version 1 (the prototype) predates the full economy. */
-function migrate(g: Omit<GameState, 'version'> & { version: number }): GameState {
-  if (g.version === 1) throw new Error('This save is from the early prototype and cannot be upgraded. Please start a new game.');
-  if (g.version !== SAVE_VERSION) throw new Error(`Unsupported save version ${g.version}.`);
-  g.warned ??= {};
-  g.bench ??= {};
-  g.discovered ??= [];
-  g.achievements ??= [];
-  g.rewarded ??= [];
-  g.advisor ??= false;
-  g.daily ??= null;
-  g.stats.plantings ??= 0;
-  g.eraReady ??= false;
-  g.herds ??= [];
-  g.automation.policies.autoFeed ??= true;
-  g.automation.policies.autoExport ??= true;
-  if (g.research.done.includes('droughtResistant')) g.research.licensed = g.research.licensed.filter((x) => x !== 'droughtLicense');
-  g.automation.policies.supplyFactories ??= false;
-  for (const f of g.fields) (f.supplies ??= null), (f.spreading ??= null), (f.spreadWork ??= 0), (f.planLocked ??= false), (f.greenhouse ??= false), (f.frost ??= 0), (f.cycleAt ??= 0);
-  // one-time repair (Nov 2026): orchards piled up pests from a bug; clear them once, marked in `rewarded` so it never repeats
-  if (!g.rewarded.includes('fix:orchardPests')) {
-    for (const f of g.fields) if (f.crop && CROPS[f.crop].perennial) (f.pest = 0), (f.streak = 0);
-    g.rewarded.push('fix:orchardPests');
-  }
-  for (const w of g.workers) w.perk ??= null;
-  for (const m of g.machines) m.tier ??= 1;
-  for (const b of g.buildings) (b.level ??= 1), (b.reserved ??= 0);
-  for (const r of REGION_IDS) (g.regions[r].forecast ??= []), (g.regions[r].quality ??= {}), (g.regions[r].frostTonight ??= false);
-  // goods and crops added after the save was made start empty, with fresh markets
-  const fresh = createMarkets();
-  for (const r of REGION_IDS) {
-    for (const gd of GOOD_IDS) g.regions[r].inventory[gd] ??= 0;
-    for (const gd in fresh[r]) g.markets[r][gd as keyof typeof fresh.heartland] ??= fresh[r][gd as keyof typeof fresh.heartland];
-  }
-  for (const c of CROP_IDS) g.seeds[c] ??= 0;
-  for (const m of g.machines) (m.util ??= 0), (m.task ??= 0), (m.driver ??= null);
-  for (const w of g.workers) w.task ??= 0;
-  for (const rule of g.automation.rules) if (typeof rule.lastRun !== 'number') rule.lastRun = -1e9;
-  for (const r of REGION_IDS) g.regions[r].insuredFrom ??= 0;
-  g.seenTips ??= [];
-  for (const r of REGION_IDS) for (const k in g.markets[r]) g.markets[r][k as keyof typeof g.markets.heartland]!.impact ??= 0;
-  return g as GameState;
-}
 
 const serialize = () => JSON.stringify({ version: SAVE_VERSION, savedAt: Date.now(), paused: store.speed === 0, game: store.game } satisfies SaveFile);
 
+/** While a save could not be read, nothing is written over it until the player chooses (loads a save or starts anew). */
+let readFailed = false;
+/** A second copy of the farm, refreshed every 20 minutes of play, so one bad autosave can never cost the whole farm. A new game leaves another farm's backup alone for a day. */
+const BACKUP_EVERY = 20 * 60 * 1000, BACKUP_KEEP = 24 * 3600 * 1000;
+async function keepBackup(text: string) {
+  let meta: { seed: number; at: number } | null = null;
+  try { meta = JSON.parse(localStorage.getItem(`${DB}.backupMeta`) ?? 'null'); } catch { /* none yet */ }
+  const now = Date.now(), same = meta?.seed === store.game.seed;
+  if (meta && (same ? now - meta.at < BACKUP_EVERY : now - meta.at < BACKUP_KEEP)) return;
+  await put('backup', text);
+  try { localStorage.setItem(`${DB}.backupMeta`, JSON.stringify({ seed: store.game.seed, at: now })); } catch { /* the backup itself is stored */ }
+}
 export async function saveTo(slot: Slot, silent = false) {
+  if (readFailed && slot === 'auto') return;
   try {
-    await put(slot, serialize());
+    const text = serialize();
+    await put(slot, text);
+    if (slot === 'auto') void keepBackup(text);
     if (!silent) toast(slot === 'auto' ? 'Saved.' : `Saved to ${slotLabel(slot)}.`, 'ok');
   } catch {
     toast('Could not save: browser storage is unavailable.');
   }
 }
-export const slotLabel = (s: Slot) => (s === 'auto' ? 'Autosave' : `Slot ${s.slice(-1)}`);
+export const slotLabel = (s: Slot) => (s === 'auto' ? 'Autosave' : s === 'backup' ? 'Backup (every 20 min)' : `Slot ${s.slice(-1)}`);
 
 export async function slotInfo(): Promise<Record<Slot, { savedAt: number; day: number; cash: number; era: number } | null>> {
   const out = {} as Record<Slot, { savedAt: number; day: number; cash: number; era: number } | null>;
   for (const s of SLOTS) {
-    const t = await get(s);
+    let t: string | null = null;
+    try { t = await get(s); } catch { /* unreadable: shown as empty */ }
     if (!t) { out[s] = null; continue; }
     try {
       const f = parseSave(t);
@@ -178,7 +188,9 @@ export async function slotInfo(): Promise<Record<Slot, { savedAt: number; day: n
 }
 
 export async function loadFrom(slot: Slot) {
-  const t = await get(slot);
+  let t: string | null;
+  try { t = await get(slot); } catch (e) { return toast(`That save could not be read: ${(e as Error).message}`); }
+  readFailed = false;
   if (!t) return toast('That slot is empty.');
   try {
     const f = parseSave(t);
@@ -199,6 +211,7 @@ export function exportSave() {
 
 export async function importSave(file: File) {
   if (file.size > 50 * 1024 * 1024) return toast('That file is too large to be a save.');
+  readFailed = false;
   try {
     const f = parseSave(await file.text());
     startFrom(f.game, Date.now());
@@ -210,7 +223,8 @@ export async function importSave(file: File) {
 }
 
 export function newGame() {
-  store.game = createGame();
+  readFailed = false;
+  store.game = createGame(); undos = []; redos = [];
   set({ speed: 1, away: null, page: 'farm', v: store.v + 1 });
   saveTo('auto', true);
 }
@@ -220,7 +234,7 @@ export function newGame() {
 export const offlineOn = () => { try { return localStorage.getItem('agrarian.ui.offline') !== 'false'; } catch { return true; } };
 
 function startFrom(game: GameState, savedAt: number, paused = false) {
-  store.game = game;
+  store.game = game; undos = []; redos = [];
   set({ v: store.v + 1, page: 'farm', ...(paused ? { speed: 0 as Speed } : {}) });
   const elapsed = Math.floor((Date.now() - savedAt) / 1000);
   const total = Math.min(elapsed, CONFIG.offlineCapTicks);
@@ -259,14 +273,36 @@ function startFrom(game: GameState, savedAt: number, paused = false) {
   setTimeout(chunk, 0);
 }
 
+const LEAVE = 'agrarian.leave';
+/** The last autosave that failed to load, kept so it can be recovered. */
+const BROKEN = 'broken';
+export const brokenSave = () => get(BROKEN);
+export async function downloadBroken() {
+  const t = await get(BROKEN);
+  if (!t) return toast('There is no failed save to download.');
+  const url = URL.createObjectURL(new Blob([t], { type: 'application/json' }));
+  Object.assign(document.createElement('a'), { href: url, download: 'agrarian-failed-autosave.json' }).click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 export async function boot() {
-  const t = await get('auto');
+  let t: string | null;
+  try { t = await get('auto'); } catch (e) {
+    readFailed = true; // the farm is there but unreadable just now: nothing may overwrite it
+    console.error('Autosave could not be read', e);
+    toast(`Your farm's save could not be read from browser storage (${(e as Error).message}). Nothing has been overwritten: reload to try again, or open the Game menu to load the backup or a slot.`);
+    set({ ready: true });
+    return;
+  }
+  try { const l = localStorage.getItem(LEAVE); localStorage.removeItem(LEAVE); if (l && (!t || JSON.parse(l).savedAt > JSON.parse(t).savedAt)) { t = l; void put('auto', l); } } catch { /* keep the database save */ }
   if (t) {
     try {
       const f = parseSave(t);
       startFrom(f.game, f.savedAt, f.paused);
     } catch (e) {
-      toast(`Your autosave could not be loaded (${(e as Error).message}). A new game was started.`);
+      console.error('Autosave could not be loaded', e);
+      await put(BROKEN, t); // never thrown away: the menu offers it as a file, so a fixed game can load it
+      await del('auto');
+      toast(`Your autosave could not be loaded (${(e as Error).message}). It is kept: Game menu → Download the save that failed. A new game was started.`);
     }
   }
   set({ ready: true });
@@ -282,12 +318,113 @@ export function toast(text: string, kind: Toast['kind'] = 'error') {
 }
 
 const SOUND: Partial<Record<Action['type'], Sfx>> = {
+  startCity:'celebrate',mergeService:'celebrate',upgradeHome:'celebrate',mergeBuilding:'celebrate',changePolice:'buy',trainPolice:'buy',resolveCityCase:'pop',
+  startTown: 'celebrate', buildService: 'buy', fundTown: 'coin', answerPetition: 'pop',
   plant: 'plant', fertilize: 'plant', harvest: 'harvest', sell: 'coin', sellAnimals: 'coin', deliverContract: 'coin',
   buy: 'buy', buyPlot: 'buy', buyParcel: 'buy', buyMachine: 'buy', build: 'buy', hire: 'buy', buyAnimals: 'buy', upgradeBuilding: 'buy',
   upgradeMachine: 'buy', greenhouse: 'buy', irrigate: 'buy', research: 'buy', advanceEra: 'celebrate', claimDaily: 'celebrate', choosePerk: 'pop', setPlan: 'click',
 };
 
+/** Footprint of whatever this action would put on the map, when the player should choose the spot. */
+function placementFor(a: Action): { region: RegionId; w: number; d: number; label: string } | null {
+  if ('at' in a && a.at) return null;
+  if (a.type === 'buyPlot') return { region: 'heartland', w: plotSide(1), d: plotSide(1), label: 'New field (1 ha)' };
+  if (a.type === 'buyParcel') return { region: a.region, w: plotSide(a.ha), d: plotSide(a.ha), label: `New field (${a.ha} ha)` };
+  if (a.type === 'addAnother') { const plan = anotherOf(store.game, a.key); return plan && (plan.direct ? { region: plan.region, w: plan.fp.w, d: plan.fp.d, label: 'Another, merged' } : placementFor(plan.first)); }
+  if (a.type === 'build') { const [w, d] = FOOTPRINT[a.building]; return { region: a.region, w, d, label: BUILDINGS[a.building].name }; }
+  if (a.type === 'buildHomes') { const f = homeFootprint({ id: 0, tier: a.tier, count: 1, cost: 0 }); return { region: 'heartland', ...f, label: `${a.tier[0].toUpperCase()}${a.tier.slice(1)} home` }; }
+  if (a.type === 'buildService' && a.block) return { region: 'heartland', w: 7, d: 7, label: `4 × ${SERVICE_DEFS[a.service].name}` };
+  if (a.type === 'buildService' && a.service !== 'road') return { region: 'heartland', ...SERVICE_FOOTPRINT, label: SERVICE_DEFS[a.service].name };
+  return null;
+}
+export function startPlacement(p: Omit<Placement, 'at'>) {
+  const g = store.game, civic = p.action.type === 'buildService' || p.action.type === 'buildHomes', at = findSpot(g, p.region, { w: p.w, d: p.d }, false, placementUse(p), civic ? homesCentre(worldOf(g, p.region)) : null) ?? (worldOf(g, p.region).pos[p.region === 'heartland' ? 'farmhouse' : 'shed'] ?? [1, 1]); // services and homes start among the homes
+  set({ placing: { ...p, rot: p.rot ?? (p.kind === 'move' && p.key && !p.key.startsWith('field:') ? rotOf(g, p.key) : 0), at: [at[0], at[1]] }, roading: null, page: 'farm' });
+}
+export const startRoads = (region: RegionId) => set({ roading: { tool: 'draw', region }, placing: null, prospect: null, page: 'farm' });
+export const startBelts = (region: RegionId) => set({ roading: { tool: 'draw', region, belt: true }, placing: null, prospect: null, zoning: null, page: 'farm' });
+export const startPipes = (region: RegionId, net: NetKind = 'irrigation') => set({ roading: { tool: 'draw', region, pipe: net }, placing: null, prospect: null, page: 'farm' });
+export const setNet = (net: NetKind) => store.roading && set({ roading: { ...store.roading, pipe: net, from: undefined } });
+/** Oil mode: see the survey, pick a 2×2 spot, drill. */
+export const startProspect = (region: RegionId) => set({ prospect: { region }, placing: null, roading: null, page: 'farm' });
+export const stopProspect = () => set({ prospect: null });
+export const startZoning = (region: RegionId, zone: Zoning['zone'] = 'res') => set({ zoning: { region, zone }, placing: null, roading: null, prospect: null, page: 'farm' });
+export const stopZoning = () => set({ zoning: null });
+export const setZoneTool = (zone: Zoning['zone']) => store.zoning && set({ zoning: { ...store.zoning, zone } });
+export const zoneHover = (at: [number, number] | null) => { const Z = store.zoning; if (Z && at && (Z.hover?.[0] !== at[0] || Z.hover?.[1] !== at[1])) set({ zoning: { ...Z, hover: at } }); };
+export const setZoneDrag = (drag: boolean) => store.zoning && set({ zoning: { ...store.zoning, drag, from: undefined } });
+export const zoneDragStart = (at: [number, number] | null) => { const Z = store.zoning; if (Z && at) set({ zoning: { ...Z, from: at, hover: at } }); };
+/** The patches inside the rectangle between two ground points. */
+export const zoneRect = (a: [number, number], b: [number, number]) => { const out: number[] = []; for (let x = Math.min(a[0], b[0]); x <= Math.max(a[0], b[0]) + CHUNK - 1; x += CHUNK) for (let y = Math.min(a[1], b[1]); y <= Math.max(a[1], b[1]) + CHUNK - 1; y += CHUNK) { const c = chunkAt(Math.min(x, Math.max(a[0], b[0])), Math.min(y, Math.max(a[1], b[1]))); if (c >= 0 && !out.includes(c)) out.push(c); } return out; };
+export const zoneDragEnd = (at: [number, number] | null) => { const Z = store.zoning; if (!Z?.from) return; const from = Z.from; set({ zoning: { ...Z, from: undefined } }); if (at) act({ type: 'zoneLand', region: Z.region, chunks: zoneRect(from, at), zone: Z.zone }); };
+export const zoneTap = (at: [number, number] | null) => { const Z = store.zoning; if (Z && at) act({ type: 'zoneLand', region: Z.region, chunks: [chunkAt(at[0], at[1])], zone: Z.zone }); };
+export const prospectHover = (at: [number, number] | null) => { const P = store.prospect; if (P && at && (P.hover?.[0] !== at[0] || P.hover?.[1] !== at[1])) set({ prospect: { ...P, hover: at } }); };
+export const prospectTap = (at: [number, number] | null) => { const P = store.prospect; if (!P || !at) return; if (P.survey) { if (act({ type: 'surveyOil', region: P.region, at })) set({ prospect: { ...P, survey: false } }); } else act({ type: 'drillOil', region: P.region, at: [at[0] - 1, at[1] - 1] }); };
+export const setSurveying = (on: boolean) => { const P = store.prospect; if (P) set({ prospect: { ...P, survey: on } }); };
+export const setRoadTool = (tool: Roading['tool']) => store.roading && set({ roading: { ...store.roading, tool, from: undefined } });
+export const stopRoads = () => set({ roading: null });
+export const roadHover = (at: [number, number] | null) => { const R = store.roading; if (R && at && (R.hover?.[0] !== at[0] || R.hover?.[1] !== at[1])) set({ roading: { ...R, hover: at } }); };
+export function roadTap(at: [number, number] | null) {
+  const R = store.roading;
+  if (!R || !at) return;
+  if (R.belt) { // tree lines: tap to start, tap again to plant up to there; the remove tool fells a whole run
+    if (R.tool === 'remove') { act({ type: 'removeBelt', region: R.region, at }); return; }
+    if (!R.from) { if (!beltRoute(store.game, R.region, at, at)) { toast(groundProblem(store.game, R.region, at[0], at[1], 'belt') ?? 'Trees cannot go there.'); return; } set({ roading: { ...R, from: at } }); return; }
+    { const why = groundProblem(store.game, R.region, at[0], at[1], 'belt'); if (why && !beltRoute(store.game, R.region, R.from, at)) { toast(why); sfx('error'); return; } }
+    if (act({ type: 'buildBelt', region: R.region, from: R.from, to: at })) set({ roading: { ...store.roading!, from: at } });
+    return;
+  }
+  if (R.tool === 'bridge') { act({ type: 'buildBridge', region: R.region, at, lanes: store.roadLanes }); return; }
+  if (R.tool === 'draw') {
+    if (!R.from) { if (!(R.pipe ? pipeRoute(store.game, R.region, at, at, R.pipe) : roadRoute(store.game, R.region, at, at))) { toast(!R.pipe ? groundProblem(store.game, R.region, at[0], at[1], 'road') ?? 'A road cannot start there.' : R.pipe === 'irrigation' ? 'Start a ditch on your own cleared land, beside the river or on another water line.' : R.pipe ? 'Start a line on your own cleared land, beside its building or on another line.' : 'Start a road on your own cleared land or on an existing road.'); return; } return set({ roading: { ...R, from: at } }); }
+    if (act(R.pipe ? { type: 'buildPipe', region: R.region, from: R.from, to: at, net: R.pipe } : { type: 'buildRoad', region: R.region, from: R.from, to: at, lanes: store.roadLanes })) set({ roading: { ...store.roading!, from: at } }); // keep drawing from here
+    return;
+  }
+  // a drag along a road (from where it started to here) takes only that part; a tap takes the whole stretch
+  const seg = !R.pipe && R.from && (R.from[0] !== at[0] || R.from[1] !== at[1]) ? { at: R.from, to: at } : { at };
+  if (R.from) set({ roading: { ...R, from: undefined } });
+  act(R.pipe ? { type: R.tool === 'upgrade' ? 'upgradePipe' : 'removePipe', region: R.region, at, net: R.pipe } : { type: R.tool === 'upgrade' ? 'upgradeRoad' : 'removeRoad', region: R.region, ...seg });
+}
+/** Start dragging along a road with the upgrade or remove tool. */
+export const roadDragStart = (at: [number, number]) => store.roading && set({ roading: { ...store.roading, from: at, hover: at } });
+export const moveGhost = (at: [number, number]) => store.placing && set({ placing: { ...store.placing, at } });
+/** Turn what is being placed a quarter turn clockwise (fields are square plots and do not turn). */
+export function rotatePlacement() {
+  const p = store.placing;
+  if (!p || p.key?.startsWith('field:') || p.action.type === 'buyPlot' || p.action.type === 'buyParcel') return false;
+  set({ placing: { ...p, rot: ((p.rot ?? 0) + 1) % 4, w: p.d, d: p.w } });
+  return true;
+}
+export const cancelPlacement = () => set({ placing: null });
+/** Buy and clear the land under the ghost; the crew places it when they finish. */
+export function planPlacementHere() {
+  const p = store.placing;
+  if (!p || p.kind !== 'new') return false;
+  const ok = act({ type: 'planPlacement', region: p.region, action: p.action, at: p.at, w: p.w, d: p.d, rot: p.rot, label: p.label });
+  if (ok) set({ placing: null });
+  return ok;
+}
+export function confirmPlacement() {
+  const p = store.placing;
+  if (!p) return false;
+  const a = (p.kind === 'move' ? { type: 'moveObject', region: p.region, key: p.key!, at: p.at, rot: p.rot } : { ...p.action, at: p.at, ...(p.rot ? { rot: p.rot } : {}) }) as Action;
+  const r = engineDispatch(store.game, a);
+  sfx(r.ok ? 'buy' : 'error');
+  if (!r.ok) { const q = p.kind === 'new' ? planQuote(store.game, p.region, p.at, p.w, p.d, p.action) : null; toast(q?.ok ? `${r.error} Use “${q.buy.length || q.clear.length ? 'Buy & clear' : 'Remove road & place'}” in the bar to clear the way.` : r.error); bump(); return false; }
+  if (r.note) toast(r.note, 'ok');
+  set({ placing: null });
+  // several at once are placed one after another, each where the player chooses
+  if (p.kind === 'new' && (p.left ?? 1) > 1) startPlacement({ ...p, left: p.left! - 1 });
+  bump();
+  return true;
+}
 export function act(a: Action, success?: string) {
+  const spot = store.ready ? placementFor(a) : null;
+  if (spot) {
+    const n = a.type === 'build' ? a.count ?? 1 : a.type === 'buildHomes' ? a.count : 1;
+    startPlacement({ kind: 'new', action: n > 1 ? { ...a, count: 1 } as Action : a, ...spot, ...(n > 1 ? { left: n, total: n } : {}) });
+    return true;
+  }
   const r = engineDispatch(store.game, a);
   if (a.type !== 'seeTip' && a.type !== 'startDay') sfx(r.ok ? SOUND[a.type] ?? 'click' : 'error');
   if (!r.ok) toast(r.error);
@@ -299,7 +436,30 @@ export function act(a: Action, success?: string) {
 export const setSpeed = (speed: Speed) => set({ speed });
 export const dismissAway = () => set({ away: null });
 export const go = (page: string) => set({ page });
+/** The neighbour the Region page opens on, when a banner on the map was tapped. */
+let neighbourFocus: string | null = null;
+export const focusNeighbour = (id: string) => { neighbourFocus = id; };
+export const takeNeighbourFocus = () => { const f = neighbourFocus; neighbourFocus = null; return f; };
 export const usePageState = () => useStore((x) => x.page);
+export const getView = () => store.view;
+/** Travel between the farm and the Region view: the clouds close over the screen, the view changes behind them, and they part. */
+let travelling = false;
+export function travel(view: 'farm' | 'region') {
+  if (store.view === view) return;
+  set({ placing: null, roading: null, prospect: null, zoning: null });
+  throughClouds(() => set({ view, page: 'farm', visiting: null }));
+}
+/** Visit a neighbour's town: down through the clouds onto its own map, built like yours. Back up to the region map the same way. */
+export const visitTown = (id: NeighbourId) => throughClouds(() => set({ view: 'farm', visiting: id, page: 'farm' }));
+export const leaveTown = () => throughClouds(() => set({ view: 'region', visiting: null, page: 'farm' }));
+/** Close the clouds over the screen, make the change behind them, part them again. */
+export function throughClouds(change: () => void) {
+  if (travelling) return;
+  travelling = true;
+  const quick = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  set({ veil: 'in' });
+  setTimeout(() => { change(); set({ veil: 'out' }); setTimeout(() => { set({ veil: null }); travelling = false; }, quick ? 200 : 1000); }, quick ? 150 : 800);
+}
 
 // ---------------------------------------------------------------- loop
 
@@ -315,7 +475,17 @@ function loop() {
     if (ticks > 0) {
       carry -= ticks;
       if (carry > 5) carry = 0;
-      advance(store.game, ticks);
+      // One hour at a time so the clock can stop the moment the farm slips into overdraft:
+      // at high speed the three-day insolvency clock would otherwise pass in about a second.
+      for (let i = 0; i < ticks && !store.game.bankrupt; i++) {
+        const over = store.game.overdraftDays;
+        advance(store.game, 1);
+        if (store.game.overdraftDays > over && store.speed > 1) {
+          setSpeed(0);
+          toast(`Paused: overdraft over its limit (day ${store.game.overdraftDays}/3). Sell stock, a field or a machine, or take a loan, before day 3.`);
+          break;
+        }
+      }
     }
   }
   last = now;
@@ -326,8 +496,13 @@ function loop() {
 }
 setInterval(loop, 50);
 setInterval(() => store.ready && !store.catchUp && saveTo('auto', true), 15000);
-addEventListener('visibilitychange', () => document.visibilityState === 'hidden' && store.ready && saveTo('auto', true));
-addEventListener('pagehide', () => store.ready && saveTo('auto', true));
+/** Save a moment after anything the player does, so a reload straight after keeps it: saving as the page closes may not finish in time. */
+let saveTimer: ReturnType<typeof setTimeout> | undefined;
+function saveSoon() { clearTimeout(saveTimer); saveTimer = setTimeout(() => store.ready && !store.catchUp && saveTo('auto', true), 800); }
+/** Leaving the page: the database write may not finish before the page goes, so a copy is written to local storage at once too; boot takes whichever is newer. */
+function saveOnLeave() { if (!store.ready || readFailed) return; const t = serialize(); try { localStorage.setItem(LEAVE, t); } catch { /* too big or blocked: the database save below still runs */ } void put('auto', t); }
+addEventListener('visibilitychange', () => document.visibilityState === 'hidden' && saveOnLeave());
+addEventListener('pagehide', saveOnLeave);
 
 // ---------------------------------------------------------------- React binding
 

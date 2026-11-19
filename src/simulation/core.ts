@@ -2,6 +2,9 @@
 import {
   BUILDINGS, CONFIG, CROPS, DAYS_PER_YEAR, GOODS, OPEX_KINDS, REGIONS, REVENUE_KINDS, SEASONS, TICKS_PER_DAY, type BuildingType, type CropId, type GoodId, type LedgerKind, type RegionId,
 } from './config';
+import { townOf } from './town-state';
+import { hasAccess } from './world';
+import { housingAssets } from './community-state';
 import type { Building, Division, EventKind, GameEvent, GameState, LogLevel, Market } from './types';
 
 export const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -12,6 +15,25 @@ export const seasonOf = (s: GameState) => SEASONS[Math.floor((((Math.floor(s.tic
 export const known = (s: GameState, id: string) => s.discovered.includes(id);
 /** Upgrade levels multiply what a building holds or makes. */
 export const levelMult = (level: number) => [1, 1.8, 2.5][Math.max(0, Math.min(2, (level || 1) - 1))];
+/** A food factory's throughput by level: each upgrade doubles it, so a line keeps up with a growing farm. Oil, energy and storage keep levelMult. */
+/** Bigger is better: a merged building does far more than the ones it replaced, a Works 2.6 buildings' worth, a Plant 6. */
+export const sizeOutput = (b: { size?: number; type?: string; ha?: number }) => (b.size === 4 ? 6 : b.size === 2 ? 2.6 : 1) * vfArea(b);
+/** A vertical farm's size in hectares of the field it was built on: a 1 ha farm is one tower's worth, a 25 ha one twenty-five. */
+export const vfArea = (b: { type?: string; ha?: number }) => (b.type === 'verticalFarm' && b.ha ? b.ha : 1);
+/** ...on fewer hands: a Works pays 1.5 buildings' staff, a Plant 2.5. */
+export const sizeStaff = (b: { size?: number; type?: string; ha?: number }) => (b.size === 4 ? 2.5 : b.size === 2 ? 1.5 : 1) * vfArea(b);
+export const throughput = (b: { type: string; level: number; size?: number; ha?: number }) => (b.type === 'verticalFarm' ? VERTICAL_LEVELS[Math.max(0, Math.min(4, (b.level || 1) - 1))] : GROWS_X2.has(b.type) ? [1, 2, 4][Math.max(0, Math.min(2, (b.level || 1) - 1))] : levelMult(b.level)) * sizeOutput(b);
+/** Animal houses merge too: two side by side become one big barn, two of those a farm of their own. */
+export const LIVESTOCK_HOUSE: ReadonlySet<string> = new Set(['cowshed', 'pigsty', 'coop', 'sheepfold']);
+/** Stores and power plants merge too. */
+export const STORE_OR_POWER: ReadonlySet<string> = new Set(['barn', 'silo', 'coldStore', 'warehouse', 'solar', 'windTurbine', 'biogas']);
+export const MERGEABLE = (t: string) => FOOD_FACTORY.has(t) || LIVESTOCK_HOUSE.has(t) || STORE_OR_POWER.has(t);
+const MERGED: Record<string, [string, string]> = { barn: ['Great barn', 'Storage yard'], silo: ['Silo bank', 'Grain terminal'], coldStore: ['Cold warehouse', 'Cold-storage depot'], warehouse: ['Big warehouse', 'Logistics depot'], solar: ['Solar array', 'Solar farm'], windTurbine: ['Wind cluster', 'Wind farm'], cowshed: ['Cattle barn', 'Cattle yards'], pigsty: ['Pig barn', 'Pig farm'], coop: ['Poultry house', 'Poultry farm'], sheepfold: ['Sheep barn', 'Sheep station'] };
+/** What a merged building is called: a Works and a Plant for factories, its own names for animal houses. */
+/** The level a building shows: merging comes after level 3, so a works (two merged) is level 4 and a plant (four) level 5. */
+export const shownLevel = (b: { level?: number; size?: number }) => ((b.size ?? 1) >= 4 ? 5 : (b.size ?? 1) >= 2 ? 4 : b.level ?? 1);
+export const mergedName = (type: string, name: string, size: number) => (MERGED[type] ? MERGED[type][size >= 4 ? 1 : 0] : `${name} ${size >= 4 ? 'plant' : 'works'}`);
+export const FOOD_FACTORY: ReadonlySet<string> = new Set(['flourMill', 'bakery', 'feedMill', 'ranch', 'dairy', 'creamery', 'oilPress', 'sugarMill', 'winery']);
 export const nextId = (s: GameState) => s.nextId++;
 
 /** mulberry32 step; state lives on GameState so saves replay identically. */
@@ -32,50 +54,52 @@ export const pick = <T>(s: GameState, xs: readonly T[]): T => xs[Math.floor(rand
 const NON_CASH: LedgerKind[] = ['depreciation'];
 const TAXABLE = new Set<LedgerKind>([...REVENUE_KINDS, ...OPEX_KINDS, 'interest', 'futures', 'insurancePayout', 'prize', 'depreciation']);
 
-export function post(s: GameState, kind: LedgerKind, amount: number, memo: string, region: RegionId = 'heartland', division: Division = divisionOf(kind)) {
+export function post(s: GameState, kind: LedgerKind, amount: number, memo: string, region: RegionId = 'heartland', division: Division = divisionOf(kind), account: 'company' | 'town' = 'company') {
   amount = round2(amount);
   if (amount === 0) return;
-  if (!NON_CASH.includes(kind)) s.cash = round2(s.cash + amount);
-  s.lifetime[kind] = round2((s.lifetime[kind] ?? 0) + amount);
-  const b = todayBook(s);
+  const wallet = account === 'town' ? townOf(s) : s;
+  if (!NON_CASH.includes(kind)) wallet.cash = round2(wallet.cash + amount);
+  wallet.lifetime[kind] = round2((wallet.lifetime[kind] ?? 0) + amount);
+  const b = account === 'town' ? accountBook(s, wallet) : todayBook(s);
   b.kinds[kind] = round2((b.kinds[kind] ?? 0) + amount);
   b.regions[region] = round2((b.regions[region] ?? 0) + amount);
   b.divisions[division] = round2((b.divisions[division] ?? 0) + amount);
-  if (TAXABLE.has(kind)) b.op[region] = round2((b.op[region] ?? 0) + amount);
+  if (TAXABLE.has(kind) || (account === 'town' && (kind === 'residentTax' || kind === 'civic' || kind === 'tolls'))) b.op[region] = round2((b.op[region] ?? 0) + amount);
   // Merge repeated charges (wages, fuel, power...) into one line per kind/region/memo/day so the ledger stays readable.
   const d = Math.floor(s.tick / 24);
   let merged = false;
-  for (let i = s.ledger.length - 1; i >= Math.max(0, s.ledger.length - 40); i--) {
-    const e = s.ledger[i];
+  for (let i = wallet.ledger.length - 1; i >= 0; i--) {
+    const e = wallet.ledger[i];
     if (Math.floor(e.tick / 24) !== d) break;
-    if (e.kind === kind && e.region === region && e.memo === memo) {
+    if (e.kind === kind && e.region === region && e.division === division && e.memo === memo) {
       e.amount = round2(e.amount + amount);
       merged = true;
       break;
     }
   }
-  if (!merged) s.ledger.push({ tick: s.tick, kind, amount, region, division, memo });
-  if (s.ledger.length > CONFIG.ledgerLength) s.ledger.splice(0, s.ledger.length - CONFIG.ledgerLength);
+  if (!merged) wallet.ledger.push({ tick: s.tick, kind, amount, region, division, memo });
+  if (wallet.ledger.length > CONFIG.ledgerLength) wallet.ledger.splice(0, wallet.ledger.length - CONFIG.ledgerLength);
 }
 
 function divisionOf(kind: LedgerKind): Division {
   if (['haulage', 'shipping'].includes(kind)) return 'logistics';
   if (['electricity', 'grid'].includes(kind)) return 'energy';
   if (['futures', 'margin', 'contract'].includes(kind)) return 'trading';
-  if (['interest', 'tax', 'loanIn', 'loanRepay', 'sharesIssued', 'dividends', 'buyback', 'legal', 'acquisition', 'salaries', 'research', 'fines'].includes(kind)) return 'corporate';
+  if (['interest', 'tax', 'loanIn', 'loanRepay', 'sharesIssued', 'dividends', 'buyback', 'legal', 'acquisition', 'salaries', 'research', 'fines', 'rent'].includes(kind)) return 'corporate';
   return 'crops';
 }
 export const buildingDivision = (t: BuildingType): Division =>
   t === 'ranch' || t === 'dairy' ? 'livestock' : BUILDINGS[t].category === 'energy' ? 'energy' : BUILDINGS[t].category === 'research' ? 'corporate' : BUILDINGS[t].category === 'storage' ? 'logistics' : t === 'distribution' ? 'logistics' : 'processing';
 export const goodDivision = (g: GoodId): Division => (g === 'meat' || g === 'milk' ? 'livestock' : GOODS[g].kind === 'processed' ? 'processing' : 'crops');
 
-export function todayBook(s: GameState) {
+export function todayBook(s: GameState) { return accountBook(s, s); }
+function accountBook(s: GameState, wallet: Pick<GameState, 'books' | 'cash'>) {
   const d = day(s);
-  let b = s.books[s.books.length - 1];
+  let b = wallet.books[wallet.books.length - 1];
   if (!b || b.day !== d) {
-    b = { day: d, kinds: {}, regions: {}, divisions: {}, op: {}, cash: s.cash, debt: 0, equity: 0, produced: 0 };
-    s.books.push(b);
-    if (s.books.length > CONFIG.booksDays) s.books.shift();
+    b = { day: d, kinds: {}, regions: {}, divisions: {}, op: {}, cash: wallet.cash, debt: 0, equity: 0, produced: 0 };
+    wallet.books.push(b);
+    if (wallet.books.length > CONFIG.booksDays) wallet.books.shift();
   }
   return b;
 }
@@ -98,7 +122,18 @@ export const refPrice = (s: GameState, g: GoodId) => GOODS[g].basePrice * s.macr
 
 /** Wages and land are local-currency costs: local inflation and the exchange rate both move them. */
 export const marketWage = (s: GameState, r: RegionId) => usd(s, r, REGIONS[r].wage * s.regions[r].cpi);
-export const electricityPrice = (s: GameState, r: RegionId) => 0.12 * s.macro.cpi * Math.sqrt(s.macro.energy) * (r === 'arid' ? 1.15 : r === 'tropics' ? 0.9 : 1);
+export const electricityPrice = (s: GameState, r: RegionId) => 0.12 * s.macro.cpi * Math.sqrt(s.macro.energy) * (r === 'arid' ? 1.15 : r === 'tropics' ? 0.9 : 1) * (leaning(s).industrial ? 0.85 : 1);
+/** Character of the farm, decided by many small choices rather than one fork. */
+export const LEAN_AT = 30;
+export function leaning(s: GameState) {
+  const ci = s.values?.cleanIndustrial ?? 50;
+  return { clean: ci <= LEAN_AT, industrial: ci >= 100 - LEAN_AT };
+}
+/** Nudge a value axis (0–100). */
+export function lean(s: GameState, axis: keyof GameState['values'], by: number) {
+  const v = s.values as unknown as Record<string, number>;
+  v[axis] = Math.max(0, Math.min(100, (v[axis] ?? 50) + by));
+}
 export const fuelPrice = (s: GameState, r: RegionId) => priceUsd(s, r, 'fuel');
 export const landPricePerHa = (s: GameState, r: RegionId) => (REGIONS[r].landPrice / REGIONS[r].fx0) * s.regions[r].cpi * s.regions[r].fx * (1 + 0.02 * s.regions[r].parcelsBought);
 
@@ -114,19 +149,27 @@ export function capacity(s: GameState, r: RegionId) {
   let dry = r === 'heartland' ? CONFIG.baseDryStorage : 0;
   let cold = 0;
   for (const b of buildingsIn(s, r)) {
-    dry += (BUILDINGS[b.type].dry ?? 0) * levelMult(b.level);
-    cold += (BUILDINGS[b.type].cold ?? 0) * levelMult(b.level);
+    if (!hasAccess(s, r, `b:${b.id}`)) continue; // a store nobody can drive to holds nothing
+    dry += (BUILDINGS[b.type].dry ?? 0) * levelMult(b.level) * sizeOutput(b);
+    cold += (BUILDINGS[b.type].cold ?? 0) * levelMult(b.level) * sizeOutput(b);
   }
   return { dry, cold };
 }
 
-/** Units held per storage class. Cold goods overflow into dry space (and spoil faster there). */
+/** Tank space for crude or diesel: the tanks at wells, a refinery and oil tanks (by level), and the farm's own 5,000 L diesel tank. */
+export function tankCap(s: GameState, r: RegionId, g: GoodId) {
+  let cap = g === 'fuel' && r === 'heartland' ? 5000 : 0;
+  for (const b of buildingsIn(s, r)) { const t = BUILDINGS[b.type].tank; if (t && (g === 'oil' || g === 'fuel')) cap += t[g] * (b.type === 'oilTank' ? levelMult(b.level) : 1); }
+  return cap;
+}
+/** Units held per storage class. Cold goods overflow into dry space (and spoil faster there); crude and diesel live in tanks. */
 export function stored(s: GameState, r: RegionId) {
   const inv = s.regions[r].inventory;
   let dry = 0, cold = 0;
   for (const g in inv) {
     const q = inv[g as GoodId];
     if (!q) continue;
+    if (GOODS[g as GoodId].storage === 'tank') continue;
     if (GOODS[g as GoodId].storage === 'cold') cold += q;
     else dry += q;
   }
@@ -138,6 +181,7 @@ export function stored(s: GameState, r: RegionId) {
 export function freeSpace(s: GameState, r: RegionId, g: GoodId) {
   const st = stored(s, r);
   const dryFree = Math.max(0, st.cap.dry - st.dry);
+  if (GOODS[g].storage === 'tank') return Math.max(0, tankCap(s, r, g) - s.regions[r].inventory[g]);
   return GOODS[g].storage === 'cold' ? Math.max(0, st.cap.cold - st.cold) + dryFree : dryFree;
 }
 
@@ -157,7 +201,7 @@ export function inventoryValue(s: GameState) {
 export function fixedAssets(s: GameState) {
   const land = s.fields.reduce((a, f) => a + f.cost, 0);
   const machines = s.machines.reduce((a, m) => a + Math.max(0, m.cost - m.depreciated), 0);
-  const buildings = s.buildings.reduce((a, b) => a + Math.max(0, b.cost - b.depreciated), 0);
+  const buildings = s.buildings.reduce((a, b) => a + Math.max(0, b.cost - b.depreciated), 0) + housingAssets(s);
   return { land, machines, buildings };
 }
 
@@ -165,7 +209,7 @@ export const debt = (s: GameState) => s.loans.reduce((a, l) => a + l.balance, 0)
 
 export function totalAssets(s: GameState) {
   const fa = fixedAssets(s);
-  return Math.max(0, s.cash) + s.marginAccount + inventoryValue(s) + fa.land + fa.machines + fa.buildings;
+  return Math.max(0, s.cash) + s.marginAccount + inventoryValue(s) + fa.land + fa.machines + fa.buildings + townOf(s).companyAdvance;
 }
 export const equity = (s: GameState) => totalAssets(s) - debt(s);
 
@@ -186,6 +230,27 @@ export const severity = (s: GameState, kind: EventKind, r?: RegionId, g?: GoodId
 // ---------------------------------------------------------------- dedicated supply
 
 /** The crop a factory takes in, if fields can grow it for that factory. */
+/** Food factories double with each level, so a level-N line keeps up with a level-N farm. */
+export const GROWS_X2: ReadonlySet<string> = new Set(['flourMill', 'bakery', 'feedMill', 'ranch', 'dairy', 'creamery', 'oilPress', 'sugarMill', 'winery']);
+/** A vertical farm climbs five levels, each dearer than the last (see upgradeCost): level 5 makes six times level 1. */
+export const VERTICAL_LEVELS = [1, 2, 3, 4.5, 6];
+/** The highest level a building can reach. */
+export const maxLevel = (t: string) => (t === 'verticalFarm' ? 5 : 3);
+/** Fruit a fruit house grows: a vertical farm converted from an orchard keeps to fruit, and only an orchard becomes one. */
+export const FRUIT_CROPS: GoodId[] = ['apples', 'grapes'];
+export const isFruitHouse = (b: { type: string; grows?: GoodId }) => b.type === 'verticalFarm' && !!b.grows && FRUIT_CROPS.includes(b.grows);
+/** A building's name as the player knows it: a vertical farm growing fruit is a fruit house. */
+export const buildingName = (b: { type: Building['type']; grows?: GoodId }) => (isFruitHouse(b) ? 'Fruit house' : BUILDINGS[b.type].name);
+/** What a vertical farm can grow: greens, or an annual field crop. */
+export const VERTICAL_CROPS: GoodId[] = ['greens', 'wheat', 'corn', 'potatoes', 'soybeans', 'rice'];
+/** Any crop a vertical farm grows is worth the same per batch at base prices, so the choice is about what you need, not a hidden best answer. */
+const VERTICAL_BATCH_VALUE = 80;
+/** A building's recipe: a vertical farm's output is its chosen crop. */
+export function recipeOf(b: { type: Building['type']; grows?: GoodId }) {
+  const rec = BUILDINGS[b.type].recipe;
+  if (b.type !== 'verticalFarm' || !rec || !b.grows || b.grows === 'greens') return rec;
+  return { ...rec, outputs: { [b.grows]: Math.round(VERTICAL_BATCH_VALUE / GOODS[b.grows].basePrice) } as Partial<Record<GoodId, number>> };
+}
 export const factoryCrop = (b: Building): CropId | null => {
   const ins = Object.keys(BUILDINGS[b.type].recipe?.inputs ?? {}) as GoodId[];
   return ins.length === 1 && ins[0] in CROPS ? (ins[0] as CropId) : null;
@@ -194,7 +259,7 @@ export const factoryCrop = (b: Building): CropId | null => {
 /** Most a factory holds in reserve: a week at full capacity. Surplus harvest stays free to sell. */
 export const reserveCap = (b: Building) => {
   const rec = BUILDINGS[b.type].recipe!;
-  return Object.values(rec.inputs)[0]! * rec.batchesPerHour * levelMult(b.level) * 24 * 7;
+  return Object.values(rec.inputs)[0]! * rec.batchesPerHour * throughput(b) * 24 * 7;
 };
 
 /** Stock of a good held for factories in a region (never more than is actually in store). Pass a factory to leave out its own share and that of its same-type siblings, which share one pool. */

@@ -4,6 +4,7 @@ import { avgPrice, executeSell, haulCost } from './markets';
 import { clamp, day, debt, fixedAssets, inventoryValue, log, nextId, pick, post, random, round2, sumBooks, totalAssets } from './core';
 import { warnOnce } from './agriculture';
 import type { FuturesPosition, GameState, SupplyContract } from './types';
+import { featureEra } from './stages';
 
 export const FUTURES_GOODS: GoodId[] = ['wheat', 'corn', 'soybeans', 'rice', 'sugar', 'cotton', 'coffee', 'fuel', 'fertilizer'];
 export const CONTRACT_SIZE = 100;
@@ -66,7 +67,6 @@ export function financeDaily(s: GameState) {
   insuranceDaily(s);
   futuresDaily(s);
   contractsDaily(s);
-  if (day(s) % DAYS_PER_YEAR === 0 && day(s) > 0) taxYear(s);
 }
 
 // ---------------------------------------------------------------- insurance
@@ -134,7 +134,7 @@ const BUYERS = ['Harvest Table Grocers', 'Northline Mills', 'City Schools Board'
 
 function contractsDaily(s: GameState) {
   // offers arrive every few days, scaled to what you actually produce
-  if (s.era >= 5 && day(s) % 3 === 0 && s.contracts.filter((c) => !c.accepted).length < 5) {
+  if (featureEra(s, 5) && day(s) % 3 === 0 && s.contracts.filter((c) => !c.accepted).length < 5) {
     const regions = REGION_IDS.filter((r) => s.regions[r].unlocked);
     const produced = Object.entries(s.stats.produced).filter(([, q]) => q! > 0).map(([g]) => g as GoodId).filter((g) => GOODS[g].tradeable);
     if (produced.length) {
@@ -149,7 +149,7 @@ function contractsDaily(s: GameState) {
       s.contracts.push({
         id: nextId(s), buyer: govt ? 'Ministry of Food Reserves' : pick(s, BUYERS), region: r, good: g, qty, delivered: 0,
         price: round2(price), deadline: s.tick + (10 + Math.floor(random(s) * 20)) * TICKS_PER_DAY, penalty: round2(price * (govt ? 0.5 : 0.3)),
-        expires: s.tick + 4 * TICKS_PER_DAY, accepted: false, minQuality: premiumBuyer ? 0.8 : undefined,
+        expires: s.tick + 4 * TICKS_PER_DAY, accepted: false, ...(premiumBuyer ? { minQuality: 0.8 } : {}),
       });
     }
   }
@@ -198,17 +198,7 @@ export function deliver(s: GameState, c: SupplyContract) {
   return sent;
 }
 
-// ---------------------------------------------------------------- tax
-
-function taxYear(s: GameState) {
-  const year = s.books.slice(-DAYS_PER_YEAR);
-  for (const r of REGION_IDS) {
-    // operating profit after interest and depreciation; capex and financing flows are not deductible
-    const taxable = year.reduce((a, b) => a + (b.op[r] ?? 0), 0);
-    if (taxable > 0) post(s, 'tax', -taxable * REGIONS[r].tax * (s.era < 3 ? 0.5 : 1), `Profit tax ${REGIONS[r].name}`, r, 'corporate');
-  }
-  log(s, 'info', 'Year end: profit taxes assessed for each region.', 'finance');
-}
+// No profit tax: the farm starts from scratch with no government to pay.
 
 // ---------------------------------------------------------------- distress
 
@@ -221,7 +211,7 @@ export function restructure(s: GameState) {
   for (const p of [...s.futures]) closeFutures(s, p);
   for (const r of REGION_IDS) for (const g in s.regions[r].inventory) {
     const q = s.regions[r].inventory[g as GoodId];
-    if (q > 1 && s.markets[r][g as GoodId]) executeSell(s, r, g as GoodId, q, 'Liquidation sale');
+    if (q > 1 && s.markets[r][g as GoodId]) executeSell(s, r, g as GoodId, q, 'Liquidation sale', 'sale', true);
   }
   const owed = () => s.loans.reduce((a, l) => a + l.balance, 0) - s.cash; // positive cash counts against debt
   const lendable = () => { const fa = fixedAssets(s); return 0.6 * fa.land + 0.5 * fa.machines + 0.4 * fa.buildings; };

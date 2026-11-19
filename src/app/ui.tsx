@@ -1,5 +1,6 @@
+import { tooltipPlacement } from './tooltip';
 // Shared UI primitives. Pages compose these; nothing here knows about the simulation.
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { cloneElement, isValidElement, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
 // ---------------------------------------------------------------- tooltip
@@ -8,35 +9,44 @@ import { createPortal } from 'react-dom';
  * Hover/focus tooltip. `breakdown` renders label/value rows under the text — used to show the
  * actual numbers from the simulation behind a metric.
  */
-export function Tip({ text, breakdown, children, block }: { text: ReactNode; breakdown?: [string, string][]; children: ReactNode; block?: boolean }) {
-  const ref = useRef<HTMLSpanElement>(null);
-  const [pos, setPos] = useState<{ x: number; y: number; below: boolean } | null>(null);
-  const id = useId();
-  const show = () => {
-    const r = ref.current?.getBoundingClientRect();
-    if (!r) return;
-    const below = r.top < 160;
-    setPos({ x: Math.min(Math.max(12, r.left + r.width / 2 - 150), innerWidth - 312), y: below ? r.bottom + 8 : r.top - 8, below });
+export function Tip({ text, breakdown, children, block, tap=false }: { text: ReactNode; breakdown?: [string, string][]; children: ReactNode; block?: boolean; tap?: boolean }) {
+  const ref=useRef<HTMLSpanElement>(null), pop=useRef<HTMLDivElement>(null);
+  const [pos,setPos]=useState<ReturnType<typeof tooltipPlacement>|null>(null),[pinned,setPinned]=useState(false);
+  const id=useId();
+  const close=()=>{setPos(null);setPinned(false);};
+  const show=()=>{
+    const r=ref.current?.getBoundingClientRect();if(!r)return;
+    if(r.bottom<0||r.top>innerHeight||r.right<0||r.left>innerWidth){close();return;}
+    const next=tooltipPlacement(r,{width:innerWidth,height:innerHeight});
+    setPos(old=>old&&Object.keys(next).every(k=>old[k as keyof typeof next]===next[k as keyof typeof next])?old:next);
   };
-  return (
-    <span ref={ref} className="tip-anchor" style={block ? { display: 'flex' } : undefined} onMouseEnter={show} onMouseLeave={() => setPos(null)} onFocus={show} onBlur={() => setPos(null)} aria-describedby={pos ? id : undefined}>
-      {children}
-      {pos && createPortal(
-        <div id={id} role="tooltip" className="tip-pop" style={{ left: pos.x, top: pos.y, transform: pos.below ? undefined : 'translateY(-100%)' }}>
-          {text}
-          {breakdown && breakdown.length > 0 && <div className="tip-break">{breakdown.map(([k, v], i) => [<span key={`k${i}`}>{k}</span>, <span key={`v${i}`}>{v}</span>])}</div>}
-        </div>,
-        document.body,
-      )}
-    </span>
-  );
+  // Follow a selected metric without a render loop when its numbers or position change.
+  useLayoutEffect(()=>{if(pos)show();});
+  useEffect(()=>{
+    if(!pos)return;
+    const outside=(event:PointerEvent)=>{const node=event.target as Node;
+      if(node instanceof Element&&node.closest('button[aria-label="Pause simulation"],button[aria-label="Resume simulation"]'))return;
+      if(!ref.current?.contains(node)&&!pop.current?.contains(node))close();};
+    const key=(event:KeyboardEvent)=>{if(event.key==='Escape'){close();event.stopPropagation();}else if(event.key==='Tab')close();};
+    const move=(event:Event)=>{if(pop.current?.contains(event.target as Node))return;if(pinned)show();else close();};
+    document.addEventListener('pointerdown',outside,true);document.addEventListener('keydown',key,true);
+    window.addEventListener('resize',move);document.addEventListener('scroll',move,true);
+    return()=>{document.removeEventListener('pointerdown',outside,true);document.removeEventListener('keydown',key,true);window.removeEventListener('resize',move);document.removeEventListener('scroll',move,true);};
+  },[!!pos,pinned]);
+  const trigger=isValidElement(children)&&typeof children.type==='string'?cloneElement(children as ReactElement<Record<string,unknown>>,{'aria-describedby':pos?id:undefined}):children;
+  return <span ref={ref} className="tip-anchor" style={block?{display:'flex'}:undefined}
+    onMouseEnter={()=>{if(!pinned)show();}} onMouseLeave={()=>{if(!pinned)setPos(null);}} onFocus={show} onBlur={()=>{if(!pinned)close();}}
+    onClick={tap?event=>{event.stopPropagation();if(!ref.current?.contains(event.target as Node))return;if(pinned)close();else{setPinned(true);show();}}:undefined}>
+    {trigger}
+    {pos&&createPortal(<div ref={pop} id={id} role="tooltip" data-pinned={pinned} className="tip-pop" style={{left:pos.x,top:pos.y,width:pos.width,maxHeight:pos.maxHeight,transform:pos.below?undefined:'translateY(-100%)'}}>
+      {text}{breakdown&&breakdown.length>0&&<div className="tip-break">{breakdown.map(([k,v],i)=>[<span key={`k${i}`}>{k}</span>,<span key={`v${i}`}>{v}</span>])}</div>}
+    </div>,document.body)}
+  </span>;
 }
 
-/** Small (i) button that explains a metric. Keyboard-focusable. */
-export const Info = ({ text, breakdown }: { text: ReactNode; breakdown?: [string, string][] }) => (
-  <Tip text={text} breakdown={breakdown}>
-    <button type="button" className="ibtn" aria-label="Explain">i</button>
-  </Tip>
+/** A small visual marker with a full touch target; tap again or outside to close. */
+export const Info=({text,breakdown}:{text:ReactNode;breakdown?:[string,string][]})=>(
+  <Tip text={text} breakdown={breakdown} tap><button type="button" className="ibtn" aria-label="Explain">i</button></Tip>
 );
 
 // ---------------------------------------------------------------- layout bits

@@ -1,30 +1,61 @@
-// Brand mark: a smiling sun rising over a sprout on a furrowed hill.
-export function LogoMark({ size = 32, title }: { size?: number; title?: string }) {
+// Reference implementation for src/app/Logo.tsx with the M5 logo (copy logoArt.ts to src/app first).
+// Keeps the current API: LogoMark({ size, title, variant, className }) and
+// Wordmark({ size, variant, layout, title, className }), and adds `era` and `weight`.
+import { GOLD, INK, LOCKUP, MARKS, WORD, WORD_WIDTH, type Era, type Weight } from './logoArt';
+
+/** auto follows the app theme; light/dark force a palette; mono is one colour (currentColor), for watermarks. */
+export type LogoVariant = 'auto' | 'light' | 'dark' | 'mono';
+
+const ink = (v: LogoVariant) => (v === 'mono' ? 'currentColor' : v === 'auto' ? `var(--logo-ink, ${INK.light})` : INK[v]);
+const gold = (v: LogoVariant) => (v === 'mono' ? 'currentColor' : GOLD);
+/** The thin line breaks up when small, so 32px and below use the heavier cut of the same drawing. */
+const autoWeight = (px: number): Weight => (px <= 32 ? 'bold' : 'line');
+
+function MarkArt({ era, weight, variant }: { era: Era; weight: Weight; variant: LogoVariant }) {
+  const m = MARKS[era][weight];
+  return <>
+    <path d={m.ink} fill={ink(variant)} />
+    {m.accent && <path d={m.accent} fill={gold(variant)} />}
+  </>;
+}
+
+const a11y = (title?: string) => (title ? { role: 'img', 'aria-label': title } : { 'aria-hidden': true as const, focusable: 'false' as const });
+
+export function LogoMark({ size = 32, title, variant = 'auto', era = 'farm', weight, className }: {
+  size?: number; title?: string; variant?: LogoVariant; era?: Era; weight?: Weight; className?: string;
+}) {
   return (
-    <svg width={size} height={size} viewBox="0 0 64 64" role={title ? 'img' : undefined} aria-label={title} aria-hidden={title ? undefined : true}>
-      <g stroke="#F4B63F" strokeWidth="3.2" strokeLinecap="round">
-        {[...Array(8)].map((_, i) => {
-          const a = (Math.PI * (i + 0.5)) / 8 + Math.PI; // rays across the upper half
-          return <line key={i} x1={32 + Math.cos(a) * 17} y1={25 + Math.sin(a) * 17} x2={32 + Math.cos(a) * 23} y2={25 + Math.sin(a) * 23} />;
-        })}
-      </g>
-      <circle cx="32" cy="25" r="12.5" fill="#F4B63F" />
-      <circle cx="27.5" cy="22.5" r="1.7" fill="#3A2E25" />
-      <circle cx="36.5" cy="22.5" r="1.7" fill="#3A2E25" />
-      <path d="M27 27.5 Q32 31.5 37 27.5" fill="none" stroke="#3A2E25" strokeWidth="2.2" strokeLinecap="round" />
-      <path d="M2 62 Q32 34 62 62 Z" fill="#6BB35A" />
-      <path d="M12 60 Q32 44 52 60M20 61 Q32 51 44 61" fill="none" stroke="#4E9442" strokeWidth="2.2" strokeLinecap="round" />
-      <path d="M32 50 V42" stroke="#2F7A45" strokeWidth="2.6" strokeLinecap="round" />
-      <path d="M32 46 Q25.5 45 24.5 40 Q31 40.5 32 46Z M32 44 Q38 43 39.5 38.5 Q33 38.5 32 44Z" fill="#2F7A45" />
+    <svg className={className} width={size} height={size} viewBox="0 0 64 64" {...a11y(title)}>
+      {title && <title>{title}</title>}
+      <MarkArt era={era} weight={weight ?? autoWeight(size)} variant={variant} />
     </svg>
   );
 }
 
-export function Wordmark({ size = 20 }: { size?: number }) {
+/** Mark + wordmark. `size` works like a font size (letter cap height ≈ 0.73 × size). */
+export function Wordmark({ size = 20, variant = 'auto', layout = 'horizontal', era = 'farm', title = 'Agrarian', className }: {
+  size?: number; variant?: LogoVariant; layout?: 'horizontal' | 'stacked'; era?: Era; title?: string; className?: string;
+}) {
+  const cap = size * 0.73;
+  const word = (x: number, y: number, c: number) => <path transform={`translate(${x} ${y}) scale(${c / 100})`} d={WORD} fill={ink(variant)} />;
+  const stacked = layout === 'stacked';
+  const unit = cap / (stacked ? LOCKUP.sCap : LOCKUP.hCap);
+  const markPx = 64 * unit;
+  const weight = autoWeight(markPx);
+  let w: number, h: number, body: JSX.Element;
+  if (stacked) {
+    const ww = (WORD_WIDTH * LOCKUP.sCap) / 100;
+    w = Math.max(64, ww); h = 64 + LOCKUP.sGap + LOCKUP.sCap;
+    body = <><g transform={`translate(${(w - 64) / 2} 0)`}><MarkArt era={era} weight={weight} variant={variant} /></g>{word((w - ww) / 2, 64 + LOCKUP.sGap, LOCKUP.sCap)}</>;
+  } else {
+    w = 64 + LOCKUP.hGap + (WORD_WIDTH * LOCKUP.hCap) / 100; h = 64;
+    body = <><MarkArt era={era} weight={weight} variant={variant} />{word(64 + LOCKUP.hGap, 32 - LOCKUP.hCap / 2, LOCKUP.hCap)}</>;
+  }
   return (
-    <span className="wordmark" style={{ fontSize: size }}>
-      <LogoMark size={size * 1.55} />
-      <span>Agrarian</span>
-    </span>
+    <svg className={['wordmark', className].filter(Boolean).join(' ')} width={+(w * unit).toFixed(1)} height={+(h * unit).toFixed(1)}
+      viewBox={`0 0 ${w.toFixed(2)} ${h}`} role="img" aria-label={title}>
+      <title>{title}</title>
+      {body}
+    </svg>
   );
 }

@@ -3,6 +3,8 @@ import { CONFIG, CROPS, GOODS, MACHINES, REGIONS, TICKS_PER_DAY, TICKS_PER_YEAR,
 import { buildingsIn, clamp, factoryCrop, reserveCap, freeSpace, has, log, post, round2, seasonOf, seedCost, severity, stored, todayBook } from './core';
 import { executeSell } from './markets';
 import type { Field, GameState, HarvestBreakdown } from './types';
+import { fieldWater, WATER_LEVEL } from './world';
+import { HOMESTEAD_PRICES } from './stages/homestead';
 
 export function newField(s: GameState, region: RegionId, ha: number, cost: number): Field {
   const q = REGIONS[region].soil;
@@ -39,7 +41,17 @@ export function soilAdequacy(f: Field, c: CropId) {
   const a = (x: number) => Math.min(1, x / 0.7);
   return (w.n * a(f.soil.n) + w.p * a(f.soil.p) + w.k * a(f.soil.k)) / tot;
 }
-export const soilFactor = (f: Field, c: CropId) => (0.35 + 0.65 * soilAdequacy(f, c)) * (0.75 + 0.25 * f.soil.organic);
+/** 0 open, 1 polytunnels, 2 greenhouse, 3 hydroponic house. */
+export const coverOf = (f: { cover?: number; greenhouse?: boolean }) => f.cover ?? (f.greenhouse ? 2 : 0);
+export const COVERS = [
+  { name: 'Open field', price: 0, maxHa: Infinity, does: '' },
+  { name: 'Polytunnels', price: 500, maxHa: 25, does: 'Plastic tunnels over the rows: frost cannot touch the crop.' },
+  { name: 'Greenhouse', price: 2000, maxHa: 5, does: 'Glass over the whole field: no frost, steady warmth and watering, slightly better quality. Heating uses electricity below 12°C.' },
+  { name: 'Hydroponic house', price: 6000, maxHa: 5, does: 'Crops grow in fed water instead of soil: a third more yield, no fertiliser and no worn-out soil. Lights and pumps use electricity all the time.' },
+] as const;
+/** What the next step up costs for this field (each step is paid on top of the last). */
+export const coverPrice = (s: GameState, f: Field) => Math.round(((COVERS[coverOf(f) + 1]?.price ?? 0) - (coverOf(f) === 1 ? COVERS[1].price * 0.5 : 0)) * f.ha * s.macro.cpi); // tunnels are half credited towards glass
+export const soilFactor = (f: Field, c: CropId) => (coverOf(f) === 3 ? 1.3 : (0.35 + 0.65 * soilAdequacy(f, c)) * (0.75 + 0.25 * f.soil.organic));
 /** Simple fertility % shown before soil testing: average nutrient adequacy. */
 export const fertility = (f: Field) => (Math.min(1, f.soil.n / 0.7) + Math.min(1, f.soil.p / 0.7) + Math.min(1, f.soil.k / 0.7)) / 3;
 
@@ -66,9 +78,10 @@ export const timingFactor = (s: GameState, f: Field) => {
 };
 
 /** Forecast for a field if planted now under current conditions (used by UI and managers). */
+import { levelOfField } from './field-levels';
 export function expectedYield(s: GameState, f: Field, c: CropId) {
   const base = f.ha * CONFIG.seedsPerHa * CROPS[c].yieldPerSeed;
-  return base * soilFactor(f, c) * waterFactor(s, f, c) * tempFactor(s, f, c) * techFactor(s) * (REGIONS[f.region].suitability[c] ?? 0) * (1 - 0.6 * f.pest) * (1 - f.frost) * ageFactor(s, f, c);
+  return base * soilFactor(f, c) * waterFactor(s, f, c) * tempFactor(s, f, c) * techFactor(s) * (REGIONS[f.region].suitability[c] ?? 0) * (1 - 0.6 * f.pest) * (1 - f.frost) * ageFactor(s, f, c) * levelOfField(f).yield;
 }
 
 /** Old orchards bear less: full yield until two years before the end of their life, then a decline to 40%. */
@@ -127,23 +140,26 @@ export function harvestField(s: GameState, f: Field, bruise = 0): HarvestBreakdo
     weather: f.acc.temp / n || tempFactor(s, f, c),
     pest: 1 - 0.6 * f.pest,
     tech: techFactor(s),
+    level: levelOfField(f).yield,
     suitability: REGIONS[f.region].suitability[c] ?? 0,
     timing: timingFactor(s, f) * ageFactor(s, f, c),
     frost: 1 - f.frost,
     quality: 0,
   };
-  b.units = Math.max(0, Math.round(b.base * b.soil * b.water * b.weather * b.pest * b.tech * b.suitability * b.timing * b.frost));
+  b.units = Math.max(0, Math.round(b.base * b.soil * b.water * b.weather * b.pest * b.tech * (b.level ?? 1) * b.suitability * b.timing * b.frost));
   // Quality: good soil, steady water and weather, few pests, timely picking. An agronomist lifts it a grade step.
   const agronomist = s.workers.some((w) => w.region === f.region && w.perk === 'agronomist');
   b.quality = clamp(0.2 + 0.35 * soilAdequacy(f, c) + 0.25 * Math.min(b.water, b.weather) + 0.2 * b.pest - 0.4 * (1 - timingFactor(s, f)) - 0.3 * f.frost + (agronomist ? 0.1 : 0) + (f.greenhouse ? 0.05 : 0) - bruise, 0, 1);
   // Nutrient removal; rotation and soybeans matter.
   const u = def.uptake;
-  const hy = has(s, 'hybrids') ? 1.4 : 1;
+  const hy = (has(s, 'hybrids') ? 1.4 : 1) * levelOfField(f).uptake; // a bigger harvest takes more out of the soil
   const nf = has(s, 'nitrogenFixing') && ['wheat', 'corn', 'rice'].includes(c) ? 0.5 : 1;
+  if (coverOf(f) !== 3) { // a hydroponic crop never touches the soil
   f.soil.n = clamp(f.soil.n - (u.n > 0 ? u.n * hy * nf : u.n), 0, 1.5);
   f.soil.p = clamp(f.soil.p - u.p * hy, 0, 1.5);
   f.soil.k = clamp(f.soil.k - u.k * hy, 0, 1.5);
   f.soil.organic = clamp(f.soil.organic - 0.004, 0.05, 1);
+  }
   f.streak = f.lastCrop === c ? f.streak + 1 : 0;
   f.lastCrop = c;
   f.pest *= 0.5;
@@ -179,20 +195,25 @@ export function clearField(f: Field) {
   f.frost = 0;
 }
 
+export const spreadNeed=(s:GameState,f:Field,source:'fertilizer'|'manure')=>f.ha*(source==='fertilizer'?CONFIG.fertilizerPerHa*(has(s,'precisionFert')?.7:1):CONFIG.manurePerHa);
+const spreadingCrew=(s:GameState,f:Field)=>s.workers.some(w=>w.region===f.region&&w.role==='hand')||s.machines.some(m=>m.region===f.region&&MACHINES[m.type].autonomous&&MACHINES[m.type].task==='plant');
+export const spreadingCost=(s:GameState,f:Field)=>spreadingCrew(s,f)?0:round2(4*f.ha*s.macro.cpi);
+
 export function fertilizeField(s: GameState, f: Field, source: 'fertilizer' | 'manure'): string | null {
   const inv = s.regions[f.region].inventory;
-  const need = f.ha * (source === 'fertilizer' ? CONFIG.fertilizerPerHa * (has(s, 'precisionFert') ? 0.7 : 1) : CONFIG.manurePerHa);
+  const need = spreadNeed(s,f,source),cost=spreadingCost(s,f);
   if (inv[source] < need) return `Need ${Math.ceil(need)} ${GOODS[source].name.toLowerCase()} in ${REGIONS[f.region].name} storage.`;
   if (f.spreading) return `Field ${f.id} is already waiting to be spread.`;
+  if(cost>Math.max(0,s.cash))return `Spreading contractor costs $${cost.toFixed(2)}; hire a hand or raise cash first.`;
   inv[source] -= need;
   // with a crew in the region it's field work for them (tractors spread fastest); with none, a contractor does it at once
-  if (s.workers.some((w) => w.region === f.region && w.role === 'hand') || s.machines.some((m) => m.region === f.region && MACHINES[m.type].autonomous && MACHINES[m.type].task === 'plant')) {
+  if (spreadingCrew(s,f)) {
     f.spreading = source;
     f.spreadWork = 0;
     return null;
   }
   applySpread(s, f, source);
-  post(s, 'maintenance', -4 * f.ha * s.macro.cpi, 'Spreading contractor', f.region);
+  post(s, 'maintenance', -cost, 'Spreading contractor', f.region);
   return null;
 }
 
@@ -225,6 +246,7 @@ export function fieldsTick(s: GameState) {
     const crop = f.crop;
     const resting = !!crop && !!CROPS[crop].perennial && winter && !f.greenhouse; // orchards sleep through winter
     const growing = !!crop && !resting; // only a growing crop needs water, sensors or heat
+    if (crop && coverOf(f) === 3) reg.powerUse += f.ha * 2; // lights and pumps
     if (f.greenhouse) {
       f.moisture = 0.6;
       if (crop && reg.temp < 12) reg.powerUse += f.ha * 5 * (12 - reg.temp) / 6; // heating
@@ -235,12 +257,14 @@ export function fieldsTick(s: GameState) {
     // Soil water relaxes toward a level set by today's rain, heat, crop demand and organic matter (retention).
     const eq = clamp(0.12 + reg.rainToday * 0.8 - (crop ? 0.08 : 0) - (reg.temp - 15) * 0.008 + (f.soil.organic - 0.5) * 0.1, 0, 1);
     f.moisture = clamp(f.moisture + (eq - f.moisture) * 0.04, 0, 1);
-    if (growing && f.irrigated && f.moisture < s.automation.policies.irrigateMin) {
-      const want = (s.automation.policies.irrigateMin - f.moisture) * f.ha;
+    // from the new game on, the water line sets the level (ditch 60%, pipe 70%, buried 80%), and too few joins for the field's size slow the flow
+    const wat = s.legacyProgression || !f.irrigated ? null : fieldWater(s, f.region, `field:${f.id}`), target = wat ? WATER_LEVEL[wat.tier] : s.automation.policies.irrigateMin;
+    if (growing && f.irrigated && f.moisture < target) {
+      const want = (target - f.moisture) * f.ha * (wat ? Math.min(1, wat.points / wat.need) : 1);
       const capLeft = REGIONS[f.region].waterCap === Infinity ? Infinity : REGIONS[f.region].waterCap * irrigatedHa(s, f.region) - reg.waterToday;
       const units = Math.max(0, Math.min(want * CONFIG.irrigationWaterPerHa * 4, capLeft));
       if (units > 0) {
-        const use = units * (precision ? 0.4 : drip ? 0.65 : 1);
+        const use = units * (precision ? 0.4 : drip ? 0.65 : 1) * levelOfField(f).water;
         reg.waterToday += units;
         f.moisture = clamp(f.moisture + units / f.ha / (CONFIG.irrigationWaterPerHa * 4), 0, 1); // fills the gap this hour
         post(s, 'water', -use * REGIONS[f.region].waterPrice * s.macro.cpi, 'Irrigation water', f.region);
@@ -272,7 +296,7 @@ export function fieldsTick(s: GameState) {
 export function frostNight(s: GameState, r: RegionId) {
   let hit = 0, killed = 0;
   for (const f of s.fields) {
-    if (f.region !== r || !f.crop || f.greenhouse || CROPS[f.crop].frostHardy) continue;
+    if (f.region !== r || !f.crop || coverOf(f) >= 1 || CROPS[f.crop].frostHardy) continue;
     if (growth(s, f) < 0.25) (clearField(f), killed++);
     else f.frost = Math.min(0.8, f.frost + 0.2);
     hit++;
@@ -301,6 +325,13 @@ export function addGoods(s: GameState, r: RegionId, g: GoodId, qty: number, qual
   s.regions[r].inventory[g] += keep;
   const over = qty - keep;
   if (over <= 0) return;
+  if (!s.legacyProgression && s.stageId === 'homestead') { // no open market yet: the village takes what overflows, at a distress price, and the rest is lost
+    const price = (HOMESTEAD_PRICES[g] ?? 0) * 0.8;
+    if (price > 0) { post(s, 'sale', over * price, `Forced sale to the village: storage full (${Math.round(over)} ${GOODS[g].name} @ $${price.toFixed(2)})`, r, 'crops'); s.stats.forcedSales++; }
+    else s.stats.overflowLost += over;
+    warnOnce(s, `overflow-${r}`, 'warning', `The barn is full — ${Math.round(over)} ${GOODS[g].name.toLowerCase()} ${price > 0 ? `went to the village cheap, at $${price.toFixed(2)}` : 'was lost'}. Sell sooner or build storage.`, 'storage');
+    return;
+  }
   if (s.markets[r][g]) {
     s.regions[r].inventory[g] += over;
     const q = executeSell(s, r, g, over, `Forced sale: storage full (${Math.round(over)} ${GOODS[g].name})`);

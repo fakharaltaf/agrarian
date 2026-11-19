@@ -1,3 +1,4 @@
+import { townResearchFactor } from './town-state';
 import { TECH, TECHS } from './config';
 import { log, post } from './core';
 import type { GameState } from './types';
@@ -6,6 +7,11 @@ export const labLevel = (s: GameState) => {
   const labs = s.buildings.filter((b) => b.active && (b.type === 'lab' || b.type === 'lab2'));
   return labs.some((b) => b.type === 'lab2') ? 2 : labs.length ? 1 : 0;
 };
+
+/** The strongest active lab leads; levels improve speed, not project eligibility. */
+export const researchSpeed = (s: GameState) => townResearchFactor(s) * s.buildings.reduce((best, b) =>
+  b.active && (b.type === 'lab' || b.type === 'lab2')
+    ? Math.max(best, (b.type === 'lab2' ? 2 : 1) * (1 + 0.5 * (Math.max(1, Math.min(3, b.level || 1)) - 1))) : best, 0);
 
 export function canResearch(s: GameState, id: string): string | null {
   const t = TECH[id];
@@ -32,7 +38,7 @@ export function researchDaily(s: GameState) {
   if (!a) return;
   const lvl = labLevel(s);
   if (!lvl) return; // a paused or demolished lab stalls the project
-  a.progress += (lvl === 2 ? 2 : 1) / TECH[a.id].days;
+  a.progress += researchSpeed(s) / TECH[a.id].days;
   if (a.progress >= 1) {
     s.research.done.push(a.id);
     s.research.active = null;

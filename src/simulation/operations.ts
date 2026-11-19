@@ -5,12 +5,14 @@ import { clamp, execOn, fuelPrice, has, hour, log, marketWage, nextId, pick, pos
 import { applySpread, harvestField, isReady, plantField, seedShortfall, warnOnce } from './agriculture';
 import { overdraftLimit } from './finance';
 import type { Field, GameState, Machine, Worker } from './types';
+import { payHouseholds, townWorkerFactor } from './town-state';
+import { communityOf } from './community-state';
 
 const FIRST = ['Ana', 'Ben', 'Chen', 'Dara', 'Eli', 'Femi', 'Gus', 'Hana', 'Ivo', 'Jo', 'Kai', 'Lena', 'Mo', 'Nia', 'Omar', 'Pia', 'Quinn', 'Ravi', 'Sol', 'Tess', 'Uma', 'Vic', 'Wren', 'Yara', 'Zed'];
 const LAST = ['Alvarez', 'Brook', 'Costa', 'Dlamini', 'Evans', 'Fischer', 'Grant', 'Haddad', 'Ito', 'Jensen', 'Kowal', 'Lopez', 'Moreau', 'Nakamura', 'Okafor', 'Park', 'Reyes', 'Silva', 'Tan', 'Varga'];
 
-export const wageOf = (s: GameState, w: Worker) => (w.role === 'manager' ? CONFIG.managerWage * s.macro.cpi : marketWage(s, w.region)) * w.wageFactor;
-export const productivity = (s: GameState, w: Worker) => w.skill * (0.6 + 0.4 * w.morale) * spanPenalty(s, w.region);
+export const wageOf = (s: GameState, w: Worker) => (w.role === 'manager' ? CONFIG.managerWage * s.macro.cpi : marketWage(s, w.region)) * w.wageFactor * (w.resident ? 1 - (communityOf(s).payCut ?? 0) : 1); // a worker whose family lives here takes the settlement pay cut
+export const productivity = (s: GameState, w: Worker) => w.skill * (0.6 + 0.4 * w.morale) * spanPenalty(s, w.region) * (w.resident ? (0.6 + communityOf(s).happiness * 0.4) * townWorkerFactor(s) : 1);
 
 /** Management overhead: each manager coordinates 20 hands; beyond that everyone slows down. */
 export function spanPenalty(s: GameState, r: RegionId) {
@@ -22,7 +24,7 @@ export function spanPenalty(s: GameState, r: RegionId) {
 
 export function hire(s: GameState, region: RegionId, role: 'hand' | 'manager', wageFactor: number): Worker {
   const w: Worker = {
-    id: nextId(s), name: `${pick(s, FIRST)} ${pick(s, LAST)}`, region, role, wageFactor: clamp(wageFactor, 0.7, 1.6),
+    id: nextId(s), name: `${pick(s, FIRST)} ${pick(s, LAST)}`, region, role, resident: false, wageFactor: clamp(wageFactor, 0.7, 1.6),
     skill: role === 'manager' ? 1 : 0.75 + random(s) * 0.35, morale: 0.7, lowDays: 0, trainingUntil: 0, hours: 0, task: 0, perk: null,
   };
   s.workers.push(w);
@@ -60,7 +62,9 @@ export function laborTick(s: GameState) {
     for (const w of s.workers) {
       if (w.region !== r || w.role !== 'hand') continue;
       w.task = 0;
-      post(s, 'wages', -wageOf(s, w), 'Farm hands', r);
+      const pay = wageOf(s, w);
+      post(s, 'wages', -pay, 'Farm hands', r);
+      if (w.resident) payHouseholds(s, pay);
       if (strike || w.trainingUntil > s.tick) continue;
       w.hours++;
       w.skill = Math.max(w.skill, Math.min(1.3, w.skill + 0.0002)); // learning by doing, up to 1.3
@@ -95,7 +99,11 @@ export function laborTick(s: GameState) {
     }
     if (tasks.some((t) => !t.done)) s.regions[r].backlog++;
   }
-  for (const w of s.workers) if (w.role === 'manager' && working) post(s, 'salaries', -wageOf(s, w), 'Farm managers', w.region);
+  for (const w of s.workers) if (w.role === 'manager' && working) {
+    const pay = wageOf(s, w);
+    post(s, 'salaries', -pay, 'Farm managers', w.region);
+    if (w.resident) payHouseholds(s, pay);
+  }
   if (s.advisor && working) post(s, 'advisor', -CONFIG.advisorFee * s.macro.cpi, 'Farm advisor', 'heartland');
 }
 
@@ -200,11 +208,21 @@ export function service(s: GameState, m: Machine) {
 
 // ---------------------------------------------------------------- daily
 
+/** What the town gives a settled worker's family lifts their morale: schooling, healthcare, water, power, drains, parks and shops in reach, and streets that flow. Up to +0.2. */
+export function facilitiesMorale(s: GameState) {
+  const t = s.stageState.town as unknown as { active?: boolean; education?: number; medical?: number; water?: number; power?: number; sanitation?: number; parks?: Record<string, number>; jammed?: number } | undefined;
+  if (!t?.active) return 0;
+  const parks = Math.min(1, Object.values(t.parks ?? {}).reduce((a, b) => a + b, 0));
+  return 0.2 * ((t.education ?? 0) + (t.medical ?? 0) + (t.water ?? 0) + (t.power ?? 0) + (t.sanitation ?? 0) + parks) / 6 - 0.05 * (t.jammed ?? 0);
+}
 export function workforceDaily(s: GameState) {
   const quit: Worker[] = [];
   for (const w of s.workers) {
     const backlog = s.regions[w.region].backlog / (WORK_END - WORK_START);
-    const target = clamp(0.62 + (w.wageFactor - 1) * 1.3 - 0.2 * Math.min(1, backlog) + 0.15 * (s.corp.reputation - 50) / 50, 0, 1);
+    const c = communityOf(s), home = w.resident && c.active;
+    // a home and food for the family lift morale; the pay cut and housing tax that fund them weigh on it; hands apart from their families miss them
+    const settled = home ? 0.12 + 0.1 * (c.fed - 0.5) - 0.8 * (c.payCut ?? 0) - 0.7 * (c.housingTax ?? 0) + facilitiesMorale(s) - 0.15 * (c.serviceFee ?? 0) : c.active && w.region === 'heartland' ? -0.05 : 0;
+    const target = clamp(0.62 + (w.wageFactor - 1) * 1.3 - 0.2 * Math.min(1, backlog) + 0.15 * (s.corp.reputation - 50) / 50 + settled, 0, 1);
     w.morale = clamp(w.morale + (target - w.morale) * 0.2, 0, 1);
     w.lowDays = w.morale < 0.25 ? w.lowDays + 1 : 0;
     if (w.lowDays >= 5) quit.push(w);
@@ -233,3 +251,7 @@ export const autoBudget = (s: GameState) => (s.automation.policies.cashReserve >
 export const essentialBudget = (s: GameState) => s.cash + overdraftLimit(s) * 0.5;
 
 export const isWorkHour = (s: GameState) => hour(s) >= WORK_START && hour(s) < WORK_END;
+
+/** Recent inactivity is a sale candidate, never an automatic redundancy decision. */
+export const idleMachine = (m: Machine) => !m.leased && m.driver === null && !m.usedThisTick && m.util < 0.01;
+export const machineSaleValue = (m: Machine) => m.leased ? 0 : Math.round(Math.max(0, m.cost - m.depreciated) * 0.8 * (m.broken ? 0.5 : 1));

@@ -13,6 +13,7 @@ export function createCompetitors(s: GameState): Competitor[] {
     const land = c.ha * REGIONS[c.region].landPrice;
     const lev = ARCHETYPES[c.archetype].leverage;
     return {
+      payrollDay:-1,payrollToday:0,
       id: nextId(s), name: c.name, archetype: c.archetype, region: c.region, ha: c.ha, mix, mech: ARCHETYPES[c.archetype].mech,
       cash: land * 0.08, debt: land * lev * 0.6, hiddenDebt: land * (0.02 + random(s) * 0.25) * (c.archetype === 'speculator' ? 2 : 1),
       stock: {}, status: 'active', revenue30: 0, profit30: 0, diligence: 'none', diligenceDone: 0, share: 0,
@@ -27,6 +28,7 @@ const weather = (s: GameState, c: Competitor) => clamp(0.55 + 0.45 * Math.min(1.
 export function competitorsDaily(s: GameState) {
   for (const r of REGION_IDS) for (const g in s.markets[r]) s.markets[r][g as GoodId]!.comp = 0;
   for (const c of s.competitors) {
+    c.payrollDay=Math.floor(s.tick/24);c.payrollToday=0;
     if (c.status === 'acquired' || c.status === 'bankrupt') continue;
     const A = ARCHETYPES[c.archetype];
     let revenue = 0;
@@ -48,6 +50,8 @@ export function competitorsDaily(s: GameState) {
     const energy = s.macro.energy;
     const costShare = 0.4 * wageIdx * (1 - 0.6 * c.mech) + 0.18 * energy * c.mech + 0.13 * energy ** 0.8 + 0.12 + 0.2; // labour, fuel, fertiliser, seed, land rent & overhead
     const interest = (c.debt * (s.macro.baseRate + 0.04)) / DAYS_PER_YEAR;
+    // This wage expense is already included in costShare, not an additional charge.
+    c.payrollToday=Math.floor(Math.max(0,refRev*.4*wageIdx*(1-.6*c.mech))*100)/100;
     const profit = revenue - refRev * costShare - interest;
     c.cash += profit;
     c.revenue30 = c.revenue30 * (29 / 30) + revenue;

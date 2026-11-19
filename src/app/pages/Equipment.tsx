@@ -2,11 +2,11 @@ import { useState } from 'react';
 import { CONFIG, CROPS, GOODS, MACHINES, REGIONS, TECH, WORK_END, WORK_START, type MachineType, type RegionId } from '../../simulation/config';
 import { fuelPrice, has, known, marketWage } from '../../simulation/core';
 import { machineUpgradeCost, machinePrice } from '../../simulation/engine';
-import { serviceCost } from '../../simulation/operations';
+import { serviceCost, idleMachine, machineSaleValue } from '../../simulation/operations';
 import type { GameState, Machine } from '../../simulation/types';
 import { act, useGame } from '../../stores/game';
 import { money, num, pct0, price } from '../format';
-import { Bar, Card, Confirm, Info, Kpi, PageHead, Seg, Select, Table } from '../ui';
+import { Bar, Card, Confirm, Info, Kpi, Modal, PageHead, Seg, Select, Table } from '../ui';
 import { regionOptions, unlockedRegions } from './shared';
 
 const TYPES = Object.keys(MACHINES) as MachineType[];
@@ -58,6 +58,7 @@ export default function EquipmentPage() {
         <TruckCard s={s} r={r} />
       </div>
 
+      <IdleFleet s={s} r={r} />
       <Fleet s={s} />
     </div>
   );
@@ -235,4 +236,20 @@ function Fleet({ s }: { s: GameState }) {
         ]} />
     </Card>
   );
+}
+
+function IdleFleet({s,r}:{s:GameState;r:RegionId}) {
+  const [selected,setSelected]=useState<number[]|null>(null);
+  const machines=s.machines.filter(m=>m.region===r && idleMachine(m));
+  const quoted=s.machines.filter(m=>selected?.includes(m.id));
+  return <>
+    <Card title="Idle fleet" info="Owned, unassigned machines with less than 1% recent use. Seasonal equipment may still be useful later.">
+      <div className="row wrap">{TYPES.map(t=>{const list=machines.filter(m=>m.type===t);return list.length>0 && <button key={t} className="btn ghost" onClick={()=>setSelected(list.map(m=>m.id))}>{MACHINES[t].name} · {list.length} · Sell idle {money(list.reduce((n,m)=>n+machineSaleValue(m),0))}</button>;})}
+      {!machines.length && <span className="muted">No unassigned idle machines.</span>}</div>
+    </Card>
+    {selected && <Modal title={`Sell ${selected.length} idle machines?`} onClose={()=>setSelected(null)} actions={<>
+      <button className="btn ghost" onClick={()=>setSelected(null)}>Keep them</button>
+      <button className="btn danger" onClick={()=>{if(act({type:'sellIdleMachines',machineIds:selected}))setSelected(null);}}>Sell · {money(quoted.reduce((n,m)=>n+machineSaleValue(m),0))}</button>
+    </>}><p>Recent inactivity can be seasonal. Assigned machines and leases are protected.</p></Modal>}
+  </>;
 }

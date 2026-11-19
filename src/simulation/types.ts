@@ -8,6 +8,8 @@ export interface HarvestBreakdown {
   crop: CropId;
   units: number;
   base: number;
+  /** the field's level multiplier (missing on harvests before field upgrades) */
+  level?: number;
   soil: number;
   water: number;
   weather: number;
@@ -34,7 +36,11 @@ export interface Field {
   soil: Soil;
   moisture: number;
   irrigated: boolean;
+  /** field upgrades, 1–3 (missing = 1): an improved, then an intensive field, each unlocked by research */
+  level?: number;
   greenhouse: boolean; // glass: no frost, steady temperature, heating in cold weather
+  /** what covers the field: 1 polytunnels (no frost), 2 a greenhouse, 3 a hydroponic house (no soil, a third more yield, lit and pumped by electricity) */
+  cover?: number;
   frost: number; // 0..1 share of the current crop lost to frost
   cycleAt: number; // perennials: tick the current fruiting cycle started
   pest: number; // 0..1
@@ -52,6 +58,7 @@ export interface Worker {
   name: string;
   region: RegionId;
   role: 'hand' | 'manager';
+  resident: boolean; // existing staff remain commuters when a community chapter begins
   wageFactor: number; // multiple of the regional market wage
   skill: number; // 0.5..1.6
   morale: number; // 0..1
@@ -79,7 +86,30 @@ export interface Machine {
   driver: number | null; // hand assigned to run it; they work by hand when it has nothing to do
 }
 
+export interface ProductionDay {
+  day: number; hours: number; batches: number; capacity: number;
+  earn: number; inputs: number; staff: number; power: number; alternative: number;
+  qty: Partial<Record<GoodId, number>>; values: Partial<Record<GoodId, number>>;
+  reasons: Record<string, number>;
+}
+export interface ProductionReport { open: ProductionDay | null; days: ProductionDay[]; lastBatches: number; lastTick: number }
+
 export interface Building {
+  /** a merged building's shape: 0 long (the two side by side), 1 square */
+  layout?: number;
+  /** a vertical farm's crop (missing = fresh greens) */
+  grows?: GoodId;
+  /** a vertical farm's production house: its harvest is held for that building, as a dedicated field's is */
+  supplies?: number;
+  /** a vertical farm: the hectares of the field it was built on (1 ha = one tower's worth) */
+  ha?: number;
+  /** a merged building's long shape, kept so it can switch back from square */
+  longSpan?: [number, number];
+  /** merged factories: 2 a Works (two level-3 factories), 4 a Plant (two Works) */
+  size?: number;
+  /** the ground a merged factory stands on, in tiles as placed */
+  span?: [number, number];
+  movedUntil?: number; // a moved building stands idle until this tick
   id: number;
   type: BuildingType;
   region: RegionId;
@@ -90,6 +120,7 @@ export interface Building {
   util: number; // smoothed capacity utilisation
   reserved: number; // input units held in storage for this factory by its supplying fields
   reason: string; // current bottleneck, '' when running at capacity
+  productionReport: ProductionReport;
   stats: { out: number; inCost: number; outValue: number; opCost: number }; // smoothed per-hour economics
 }
 
@@ -119,6 +150,7 @@ export interface RegionState {
   rainToday: number;
   temp: number;
   rain30: number;
+  retailToday: Partial<Record<GoodId, number>>; // units already given a retail markup today
   haulToday: number; // hired haulage used today
   truckToday: number; // own-truck capacity used today
   portToday: number;
@@ -174,6 +206,8 @@ export interface SupplyContract {
 }
 
 export interface Shipment {
+  /** Manager load day; -1 or absent means a normal immediate shipment. */
+  batchDay?: number;
   id: number;
   good: GoodId;
   qty: number;
@@ -182,6 +216,7 @@ export interface Shipment {
   arrives: number;
   cost: number;
   sell?: boolean; // sold into the destination market on arrival, a little each hour, instead of stored
+  caravan?: boolean; // Region chapter: sold to a neighbour you hold no land in; can be raided in transit
 }
 
 export type RuleMetric = 'price' | 'inventory' | 'cash' | 'storageUtil' | 'minFertility' | 'minCondition' | 'facilityMargin';
@@ -244,6 +279,7 @@ export interface GameEvent {
 }
 
 export interface Competitor {
+  payrollDay:number; payrollToday:number;
   id: number;
   name: string;
   archetype: import('./config').Archetype;
@@ -270,8 +306,78 @@ export interface LedgerEntry { tick: number; kind: LedgerKind; amount: number; r
 
 export interface DayBook { day: number; kinds: Partial<Record<LedgerKind, number>>; regions: Partial<Record<RegionId, number>>; divisions: Partial<Record<Division, number>>; op: Partial<Record<RegionId, number>>; cash: number; debt: number; equity: number; produced: number }
 
+export interface BarterOffer {
+  id: string;
+  takeGood: GoodId;
+  takeQty: number;
+  give: { kind: 'good'; good: GoodId; qty: number } | { kind: 'seed'; crop: CropId; qty: number };
+  haggled: boolean;
+  traded: boolean;
+}
+export interface HomesteadState { day: number; mood: number; offers: BarterOffer[] }
+export interface MarketTownState { lastMarketDay: number }
+export type TraderCharter = 'fair' | 'shrewd';
+/** Each axis runs 0–100. cleanIndustrial: 0 clean energy, 100 heavy industry (oil). Everyday decisions nudge them. */
+export interface TownValues { prosperityFairness: number; orderFreedom: number; peaceStrength: number; traditionProgress: number; cleanIndustrial?: number }
+export type SettlementCharter = 'company' | 'free';
+export type HomeTier = 'cottage' | 'terrace' | 'apartment';
+export interface CommunityHome { id: number; tier: HomeTier; count: number; cost: number; /** apartments only: 1 the block, 2 a mid-rise, 3 a tower */ level?: number }
+export interface HouseholdCohort { id: number; name: string; households: number; adults: number; children: number }
+export interface SettlementState {
+  active: boolean;
+  /** what the homes live with, averaged over families (0–1 each): smell, noise, smoke, and the bakery's fresh bread */ nuisance?: { smell: number; noise: number; smoke: number; pleasant: number };
+  /** Settlement pay policy (0–0.2 each): a pay cut for workers whose families live here, and a housing tax on them. */
+  payCut?: number; housingTax?: number;
+  /** share of the town services' running cost charged to the families (0–1) */ serviceFee?: number;
+  /** Worker id → their family's cohort id. Only employees' families live in the settlement. */
+  families?: Record<number, number>;
+  charter: SettlementCharter | null;
+  homes: CommunityHome[];
+  cohorts: HouseholdCohort[];
+  householdCash: number;
+  /** what families paid the farm for yesterday's food, out of their savings */
+  foodPaid?: number;
+  happiness: number;
+  fed: number;
+  warm: number;
+  autoLarder: boolean;
+  larderHold: Partial<Record<GoodId, number>>;
+  lastDay: number;
+  enteredAt: number;
+  hardshipDays: number;
+}
+
+export type SchoolCharter = 'public' | 'trade';
+export const DISTRICT_IDS = ['farmgate', 'orchard', 'heights'] as const;
+export type DistrictId = (typeof DISTRICT_IDS)[number];
+export type ServiceType = 'school' | 'well' | 'clinic' | 'road' | 'hospital' | 'waterworks' | 'waterTower' | 'park' | 'sanitation' | 'lighting' | 'police' | ShopType | 'mall' | 'office' | 'parking' | 'militia' | 'watchtower' | 'barracks';
+export type ParkKind = 'garden' | 'play' | 'sport';
+export type ShopType = 'shopBaker' | 'shopDairy' | 'shopButcher' | 'shopGrocer' | 'shopGeneral';
+export interface CivicService { id: number; type: ServiceType; district: DistrictId; /** 1 a shop, 2 a market (four shops merged), 4 the mall (four markets) */ size?: number; /** the trades inside a mall */ kinds?: ShopType[]; /** what a park is laid out as */ park?: ParkKind; /** a merged complex's layout, mirrored or not (looks only) */ layout?: number; /** fronts onto too small a street for its size: works at half strength */ cramped?: boolean; count: number; active: boolean; cost: number; staffed: number; funded: boolean; /** 1–3: wider reach, or more homes on its lines */ level?: number; /** families its lines serve now, and how many it can (utilities only) */ serving?: [number, number] }
+export interface DistrictCoverage { people: number; school: number; water: number; medical: number; road: number }
+export interface CouncilPetition { id: number; kind: 'park' | 'bread'; opened: number }
+export interface TownState { /** share of families on jammed streets, or in buildings too big for their street */ jammed?: number; /** what families paid in service fees yesterday */ feesPaid?: number; /** cars on each road tile yesterday */ flow?: Record<number, number>; /** road tiles slowed by traffic: how many times longer they take to cross */ traffic?: Record<number, number>; /** how well each kind of park reaches the families (0–1, levels count for more) */ parks?: Partial<Record<ParkKind, number>>; /** wages outside firms paid residents in the offices yesterday */ officePay?: number;
+  active: boolean; enteredAt: number; charter: SchoolCharter | null; retrainingUntil: number;
+  cash: number; companyAdvance: number; ledger: LedgerEntry[]; lifetime: Partial<Record<LedgerKind, number>>; books: DayBook[];
+  taxRate: number; taxableIncome: number; lastTax: number; lastCost: number; lastDay: number;
+  /** yesterday's food order from the town's shops: what it wanted and what your stores sold it */ orders?: { good: GoodId; want: number; sold: number; value: number }[];
+  services: CivicService[]; coverage: Record<DistrictId, DistrictCoverage>;
+  publicJobs: number; industrialJobs: number; factoryShare: number;
+  health: number; education: number; water: number; roads: number;
+  /** Share of families inside the reach of sanitation and of a power station (radius coverage). */
+  sanitation?: number; power?: number; medical?: number;
+  petition: CouncilPetition | null; nextPetition: number; goodwillUntil: number; breadUntil: number;
+  crime: number; thefts: number; illnessDeaths: number; mortalityCarry: number;
+}
+
 export interface GameState {
-  version: 2;
+  /** false: building, moving or upgrading lays no dirt track to the nearest road; you draw roads yourself (missing = on) */
+  autoRoads?: boolean;
+  /** tiles a side the farmhouse stands on (3 to 6): it grows with the chapters */
+  farmhouseSide?: number;
+  /** what new roads, lines and town buildings are built as (1–3), once the City lets you choose: saves upgrading each one after */
+  buildAs?: { road?: number; line?: number; service?: number };
+  version: 15;
   seed: number;
   rng: number;
   tick: number;
@@ -299,9 +405,22 @@ export interface GameState {
   lifetime: Partial<Record<LedgerKind, number>>;
   books: DayBook[];
   overdraftDays: number;
+  haul?: import('./hauling').HaulState;
+  oil?: import('./oil').OilState;
   bankrupt: { reason: string } | null;
   era: number;
-  stats: { harvests: number; sales: number; plantings: number; produced: Partial<Record<GoodId, number>>; spoiled: number; peopleFed: number; forcedSales: number; overflowLost: number; maxEquity: number; crisisSurvived: boolean };
+  /** Stable content-stage identity; the legacy era remains for save compatibility and existing rules. */
+  stageId: import('./stages/types').StageId;
+  /** Persisted stage-specific state, keyed by stable stage id. */
+  stageState: Partial<Record<import('./stages/types').StageId, Record<string, unknown>>>;
+  world?: import('./world').WorldState;
+  /** Old saves retain the pre-roadmap era gates and market behavior. */
+  legacyProgression: boolean;
+  /** Lasting choices shape the village's economic and civic character. */
+  charters: { trader: TraderCharter | null };
+  /** Four visible axes from 0 (left label) to 100 (right label). */
+  values: TownValues;
+  stats: { harvests: number; sales: number; plantings: number; produced: Partial<Record<GoodId, number>>; spoiled: number; peopleFed: number; forcedSales: number; overflowLost: number; maxEquity: number; crisisSurvived: boolean; /** worth of the goods your food production houses made, at market (Industry's goal) */ factoryMade?: number };
   unlockedCrops: CropId[];
   milestones: string[];
   seenTips: string[];
@@ -327,9 +446,46 @@ export type Action =
   | { type: 'fertilize'; fieldIds: number[]; source: 'fertilizer' | 'manure' }
   | { type: 'irrigate'; fieldIds: number[] }
   | { type: 'sell'; region: RegionId; good: GoodId; qty: number }
+  | { type: 'sellToMill'; qty: number; /** wheat if left out */ good?: GoodId }
+  | { type: 'barter'; offerId: string }
+  | { type: 'haggle'; offerId: string }
+  | { type: 'chooseCharter'; charter: TraderCharter }
+  | { type: 'startSettlement'; charter?: SettlementCharter }
+  | { type: 'buildHomes'; tier: HomeTier; count: number; at?: [number, number]; rot?: number }
+  | { type: 'setLarder'; enabled: boolean }
+  | { type: 'settleWorker'; workerId: number }
+  | { type: 'startCity'; charter: import('./city-state').PoliceCharter }
+  | { type: 'changePolice'; charter: import('./city-state').PoliceCharter }
+  | { type: 'trainPolice' }
+  | { type: 'setJustice'; policy: import('./city-state').JusticePolicy }
+  | { type: 'resolveCityCase'; answer: import('./city-state').JusticePolicy }
+  | { type: 'startRegion'; border: import('./region-state').BorderCharter }
+  | { type: 'setBorder'; border: import('./region-state').BorderCharter }
+  | { type: 'setRoute'; to: import('./region-state').NeighbourId; good: GoodId | null; qty: number }
+  | { type: 'giftNeighbour'; to: import('./region-state').NeighbourId; kind: 'goods' | 'cash' }
+  | { type: 'signTreaty'; to: import('./region-state').NeighbourId }
+  | { type: 'resolveRaid'; answer: 'pursue' | 'absorb' }
+  | { type: 'answerDemand'; answer: 'pay' | 'refuse' }
+  | { type: 'startNation'; path: import('./nation-state').NationPath }
+  | { type: 'launchCampaign'; target: import('./region-state').NeighbourId; stance: import('./nation-state').Stance }
+  | { type: 'trainArmy' }
+  | { type: 'inviteAlly'; to: import('./region-state').NeighbourId }
+  | { type: 'answerAid'; send: boolean }
+  | { type: 'castVote'; yes: boolean }
+  | { type: 'setEmbargo'; target: import('./region-state').NeighbourId | null }
+  | { type: 'hireSpies' }
+  | { type: 'hireMercenaries' }
+  | { type: 'mediate' }
+  | { type: 'startTown'; charter?: SchoolCharter }
+  | { type: 'fundTown'; amount: number; direction: 'toTown' | 'repay' }
+  | { type: 'setTownTax'; rate: number }
+  | { type: 'buildService'; service: ServiceType; district: DistrictId; count?: number; at?: [number, number]; rot?: number; /** four shops in a square */ block?: boolean }
+  | { type: 'toggleService'; serviceId: number }
+  | { type: 'changeSchools'; charter: SchoolCharter }
+  | { type: 'answerPetition'; accept: boolean }
   | { type: 'buy'; region: RegionId; good: GoodId; qty: number }
-  | { type: 'buyPlot' }
-  | { type: 'buyParcel'; region: RegionId; ha: number }
+  | { type: 'buyPlot'; at?: [number, number] }
+  | { type: 'buyParcel'; region: RegionId; ha: number; at?: [number, number] }
   | { type: 'sellField'; fieldId: number }
   | { type: 'hire'; region: RegionId; role: 'hand' | 'manager'; wageFactor: number }
   | { type: 'fire'; workerId: number }
@@ -338,13 +494,46 @@ export type Action =
   | { type: 'train'; workerId: number }
   | { type: 'buyMachine'; region: RegionId; machine: MachineType; lease: boolean }
   | { type: 'sellMachine'; machineId: number }
+  | { type: 'sellIdleMachines'; machineIds: number[] }
   | { type: 'service'; machineId: number }
-  | { type: 'build'; region: RegionId; building: BuildingType; count?: number }
+  | { type: 'build'; region: RegionId; building: BuildingType; count?: number; at?: [number, number]; rot?: number }
+  | { type: 'setGrows'; buildingId: number; grows: GoodId }
+  /** one more like a building, town service or apartment block (`b:ID`, `svc:ID`, `home:ID`), raised to its level */
+  | { type: 'upgradeField'; fieldIds: number[] }
+  /** an intensive field becomes a vertical farm on the same ground */
+  | { type: 'convertField'; fieldId: number }
+  | { type: 'addAnother'; key: string; at?: [number, number]; rot?: number }
+  | { type: 'moveObject'; region: RegionId; key: string; at: [number, number]; rot?: number }
+  | { type: 'clearForest'; region: RegionId; chunks: number[] }
   | { type: 'demolish'; buildingId: number }
   | { type: 'toggleBuilding'; buildingId: number }
   | { type: 'ship'; good: GoodId; qty: number; from: RegionId; to: RegionId; sell?: boolean }
   | { type: 'takeLoan'; amount: number; termDays: number }
   | { type: 'repayLoan'; loanId: number; amount: number }
+  | { type: 'buyLand'; region: RegionId; chunks: number[] }
+  | { type: 'buyHorseCart' }
+  | { type: 'sellHorseCart' }
+  | { type: 'setAutoRoads'; on: boolean }
+  /** a vertical farm grows for one of your production houses (null: for the market) */
+  | { type: 'farmSupplies'; farmId: number; buildingId: number | null }
+  | { type: 'setSettlementPay'; payCut?: number; housingTax?: number; serviceFee?: number }
+  | { type: 'zoneLand'; region: RegionId; chunks: number[]; zone: 'res' | 'ind' | 'com' | 'farm' }
+  | { type: 'surveyOil'; region: RegionId; at: [number, number] }
+  | { type: 'drillOil'; region: RegionId; at: [number, number] }
+  | { type: 'buildRoad'; region: RegionId; from: [number, number]; to: [number, number]; /** tiles wide, 1–5 */ lanes?: number }
+  | { type: 'removeRoad'; region: RegionId; at: [number, number]; /** dragged to here: only the road between */ to?: [number, number] }
+  | { type: 'buildBridge'; region: RegionId; at: [number, number]; lanes?: number }
+  | { type: 'upgradeRoad'; region: RegionId; at: [number, number]; to?: [number, number] }
+  | { type: 'buildPipe'; region: RegionId; from: [number, number]; to: [number, number]; net?: import('./world').NetKind }
+  | { type: 'upgradePipe'; region: RegionId; at: [number, number]; net?: import('./world').NetKind }
+  | { type: 'upgradeAllLines'; region: RegionId; nets: import('./world').LineKind[] }
+  | { type: 'setGst'; rate: number }
+  | { type: 'mergeService'; serviceId: number }
+  | { type: 'demolishService'; serviceId: number }
+  /** Buy and clear the land a placement needs; it is placed by itself when the crew finishes. */
+  | { type: 'planPlacement'; region: RegionId; action: Action; at: [number, number]; w: number; d: number; rot?: number; label: string }
+  | { type: 'removePipe'; region: RegionId; at: [number, number]; net?: import('./world').NetKind }
+  | { type: 'upgradeService'; serviceId: number }
   | { type: 'openFutures'; good: GoodId; contracts: number; days: number }
   | { type: 'closeFutures'; positionId: number }
   | { type: 'acceptContract'; contractId: number }
@@ -373,9 +562,18 @@ export type Action =
   | { type: 'buyAnimals'; region: RegionId; animal: AnimalId; count: number }
   | { type: 'sellAnimals'; region: RegionId; animal: AnimalId; count: number }
   | { type: 'upgradeBuilding'; buildingId: number }
+  | { type: 'consolidateRetail'; region: RegionId }
   | { type: 'upgradeMachine'; machineId: number }
   | { type: 'choosePerk'; workerId: number; perk: PerkId }
   | { type: 'greenhouse'; fieldIds: number[] }
+  | { type: 'coverField'; fieldId: number }
+  | { type: 'upgradeHome'; homeId: number }
+  | { type: 'mergeBuilding'; buildingId: number }
+  | { type: 'setLayout'; buildingId?: number; serviceId?: number }
+  | { type: 'setPark'; serviceId: number; kind: ParkKind }
+  | { type: 'buildBelt'; region: RegionId; from: [number, number]; to: [number, number] }
+  | { type: 'removeBelt'; region: RegionId; at: [number, number] }
+  | { type: 'setBuildAs'; what: 'road' | 'line' | 'service'; level: number }
   | { type: 'clearField'; fieldId: number };
 
 export type ActionResult = { ok: true; note?: string } | { ok: false; error: string };

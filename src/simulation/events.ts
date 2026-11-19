@@ -14,6 +14,13 @@ function add(s: GameState, e: Omit<GameEvent, 'id' | 'announced'> & { lead?: num
   return ev;
 }
 
+/** Weekly Stage 2 demand pulse, routed through the same demand model as other market shocks. */
+export function startMarketDay(s: GameState, good: CropId) {
+  const name = GOODS[good].name.toLowerCase();
+  return add(s, { kind: 'demandSurge', region: 'heartland', good, start: s.tick, end: s.tick + TICKS_PER_DAY / 2, severity: 0.5,
+    title: `Market day · ${GOODS[good].name}`, text: `Local buyers are seeking ${name} until evening. Their extra demand moves the real market price; it is an opportunity, not a guaranteed premium.` });
+}
+
 const exposed = (s: GameState, r: RegionId) => s.regions[r].unlocked;
 
 export function eventsDaily(s: GameState) {
@@ -160,7 +167,11 @@ export function antitrustCheck(s: GameState, shareOf: (r: RegionId, g: CropId) =
 
 /** Unanswered decisions resolve to the cautious default at their deadline. */
 export function expireChoices(s: GameState) {
-  for (const e of s.events) if (e.choice && !e.choice.chosen && s.tick >= e.choice.deadline) chooseEvent(s, e.id, e.kind === 'antitrust' ? 'settle' : 'decline');
+  for (const e of s.events) if (e.choice && !e.choice.chosen && s.tick >= e.choice.deadline) {
+    const before = s.cash;
+    chooseEvent(s, e.id, e.kind === 'antitrust' ? 'settle' : 'decline');
+    if (e.kind === 'antitrust') log(s, 'critical', `Antitrust auto-settled: $${Math.round(before-s.cash).toLocaleString('en-US')} paid; reputation −3. Keep regional crop share below 35% to reduce probes.`, 'policy');
+  }
 }
 
 export const EVENT_KINDS: EventKind[] = ['drought', 'flood', 'pests', 'energyShock', 'strike', 'portClosure', 'embargo', 'recession', 'demandSurge', 'creditCrunch', 'breakthrough', 'livestockDisease', 'antitrust', 'foodCrisis', 'cropFailureAbroad'];
