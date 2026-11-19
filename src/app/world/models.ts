@@ -1430,7 +1430,15 @@ export function buildWorks(type: string, size: 2 | 4, w: number, d: number): Mod
   if (type === 'silo' || type === 'solar' || type === 'windTurbine' || type === 'biogas') { // these grow by standing more of themselves together on one pad
     const g0 = new THREE.Group(), smoke0: THREE.Vector3[] = [], [fw, fd] = ({ silo: [2, 2], solar: [5, 3], windTurbine: [2, 2], biogas: [3, 3] } as Record<string, [number, number]>)[type];
     g0.add(box(w - 0.1, 0.05, d - 0.1, PAL.stone, w / 2, 0, d / 2, { rough: 1 }));
-    for (let x = 0; x + fw <= w + 0.01; x += fw + 1) for (let z = 0; z + fd <= d + 0.01; z += fd + 1) { const m = buildLot(type as Lot['type'], fw, fd, '', 3); m.group.position.set(x, 0, z); g0.add(m.group); smoke0.push(...m.smoke.map((p) => new THREE.Vector3(p.x + x, p.y, p.z + z))); }
+    // its units in whichever grid fills the pad best (a row, a column, or two by two), shrunk a little only when they would not fit, and centred
+    const gap = 1, grids: [number, number][] = size === 4 ? [[2, 2], [4, 1], [1, 4]] : [[2, 1], [1, 2]];
+    const fit = (c: number, r: number) => Math.min(1, (w - gap * (c - 1) - 0.2) / (c * fw), (d - gap * (r - 1) - 0.2) / (r * fd));
+    const [cols, rows] = grids.reduce((a, b) => (fit(b[0], b[1]) > fit(a[0], a[1]) + 1e-6 ? b : a)), k = fit(cols, rows);
+    const x0 = (w - (cols * fw * k + gap * (cols - 1))) / 2, z0 = (d - (rows * fd * k + gap * (rows - 1))) / 2;
+    for (let i = 0; i < cols; i++) for (let j = 0; j < rows; j++) {
+      const x = x0 + i * (fw * k + gap), z = z0 + j * (fd * k + gap), m = buildLot(type as Lot['type'], fw, fd, '', 3);
+      m.group.scale.setScalar(k); m.group.position.set(x, 0, z); g0.add(m.group); smoke0.push(...m.smoke.map((p) => new THREE.Vector3(x + p.x * k, p.y * k, z + p.z * k)));
+    }
     if (type === 'silo') { g0.add(box(0.3, 3.6, 0.3, 0xc0392b, w / 2, 0, d / 2), box(0.4, 0.3, 0.4, PAL.metalDark, w / 2, 3.6, d / 2)); } // one elevator leg serves them all
     return finish(g0, smoke0);
   }
