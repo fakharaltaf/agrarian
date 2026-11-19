@@ -446,9 +446,9 @@ function Settings({ onClose, theme, setTheme, onPhoto }: { onClose: () => void; 
         <td className="muted small">{i ? `Year ${Math.ceil(i.day / 120)} · day ${((i.day - 1) % 120) + 1} · Era ${i.era} · ${money(i.cash)} · ${new Date(i.savedAt).toLocaleString()}` : 'Empty'}</td>
         <td className="r">
           <div className="row end">
-            {slot !== 'auto' && <button className="btn ghost sm" onClick={() => void saveTo(slot).then(refresh)}>Save here</button>}
+            {slot !== 'auto' && slot !== 'backup' && <button className="btn ghost sm" onClick={() => void saveTo(slot).then(refresh)}>Save here</button>}
             <button className="btn ghost sm" disabled={!i} onClick={() => confirm('Load this save? Unsaved progress in the current game is lost.') && void loadFrom(slot).then(onClose)}>Load</button>
-            {slot !== 'auto' && <button className="btn ghost sm" disabled={!i} onClick={() => confirm('Delete this save?') && void deleteSlot(slot).then(refresh)}>Delete</button>}
+            {slot !== 'auto' && slot !== 'backup' && <button className="btn ghost sm" disabled={!i} onClick={() => confirm('Delete this save?') && void deleteSlot(slot).then(refresh)}>Delete</button>}
           </div>
         </td>
       </tr>

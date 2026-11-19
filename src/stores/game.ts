@@ -18,7 +18,7 @@ import { sfx, type Sfx } from '../app/audio';
 
 export const SPEEDS = [0, 1, 2, 5, 10, 50] as const;
 export type Speed = (typeof SPEEDS)[number];
-export const SLOTS = ['auto', 'slot1', 'slot2', 'slot3'] as const;
+export const SLOTS = ['auto', 'backup', 'slot1', 'slot2', 'slot3'] as const;
 export type Slot = (typeof SLOTS)[number];
 
 export interface Toast { id: number; text: string; kind: 'error' | 'ok' }
@@ -124,17 +124,15 @@ async function put(key: string, value: string) {
     localStorage.setItem(`${DB}.${key}`, value);
   }
 }
+/** A stored save, or null when there is none. Throws when the browser has the save but cannot read it, so that is never mistaken for "no save". */
 async function get(key: string): Promise<string | null> {
-  try {
-    const db = await idb();
-    return await new Promise((res, rej) => {
-      const r = db.transaction('saves').objectStore('saves').get(key);
-      r.onsuccess = () => res((r.result as string) ?? localStorage.getItem(`${DB}.${key}`));
-      r.onerror = () => rej(r.error);
-    });
-  } catch {
-    return localStorage.getItem(`${DB}.${key}`);
-  }
+  let db: IDBDatabase;
+  try { db = await idb(); } catch { return localStorage.getItem(`${DB}.${key}`); } // no database in this browser: the local-storage fallback
+  return await new Promise((res, rej) => {
+    const r = db.transaction('saves').objectStore('saves').get(key);
+    r.onsuccess = () => res((r.result as string) ?? localStorage.getItem(`${DB}.${key}`));
+    r.onerror = () => rej(r.error ?? new Error('the browser could not read it'));
+  });
 }
 async function del(key: string) {
   try {
@@ -148,20 +146,36 @@ async function del(key: string) {
 
 const serialize = () => JSON.stringify({ version: SAVE_VERSION, savedAt: Date.now(), paused: store.speed === 0, game: store.game } satisfies SaveFile);
 
+/** While a save could not be read, nothing is written over it until the player chooses (loads a save or starts anew). */
+let readFailed = false;
+/** A second copy of the farm, refreshed every 20 minutes of play, so one bad autosave can never cost the whole farm. A new game leaves another farm's backup alone for a day. */
+const BACKUP_EVERY = 20 * 60 * 1000, BACKUP_KEEP = 24 * 3600 * 1000;
+async function keepBackup(text: string) {
+  let meta: { seed: number; at: number } | null = null;
+  try { meta = JSON.parse(localStorage.getItem(`${DB}.backupMeta`) ?? 'null'); } catch { /* none yet */ }
+  const now = Date.now(), same = meta?.seed === store.game.seed;
+  if (meta && (same ? now - meta.at < BACKUP_EVERY : now - meta.at < BACKUP_KEEP)) return;
+  await put('backup', text);
+  try { localStorage.setItem(`${DB}.backupMeta`, JSON.stringify({ seed: store.game.seed, at: now })); } catch { /* the backup itself is stored */ }
+}
 export async function saveTo(slot: Slot, silent = false) {
+  if (readFailed && slot === 'auto') return;
   try {
-    await put(slot, serialize());
+    const text = serialize();
+    await put(slot, text);
+    if (slot === 'auto') void keepBackup(text);
     if (!silent) toast(slot === 'auto' ? 'Saved.' : `Saved to ${slotLabel(slot)}.`, 'ok');
   } catch {
     toast('Could not save: browser storage is unavailable.');
   }
 }
-export const slotLabel = (s: Slot) => (s === 'auto' ? 'Autosave' : `Slot ${s.slice(-1)}`);
+export const slotLabel = (s: Slot) => (s === 'auto' ? 'Autosave' : s === 'backup' ? 'Backup (every 20 min)' : `Slot ${s.slice(-1)}`);
 
 export async function slotInfo(): Promise<Record<Slot, { savedAt: number; day: number; cash: number; era: number } | null>> {
   const out = {} as Record<Slot, { savedAt: number; day: number; cash: number; era: number } | null>;
   for (const s of SLOTS) {
-    const t = await get(s);
+    let t: string | null = null;
+    try { t = await get(s); } catch { /* unreadable: shown as empty */ }
     if (!t) { out[s] = null; continue; }
     try {
       const f = parseSave(t);
@@ -174,7 +188,9 @@ export async function slotInfo(): Promise<Record<Slot, { savedAt: number; day: n
 }
 
 export async function loadFrom(slot: Slot) {
-  const t = await get(slot);
+  let t: string | null;
+  try { t = await get(slot); } catch (e) { return toast(`That save could not be read: ${(e as Error).message}`); }
+  readFailed = false;
   if (!t) return toast('That slot is empty.');
   try {
     const f = parseSave(t);
@@ -195,6 +211,7 @@ export function exportSave() {
 
 export async function importSave(file: File) {
   if (file.size > 50 * 1024 * 1024) return toast('That file is too large to be a save.');
+  readFailed = false;
   try {
     const f = parseSave(await file.text());
     startFrom(f.game, Date.now());
@@ -206,6 +223,7 @@ export async function importSave(file: File) {
 }
 
 export function newGame() {
+  readFailed = false;
   store.game = createGame(); undos = []; redos = [];
   set({ speed: 1, away: null, page: 'farm', v: store.v + 1 });
   saveTo('auto', true);
@@ -267,7 +285,14 @@ export async function downloadBroken() {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 export async function boot() {
-  let t = await get('auto');
+  let t: string | null;
+  try { t = await get('auto'); } catch (e) {
+    readFailed = true; // the farm is there but unreadable just now: nothing may overwrite it
+    console.error('Autosave could not be read', e);
+    toast(`Your farm's save could not be read from browser storage (${(e as Error).message}). Nothing has been overwritten: reload to try again, or open the Game menu to load the backup or a slot.`);
+    set({ ready: true });
+    return;
+  }
   try { const l = localStorage.getItem(LEAVE); localStorage.removeItem(LEAVE); if (l && (!t || JSON.parse(l).savedAt > JSON.parse(t).savedAt)) { t = l; void put('auto', l); } } catch { /* keep the database save */ }
   if (t) {
     try {
@@ -475,7 +500,7 @@ setInterval(() => store.ready && !store.catchUp && saveTo('auto', true), 15000);
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 function saveSoon() { clearTimeout(saveTimer); saveTimer = setTimeout(() => store.ready && !store.catchUp && saveTo('auto', true), 800); }
 /** Leaving the page: the database write may not finish before the page goes, so a copy is written to local storage at once too; boot takes whichever is newer. */
-function saveOnLeave() { if (!store.ready) return; const t = serialize(); try { localStorage.setItem(LEAVE, t); } catch { /* too big or blocked: the database save below still runs */ } void put('auto', t); }
+function saveOnLeave() { if (!store.ready || readFailed) return; const t = serialize(); try { localStorage.setItem(LEAVE, t); } catch { /* too big or blocked: the database save below still runs */ } void put('auto', t); }
 addEventListener('visibilitychange', () => document.visibilityState === 'hidden' && saveOnLeave());
 addEventListener('pagehide', saveOnLeave);
 
