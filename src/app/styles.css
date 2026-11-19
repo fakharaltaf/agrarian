@@ -983,3 +983,19 @@ body:has(.modal-bg) .shell .coach { display: none !important; }
 .ln-supply b { color: var(--text); }
 .ln-supply .down, .ln-supply .down b { color: var(--down); }
 .haul-sell { grid-column: 1 / -1; justify-self: end; }
+
+.demand-card { padding: 10px 12px; }
+.demand-card summary { cursor: pointer; display: flex; gap: 8px; align-items: baseline; min-height: 32px; }
+.demand-list { display: grid; gap: 6px; margin-top: 8px; }
+.demand-row { display: grid; grid-template-columns: minmax(110px, 1.2fr) 2fr auto auto; gap: 8px; align-items: center; font-size: 13px; }
+.demand-name { display: flex; gap: 6px; align-items: center; min-width: 0; }
+.demand-name small { color: var(--muted); }
+.demand-bar { display: flex; height: 10px; border-radius: 5px; background: var(--surface-2); overflow: hidden; }
+.demand-bar i, .demand-key { display: inline-block; height: 100%; }
+.demand-bar .mine, .demand-key.mine { background: var(--up); }
+.demand-bar .bought, .demand-key.bought { background: var(--gold); }
+.demand-key { width: 10px; height: 10px; border-radius: 2px; vertical-align: middle; }
+.demand-num { font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--muted); }
+.demand-num b { color: var(--text); }
+.demand-own { white-space: nowrap; }
+@media (max-width: 600px) { .demand-row { grid-template-columns: 1fr auto; row-gap: 3px; } .demand-name { grid-area: 1 / 1; } .demand-num { grid-area: 1 / 2; } .demand-bar { grid-area: 2 / 1; align-self: center; } .demand-own { grid-area: 2 / 2; text-align: right; } }

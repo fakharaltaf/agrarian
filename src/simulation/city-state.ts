@@ -14,7 +14,9 @@ export interface CityCase {
 /** What reaches one home, from Town's daily pass: street power along the lines and the watch within a watchhouse's reach (0–1). */
 export interface HomeCover { id: number; families: number; power: number; watch: number; /** how well each kind of shop reaches it */ shops?: Partial<Record<ShopType, number>> }
 /** Yesterday's trade at the city's shops. */
-export interface CityTrade { spend: number; ours: number; imports: number; gst: number; /** goods families wanted that you had none of, biggest first */ gaps: { good: GoodId; value: number }[] }
+export interface CityTrade { spend: number; ours: number; imports: number; gst: number; /** goods families wanted that you had none of, biggest first */ gaps: { good: GoodId; value: number }[];
+  /** every product the shops sold yesterday: units families bought, how many were yours, and what it all came to */ goods?: { good: GoodId; shop: ShopType; want: number; sold: number; value: number }[];
+  /** what the mall sold besides food (clothes, tools, treats), all brought in */ mallExtras?: number }
 export interface CityState {
   active: boolean; enteredAt: number; charter: PoliceCharter | null; reformUntil: number;
   justice: JusticePolicy;

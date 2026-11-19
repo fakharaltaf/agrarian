@@ -6,7 +6,7 @@ import { communityOf, population, workingAdults } from '../community-state';
 import { localEmployment, townOf, PARK_EFFECT, SHOP_GOODS, SHOP_TYPES } from '../town-state';
 import { TOWN_ORDER_PREMIUM } from './town';
 import { larderReserve } from './settlement';
-import { cityActive, cityOf, createCityState, POLICE_CHARTERS, shopReach, type HomeCover, type JusticePolicy } from '../city-state';
+import { type CityTrade, cityActive, cityOf, createCityState, POLICE_CHARTERS, shopReach, type HomeCover, type JusticePolicy } from '../city-state';
 import { lifetimeSales, totalHa } from './shared';
 
 // The City is paid for by the farm, like the Town: no separate treasury to keep topped up.
@@ -57,7 +57,7 @@ export const MALL_SPEND=3;
 export function cityTrade(s:GameState){
   const v=cityOf(s),c=communityOf(s),inv=s.regions.heartland.inventory,people=population(s),smug=v.case?.kind==='smuggling'?.7:1;
   const rate=v.active?v.gst:0; // GST comes with the City
-  let budget=c.householdCash*SPEND_SHARE/(1+rate),ours=0,imports=0;const gaps:{good:typeof GOOD_IDS[number];value:number}[]=[];
+  let budget=c.householdCash*SPEND_SHARE/(1+rate),ours=0,imports=0,extras=0;const gaps:{good:typeof GOOD_IDS[number];value:number}[]=[],goods:NonNullable<CityTrade['goods']>=[];
   for(const kind of SHOP_TYPES){
     const reach=shopReach(s,kind);if(!reach)continue;
     for(const [good,per] of Object.entries(SHOP_GOODS[kind]) as [typeof GOOD_IDS[number],number][]){
@@ -66,16 +66,17 @@ export function cityTrade(s:GameState){
       const spare=Math.max(0,inv[good]-reservedStock(s,'heartland',good)-larderReserve(s,good)),sold=Math.floor(Math.min(want,spare)),value=round2(sold*price),rest=round2((want-sold)*price);
       if(sold>0){inv[good]-=sold;post(s,'contract',value,`City shops bought ${sold} ${GOODS[good].name.toLowerCase()}`,'heartland',good==='milk'||good==='meat'?'livestock':'processing');s.stats.sales++;}
       if(rest>0)gaps.push({good,value:rest});
+      goods.push({good,shop:kind,want,sold,value:round2(value+rest)});
       ours+=value;imports+=rest;budget-=value+rest;
     }
   }
   // a mall sells more than food: clothes, tools and treats, all brought in, all taxed
   const mall=townOf(s).services.find(b=>b.type==='mall'&&b.active&&b.staffed>0);
-  if(mall){const other=round2(Math.min(Math.max(0,budget),people*shopReach(s,mall.kinds?.[0]??'shopGeneral')/1.25*MALL_SPEND*s.macro.cpi*(1+.1*((mall.kinds?.length??1)-1))));imports+=other;budget-=other;}
+  if(mall){const other=round2(Math.min(Math.max(0,budget),people*shopReach(s,mall.kinds?.[0]??'shopGeneral')/1.25*MALL_SPEND*s.macro.cpi*(1+.1*((mall.kinds?.length??1)-1))));imports+=other;budget-=other;extras=other;}
   const spend=round2(ours+imports),gst=round2(spend*rate);
   c.householdCash=Math.max(0,round2(c.householdCash-spend-gst));
   if(gst>0)post(s,'gst',gst,'GST from city shops','heartland','corporate');
-  v.trade={spend,ours:round2(ours),imports:round2(imports),gst,gaps:gaps.sort((a,b)=>b.value-a.value).slice(0,5)};
+  v.trade={spend,ours:round2(ours),imports:round2(imports),gst,gaps:gaps.sort((a,b)=>b.value-a.value).slice(0,5),goods:goods.sort((a,b)=>b.value-a.value),mallExtras:extras};
 }
 /** One bounded daily civic pass, after Town's: per-street crime from what reaches each home, then cases. */
 export function cityDaily(s:GameState) {

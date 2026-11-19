@@ -17,7 +17,7 @@ import { buildingName, factoryCrop, FRUIT_CROPS, isFruitHouse, known, maxLevel, 
 import { buildingMargin } from '../../simulation/processing';
 import { planQuote } from '../../simulation/engine';
 import { anotherQuote, DISCOVERIES, ERA_UNLOCK_TEXT, dailyGoals, dailyPrize, forecast, herdOf, homePlotPrice, housing, isManual, isReady, objective, chapterGate, gateProgress, type GateRow, PAGES, seedShortfall, upgradeCost } from '../../simulation/engine';
-import type { CivicService, GameState } from '../../simulation/types';
+import type { ShopType, CivicService, GameState } from '../../simulation/types';
 import { act, cancelPlacement, confirmPlacement, planPlacementHere, placementNeed, rotatePlacement, go, placementUse, setRoadTool, toggleHideBuildings, setNet, setRoadLanes, undo, redo, canUndo, canRedo, setSurveying, setZoneTool, setZoneDrag, startPipes, type Prospect, startPlacement, stopProspect, stopRoads, stopZoning, type Zoning, useGame, usePageState, useStore, type Placement, type Roading } from '../../stores/game';
 import { BRIDGE_COST, BRIDGE_GRADES, bridgeAt, bridgePlan } from '../../simulation/world';
 import { WATER_LEVEL, WATER_PRICE, WATER_TIERS, wetTiers, NET_PRICE, NET_TIERS, NET_TOP, NET_QUALITY, linesOf, tileId, groundProblem, wideRoadRoute, upgradeAllPlan, BELT_PRICE, beltRoute, beltStretch, buildAs, buildAsOpen, lineBuildPrice, roadBuildPrice, type LineKind, type UtilityNet, pipeRoute, pipeStretch, cutsOff, footprintOf, forSaleAround, isRoad, MAP, ROAD_GRADES, ROAD_H, roadPick, roadTilePrice, worldOf, patchesAround, placeProblem, plotSide, PROBLEM_TEXT } from '../../simulation/world';
@@ -27,6 +27,7 @@ import { homeUpgradeNeeds } from '../../simulation/stages/settlement';
 import { homePrice } from '../../simulation/community-state';
 import { servicePrice } from '../../simulation/town-state';
 import { money, num, pct0 } from '../format';
+import { ShopDemand } from '../pages/Shops';
 import { BatchPanel, FieldPanel, HomesteadTraderCard, RecentLog, SellCard } from '../pages/Fields';
 import { NEXT_STAGE, STAGES, stageAtLeast } from '../../simulation/stages';
 import { unlockedRegions } from '../pages/shared';
@@ -541,6 +542,7 @@ function ServiceCard({ s, svc, onClose }: { s: GameState; svc: CivicService; onC
       {svc.type === 'park' && <><p className="small">{PARK_KINDS[svc.park ?? 'garden'].does}. A bigger park counts for more.</p>
         <Seg label="Park layout" value={svc.park ?? 'garden'} onChange={(kind) => act({ type: 'setPark', serviceId: svc.id, kind })} options={(Object.keys(PARK_KINDS) as (keyof typeof PARK_KINDS)[]).map((k) => ({ v: k, label: `${PARK_KINDS[k].icon} ${PARK_KINDS[k].name}` }))} />
         {svc.park && <p className="small muted">Changing the layout costs {money(Math.round(servicePrice(s, 'park') * 0.25))}.</p>}</>}
+      {(isShop(svc.type) || svc.type === 'mall') && <details className="demand-card"><summary className="small"><b>What families buy here</b> <span className="muted">yesterday</span></summary><ShopDemand s={s} only={svc.type === 'mall' ? [...(svc.kinds ?? []), 'mall' as never] : [svc.type as ShopType]} /></details>}
       {jammed && grows && <div className="callout warn">🚦 {room.why}</div>}
       {full && <div className="callout warn">Full: upgrade it or build another to serve more homes.</div>}
       <div className="row wrap">
