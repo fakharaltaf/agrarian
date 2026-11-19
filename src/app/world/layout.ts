@@ -20,7 +20,7 @@ export { FOOTPRINT, plotSide } from '../../simulation/world';
 /** w and d are as it stands on the map (already turned); rot is its quarter turns, the front facing +y at 0. */
 export interface Lot { /** a home's level (apartments grow upward) */ level?: number; /** a neighbour's, seen on a visit: not yours to work */ neighbour?: boolean; name?: string; key: string; place: string; type: BuildingType | 'house' | 'shed'; buildings: Building[]; service?: CivicService; x: number; y: number; w: number; d: number; rot: number }
 /** The engine key for "add another" of what a lot holds: a building, a town service, or an apartment block. */
-export const anotherKey = (lot: Lot) => lot.neighbour ? null : lot.service ? `svc:${lot.service.id}` : lot.key.startsWith('community:apartment:') ? `home:${parseInt(lot.key.split(':')[2])}` : lot.key.startsWith('b:') ? lot.key : null;
+export const anotherKey = (lot: Lot) => lot.neighbour ? null : lot.service ? `svc:${lot.service.id}` : lot.key.startsWith('community:') && lot.place.startsWith('home:') ? lot.place : lot.key.startsWith('b:') ? lot.key : null;
 export interface Plot { field: Field; x: number; y: number; s: number }
 export interface Layout { lots: Lot[]; plots: Plot[]; roadY: number; buy: { x: number; y: number; s: number } | null; maxX: number; maxY: number; minX: number; minY: number }
 

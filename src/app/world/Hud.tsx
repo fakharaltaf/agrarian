@@ -602,7 +602,7 @@ function LotPanel({ s, lot, region, onClose }: { s: GameState; lot: Lot; region:
       </div>
     </Card>;
   }
-  if (lot.key.startsWith('community:')) return <Card title="Your neighbourhood"><div className="community-strip"><span title="People living here · homes filled">🏘️ {population(s)} people · {households(s)}/{homeFamilies(s)} homes</span><span>☺ {pct0(communityOf(s).happiness)}</span></div><button className="btn primary" onClick={() => go('community')}>Homes & families</button></Card>;
+  if (lot.key.startsWith('community:')) return <Card title="Your neighbourhood"><div className="stack s"><div className="community-strip"><span title="People living here · homes filled">🏘️ {population(s)} people · {households(s)}/{homeFamilies(s)} homes</span><span>☺ {pct0(communityOf(s).happiness)}</span></div><div className="row wrap"><button className="btn primary" onClick={() => go('community')}>Homes & families</button>{lot.place.startsWith('home:') && <AddAnother s={s} k={lot.place} level={1} />}</div></div></Card>;
   if(lot.key==='market') return s.legacyProgression || stageAtLeast(s, 'market-town') ? <SellCard s={s} r={region}/> : <HomesteadTraderCard s={s}/>;
   if (lot.type === 'house' || lot.type === 'shed') {
     const hands = s.workers.filter((w) => w.role === 'hand').length;

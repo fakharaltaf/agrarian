@@ -6,7 +6,7 @@ import { bestRetailCentre } from './facility-levels';
 import { wellField, DRILL_PRICE, oilChance, oilOf, SURVEY_PRICE, SURVEY_R, surveyedAt, landCostOf } from './oil';
 import { haulDaily, haulOf, haulTick, horseCartValue, usesCarts, VEHICLES } from './hauling';
 import { emptyProductionReport } from './production-report';
-import { canUpgradeService, isShop, levelOf, payHouseholds, svcSize, townOf } from './town-state';
+import { canUpgradeService, isShop, levelOf, payHouseholds, SERVICE_DEFS, servicePrice, serviceUpgradePrice, svcSize, townOf } from './town-state';
 import { idleMachine, machineSaleValue } from './operations';
 // Orchestrates every system. Pure: no React, no DOM. Functions mutate the GameState passed in.
 import {
@@ -180,16 +180,46 @@ export const machinePrice = (s: GameState, t: keyof typeof MACHINES) => Math.rou
 export const irrigationPrice = (s: GameState, ha: number) => Math.round(ha * (CONFIG.irrigationCostPerHa + (has(s, 'dripIrrigation') ? 200 : 0)) * s.macro.cpi);
 export const regionEntryCost = (s: GameState) => Math.round(25000 * s.macro.cpi);
 /** How to build one more like `key`: the build, then the upgrades that bring it to the same level. Null for what cannot be copied (oil wells, merged shops). */
-export function anotherOf(s: GameState, key: string): { first: Action; /** the ground a new one needs, and the land use it stands on */ region: RegionId; fp: { w: number; d: number }; use?: Use; up: (id: number) => Action; target: number; level: (c: GameState, id: number) => number; newest: (c: GameState) => number } | null {
+export function anotherOf(s: GameState, key: string): { first: Action; /** the ground a new one needs, and the land use it stands on */ region: RegionId; fp: { w: number; d: number }; use?: Use; /** a merged one is placed whole, its parts and merging paid in one go */ direct?: (c: GameState, at?: [number, number], rot?: number) => ActionResult; up: (id: number) => Action; target: number; level: (c: GameState, id: number) => number; newest: (c: GameState) => number } | null {
   const [k, raw] = key.split(':'), id = +raw;
   if (k === 'b') {
     const b = s.buildings.find((x) => x.id === id);
     if (!b || b.type === 'oilWell' || b.type === 'verticalFarm') return null; // vertical farms come from fields: convert another field instead
+    if ((b.size ?? 1) > 1 && b.span) { // a Works or a Plant: its level-3 units and both merges' 25% fees, placed whole
+      let unit = buildingPrice(s, b.type, b.region);
+      for (let l = 1; l < (b.level || 1); l++) unit += upgradeCost(s, { type: b.type, level: l, region: b.region });
+      const price = Math.round(unit * (b.size === 4 ? 6.25 : 2.5)), span: [number, number] = [b.span[0], b.span[1]];
+      return { region: b.region, fp: { w: span[0], d: span[1] }, use: buildingUse(s, b.type, 3), first: { type: 'build', region: b.region, building: b.type, count: 1 }, up: () => ({ type: 'seeTip', tip: '' }), target: 1, level: () => 1, newest: (c) => c.buildings[c.buildings.length - 1].id,
+        direct: (c, at, rot) => {
+          if (price > c.cash) return fail(`Another ${mergedName(b.type, BUILDINGS[b.type].name, b.size!).toLowerCase()} costs $${price.toLocaleString()}.`);
+          const nid = nextId(c);
+          c.buildings.push({ id: nid, type: b.type, region: b.region, size: b.size, span, ...(b.longSpan ? { longSpan: [b.longSpan[0], b.longSpan[1]] as [number, number] } : {}), layout: b.layout, active: true, level: b.level, cost: price, depreciated: 0, util: 0, reserved: 0, reason: '', productionReport: emptyProductionReport(), stats: { out: 0, inCost: 0, outValue: 0, opCost: 0 } });
+          const placed = placeNew(c, b.region, `b:${nid}`, at, rot);
+          if (placed) { c.buildings.pop(); return fail(placed); }
+          post(c, 'building', -price, `${mergedName(b.type, BUILDINGS[b.type].name, b.size!)} built`, b.region, buildingDivision(b.type));
+          return ok(accessNote(c, b.region, `b:${nid}`));
+        } };
+    }
     return { region: b.region, fp: { w: FOOTPRINT[b.type][0], d: FOOTPRINT[b.type][1] }, use: buildingUse(s, b.type), first: { type: 'build', region: b.region, building: b.type, count: 1 }, up: (n) => ({ type: 'upgradeBuilding', buildingId: n }), target: b.level || 1, level: (c, n) => c.buildings.find((x) => x.id === n)?.level ?? 1, newest: (c) => c.buildings[c.buildings.length - 1].id };
   }
   if (k === 'svc') {
     const v = townOf(s).services.find((x) => x.id === id);
-    if (!v || svcSize(v) > 1 || v.type === 'barracks') return null;
+    if (!v || v.type === 'barracks' || v.type === 'mall') return null;
+    if (svcSize(v) > 1) { // four merged (a market, a big power station or works): four at its level and the 25% merging fee, placed whole
+      let unit = servicePrice(s, v.type);
+      for (let l = 1; l < levelOf(v); l++) unit += serviceUpgradePrice(s, { type: v.type, level: l, count: 1 });
+      const price = Math.round(unit * 4 * 1.25), side = svcSize(v) >= 4 ? 15 : 7;
+      return { region: 'heartland', fp: { w: side, d: side }, use: isShop(v.type) ? 'shop' : undefined, first: { type: 'buildService', service: v.type, district: v.district, count: 1 }, up: () => ({ type: 'seeTip', tip: '' }), target: 1, level: () => 1, newest: (c) => { const l = townOf(c).services; return l[l.length - 1].id; },
+        direct: (c, at, rot) => {
+          if (price > c.cash) return fail(`Another costs $${price.toLocaleString()}.`);
+          const nid = nextId(c), t = townOf(c);
+          t.services.push({ id: nid, type: v.type, district: v.district, size: v.size, count: v.count, cost: price, active: true, staffed: 0, funded: false, ...(v.level ? { level: v.level } : {}), ...(v.kinds ? { kinds: [...v.kinds] } : {}), ...(v.layout !== undefined ? { layout: v.layout } : {}) });
+          const placed = placeNew(c, 'heartland', `svc:${nid}`, at, rot);
+          if (placed) { t.services.pop(); return fail(placed); }
+          post(c, 'building', -price, `${SERVICE_DEFS[v.type].name} (four merged) built`, 'heartland', 'corporate');
+          return ok(accessNote(c, 'heartland', `svc:${nid}`));
+        } };
+    }
     return { region: 'heartland', fp: SERVICE_FOOTPRINT, use: isShop(v.type) ? 'shop' : undefined, first: { type: 'buildService', service: v.type, district: v.district, count: 1 }, up: (n) => ({ type: 'upgradeService', serviceId: n }), target: canUpgradeService(v.type) ? levelOf(v) : 1, level: (c, n) => { const x = townOf(c).services.find((y) => y.id === n); return x ? levelOf(x) : 1; }, newest: (c) => { const l = townOf(c).services; return l[l.length - 1].id; } };
   }
   if (k === 'home') {
@@ -201,6 +231,7 @@ export function anotherOf(s: GameState, key: string): { first: Action; /** the g
 }
 function runAnother(c: GameState, plan: NonNullable<ReturnType<typeof anotherOf>>, at?: [number, number], rot?: number): ActionResult {
   at ??= findSpot(c, plan.region, plan.fp, false, plan.use) ?? undefined; // a spot of its own: without one a town service would just join the existing one
+  if (plan.direct) return plan.direct(c, at, rot);
   const r = dispatch(c, { ...plan.first, ...(at ? { at } : {}), ...(rot !== undefined ? { rot } : {}) } as Action);
   if (!r.ok) return r;
   const id = plan.newest(c);

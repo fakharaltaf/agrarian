@@ -46,3 +46,17 @@ it('Land fit and the copy rehearsal leave the real farm untouched, and give the 
   expect(a).toBeLessThanOrEqual(50);
   expect(JSON.stringify(s)).toBe(before);
 });
+
+it('Add another on a merged building places a whole one, priced as its level-3 units plus the merging fees', () => {
+  const s = ready(1e8);
+  expect(dispatch(s, { type: 'build', region: 'heartland', building: 'solar' }).ok).toBe(true);
+  const src = s.buildings[0];
+  src.level = 3; src.size = 4; src.span = [11, 7]; // as if four level-3 arrays had been merged two by two
+  const unit = buildingPrice(s, 'solar', 'heartland') + upgradeCost(s, { type: 'solar', level: 1, region: 'heartland' }) + upgradeCost(s, { type: 'solar', level: 2, region: 'heartland' });
+  expect(anotherQuote(s, `b:${src.id}`)!.price).toBe(Math.round(unit * 6.25));
+  const cash = s.cash;
+  expect(dispatch(s, { type: 'addAnother', key: `b:${src.id}` }).ok).toBe(true);
+  const copy = s.buildings[s.buildings.length - 1];
+  expect([copy.size, copy.level, copy.span]).toEqual([4, 3, [11, 7]]);
+  expect(cash - s.cash).toBeCloseTo(Math.round(unit * 6.25), 0);
+});
