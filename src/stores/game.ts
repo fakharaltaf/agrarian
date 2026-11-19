@@ -256,6 +256,16 @@ function startFrom(game: GameState, savedAt: number, paused = false) {
 }
 
 const LEAVE = 'agrarian.leave';
+/** The last autosave that failed to load, kept so it can be recovered. */
+const BROKEN = 'broken';
+export const brokenSave = () => get(BROKEN);
+export async function downloadBroken() {
+  const t = await get(BROKEN);
+  if (!t) return toast('There is no failed save to download.');
+  const url = URL.createObjectURL(new Blob([t], { type: 'application/json' }));
+  Object.assign(document.createElement('a'), { href: url, download: 'agrarian-failed-autosave.json' }).click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 export async function boot() {
   let t = await get('auto');
   try { const l = localStorage.getItem(LEAVE); localStorage.removeItem(LEAVE); if (l && (!t || JSON.parse(l).savedAt > JSON.parse(t).savedAt)) { t = l; void put('auto', l); } } catch { /* keep the database save */ }
@@ -264,8 +274,10 @@ export async function boot() {
       const f = parseSave(t);
       startFrom(f.game, f.savedAt, f.paused);
     } catch (e) {
+      console.error('Autosave could not be loaded', e);
+      await put(BROKEN, t); // never thrown away: the menu offers it as a file, so a fixed game can load it
       await del('auto');
-      toast(`Your autosave could not be loaded (${(e as Error).message}). A new game was started.`);
+      toast(`Your autosave could not be loaded (${(e as Error).message}). It is kept: Game menu → Download the save that failed. A new game was started.`);
     }
   }
   set({ ready: true });

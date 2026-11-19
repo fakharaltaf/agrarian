@@ -4,7 +4,7 @@ import { backlogHours, fleet, haulOf, horseCartValue, marketCut, onTheWay, oneWa
 import { ACHIEVEMENTS, PAGES } from '../simulation/engine';
 import { machineSaleValue } from '../simulation/operations';
 import {
-  act, deleteSlot, getGame, offlineOn, rotatePlacement, undo, redo, dismissAway, toast, exportSave, go, importSave, loadFrom, newGame, saveTo, setSpeed, slotInfo, slotLabel, SLOTS, SPEEDS, useGame, useStore, type Slot, type Speed,
+  act, brokenSave, downloadBroken, deleteSlot, getGame, offlineOn, rotatePlacement, undo, redo, dismissAway, toast, exportSave, go, importSave, loadFrom, newGame, saveTo, setSpeed, slotInfo, slotLabel, SLOTS, SPEEDS, useGame, useStore, type Slot, type Speed,
 } from '../stores/game';
 import { Coach, resetTips, tipsOff, tipsOn } from './Coach';
 import { clock, money, stamp } from './format';
@@ -435,7 +435,8 @@ function Settings({ onClose, theme, setTheme, onPhoto }: { onClose: () => void; 
   const s = useGame();
   const file = useRef<HTMLInputElement>(null);
   const [slots, setSlots] = useState<Awaited<ReturnType<typeof slotInfo>> | null>(null);
-  const refresh = () => void slotInfo().then(setSlots);
+  const [broken, setBroken] = useState(false);
+  const refresh = () => { void slotInfo().then(setSlots); void brokenSave().then((x) => setBroken(!!x)); };
   useEffect(refresh, []);
   const row = (slot: Slot): ReactNode => {
     const i = slots?.[slot];
@@ -465,6 +466,7 @@ function Settings({ onClose, theme, setTheme, onPhoto }: { onClose: () => void; 
         <div className="table-wrap"><table className="t"><tbody>{SLOTS.map(row)}</tbody></table></div>
         <div className="row wrap">
           <button className="btn ghost sm" onClick={exportSave}>Export save file</button>
+          {broken && <button className="btn ghost sm" onClick={() => void downloadBroken()} title="An autosave that could not be loaded was kept here">Download the save that failed</button>}
           <button className="btn ghost sm" onClick={() => file.current?.click()}>Import save file</button>
           <input ref={file} type="file" accept="application/json,.json" hidden onChange={(e) => e.target.files?.[0] && void importSave(e.target.files[0]).then(onClose)} />
           <button className="btn danger sm" onClick={() => confirm('Start a new game? Your autosave will be replaced. Save to a slot or export first to keep this farm.') && (newGame(), onClose())}>New game</button>
